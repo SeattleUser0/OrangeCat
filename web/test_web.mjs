@@ -283,7 +283,7 @@ const E = vm.runInNewContext(proto + `
        L.engines[14].size === 23780 && L.engines[14].use === 2 && L.engines[12].start === null && L.engines[12].src === 1 && L.starts.length === 2 && L.starts[0].engine === 14 && L.starts[1].state === 0,
        "engines: the list parses (number, source, state, start, version, size, tracks that use it, then the starts)");
     let R = E.enginesRows(L, names);
-    ok(R.map((r) => r.num).join() === "9,12,14,19", "engines table: a row for each engine with a name or a module or a number a module may supply (the other retired numbers are not rows), in number order");
+    ok(R.map((r) => r.num).join() === "7,9,12,14,19", "engines table: a row for each engine with a name or a module or a number a module may supply (SHAPES, the Prophet, WHEEL; the other retired numbers are not rows), in number order");
     const r14 = R.find((r) => r.num === 14), r12 = R.find((r) => r.num === 12);
     ok(r14.source === "module" && r14.state === "ok" && r14.version === "1.2.3" && r14.size === 23780 && r14.start === 0 && r14.tracks === 2 && r14.actions.join() === "replace,remove",
        "engines table: the module's row: source, OK, version, size, start, tracks, and the actions Replace and Remove");

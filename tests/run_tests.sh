@@ -341,6 +341,12 @@ web_tests() {                                     # the editor mock's tables mus
             mkdir -p "$OUT/app" && "$OUT/app_layout" json > "$OUT/app/layout.json" && "$OUT/app_layout" fixtures "$OUT/app" ||
                 fail "tests/app_layout.c: the layout or the fixtures"
         fi
+        # (web-r3, Session D) the firmware's page, parameter, knob, menu and layer tables as the NIGHTLY has them (tools/orangecat_engines.sh: its OC_ switches are in
+        # $CC through BS, its engine switches here), for web/app/lib/fw_tables.js and the controls guide: web/app/test/test_tables.mjs fails when they do not follow
+        BS_ENG=$(grep '^export MELODEE_' tools/orangecat_engines.sh | grep -o 'MELODEE_[A-Z0-9_]*=[01]' | sed 's/^/-D/' | tr '\n' ' ')
+        if build web_tables web_tables $BS_ENG -DMELODEE_USB_AUDIO=1 $FW -Itests; then
+            mkdir -p "$OUT/web" && "$OUT/web_tables" > "$OUT/web/fw_tables.json" || fail "tests/web_tables.c: the tables"
+        fi
         step "web app: the project codec (every fixture byte for byte), Unit, Sounds, Project, Arrange, Steps, Settings against the mock" node web/app/test/run.mjs
         if [ -f FM-1_v15.fwsc ]; then
             build v15_ldr ldr_test &&

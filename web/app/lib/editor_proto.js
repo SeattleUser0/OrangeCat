@@ -2949,7 +2949,7 @@ function modSummary(info) {                           /* the state line's key fo
  * start (0, 1 or null), state (a key: ok, empty, refused, noslot, badhdr, badcrc, badtail, crashed), reason (a text key or ""), tracks (how many hold it), actions (a list of
  * "install", "replace", "remove")}. Plus a row per start that holds something no engine number can show (torn, or a header that names no engine of the list): {num: null, start,
  * state, actions: ["removeAll"]}. MODULE_SLOTS mirrors engines.c eng_module_slot. */
-const MODULE_SLOTS = [14, 19];                          /* (0.12.0) 19: the Prophet, the second engine a module may supply */
+const MODULE_SLOTS = [7, 14, 19];                        /* (0.12.0) 19: the Prophet, the second engine a module may supply */
 function ocmReason(state, why) {                       /* the text key for why a module found was not used ("" none) */
   const st = OCM_STATE[state];
   if (st === "refused") return why === 3 ? "reasonOtherFw" : why === 4 ? "reasonTooNew" : why === 5 ? "reasonAddr" : "reasonRefused";

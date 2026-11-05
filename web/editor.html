@@ -190,7 +190,8 @@
     <div class="links">
       <a href="../editor/" aria-current="page">Patch Editor</a>
       <a href="../installer/">Installer</a>
-      <a href="../manual/">Manual</a>
+      <a href="../app/">App</a>
+      <a href="../app/controls.html">Controls</a>
     </div>
   </nav>
   <h1>Editor</h1>
@@ -3382,7 +3383,7 @@ function modSummary(info) {                           /* the state line's key fo
  * start (0, 1 or null), state (a key: ok, empty, refused, noslot, badhdr, badcrc, badtail, crashed), reason (a text key or ""), tracks (how many hold it), actions (a list of
  * "install", "replace", "remove")}. Plus a row per start that holds something no engine number can show (torn, or a header that names no engine of the list): {num: null, start,
  * state, actions: ["removeAll"]}. MODULE_SLOTS mirrors engines.c eng_module_slot. */
-const MODULE_SLOTS = [14, 19];                          /* (0.12.0) 19: the Prophet, the second engine a module may supply */
+const MODULE_SLOTS = [7, 14, 19];                        /* (0.12.0) 19: the Prophet, the second engine a module may supply */
 function ocmReason(state, why) {                       /* the text key for why a module found was not used ("" none) */
   const st = OCM_STATE[state];
   if (st === "refused") return why === 3 ? "reasonOtherFw" : why === 4 ? "reasonTooNew" : why === 5 ? "reasonAddr" : "reasonRefused";
@@ -3900,7 +3901,7 @@ const LAYOUT = (pe0) => [
   ...(pe0>=92 && (engName()==="DRUM" || (engName()==="DRUM-X" && !dev.kitOk))?[{t:"DRUM LEVELS",pages:[["LANES",0,[84,85,86,87]],["LANES 2",0,[88,89,90,91]]]}]:[]),
   ...(engName()==="DRUM-X" && dev.kitOk ? [{ t: "DRUM-X KIT", kit: true }] : []),   /* (Orange Cat 0.14.2) the kit, commands 128 and 129 (its LEVELs too) */
   /* (Orange Cat 0.6.0, 76 globals) the effects: the track's (FX, DIST, AUTO PAN), the shared ones (the device's FX pages) */
-  ...(dev && dev.info && dev.info.gcount>=76 ? [{t:"FX",pages:[["FX",0,[96,110,109,108]],["DIST",0,[96,97,98,103]],["AUTO PAN",0,[99,100,102,101]]]},
+  ...(dev && dev.info && dev.info.gcount>=76 ? [{t:"FX",pages:[["SENDS",0,[96,110,109,108]],["DIST",0,[96,97,98,103]],["AUTO PAN",0,[99,100,102,101]]]},
     {t:"SHARED FX",pages:[["DELAY",1,[27,28,29,30]],["DELAY 2",1,[31,32,33,34]],["DELAY 3",1,[35,36]],["REVERB",1,[37,38,39,40]],
       ["REVERB 2",1,[42,43,44,45]],["CHORUS",1,[46,47,48]],["SLICER",1,[49,50,51,52]],["SLICER 2",1,[53,54,55]],
       ...[0,1,2,3].map(k=>[`SL PITCH ${k+1}`,1,[56+4*k,57+4*k,58+4*k,59+4*k]]),["MASTER",1,[72,73,74,75]]]}] :
@@ -3910,7 +3911,7 @@ const LAYOUT = (pe0) => [
   { t: "SCL", pages: [["SCL", 0, [25, 26, 27, 28]], ...(pe0 >= 83 ? [["CHORD", 0, [...P_CHORD, ...(pe0 >= 116 ? [114,115] : [])]]] : []),   /* CHRD VOIC 81, 82 */
     ...(pe0 >= 84 ? [["MPC", 0, [P_MPCDEG]]] : [])] },                                                 /* DEG 83 */
   { t: "ARP", pages: [["ARP", 0, [17, 18, 19, 20]], ["ARP 2", 0, [21, 22, 23, 24]]] },
-  { t: "SEQ PATTERN", tab: "seqgroups", pages: [["PATTERN", 0, [29, 30, 31, 32]], ["TIMING", 0, [8]]] },
+  { t: "SEQ PHRASE", tab: "seqgroups", pages: [["PHRASE", 0, [29, 30, 31, 32]], ["TIMING", 0, [8]]] },
   { t: "TEMPO", tab: "seqgroups", pages: [["TEMPO", 1, [0, 1]]] },   /* BPM SWG: the project's (SEQ > TEMPO) */
   { t: "GLOBAL", tab: "setgroups", pages: [["GLOBAL", 1, [21, 41, 2, 3]], ["SYSTEM", 1, [14]]] }, /* device workload budget */
 ];

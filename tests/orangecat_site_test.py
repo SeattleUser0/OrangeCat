@@ -138,7 +138,7 @@ class SetSite(unittest.TestCase):
         listed = json.loads((app / "files.json").read_text())
         for f in listed:
             self.assertTrue((app / f).is_file(), f)
-        for f in ("index.html", "app.js", "app.css", "lib/codec.js", "lib/editor_proto.js", "lib/layout.js", "fm1backup.js", "fm1oc.js"):
+        for f in ("index.html", "app.js", "app.css", "controls.html", "lib/fw_tables.js", "lib/codec.js", "lib/editor_proto.js", "lib/layout.js", "fm1backup.js", "fm1oc.js"):
             self.assertIn(f, listed)
         page = (app / "index.html").read_text()
         self.assertIn('"#fm1backup": "./fm1backup.js"', page)

@@ -417,10 +417,10 @@ grid lives in the steps themselves, so every engine has it:
 
 ## Orange Cat: the internal sample slot (commands 110–114, firmware 0.6.0)
 
-One user sample slot in internal flash (firmware/src/smp_slot.c): 22 sectors at 0xB2000..0xC7FFF, taken from the
+One user sample slot in internal flash (firmware/src/smp_slot.c): 16 sectors at 0xB2000..0xC1FFF (Release 3: 22 before; the six above it are the module area's), taken from the
 record store at the first boot of 0.6.0 (its records there are moved first; with no room for them the slot is not
 there until the store has room). Each sector keeps its last 256 bytes erased (the update loader's tail scan), so the
-slot holds 3,840 bytes a sector. Its data limit is a Felucca slot's: 81,408 bytes of IMA ADPCM, with Felucca's
+slot holds 3,840 bytes a sector. Its data limit is a Felucca slot's: 60,896 bytes of IMA ADPCM (SMP_SLOT_MAX; 81,408 before Release 3), with Felucca's
 512-byte header (480 bytes of fields, "FSMP", version 1, 1..16 zones, name, data length, the data's CRC-32 (zlib)).
 The old commands 11–14 wrote at 0xA0000, over what is now the record store: they stay retired (no reply), and
 `SMP_INFO` (15) still reports no slots, so an older editor never offers an upload. Every write stops the transport
@@ -429,8 +429,8 @@ first (100 ms, else rc 2), as user-preset writes do.
 | Command | Request | Reply |
 |---|---|---|
 | 103 CLOCK_STATS | flags (optional; 1: reset after reading) | (Orange Cat 0.14.2) pulses taken from the selected clock source (5 x 7 bits), stops on a lost clock, resyncs, the longest gap between two pulses in ms, the pulses the last resync found missed (3 x 7 bits each). See "MIDI clock" |
-| 110 SLOT_INFO | — | state (0 no slot yet, 1 empty, 2 a sample), data length (3 × 7 bits, low first), zones, capacity (3 × 7 bits: 81,408), name (string) |
-| 111 SLOT_BEGIN | data length (3 × 7 bits), 1..81,408 | rc, bytes written (3 × 7 bits). The sample there is gone from now on |
+| 110 SLOT_INFO | — | state (0 no slot yet, 1 empty, 2 a sample), data length (3 × 7 bits, low first), zones, capacity (3 × 7 bits: 60,896), name (string) |
+| 111 SLOT_BEGIN | data length (3 × 7 bits), 1..60,896 | rc, bytes written (3 × 7 bits). The sample there is gone from now on |
 | 112 SLOT_WRITE | offset (3 × 7 bits), pack7 data (≤ 256 bytes) | rc, bytes written. The offset must be where the last write ended; nothing past the length |
 | 113 SLOT_END | pack7 header (512 bytes) | rc, bytes written. The header's length and CRC must be the data's; then it is programmed (the commit) |
 | 114 SLOT_ERASE | — | rc, 0. The slot empty, still the slot's |
@@ -993,8 +993,8 @@ advertises 57. Layer preference 9 is retired; screen preference 10 remains.
 | 37 FAV_GET | engine, start v14, count 1..32 | rc; on success: engine, start v14, count, count × on/off |
 | 38 FAV_SET | engine, preset v14, on/off | rc; when applied: engine, preset v14, on/off |
 
-UI_SET ids: 0 palette (0..count-1, the order of UI_PALETTES: MONO GREEN AMBER ICE VIOLET ROSE PAPER
-HI-CON), 1 font (retired: rc 2), 2 reserved, 3 preset filter (0 all, 1 favorites). Unsupported state
+UI_SET ids: 0 palette (0..count-1, the order of UI_PALETTES: NIGHT DAY CONTRAST SUNSET OCEAN NEON CANDY
+LO-FI), 1 font (retired: rc 2), 2 reserved, 3 preset filter (0 all, 1 favorites). Unsupported state
 fields are 127. With capability bit 4, UI_STATE appends five bytes after its
 13-byte prefix. UI_SET ids 4 click (0 OFF, 1 REC, 2 ON), 5 click level (0 LOW,
 1 MID, 2 HIGH), 6 count-in (0 OFF, 1 BAR, 2 BARS), 7 note preview (0/1), and
@@ -1645,3 +1645,15 @@ The division is the complete first-to-last sweep, with an immediate first tone
 and evenly spaced remaining tones. Input release and STOP cancel pending tones;
 MIDI sustain follows existing ownership. ARP bypasses strumming. Live recording
 captures the staggered onsets; STEP entry continues to write a complete chord.
+
+## Numbers on the Nightly (v0.16.0-02bf7a and later; web-r3 audit, 2026-11-04)
+
+The counts quoted in the sections above are the numbers at the time each section was written. On the Nightly: `P_COUNT=124`, `P_E0=116`,
+`G_COUNT=76`; always take them from `INFO`. The engine table of this document is Melodee's: on the Nightly `MELODEE_SID`, `MELODEE_CZ`,
+`MELODEE_FM6`, `MELODEE_P5` and `MELODEE_DRUM` are 0, MACRO (8) and DRUM-X (9) are built in, SHAPES (14), the Prophet (19) and WHEEL (7)
+come as modules, and DUB TAPE is an effect module. Commands 68-71 (FM6), 75-76 (CZ-1) and 78 (native pools, Prophet frames) are compiled out
+there (editor.c) although INFO still sends the 0x46, 0x43 and 0x35 tags. INFO's CHAIN_ROWS byte is 0 (the project-based SONG is retired). The
+palettes of UI_SET id 0 are NIGHT DAY CONTRAST SUNSET OCEAN NEON CANDY LO-FI. The matrix SRC list also has 9 S&H and 10 SLEW, the DST list 20
+DEPTH (params.c N_MSRC, N_MDST). The track ids 33..36 (HOME macros) and 48 (SLIDE TIME) are refused by SET and TRACK_PARAM. The firmware's own
+pages and parameters as the Nightly has them are generated into `web/app/lib/fw_tables.js` (`tests/web_tables.c`), and the owner's guide into
+`docs/orangecat/CONTROLS.md`.

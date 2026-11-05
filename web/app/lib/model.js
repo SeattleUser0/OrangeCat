@@ -1,24 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Orange Cat web app: the names, the four knobs and the pictures the page shares with the unit's new interface.
 //
-// Session C designs that interface in parallel: docs/orangecat/UI_DESIGN.md on branch ui-design (version 0.1, read at 776adb5; a
-// design to choose from, nothing built into the firmware yet). What the page takes from it, and what is still a guess:
-//   - the knob colors are FIXED, the cozies': KNOB 1 blue, 2 green, 3 white, 4 orange, on every track and palette (UI_DESIGN.md
-//     section 1; the RGB values of tests/ui_mockup.c KCOL). A track keeps its own color for its numeral and name.
-//   - the four knobs of each engine are UI_DESIGN.md's table (section 2), names and order. A plain knob is the engine's parameter
-//     of that name (found by label among its EDIT values). A macro (a star in the table) needs P_MAC0..3 in the firmware, which
-//     does not exist yet: the page shows it, grayed, and does not write it. An engine the table does not name (SID, CZ-1,
-//     the Prophet before Session B) keeps the unit's HOME knobs of today (engines.c knob[], through tests/app_layout.c).
-//   - the pictures: MACRO, SHAPES, DRUM-X and WHEEL are Session C's scenes (lib/scenes.js, drawn by lib/scene_svg.js, a port of
-//     the interpreter); the other engines get a placeholder until their scenes are drawn.
-//   - the sheets' names (SOUND, ENV, MOD, FX, VOICE): the page has SOUND (the eight EDIT values, two rows of four). GUESS: the
-//     tab names Unit, Sounds, Steps, Arrange, Project, Settings are the prompt's; UI_DESIGN.md names none.
+// The new interface is built (docs/orangecat/UI_DESIGN.md 0.5, UI_BUILD.md). What the page takes from the firmware, and what it still guesses:
+//   - the knob colors are FIXED, the cozies': KNOB 1 blue, 2 green, 3 white, 4 orange, on every track and palette.
+//   - the four knobs of an engine are the firmware's own table (oc_knobs.c, through tests/web_tables.c and lib/fw_tables.js): plain knobs
+//     are the engine's parameters, a macro is an offset stored in P_MAC0..3 (ids 33..36) that the unit reads back in DUMP. The editor link
+//     cannot WRITE a macro or SLIDE TIME yet (editor.c refuses ids 33..36 and 48): the page shows the macro's offset and says so.
+//     An engine with no table (a module that declares none: the Prophet, WHEEL) keeps the unit's HOME knobs of its own (engines.c knob[]).
+//   - the pictures: MACRO, SHAPES and DRUM-X are the pack's scenes (lib/scenes.js, drawn by lib/scene_svg.js).
+//   - the tab names Unit, Sounds, Steps, Arrange, Project, Settings are this page's own.
 //
 // Revisions:
 //   0.14.2: first version (Session D); then UI_DESIGN.md 0.1 read: the fixed knob colors, its knob table, its scenes.
 //   0.14.2 (later): American spelling throughout (color, grayed).
 
 import { LAYOUT } from "./layout.js";
+import { FW } from "./fw_tables.js";
 import { PALETTES } from "./palette.js";
 import { SCENES } from "./scenes.js";
 import { sceneSvg } from "./scene_svg.js";
@@ -27,38 +24,21 @@ export const TABS = [
   { id: "unit", label: "Unit" }, { id: "sounds", label: "Sounds" }, { id: "steps", label: "Steps" },
   { id: "arrange", label: "Arrange" }, { id: "project", label: "Project" }, { id: "settings", label: "Settings" },
 ];
-export const SESSION_C_DOC = "docs/orangecat/UI_DESIGN.md 0.1 (branch ui-design, 776adb5)";
+export const SESSION_C_DOC = "docs/orangecat/UI_DESIGN.md 0.5, UI_BUILD.md";
 /* the cozies' colors, tests/ui_mockup.c KCOL: RGB(77, 158, 255), RGB(0, 226, 140), RGB(236, 236, 236), RGB(255, 128, 32) */
 export const KNOB_COLORS = ["#4D9EFF", "#00E28C", "#ECECEC", "#FF8020"];
-/* UI_DESIGN.md section 2: each engine's four knobs; "*" a macro (P_MACk, not in the firmware yet) */
-export const KNOB_TABLE = {
-  MACRO: ["HARM", "TIMB", "MRPH", "PLUCK*"], SHAPES: ["TIMB*", "COLR", "TONE*", "PLUCK*"], "DRUM-X": ["MRPH", "TUNE", "TONE", "DECY"],
-  WHEEL: ["SUB", "BODY", "TOP", "SPIN*"], PROPHET: ["CUTOFF", "RES", "ENV AMT", "SHAPE*"], SEM: ["CUT", "RES", "STAT", "DRIFT*"],
-  HADES: ["CUT", "RES", "DRV", "SUBS*"], FMBELL: ["RAT", "INDX", "DCAY", "FDBK"], SUPERSAW: ["DTUN", "MRPH", "SUB", "DRIV"], DDDD: ["SRC", "FDBK", "DSTR", "HAND"],
-};
-
 const P_E0 = LAYOUT.consts.P_E0;
 const NATIVE_STAGE = new Set([15, 19]);              /* CZ-1, PROPHET: STAGE's knobs are native patch values (ui.c stage_page) */
 
-/* the four knobs of engine e: [{label, id (a track parameter, or null), macro}], and where they came from ("design" or "stage") */
+/* the four knobs of engine e: [{label, id (a track parameter, or null), macro (the P_MAC index 0..3 or -1)}], and where they came from
+ * ("firmware": oc_knobs.c's table, "stage": the engine's own HOME knobs) */
 export function designKnobs(engine, info, pdesc) {
-  const name = info?.engines?.[engine] ?? LAYOUT.engines[engine]?.name ?? "";
-  const row = KNOB_TABLE[name];
-  const pe0 = info?.pe0 ?? P_E0;
-  if (row) {
-    const knobs = row.map((x) => {
-      const macro = x.endsWith("*"), label = x.replace("*", "");
-      let id = null;
-      if (!macro) for (let i = 0; i < 8; i++) if (pdesc?.[pe0 + i]?.label === label) { id = pe0 + i; break; }
-      return { label, id, macro };
-    });
-    /* (a plain knob the unit does not show under that name today, a native panel value: today's HOME knob in its place) */
-    const today = stageKnobs(engine, info).ids;
-    knobs.forEach((k, i) => { if (!k.macro && k.id === null) { k.id = today[i]; k.label = pdesc?.[today[i]]?.label || k.label; k.today = true; } });
-    return { knobs, source: "design" };
-  }
+  const row = FW.engines[engine]?.knobs;
+  if (row) return { knobs: row.map((k, i) => (k.kind === "macro" ? { label: k.label, id: null, macro: true, mac: i } : { label: k.label, id: k.id, macro: false })), source: "firmware" };
   return { knobs: stageKnobs(engine, info).ids.map((id) => ({ label: pdesc?.[id]?.label || "", id, macro: false })), source: "stage" };
 }
+/* where the unit keeps a macro knob's offset (core.h P_MAC0 = id 33): -64..63, 0 the sound as stored */
+export const P_MAC0 = 33;
 /* today's HOME (STAGE) knobs: track parameter ids */
 export function stageKnobs(engine, info) {
   const pe0 = info?.pe0 ?? P_E0;

@@ -11,7 +11,7 @@ import * as E from "./lib/editor_proto.js";
 import { TEXT } from "./lib/editor_text.js";
 import { Session } from "./lib/session.js";
 import * as K from "./lib/codec.js";
-import { TABS, designKnobs, editIds, palette, trackColor, engineScene, enginePicture, KNOB_COLORS, SESSION_C_DOC } from "./lib/model.js";
+import { P_MAC0 as MAC0, TABS, designKnobs, editIds, palette, trackColor, engineScene, enginePicture, KNOB_COLORS, SESSION_C_DOC } from "./lib/model.js";
 import { PALETTES } from "./lib/palette.js";
 
 const L = K.LAYOUT, C = L.consts;
@@ -231,7 +231,7 @@ function viewUnit() {
       })));
     g.append(el("section", { class: "card wide" }, el("h2", { text: t("enginesTitle") }), el("p", { class: "dim small" }, t("enginesHelp")),
       el("p", {}, t(E.modSummary(s.mod))), el("div", { class: "scroll" }, tbl),
-      el("p", { class: "dim small" }, "Modules are the engines today. Effects and step generators will be picked here the same way once the firmware has them as modules.")));
+      el("p", { class: "dim small" }, "The Engines table lists engine modules. The effect module (DUB TAPE) and its commands (FX_INFO, FX_BEGIN, FX_REMOVE, FX_TABLE) are installed from the installer's set; this page has no Effects table yet.")));
   } else if (s.mod) {
     g.append(card(t("enginesTitle"), el("p", {}, t(E.modSummary(s.mod))), el("p", { class: "dim" }, "This firmware has modules but no Engines list (0.11.0): use the old editor's two buttons.")));
   }
@@ -319,10 +319,10 @@ function viewSounds() {
     el("div", { class: "stage" },
       el("div", { class: "scenebox", style: { "--tc": trackColor(S.pal, k) } }, box,
         el("div", { class: "caption" }, el("b", { style: { color: trackColor(S.pal, k) } }, name), el("span", { class: "dim" }, presetName))),
-      el("div", {}, el("div", { class: "knobs" }, ...design.knobs.map((x, i) => (x.macro ? macroView(x, colors[i]) : knobView(x.id, colors[i])))),
-        el("p", { class: "dim small", style: { marginTop: "10px" } }, design.source === "design"
-          ? `The four knobs of ${name} in the new interface's order and colors (${SESSION_C_DOC}, section 2). A knob marked * is a macro the firmware does not have yet; it is shown, not written.`
-          : `${name} is not in the new interface's knob table yet: these are the unit's HOME knobs of today.`,
+      el("div", {}, el("div", { class: "knobs" }, ...design.knobs.map((x, i) => (x.macro ? macroView(x, colors[i], s.dump.p[MAC0 + x.mac]) : knobView(x.id, colors[i])))),
+        el("p", { class: "dim small", style: { marginTop: "10px" } }, design.source === "firmware"
+          ? `The four knobs of ${name} as the unit's HOME page has them, in the knobs' fixed colors. A knob marked * is a macro: its offset is shown, and is set on the unit (the editor link cannot write it yet).`
+          : `${name} has no knob table of its own: these are the engine's own HOME knobs.`,
           " Drag up or down, scroll, or use the arrow keys."))));
   drawScene(box, eng, name, design);
   clearInterval(sceneTimer);
@@ -337,9 +337,9 @@ function viewSounds() {
 const sceneT0 = Date.now(), scenePh = [0, 0, 0, 0];
 function drawScene(box, eng, name, design) {
   const s = S.session, now = Date.now(), t = (now - sceneT0) / 1000;
-  const q8 = (x) => { if (x.macro || x.id === null) return 128; const d = s.pdesc[x.id]; return d ? Math.round((s.dump.p[x.id] - d.min) * 256 / Math.max(1, d.max - d.min)) : 128; };
+  const q8 = (x) => { if (x.macro) return Math.max(0, Math.min(256, 128 + 2 * s.dump.p[MAC0 + x.mac])); if (x.id === null) return 128; const d = s.pdesc[x.id]; return d ? Math.round((s.dump.p[x.id] - d.min) * 256 / Math.max(1, d.max - d.min)) : 128; };
   const k = design.knobs.map(q8);
-  k.forEach((v, i) => { scenePh[i] = (scenePh[i] + (0.1 + 2.9 * v / 256) * 0.1 * 256) % 256; });
+  k.forEach((v, i) => { scenePh[i] = (scenePh[i] + (0.5 + 2.5 * v / 256) * 0.1 * 256) % 256; });
   sceneHit = Math.max(0, sceneHit - 40);
   const input = { s: { K1: k[0], K2: k[1], K3: k[2], K4: k[3], ENV: 150 + Math.round(60 * Math.sin(t * 2)), HIT: sceneHit, GATE: 0, LFO: Math.round(256 * Math.sin(t * 1.3)),
       NOTE: 0, TIME: Math.round((t % 1) * 256), WOB: Math.round(256 * Math.sin(t * Math.PI)), PH1: scenePh[0] | 0, PH2: scenePh[1] | 0, PH3: scenePh[2] | 0, PH4: scenePh[3] | 0 },
@@ -347,9 +347,10 @@ function drawScene(box, eng, name, design) {
     scope: Array.from({ length: 64 }, (_, i) => Math.round(200 * Math.sin(i / 64 * Math.PI * 4 + t * 6))) };
   box.innerHTML = enginePicture(name, input) ?? engineScene(eng, name, KNOB_COLORS);
 }
-function macroView(x, color) {
-  return el("div", { class: "knob macro", style: { "--kc": color }, title: "A macro (UI_DESIGN.md section 2): it needs P_MAC" + "0..3 in the firmware, which is not built yet" },
-    svgEl(`<svg viewBox="0 0 100 100" style="opacity:.45">${dial(0.5, color)}</svg>`), el("span", { class: "lab" }, x.label + "*"), el("span", { class: "val" }, "macro"));
+function macroView(x, color, off) {
+  const o = Number.isFinite(off) ? off : 0;
+  return el("div", { class: "knob macro", style: { "--kc": color }, title: "A macro: an offset of -64 to 63 stored in P_MAC" + x.mac + " (0 is the sound as stored). Set it on the unit; the editor link cannot write it yet" },
+    svgEl(`<svg viewBox="0 0 100 100">${dial(0.5 + o / 128, color)}</svg>`), el("span", { class: "lab" }, x.label + "*"), el("span", { class: "val" }, (o > 0 ? "+" : "") + o));
 }
 const visible = (d) => d && d.max > d.min && !!d.label && d.label !== "-";
 function fmt(d, v) { if (!d) return String(v); const [a, u] = E.fmtValue(d, v); return u ? `${a} ${u}` : a; }
@@ -476,7 +477,9 @@ function viewSteps() {
     };
     const vel = el("input", { type: "number", min: 0, max: 127, value: st.vel, style: { width: "4.5em" }, "aria-label": `step ${i + 1} velocity` });
     vel.addEventListener("change", () => op(async () => { S.steps[i] = await s.writeStep(k, i, { ...st, vel: Math.max(0, Math.min(127, +vel.value | 0)) }); }));
-    const fx = [st.flags & 1 ? "ACC" : "", st.flags & 2 ? "SLIDE" : "", st.chance !== undefined && st.chance < 100 ? st.chance + "%" : "", st.hit ? E.hitsText(st.hit, st.acc) : ""].filter(Boolean).join(" ");
+    const fx = [st.flags & 1 ? "ACC" : "", st.flags & 2 ? "SLIDE" : "", st.chance !== undefined && st.chance < 100 ? st.chance + "%" : "", st.hit ? E.hitsText(st.hit, st.acc) : "",
+      st.cond ? ["", "FILL", "!FILL", "1:2", "2:2", "1:3", "2:3", "3:3", "1:4", "2:4", "3:4", "4:4"][st.cond] : "", st.nudge ? "NUDGE " + (st.nudge > 0 ? "+" : "") + st.nudge : "",
+      st.rflam > 1 ? (st.rflam === 5 ? "FLAM" : "x" + st.rflam) : ""].filter(Boolean).join(" ");
     return el("tr", { class: (i % 4 === 0 ? "beat " : "") + (on ? "on " : "") + (i >= len ? "out" : "") },
       el("td", { class: "num" }, two(i + 1)), noteIn(0), noteIn(1), noteIn(2), noteIn(3),
       el("td", {}, ["NOTE", "TIE", "REST"][st.time] ?? st.time), el("td", {}, vel), el("td", { class: "small" }, fx));
@@ -500,7 +503,7 @@ function recordedNotesView() {
         el("td", { class: "num" }, K.noteSteps(n).toFixed(3)), el("td", { class: "num" }, n.pitch ? (n.pitch > 0 ? "+" : "") + n.pitch : ""))))))
       : el("p", { class: "dim" }, `No recorded notes on track ${k + 1}'s phrase (bank ${bank + 1}).`));
   }
-  c.append(el("p", { class: "note" }, "What the page cannot do yet: edit a recorded note one at a time (the unit's NOTES event editor has no command; command 108 reads them in test builds only), and show a step's RATCH, FLAM, condition and NUDGE (STEP_GET does not carry them, and the project record keeps them only inside the unit). Edit those on the unit's TRACKER and NOTES pages."));
+  c.append(el("p", { class: "note" }, "What the page cannot do yet: edit a recorded note one at a time (the unit's NOTES event editor has no command; command 108 reads them in test builds only), and edit a step's RATCH, FLAM, condition and NUDGE (they are shown from STEP_GET; the page does not write them yet). Edit those on the unit's TRACKER, FEEL and NOTES pages."));
   return c;
 }
 
@@ -741,8 +744,8 @@ function viewSettings() {
   pal.addEventListener("change", () => { S.pal = palette(pal.value); localStorageSet("oc-app-palette", pal.value); applyPalette(); render(); });
   g.append(card("This page",
     el("label", { class: "bar" }, "Colors", pal, el("span", { class: "dim small" }, "the unit's own palettes and knob colors")),
-    el("p", { class: "dim small" }, "The names, knobs and pictures follow the unit's new interface; where its design (" + SESSION_C_DOC + ") was not settled yet the page uses the unit as it is now."),
-    el("p", { class: "small" }, el("a", { href: "../installer/" }, "Installer"), " · ", el("a", { href: "../editor/" }, "The old editor"), " · ", el("a", { href: "?mock" }, "Mocked unit"))));
+    el("p", { class: "dim small" }, "The names, knobs and pictures follow the unit's new interface; the page uses the unit's own tables (docs/orangecat/UI_DESIGN.md, UI_BUILD.md)."),
+    el("p", { class: "small" }, el("a", { href: "../installer/" }, "Installer"), " · ", el("a", { href: "controls.html" }, "Controls guide"), " · ", el("a", { href: "../editor/" }, "The old editor"), " · ", el("a", { href: "?mock" }, "Mocked unit"))));
   if (!s) { g.append(needUnit("change its settings")); return g; }
   const st = s.prefs?.state;
   if (st) {
@@ -755,7 +758,9 @@ function viewSettings() {
     const kids = [];
     if (st.caps & 1) kids.push(sel(0, "Screen palette", s.prefs.palettes, st.palette));
     if (st.caps & 8) kids.push(sel(3, "Preset list", ["All", "Favorites"], st.filter));
-    if (st.caps & 16) kids.push(sel(4, "Click", ["OFF", "REC", "ON"], st.click), sel(5, "Click level", ["LOW", "MID", "HIGH"], st.clickLevel), sel(6, "Count-in", ["OFF", "BAR", "2 BARS"], st.countin), sel(7, "Note preview", ["OFF", "ON"], st.preview), sel(8, "Chord entry", ["HOLD", "ADD"], st.chordAdd));
+    if (st.caps & 16) kids.push(sel(4, "Audio click", ["OFF", "REC", "ON"], st.click), sel(5, "Click level", ["LOW", "MID", "HIGH"], st.clickLevel), sel(6, "Count-in", ["OFF", "1 BAR", "2 BARS"], st.countin), sel(7, "Note preview", ["OFF", "ON"], st.preview), sel(8, "Chord entry", ["HOLD", "ADD"], st.chordAdd));
+    if (st.caps & 32) kids.push(sel(10, "Screen off", ["NEVER", "5 MIN", "15 MIN", "30 MIN", "60 MIN"], st.screenOff));
+    kids.push(el("p", { class: "dim small" }, "The unit's menu has more rows (HOME PAGE, HOME SELECT, GLO SELECT, UNUSED TRACKS, AUTOSAVE, PICKER POPUPS, KNOB ACCEL, HOLD, LIGHTS, USB AUDIO): the editor link cannot set them yet."));
     g.append(card("The unit", ...kids));
   }
   const a = S.audio;

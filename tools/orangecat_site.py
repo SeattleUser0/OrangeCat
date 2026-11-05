@@ -51,7 +51,7 @@ APP_SHARED = ("fm1backup.js", "fm1oc.js")       # web/'s modules the app imports
 
 def app_files():
     """(0.14.2) the web app's published files, relative to web/app (the page, its style and script, lib/*.js); not tools/ or test/"""
-    return ["index.html", "app.css", "app.js"] + sorted("lib/" + p.name for p in (APP / "lib").glob("*.js"))
+    return ["index.html", "app.css", "app.js", "controls.html"] + sorted("lib/" + p.name for p in (APP / "lib").glob("*.js"))
 
 
 def copy_app(dest):

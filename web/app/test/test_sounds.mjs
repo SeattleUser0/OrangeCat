@@ -3,6 +3,7 @@
 import { ok } from "./t.mjs";
 import { connected } from "./test_unit.mjs";
 import { stageKnobs, designKnobs, editIds, engineScene, enginePicture, palette, knobColor, KNOB_COLORS } from "../lib/model.js";
+import { FW } from "../lib/fw_tables.js";
 import { SCENES } from "../lib/scenes.js";
 import { sceneSvg } from "../lib/scene_svg.js";
 import { LAYOUT } from "../lib/layout.js";
@@ -26,18 +27,20 @@ export async function run() {
      "sounds: the knob colors are the cozies' (blue, green, white, orange), the same on every track (UI_DESIGN.md section 1)");
   /* (an engine's EDIT descriptors are the selected track's: each engine put on it first, as the page does) */
   const at = async (e) => { await s.loadPreset({ engine: e, preset: 0, user: false }); return designKnobs(e, s.info, s.pdesc); };
-  const mac = await at(8), sh = await at(14), dx0 = await at(9), dx = { knobs: dx0.knobs.map((k) => ({ ...k })) }, sd = await at(3);
-  const dxLabels = dx0.knobs.map((k) => k.label).join();
-  ok(mac.source === "design" && mac.knobs.map((k) => k.label).join() === "HARM,TIMB,MRPH,PLUCK" && mac.knobs.slice(0, 3).every((k) => k.id >= s.info.pe0 && !k.today) && mac.knobs[3].macro,
-     "sounds: MACRO's knobs are UI_DESIGN.md's (HARM TIMB MRPH, the parameters of those names; PLUCK a macro, not written)");
-  ok(sh.knobs.filter((k) => k.macro).length === 3 && sh.knobs[1].label === "COLR" && !sh.knobs[1].today && dxLabels === "MRPH,TUNE,TONE,DECY" && dx.knobs.every((k) => !k.today),
-     "sounds: SHAPES (TIMB* COLR TONE* PLUCK*) and DRUM-X (MRPH TUNE TONE DECY) as the table has them");
-  ok(sd.source === "stage" && sd.knobs.every((k) => k.id === LAYOUT.engines[3].knob[sd.knobs.indexOf(k)]), "sounds: an engine the table does not name keeps the unit's HOME knobs of today (SID)");
+  const mac = await at(8), dx = await at(9), sd = await at(3);
+  const fwk = (e) => FW.engines[e].knobs;
+  ok(mac.source === "firmware" && mac.knobs.map((k) => k.label).join() === fwk(8).map((k) => k.label).join() && mac.knobs.slice(0, 3).every((k, i) => k.id === fwk(8)[i].id && !k.macro) && mac.knobs[3].macro && mac.knobs[3].mac === 3,
+     "sounds: MACRO's knobs are oc_knobs.c's (HARM TIMB MRPH plain, PLUCK a macro: the offset is read, not written)");
+  ok(dx.knobs.map((k) => k.label).join() === "MRPH,TUNE,TONE,DECY" && dx.knobs.every((k, i) => !k.macro && k.id === fwk(9)[i].id),
+     "sounds: DRUM-X (MRPH TUNE TONE DECY) as the firmware's table has it");
+  ok(FW.engines.every((e, i) => !e.knobs || [8, 9, 14].includes(i) || false) && designKnobs(14, s.info, s.pdesc).source === "stage",
+     "sounds: an engine the firmware's table does not name (SHAPES without its table, the Prophet) keeps the engine's own HOME knobs");
+  ok(sd.source === "stage" && sd.knobs.every((k) => k.id === LAYOUT.engines[3].knob[sd.knobs.indexOf(k)]), "sounds: an engine the table does not name keeps the unit's HOME knobs (SID)");
   const input = { s: { K1: 200, K2: 40, K3: 128, K4: 256, ENV: 200, HIT: 256, GATE: 256, LFO: 0, NOTE: 0, TIME: 77, WOB: 100, PH1: 10, PH2: 20, PH3: 30, PH4: 40 }, col: ["#fff", ...KNOB_COLORS, "#f00", "#555", "#000"], scope: Array(64).fill(50) };
   const drawn = Object.entries(SCENES).map(([n, b]) => [n, sceneSvg(b, input)]);
-  ok(drawn.length === 4 && drawn.every(([n, svg]) => /^<svg/.test(svg) && !/NaN|undefined/.test(svg) && (svg.match(/<(line|polyline|polygon|circle|rect)/g) || []).length > 10) &&
-     SCENES.MACRO.length === 204 && SCENES["DRUM-X"].length === 171 && SCENES.WHEEL[SCENES.WHEEL.length - 1] === 0,
-     "sounds: Session C's four scenes (MACRO 204 B, SHAPES, DRUM-X 171 B, WHEEL) drawn from their bytes, every op, no gaps");
+  ok(drawn.length === 3 && drawn.every(([n, svg]) => /^<svg/.test(svg) && !/NaN|undefined/.test(svg) && (svg.match(/<(line|polyline|polygon|circle|rect)/g) || []).length > 10) &&
+     SCENES.MACRO.length === 204 && SCENES["DRUM-X"].length === 171 && SCENES.SHAPES.length === 226,
+     "sounds: the pack's three scenes (MACRO 204 B, SHAPES 226 B, DRUM-X 171 B) drawn from their bytes, every op, no gaps");
   const lo = sceneSvg(SCENES.MACRO, { ...input, s: { ...input.s, K1: 0 } }), hi = sceneSvg(SCENES.MACRO, { ...input, s: { ...input.s, K1: 256 } });
   ok((hi.match(/<polyline/g) || []).length > (lo.match(/<polyline/g) || []).length, "sounds: a knob moves its part (MACRO's HARM: more crests at the top of the knob)");
   ok(enginePicture("SID", input) === null && /^<svg/.test(engineScene(3, "SID", KNOB_COLORS)), "sounds: an engine with no scene yet gets the placeholder picture");

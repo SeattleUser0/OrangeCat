@@ -4,8 +4,9 @@ One page to manage the unit: its modules, its sounds, its steps, its arrangement
 USB-MIDI SysEx (Chrome, Edge or Opera), with the same protocol code as the old editor. Firmware is still installed from the installer
 page; the old editor (`web/editor.html`) stays until this page does everything it does.
 
-Version 0.14.2 (October 26, 2026, Session D, branch `web-app`). Not on main, not released, not yet tried on the unit
-(`HARDWARE_TEST.md` is the procedure).
+Version 0.16.0 (web-r3, November 4, 2026, Session D): follows the Nightly v0.16.0-02bf7a. Its tables (pages, parameters, HOME knobs, menu,
+layers, scenes) are generated from the firmware (`tests/web_tables.c`), and `controls.html` is the owner's controls guide. Not yet tried
+on the unit (`HARDWARE_TEST.md` is the procedure). `docs/orangecat/WEB_AUDIT.md` lists what the page still lacks.
 
 ## The tabs
 
@@ -36,7 +37,10 @@ No build step: an HTML page, a style sheet and ES modules.
 | `lib/editor_proto.js`, `lib/editor_text.js` | GENERATED: the old editor's protocol section and texts, unchanged (`tools/gen_proto.mjs`) |
 | `lib/layout.js`, `lib/mock_data.js` | GENERATED: the record's layout from the firmware's C (`tests/app_layout.c`) and the fixtures it writes (`tools/gen_layout.mjs`) |
 | `lib/palette.js` | GENERATED: the unit's palettes (`tools/gen_palette.py` from `tools/gen_ui_palettes.py`) |
-| `lib/scenes.js` | GENERATED: Session C's scene bytes (`tools/scene_dump.c`, `tools/gen_scenes.mjs`) |
+| `lib/fw_tables.js` | GENERATED: the firmware's pages, parameters, HOME knobs, menu, layers, DUB keys and scenes as the Nightly has them (`tests/web_tables.c`, `tools/gen_fw_tables.mjs`) |
+| `lib/scenes.js` | the scenes out of `fw_tables.js` (the pack's trailer, `oc_scenes.h`) |
+| `lib/app_coverage.js` | the one hand-kept list: what the page does with each firmware page, and why an unpaged parameter is left out (`test/test_tables.mjs` fails when the firmware and it differ) |
+| `controls.html`, `tools/controls_src.json`, `tools/gen_controls.mjs` | the owner's controls guide (also `docs/orangecat/CONTROLS.md`): the sentences by hand, the knobs, ranges, pages, menu, layers and keys from `fw_tables.js` |
 | `test/run.mjs` | every test, against the mock; `test/shots.mjs` a look in a real browser (needs puppeteer; not run by CI) |
 
 **Nothing is copied by hand.** The protocol code is the old editor's text (checked equal on every test run); the project record's
@@ -65,12 +69,12 @@ SysEx on localhost).
 
 ## What it cannot do yet (and why)
 
-- **Per-note editing** of recorded notes: the unit's NOTES event editor has no command (command 108 reads them in test builds only).
-  The page shows each note's values from the project record.
-- **RATCH, FLAM, condition and NUDGE** of a step: not in STEP_GET / TRACK_STEP, and the project record keeps them only inside the unit.
-- **Macro knobs** (UI_DESIGN.md's stars): need `P_MAC0..3` in the firmware. Shown grayed, not written.
-- **ENV, MOD, FX, VOICE sheets**: the unit's; the page has SOUND.
-- **A project file's arrangement** is not written to another unit (phrase numbers name that unit's pool). A complete backup carries
-  the arrangement of the music now and restores it only to a unit whose phrases are unchanged (the pool's CRCs); the saved slots'
-  chains and songs are not in the backup objects at all (`web/EDITOR_PROTOCOL.md`, "the arrangement").
-- **Effects and step generators** as modules: the Engines table shows engines; the others will show the same way once they exist.
+The full list, with ids, is `docs/orangecat/WEB_AUDIT.md`. In short:
+
+- **Writing a macro knob or SLIDE TIME**: the editor link refuses ids 33..36 and 48 (`editor.c`). The page shows a macro's offset, read from the unit.
+- **Per-note editing** of recorded notes, and **clearing** (REC held on the unit): no command (108 is a test-build read).
+- **A step's RATCH, FLAM, condition and NUDGE**: shown from STEP_GET, not written by the page yet.
+- **The unit's menu rows** beyond the preferences (HOME PAGE, HOME SELECT, GLO SELECT, UNUSED TRACKS, AUTOSAVE, PICKER POPUPS, KNOB ACCEL, HOLD, LIGHTS, USB AUDIO): UI_SET has no ids for them.
+- **Project template, "New song", the unsaved-changes flag**: ED_PROJECT takes slots 1 to 4 only.
+- **Mixer, tempo, the FX, ENV, MOD, VOICE sheets, DRUM-X kit and lanes, an Effects table (DUB TAPE)**: the wire carries them; the page has no card yet.
+- **A project file's arrangement** is not written to another unit (phrase numbers name that unit's pool).

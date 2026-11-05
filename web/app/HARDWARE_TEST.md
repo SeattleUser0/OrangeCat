@@ -4,7 +4,7 @@
 on the unit. Run the parts in order; each says what to click, what you should see or hear, and what to write down. Record the results
 in `hw/LOG.md` under "Web app (0.14.2)" and say which commit of `web-app` you ran.
 
-Version 1 (October 26, 2026). The app and the firmware are on branch `web-app` (firmware 0.14.2: command 102 ARRANGE).
+Version 2 (November 4, 2026). The app and the firmware are on branch `web-r3` / the Nightly v0.16.0-02bf7a and later (command 102 ARRANGE since 0.14.2).
 
 ## 0. Before
 
