@@ -379,16 +379,23 @@ function modelsList() {                               /* one box a model, VA loc
   });
 }
 function modelsOthers() {                             /* the modules beside the pick: the ticked module stages of this build (an engine module's geometry, an effect module's sectors), and the unit's when read */
-  const geo = (u) => /orangecat-wheel-/.test(u) ? {name: "WHEEL", sectors: 4} : /orangecat-prophet-/.test(u) ? {name: "PROPHET", sectors: 8} : {name: "SHAPES", sectors: 6};
+  const geo = (u) => /orangecat-wheel-/.test(u) ? {name: "WHEEL", sectors: 4, only: "area"} : /orangecat-prophet-/.test(u) ? {name: "PROPHET", sectors: 8, only: "area"} : {name: "SHAPES", sectors: 6, only: "area"};   /* (an engine module's geometry is the module area's) */
   const eng = $("stage-prophet").checked && !$("stage-prophet").disabled ? ocmOf("prophet") : $("stage-mod").checked && !$("stage-mod").disabled ? ocmOf("shapes") : [];
   const fx = $("stage-fx").checked && !$("stage-fx").disabled ? fxOf().filter((x) => x.kind !== 4).map((x) => ({name: x.name || "0x" + x.module_id.toString(16), sectors: x.sectors || 1})) : [];
   return PICK.others([...eng.map(geo), ...fx], unitState);
+}
+/* the places the modules may go: the module area, and the tail region of FLASH_MAP_R3.md option A (the unit says how many sectors it has: MOD_INFO's `tail`; a page that has not
+ * read the unit counts the master's own, which a Release 3 firmware has; a unit without one, or a master without one, has the area alone) */
+function modelsPlaces(area) {
+  const t0 = master && master.manifest.places ? master.manifest.places.find((x) => x.name === "tail") : null;
+  const tail = unitState && unitState.mod ? (unitState.mod.tail || 0) : t0 ? t0.last - t0.first : 0;
+  return tail ? [{name: "area", label: "module area", sectors: area}, {name: "tail", label: "tail region", sectors: Math.min(tail, t0 ? t0.last - t0.first : tail)}] : area;
 }
 const modelsOk = () => !$("stage-models").checked || $("stage-models").disabled || !master || (!!modelsRoom && modelsRoom.ok);
 function modelsMeter() {                              /* the line under the list: the room, what the other modules take, what this pick needs; Install waits while it does not fit */
   if (!master) { modelsRoom = null; $("models-room").textContent = ""; $("models-count").textContent = ""; return; }
   const items = pickItems(), area = unitState && unitState.mod ? unitState.mod.sectors : 18, bad = PICK.validate(master.manifest, items);
-  modelsRoom = PICK.room(master.manifest, master.img0.length, items, area, modelsOthers());
+  modelsRoom = PICK.room(master.manifest, master.img0.length, items, modelsPlaces(area), modelsOthers());
   if (bad.length) modelsRoom.ok = false;
   $("models-room").textContent = modelsRoom.text + (bad.length ? " " + bad.join("; ") + "." : "") + (modelsRoom.ok || !items.length ? "" : " " + t("modelsNoRoom"));
   $("models-count").textContent = "(" + items.length + ")";
@@ -632,7 +639,7 @@ $("go").addEventListener("click", async () => {
     if (stages.pack) files.pack = await getFile(o.pak);
     if (stages.module) files.modules = await Promise.all(modules.map(getFile));
     if (modelsOn) {                       /* (the model picker) the pick packed from the master: a format 2 module package, as the build's own (web/test_pick.mjs) */
-      const pk = PICK.pack(master, pickItems());
+      const pk = PICK.pack(master, pickItems(), 0, null, modelsRoom && modelsRoom.place === "tail" ? "tail" : null);
       if (pk.error) throw new Error(pk.error);
       files.modules.push(pk.ocm); want.push({kind: 4, module_id: 0x4D00 | (master.manifest.engine & 0xFF)});
       log(`models: ${pickItems().length} picked, ${pk.ocm.length} B, ${pk.sectors} sectors`);

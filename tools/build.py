@@ -865,7 +865,14 @@ def elf_symbols(elf):
     return out
 
 
-def build_regions_module(name, pick=None, area=None):
+# (Release 3, the second place) the tail region of FLASH_MAP_R3.md option A, in the numbering the module area uses (signed sectors from FL_MODULE_BASE, 0xC8000):
+# 0x8D000 is 59 sectors below it. Session A builds the flash side and owns these two numbers (TAIL_FIRST, TAIL_SECTORS: option A's 4 sectors, 0x8D000..0x90FFF); the picker
+# only reads them from the master's manifest ("places"), so a change of geometry is this one line.
+MODELS_TAIL_FIRST = -59
+MODELS_TAIL_SECTORS = 4
+
+
+def build_regions_module(name, pick=None, area=None, place=None):
     """the master package, then the pick's module (the default pick without --pick): (errors, notes). area: sectors to pretend the module area has
     (tests/module_pick_test.py: a pick larger than the real area, packaged for the byte comparison only; the manifest keeps the real area)"""
     import module_relocs
@@ -929,6 +936,7 @@ def build_regions_module(name, pick=None, area=None):
     h = dict(zip(MOD_NAMES, MOD_HDR.unpack_from(imgm, 0)))
     manifest = {"name": spec["name"], "engine": h["engine"], "version": h["version"], "area_lo": lo, "area_sectors": last - first,
                 "area_first": first, "area_last": last, "starts": list(range(first, last)), "code_off": FW_MOD_CODE_OFF,
+                "places": [{"name": "area", "first": first, "last": last}, {"name": "tail", "first": MODELS_TAIL_FIRST, "last": MODELS_TAIL_FIRST + MODELS_TAIL_SECTORS}],
                 "part_head": struct.unpack_from("<I", imgm, syms["pl_mod_meta"])[0], "poly": struct.unpack_from("<I", imgm, syms["pl_mod_meta"] + 4)[0],
                 "regions": [{"name": r, "start": st, "end": en} for r, st, en in regions], "items": items,
                 "rules": {"wavtbl": 23, "terrain": 20, "banks": [25, 26, 27]},
@@ -965,7 +973,7 @@ def build_regions_module(name, pick=None, area=None):
     tc("common/bin/objcopy", "-O", "binary", "-j", ".text", elf0, bin0)
     length = (bin0.stat().st_size + 3) & ~3
     sectors = (length + 0xFFF) // 0x1000
-    starts = pick_module.starts_for(manifest, sectors, area)
+    starts = pick_module.starts_for(manifest, sectors, area, place)
     cost, missing = module_cost(name)
     if missing:
         errors.append(f"{name}: tools/module/{name}.cost names {missing}, which tests/target_budget.txt does not have")
@@ -1109,6 +1117,7 @@ def main():
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     ap.add_argument("--module", metavar="NAME", choices=sorted(MODULES), help="build a loadable engine module (build/NAME-<version>.ocm) and check it")
     ap.add_argument("--pick", metavar="ITEMS", help="(model picker) --module plaits: the items to link, by key or id, comma separated (build/plaits-pick.ocm)")
+    ap.add_argument("--place", default=None, help="(model picker) with --pick: link the pick for this place (area, tail) instead of the module area")
     ap.add_argument("--area", type=int, metavar="SECTORS", help="(model picker) with --pick: pretend the module area has this many sectors (the byte proof of a pick too large for the real one)")
     ap.add_argument("--cpu-manifest", type=Path, help="Write source/package identity for CPU experiments")
     ap.add_argument("--no-core1-fallback", action="store_true",
@@ -1149,7 +1158,7 @@ def main():
         return check_only()                  # flags, -fsyntax-only; no IR pass, no link, no package, no SDK (docs/DEV_CHECKS.md)
     if a.module:                    # (Orange Cat 0.10.0) a module only needs the toolchain and build/gen
         if "units" in MODULES[a.module]:                 # (model picker) a module of many units: the master package and a pick
-            errors, notes = build_regions_module(a.module, a.pick.split(",") if a.pick else None, a.area)
+            errors, notes = build_regions_module(a.module, a.pick.split(",") if a.pick else None, a.area, a.place)
         else:
             errors, notes = build_module(a.module)
         for n in notes:

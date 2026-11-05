@@ -97,7 +97,18 @@ function pickBytes(manifest, imgLen, items) {
   return (n + 3) & ~3;
 }
 const pickSectors = (bytes) => Math.ceil(bytes / 4096);
-const pickStartsFor = (manifest, sectors, area) => { const first = manifest.area_first, last = area ? first + area : manifest.area_last; return manifest.starts.filter((s) => s >= first && s + sectors <= last); };   // the starts (signed sectors from 0xC8000, Release 3 step 1) whose span lies inside the area
+const pickPlaceOf = (manifest, place) => {   // [first, last) of a place the module may go: "area" (the module area) or one of manifest.places by name (the tail region: FLASH_MAP_R3.md option A)
+  if (!place || place === "area") return [manifest.area_first, manifest.area_last];
+  const pl = (manifest.places || []).find((x) => x.name === place);
+  return pl ? [pl.first, pl.last] : null;
+};
+const pickStartsFor = (manifest, sectors, area, place) => {   // the starts (signed sectors from 0xC8000, Release 3 step 1) whose span lies inside the place
+  const r = pickPlaceOf(manifest, place); if (!r) return [];
+  const first = r[0], last = area && !place ? first + area : r[1], grid = !place || place === "area" ? manifest.starts : null, out = [];
+  if (grid) return grid.filter((s) => s >= first && s + sectors <= last);
+  for (let s = first; s + sectors <= last; s++) out.push(s);
+  return out;
+};
 
 /* the image and list of a pick (the rule above) */
 function pickCompact(manifest, img0, words, items) {
@@ -138,7 +149,7 @@ function pickRelocate(img0, words, base) {
   return img;
 }
 /* the .ocm of a pick: {ocm, sectors, starts, state} or {error} (the page's words) */
-function pickPack(master, items, cost = 0, area = null) {
+function pickPack(master, items, cost = 0, area = null, place = null) {
   const { manifest, img0, words } = master;
   items = [...items].sort((a, b) => a - b);
   const bad = pickValidate(manifest, items);
@@ -149,8 +160,8 @@ function pickPack(master, items, cost = 0, area = null) {
   img.set(pickBlock(items, manifest.items.length), PICK_AT);
   dv.setUint32(52, pkCrc32(img.subarray(0x100)), true);
   dv.setUint32(56, pkCrc32(img.subarray(0, 56)), true);
-  const sectors = pickSectors(img.length), starts = pickStartsFor(manifest, sectors, area);
-  if (!starts.length) return { error: sectors + " sectors fit no start of the area's " + (area || manifest.area_sectors) };
+  const sectors = pickSectors(img.length), starts = pickStartsFor(manifest, sectors, area, place);
+  if (!starts.length) { const r = pickPlaceOf(manifest, place) || [0, 0]; return { error: sectors + " sectors fit no start of the " + (place || "area") + "'s " + (area || r[1] - r[0]) }; }
   const h = manifest.hdr, n = starts.length, lst = new Uint8Array(4 * list.length), ldv = new DataView(lst.buffer);
   list.forEach((w, k) => ldv.setUint32(4 * k, w, true));
   const off = (56 + 32 + 8 * n + 4 + 3) & ~3, head = new Uint8Array(off), hd = new DataView(head.buffer);
@@ -170,6 +181,7 @@ function pickPack(master, items, cost = 0, area = null) {
 /* The room meter (model_picker.md section 5): the module area's sectors, what the other modules take, and this pick. others: [{name, sectors}].
  * -> {need, taken, free, ok, text}: the page refuses a pick whose need is past the room, in these words. */
 function pickRoom(manifest, imgLen, items, areaSectors, others) {
+  if (Array.isArray(areaSectors)) return pickRoomPlaces(manifest, imgLen, items, areaSectors, others);
   const need = items.length ? pickSectors(pickBytes(manifest, imgLen, items)) : 0;
   const taken = others.reduce((n, o) => n + o.sectors, 0), free = areaSectors - taken;
   const names = items.map((id) => (pickItemOf(manifest, id) || { name: "?" }).name);
@@ -181,6 +193,45 @@ function pickRoom(manifest, imgLen, items, areaSectors, others) {
   return { need, taken, free, ok: items.length > 0 && need <= free, text };
 }
 
+/* (the second place) the meter for a unit with more than one place the modules may go: places [{name, sectors}] (the module area first, then the tail region),
+ * others [{name, sectors, only}] (only: the place a module must be in: an engine module's geometry is the area's). The page places the other modules, the
+ * models module where it fits: the first placement (the area first) that leaves a place with room for the pick; the sectors of each place are contiguous
+ * (a start at every sector), so a place holds what its sectors add up to. -> {need, taken, free, ok, place, assign, text}: free is the most one place has left. */
+function pickRoomPlaces(manifest, imgLen, items, places, others) {
+  const need = items.length ? pickSectors(pickBytes(manifest, imgLen, items)) : 0;
+  const names = items.map((id) => (pickItemOf(manifest, id) || { name: "?" }).name);
+  const cap = places.map((p) => p.sectors), taken = others.reduce((n, o) => n + o.sectors, 0);
+  let best = null;                                       /* the placement with the models in the earliest place; else the one with the most room left in one place */
+  const use = cap.map(() => 0), assign = [];
+  const walk = (k) => {
+    if (k === others.length) {
+      const left = cap.map((c, i) => c - use[i]);
+      const at = need ? left.findIndex((f) => f >= need) : 0, most = Math.max(...left);
+      const cand = { at, most, left: left.slice(), assign: assign.slice() };
+      if (!best || (cand.at >= 0 && (best.at < 0 || cand.at < best.at)) || (cand.at < 0 && best.at < 0 && cand.most > best.most)) best = cand;
+      return;
+    }
+    const o = others[k];
+    for (let i = 0; i < cap.length; i++) {
+      if (o.only && o.only !== places[i].name) continue;
+      if (use[i] + o.sectors > cap[i]) continue;
+      use[i] += o.sectors; assign.push(i); walk(k + 1); assign.pop(); use[i] -= o.sectors;
+    }
+  };
+  walk(0);
+  const total = cap.reduce((n, c) => n + c, 0), pl = (i) => places[i].label || places[i].name;
+  const head = "Room: " + places.map((p) => p.sectors + " sectors in the " + (p.label || p.name)).join(" and ") + "; ";
+  if (!best) return { need, taken, free: 0, ok: false, place: null, assign: [], text: head + "the other modules do not fit together: " + others.map((o) => o.name + " " + o.sectors).join(", ") + ". Leave one out." };
+  const where = others.map((o, k) => o.name + " " + o.sectors + " (" + pl(best.assign[k]) + ")").join(", ");
+  const what = others.length ? where + " take " + taken + "; " + best.left.map((f, i) => f + " left in the " + pl(i)).join(", ") : "nothing else installed";
+  let text = head + what + ". ";
+  const ok = items.length > 0 && best.at >= 0;
+  if (!items.length) text += "Nothing picked.";
+  else if (ok) text += "This pick (" + names.join(", ") + ") needs " + need + ": it goes in the " + pl(best.at) + (best.left[best.at] - need ? ", " + (best.left[best.at] - need) + " to spare." : ", nothing to spare.");
+  else text += "This pick (" + names.join(", ") + ") needs " + need + " in one piece: " + (need - best.most) + " too many (the most any one place has left is " + best.most + "). Leave a model or a wave bank out.";
+  return { need, taken, free: best.most, ok, place: ok ? places[best.at].name : null, assign: best.assign, text };
+}
+
 /* (the page) the default pick: MACRO's own fourteen beyond the built-in VA (ids 1..14), so a unit that installs it loses no sound of a Release 2 project */
 const pickDefault = (manifest) => manifest.items.filter((it) => it.id >= 1 && it.id <= 14).map((it) => it.id);
 /* (the page) what the other modules take, for the room meter: the module packages the page is about to install (stageMods: [{name, sectors}]: an engine module's
@@ -190,11 +241,11 @@ const PICK_GEO = { 14: ["SHAPES", 6], 19: ["PROPHET", 8], 7: ["WHEEL", 4] };
 const PICK_FX_NAMES = { 1: "DUB TAPE" };
 function pickOthers(stageMods, unit) {
   const out = [], seen = new Set();
-  for (const m of stageMods || []) if (m && m.name && m.sectors > 0 && !seen.has(m.name)) { out.push({ name: m.name, sectors: m.sectors }); seen.add(m.name); }
+  for (const m of stageMods || []) if (m && m.name && m.sectors > 0 && !seen.has(m.name)) { out.push(m.only ? { name: m.name, sectors: m.sectors, only: m.only } : { name: m.name, sectors: m.sectors }); seen.add(m.name); }
   if (unit && unit.engines) for (const x of unit.engines.engines || []) {
     if (x.src !== 2 || x.state !== 7 || !PICK_GEO[x.num]) continue;
     const [name, sectors] = PICK_GEO[x.num];
-    if (!seen.has(name)) { out.push({ name, sectors }); seen.add(name); }
+    if (!seen.has(name)) { out.push({ name, sectors, only: "area" }); seen.add(name); }
   }
   if (unit && unit.fx) for (const x of unit.fx.effects || []) {
     if (x.kind === 4 || x.resident || x.state !== 7) continue;
@@ -205,5 +256,5 @@ function pickOthers(stageMods, unit) {
 }
 
 export const PICK = { parseMaster: pickParseMaster, default: pickDefault, others: pickOthers, items: pickItems, validate: pickValidate, regionsKept: pickRegionsKept, stateSize: pickStateSize,
-                      block: pickBlock, blockRead: pickBlockRead, bytes: pickBytes, sectors: pickSectors, startsFor: pickStartsFor, compact: pickCompact,
+                      block: pickBlock, blockRead: pickBlockRead, bytes: pickBytes, sectors: pickSectors, startsFor: pickStartsFor, placeOf: pickPlaceOf, compact: pickCompact,
                       pack: pickPack, room: pickRoom, crc32: pkCrc32, PICK_AT };

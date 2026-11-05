@@ -22,7 +22,7 @@ import build  # noqa: E402
 import ocflash  # noqa: E402
 import pick_module  # noqa: E402
 
-# name, items, area (0: the real area; else sectors to pretend, for a pick larger than it)
+# name, items, area (0: the real area; else sectors to pretend, for a pick larger than it), and optionally the place ("tail": the second place)
 PICKS = [("all", list(range(28)), 40),                                           # every model and bank: 37 sectors, fits nothing real
          ("fm", ["fm"], 0),                                                      # the smallest: one small model, 2 sectors, every start
          ("chip", ["chip"], 0),
@@ -30,7 +30,9 @@ PICKS = [("all", list(range(28)), 40),                                          
          ("macro", list(range(15)), 0),                                          # MACRO's own fifteen
          ("wtb", ["wavtbl", "wav1", "terran"], 0),                               # one wave bank in the middle, the others dropped
          ("odd", ["speech", "6opb", "harp"], 0),                                 # 6OP B alone: the six-op code with banks 0 and 2 dropped
-         ("wt3", ["wavtbl", "wav0", "wav1", "wav2", "terran"], 40)]
+         ("wt3", ["wavtbl", "wav0", "wav1", "wav2", "terran"], 40),
+         ("tailfm", ["fm"], 0, "tail"),                                          # (the second place: FLASH_MAP_R3.md option A's tail region, 4 sectors at -59) one sector at its four starts
+         ("tail4", ["vavcf", "pd", "terran", "strmch", "chip"], 0, "tail")]      # four sectors: the whole tail, one start
 REFUSED = [([], "nothing picked"), (["wavtbl"], "needs a wave bank"), (["wav0"], "of use to"), ([99], "no item")]
 
 
@@ -60,9 +62,10 @@ def main():
     check(f"the master reads back: {len(manifest['regions'])} regions, {len(manifest['items'])} items, {len(img0)} B, {len(words)} relocations",
           len(manifest["regions"]) == 30 and len(manifest["items"]) == 28)
     written = []
-    for name, items, area in PICKS:
+    for name, items, area, *pl in PICKS:
+        place = pl[0] if pl else None
         ids = pick_module.pick_items(manifest, items)
-        args = ["--pick", ",".join(str(i) for i in ids)] + (["--area", str(area)] if area else [])
+        args = ["--pick", ",".join(str(i) for i in ids)] + (["--area", str(area)] if area else []) + (["--place", place] if place else [])
         r = subprocess.run([sys.executable, "tools/build.py", "--module", "plaits", *args], cwd=ROOT, env=env, capture_output=True, text=True)
         if r.returncode:
             check(f"pick {name} {ids}: the linker's build", False)
@@ -70,7 +73,7 @@ def main():
             continue
         oracle = (ROOT / "build" / "plaits-pick.ocm").read_bytes()
         shutil.copy(ROOT / "build" / "plaits-pick.ocm", out / f"{name}.ocm")
-        ocm, sectors, starts = pick_module.pack(master, ids, 0, area or None)
+        ocm, sectors, starts = pick_module.pack(master, ids, 0, area or None, place)
         same = ocm == oracle
         check(f"pick {name} {ids}: the packer's {len(ocm)} B ({sectors} sectors, starts {starts}) are the linker's byte for byte", same)
         if not same:
@@ -79,7 +82,7 @@ def main():
         imgs = ocflash.ocm_images(oracle, manifest["area_lo"])
         got = [pick_module.pick_block_read(img) for img in imgs.values()]
         check(f"pick {name}: the pick block of every start's image reads back as the pick", all(g == (ids, 28) for g in got) and len(got) == len(starts))
-        written.append({"name": name, "items": ids, "area": area, "file": f"{name}.ocm"})
+        written.append({"name": name, "items": ids, "area": area, "place": place, "file": f"{name}.ocm"})
     (out / "picks.json").write_text(json.dumps({"master": master_file.name, "picks": written}, indent=1))
     for items, why in REFUSED:
         try:

@@ -7,7 +7,7 @@ each a region of the image, with the relocation list and a manifest), without a 
 installer page; web/test_pick.mjs and tests/module_pick_test.py prove that both make, for a pick, the bytes tools/build.py --module plaits --pick
 makes with the real linker. The firmware keeps VA; a pick may carry it too (the firmware prefers its own), the page does not offer it.
 
-  tools/pick_module.py MASTER.ocp OUT.ocm ITEM [ITEM ...]      ITEM: a model's key (wavshp, 6opa, wavtbl ...), a wave bank (wav0 ..) or an item id
+  tools/pick_module.py MASTER.ocp OUT.ocm [--place=tail] ITEM [ITEM ...]      (--place: the tail region instead of the module area)  ITEM: a model's key (wavshp, 6opa, wavtbl ...), a wave bank (wav0 ..) or an item id
   tools/pick_module.py MASTER.ocp --list                       the items, their regions and sizes
 
 The master package:
@@ -210,15 +210,28 @@ def compact(manifest, img0, words, items):
     return out, new_words
 
 
-def starts_for(manifest, sectors, area=None):
-    """the starts (signed sectors from the numbering origin, Release 3 step 1: -6 .. 11) the pick fits at: its span inside the area [area_first, area_last);
-    area: sectors to pretend the area has from its first sector, for the byte proof of a pick too large for the real one"""
-    first = manifest["area_first"]
-    last = first + area if area else manifest["area_last"]
-    return [s for s in manifest["starts"] if s >= first and s + sectors <= last]
+def place_of(manifest, place=None):
+    """(first, last) of a place the module may go: "area" (the module area, area_first .. area_last) or one of manifest["places"] by name (the tail region of
+    FLASH_MAP_R3.md option A: Session A's geometry, carried by the build); signed sectors from the numbering origin, the span [first, last)"""
+    if not place or place == "area":
+        return manifest["area_first"], manifest["area_last"]
+    for pl in manifest.get("places", []):
+        if pl["name"] == place:
+            return pl["first"], pl["last"]
+    raise ValueError(f"no place {place!r} in this master")
 
 
-def pack(master, items, cost=0, area=None):
+def starts_for(manifest, sectors, area=None, place=None):
+    """the starts (signed sectors from the numbering origin, Release 3 step 1: -6 .. 11) the pick fits at: its span inside the place [first, last) (default
+    the module area); area: sectors to pretend the area has from its first sector, for the byte proof of a pick too large for the real one"""
+    first, last = place_of(manifest, place)
+    if area and (not place or place == "area"):
+        last = first + area
+    grid = manifest["starts"] if not place or place == "area" else range(first, last)   # (the area's own grid: -6 .. 11)
+    return [s for s in grid if s >= first and s + sectors <= last]
+
+
+def pack(master, items, cost=0, area=None, place=None):
     """the .ocm (format 2) of a pick, from the master package's bytes; ValueError for a pick the packer refuses"""
     manifest, img0, words = master_read(master)
     items = sorted(items)
@@ -230,9 +243,10 @@ def pack(master, items, cost=0, area=None):
     struct.pack_into("<I", img, 48, len(img))          # length (the header's word 12)
     ocflash.module_fill(img)
     sectors = (len(img) + 0xFFF) // 0x1000
-    starts = starts_for(manifest, sectors, area)
+    starts = starts_for(manifest, sectors, area, place)
     if not starts:
-        raise ValueError(f"{sectors} sectors fit no start of the area's {area or manifest['area_sectors']}")
+        first, last = place_of(manifest, place)
+        raise ValueError(f"{sectors} sectors fit no start of the {place or 'area'}'s {area or last - first}")
     h = manifest["hdr"]
     variants = []
     for s in starts:
@@ -258,8 +272,12 @@ def main(argv):
     if argv[2:3] and argv[2].startswith("--area="):
         area = int(argv[2][7:])
         argv = argv[:2] + argv[3:]
+    place = None
+    if argv[2:3] and argv[2].startswith("--place="):
+        place = argv[2][8:]
+        argv = argv[:2] + argv[3:]
     items = pick_items(manifest, argv[2:])
-    ocm, sectors, starts = pack(master, items, 0, area)
+    ocm, sectors, starts = pack(master, items, 0, area, place)
     Path(argv[1]).write_bytes(ocm)
     print(f"{argv[1]}: {len(ocm)} B, items {items}, {sectors} sectors, starts {starts}, state {state_size(manifest, items)} B")
 

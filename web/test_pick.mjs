@@ -28,7 +28,7 @@ if (existsSync(picksFile)) {
   const picks = JSON.parse(readFileSync(picksFile, "utf8"));
   for (const p of picks.picks) {
     const want = new Uint8Array(readFileSync(new URL("build/module/plaits/picks/" + p.file, ROOT)));
-    const got = PICK.pack(master, p.items, 0, p.area || null);
+    const got = PICK.pack(master, p.items, 0, p.area || null, p.place || null);
     assert.ok(got.ocm, "pick " + p.name + ": " + got.error);
     assert.deepEqual(got.ocm, want, "pick " + p.name + " is the linker's byte for byte");
     n1++;
@@ -90,7 +90,7 @@ assert.deepEqual(PICK.default(manifest), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
 {
   const unit = { engines: { engines: [{ num: 14, src: 2, state: 7 }, { num: 7, src: 2, state: 7 }, { num: 8, src: 1, state: 0 }] },
                  fx: { effects: [{ id: 1, kind: 1, state: 7, sectors: 3, resident: false }, { id: 0x4D08, kind: 4, state: 7, sectors: 9, resident: false }, { id: 0x80000001, kind: 2, state: 7, sectors: 1, resident: false }] } };
-  assert.deepEqual(PICK.others([{ name: "SHAPES", sectors: 6 }], unit), [{ name: "SHAPES", sectors: 6 }, { name: "WHEEL", sectors: 4 }, { name: "DUB TAPE", sectors: 3 }, { name: "0x80000001", sectors: 1 }],
+  assert.deepEqual(PICK.others([{ name: "SHAPES", sectors: 6 }], unit), [{ name: "SHAPES", sectors: 6 }, { name: "WHEEL", sectors: 4, only: "area" }, { name: "DUB TAPE", sectors: 3 }, { name: "0x80000001", sectors: 1 }],
     "a stage's module once, the unit's others by geometry or sectors, the models module itself left out");
   assert.deepEqual(PICK.others([], null), []);
   const r = PICK.room(manifest, img0.length, PICK.default(manifest), 18, PICK.others([{ name: "SHAPES", sectors: 6 }, { name: "WHEEL", sectors: 4 }, { name: "DUB TAPE", sectors: 3 }], null));
@@ -98,3 +98,24 @@ assert.deepEqual(PICK.default(manifest), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
   assert.equal(r.need, 9); assert.equal(r.free, 5); assert.ok(!r.ok, "MACRO's own fourteen (9 sectors) do not fit beside the full set (5 left)");
 }
 console.log("test_pick: all passed");
+
+// 5. (the second place) the tail region of FLASH_MAP_R3.md option A (4 sectors, 59 below 0xC8000): the packer's starts there, and the meter over both places
+{
+  assert.deepEqual(manifest.places, [{ name: "area", first: -6, last: 12 }, { name: "tail", first: -59, last: -55 }]);
+  const tailStarts = PICK.startsFor(manifest, 3, null, "tail");
+  assert.deepEqual(tailStarts, [-59, -58], "a 3 sector pick has two starts in the tail");
+  assert.deepEqual(PICK.startsFor(manifest, 5, null, "tail"), [], "a 5 sector pick has none");
+  const one = PICK.pack(master, PICK.items(manifest, ["fm"]), 0, null, "tail");
+  assert.ok(one.ocm && one.starts.join() === "-59,-58,-57,-56", "a one sector pick packs for the tail: " + (one.error || one.starts));
+  const full = [{ name: "SHAPES", sectors: 6, only: "area" }, { name: "WHEEL", sectors: 1, only: "area" }, { name: "DUB TAPE", sectors: 3 }, { name: "REVERB", sectors: 1 }, { name: "FX", sectors: 2 }];
+  const places = [{ name: "area", label: "module area", sectors: 18 }, { name: "tail", label: "tail region", sectors: 4 }];
+  const def = PICK.room(manifest, img0.length, PICK.default(manifest), places, full);
+  assert.ok(def.ok && def.place === "area", "the default pick (9) goes in the area beside the full set, the tail taking DUB TAPE and the reverb: " + def.text);
+  const big = PICK.room(manifest, img0.length, PICK.items(manifest, ["wavtbl", "wav0", "wav1", "wav2"]), places, full);
+  assert.ok(!big.ok && /too many/.test(big.text) && /Leave a model or a wave bank out/.test(big.text), "a large pick is refused with the room line: " + big.text);
+  const small = PICK.room(manifest, img0.length, PICK.items(manifest, ["fm"]), places, [{ name: "SHAPES", sectors: 6, only: "area" }, { name: "EXTRA", sectors: 12, only: "area" }, { name: "DUB TAPE", sectors: 3 }]);
+  assert.ok(small.ok && small.place === "tail", "with the area full, a small pick goes in the tail: " + small.text);
+  const pk = PICK.pack(master, PICK.default(manifest), 0, null, "area");
+  assert.ok(pk.ocm, "the default pick packs for the area");
+  console.log("test_pick: the second place: " + def.text);
+}
