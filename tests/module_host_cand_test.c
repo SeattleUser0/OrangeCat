@@ -41,11 +41,8 @@ int main(int argc, char **argv)
     np = em->npresets;
     ng = load_kv(gpath, gold, MAXJ);
     check("the header passes the registration check and names the proposed number", fw_module_check(&h) == FW_MOD_OK && h.engine == CAND_ENGINE &&
-          h.engine >= 21u && h.engine < NENGINES && NENGINES == 33);   /* (macro2-candidate: 33) */
-    if (CAND_ENGINE == ENGI_MACRO2)            /* (macro2-candidate) MACRO's glue: four voices, a hot set of its own (eng_macro2.c MC2_HOT_LIST), the part state under 12 KB */
-        check("a hot set of its own (at most ENG_HOT_MAX tables), the part state (mc2_part_t) under 12 KB, four voices", em->nhot >= 1u && em->nhot <= ENG_HOT_MAX &&
-              h.state_size > 1024u && h.state_size <= 12u * 1024u && em->poly == 4u && np >= 3u && np <= 64u);
-    else if (CAND_ENGINE < ENGI_FMBELL)
+          h.engine >= 21u && h.engine < NENGINES && NENGINES == 32);
+    if (CAND_ENGINE < ENGI_FMBELL)
         check("no hot set of its own, the state in voice_t (a 4-byte token state: the loader refuses 0)", em->nhot == 0u && h.state_size == 4u && np >= 3u && np <= 64u);
     else                                       /* (0.14.1) op1r's: the glue's part state (the voices' 128-sample blocks, the plugin's own), six voices */
         check("no hot set of its own, the glue's part state (op1g_part_t) under 16 KB, OP1_VOICES voices", em->nhot == 0u && h.state_size > 2048u &&
