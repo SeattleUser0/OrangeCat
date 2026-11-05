@@ -13,7 +13,7 @@ mkdir -p "$OUT" || exit 2
 [ -n "$CC" ] || CC="cc -O1 -ffp-contract=off -Wall -Wno-unused-function $BS"
 ROOT=$(pwd)
 case $OUT in /*) ;; *) OUT=$ROOT/$OUT ;; esac
-FLAGS="-w -I$ROOT/build/gen -Ifirmware/src -Itests"
+FLAGS="-w -I$ROOT/build/gen -Ifirmware/src -Itests -DPL_UNITS_OLD=1"   # (picker-r3) the scenarios run MACRO presets: the pinned printout is the old tree's, made with the units before the recalibration (pl_models.h PL_UNITS_OLD); the DUB comparison is not about them
 
 # the test is compiled once (tests/fx_dub_module_test.c, the resident kernel and the host: the same text for every mutant); a mutant changes only the module's translation unit
 test_obj() {   # test_obj: the test's object, $OUT/fxdm_test.o
