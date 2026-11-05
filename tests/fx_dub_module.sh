@@ -17,7 +17,7 @@ FLAGS="-w -I$ROOT/build/gen -Ifirmware/src -Itests -DPL_UNITS_OLD=1"   # (picker
 
 # the test is compiled once (tests/fx_dub_module_test.c, the resident kernel and the host: the same text for every mutant); a mutant changes only the module's translation unit
 test_obj() {   # test_obj: the test's object, $OUT/fxdm_test.o
-    [ -f "$OUT/fxdm_test.o" ] && [ "$OUT/fxdm_test.o" -nt tests/fx_dub_module_test.c ] && [ "$OUT/fxdm_test.o" -nt tests/fx_insert_test.c ] && [ -z "$(find firmware/src -newer "$OUT/fxdm_test.o" -name '*.[ch]' -print -quit)" ] && return 0
+    [ -f "$OUT/fxdm_test.o" ] && [ "$OUT/fxdm_test.o" -nt tests/fx_dub_module_test.c ] && [ "$OUT/fxdm_test.o" -nt tests/fx_dub_module.sh ] && [ "$OUT/fxdm_test.o" -nt tests/fx_insert_test.c ] && [ -z "$(find firmware/src -newer "$OUT/fxdm_test.o" -name '*.[ch]' -print -quit)" ] && return 0
     $CC $FLAGS -c -o "$OUT/fxdm_test.o" tests/fx_dub_module_test.c
 }
 build() {   # build DIR TAG: the module's unit in DIR (a tree with firmware/, tools/module/, tests/) linked with the test to $OUT/fxdm_TAG
