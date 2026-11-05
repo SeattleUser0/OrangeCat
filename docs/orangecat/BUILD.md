@@ -4964,3 +4964,10 @@ follows in later sessions. The document: docs/orangecat/UI_DESIGN.md.
 | (0.79b) The free ids: DUB TAPE's recorded seven on P_JRES0..6, its setup in the project's effect tail, the macros on P_RESERVED33..36 | **Proposed** (to agree with DUB_TAPE_PLAN.md 7.2) |
 | The owner's picks: HOME A or B; the knob table | **Open** |
 | The build: Part 3's nine steps, step 1 (HOME's picture behind a switch) first | **Not started** |
+
+### 7.30 Round 19 and 20 (November 4, 2026)
+
+- **Which suite.** Rounds 17 and 18 ran `ci_step.py test` (SAN unset = SAN=0, CI's). SAN=1 was red on linux-hw since commits of Oct 16 to 27 (shifts of negative values, a null member access, loader leaks); san-fix (542914bf) fixed them with identical output (hash gate: plain .fwsc, app and loader identical). From round 19 on the full SAN=1 suite is the test before a flash or a Nightly.
+- **Merged:** dev-tools 56d796d9 (hash gate identical), san-fix, r3-pages 3dd1a7c2, melodic-grid 05ac62c3 (seq.c keyboard_block keeps both branches; a DUB key no longer acts while song.grid >= 2), DUB resident kernel removed (image 560,100 to 551,284 B, -8,816 B; MODULE MISSING and dry without the module).
+- **SAN=1:** 02bf7a2d green in 6,446 s. Two earlier runs failed on /tmp full (tmpfs, 5.6 GB of my picker captures) and on mgrid_test pinning the Release 2 interface id.
+- **Image:** melodee.bin 555,400 B, free 21,848 B before the 8 KB reserve.
