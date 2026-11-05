@@ -1,3 +1,14 @@
+# Orange Cat Nightly v0.16.0-2e1056 (Round 21): what changed for you since 02bf7a
+
+Written November 5, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged.
+
+1. **GRID** is the trimmed build (160 B smaller, every picture identical); nothing to relearn. GRID and the DUB keys are as in the note below.
+2. **Model picker:** not in this Nightly. I reviewed it; its room meter ignores where modules sit, so it can say "fits" for a pick the unit cannot place. Session B fixes that first.
+3. **Image:** 555,096 B, body 551,288 B of 573,440: 22,152 B free, 13,960 B above the 8 KB reserve.
+4. **Tested:** the full SAN=1 suite (sanitizer) green on 2e1056a9, 5,894 s.
+
+---
+
 # Orange Cat Nightly v0.16.0-02bf7a (Round 20): what changed for you since db6f67
 
 Written November 4, 2026 for the owner. Install from the installer page (Nightly); DUB TAPE is ticked under effects. Standard 0.15.0 is unchanged. **Install the page's DUB TAPE module: the resident copy is gone, and without it a DUB track says MODULE MISSING and plays dry.**
