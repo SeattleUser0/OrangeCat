@@ -39,8 +39,19 @@ static void fresh(void)                            /* the tracks and the arena f
     memset(trk, 0, sizeof trk);
     memset(&song, 0, sizeof song);
     host_tracks_init();
-    memset(resource, 0, sizeof resource);
+    for (uint32_t k = 0; k < NPART; k++) resource_release(RES_ENGINE0 + k);   /* (the parts only: wiping the whole table forgot the hot sets' blocks, which the next
+                                                                              * part then took and a model's start zeroed: MACRO read tables of zeros, NaN out of NOISE) */
     song.master_q12 = 4096;
+}
+static int hot_intact(void)                        /* every table of every taken hot set equals its source (a model's tables are never written) */
+{
+    uint32_t s, i, ok = 1, sets = 0;
+    for (s = 0; s < ENG_HOT_SLOTS; s++) {
+        if (!eng_hs.list[s]) continue;
+        sets++;
+        for (i = 0; i < eng_hs.n[s]; i++) ok &= !memcmp(eng_hs.at[s][i], eng_hs.list[s][i].src, eng_hs.list[s][i].bytes);
+    }
+    return ok && sets;
 }
 /* every preset as a regress job (names preset/MACRO/NN_NAME, golden.txt's), arg 1: on VA; step: every step-th preset only */
 static uint32_t jobs_presets(char names[][64], uint32_t arg, uint32_t step)
@@ -165,6 +176,7 @@ int main(int argc, char **argv)
             for (i = 0; i < 2 * CTL; i++) finite &= out[i] == out[i];
         }
         for (i = 0; i < NVOICE; i++) nv += trk[0].v[i].active;
+        check("the hot tables are whole after the switches (a model's start writes its own state only)", hot_intact());
         check("model changed every 20 blocks under a held note (every model, installed or not); a second note: one voice, no fault", nv == 1 && finite);
     }
     {   /* a chord: four voices on a small model (VA, POLY), one on a large one (STRING, 6OP A, STRMCH), the voice cap of the model that plays */
