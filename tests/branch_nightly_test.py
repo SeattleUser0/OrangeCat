@@ -181,7 +181,7 @@ class BranchNightly(unittest.TestCase):
         self.publish(ocms=[self.bsh, self.bpr, dub])
         fw = self.site / "firmware"
         n = self.meta()["nightly"]
-        self.assertEqual(n["ocm"], [{"url": "../../firmware/orangecat-dub-nightly.ocm", "kind": 1, "module_id": 1, "name": "DUB TAPE"},
+        self.assertEqual(n["ocm"], [{"url": "../../firmware/orangecat-dub-nightly.ocm", "kind": 1, "module_id": 1, "sectors": 3, "name": "DUB TAPE"},
                                     "../../firmware/orangecat-prophet-nightly.ocm", "../../firmware/orangecat-shapes-nightly.ocm"])
         self.assertEqual((fw / "orangecat-dub-nightly.ocm").read_bytes(), dub.read_bytes())
         sj = json.loads((fw / "orangecat-nightly.dub.set.json").read_text())
