@@ -4,7 +4,7 @@ One page to manage the unit: its modules, its sounds, its steps, its arrangement
 USB-MIDI SysEx (Chrome, Edge or Opera), with the same protocol code as the old editor. Firmware is still installed from the installer
 page; the old editor (`web/editor.html`) stays until this page does everything it does.
 
-Version 0.16.0 (web-r3, November 8, 2026, Session D): follows the Nightly v0.16.0-2e1056. Its tables (pages, parameters, HOME knobs, menu,
+Version 0.16.0 (web-r3, November 9, 2026, Session D): follows the Nightly v0.16.0-2e1056. Its tables (pages, parameters, HOME knobs, menu,
 layers, scenes) are generated from the firmware (`tests/web_tables.c`), and `controls.html` is the owner's controls guide. Not yet tried
 on the unit (`HARDWARE_TEST.md` is the procedure). `docs/orangecat/WEB_AUDIT.md` lists what the page still lacks.
 
@@ -15,7 +15,7 @@ on the unit (`HARDWARE_TEST.md` is the procedure). `docs/orangecat/WEB_AUDIT.md`
 | Unit | Connect; the firmware and what it can do; the asset pack (install, erase); the Engines table (Install, Replace, Remove, Use on a track); Install the set (the pack and the modules the site publishes with its firmware, or files picked here) | INFO, 115..119, 120..125, 126/127, the installer's `runSet` (`web/fm1oc.js`) |
 | Sounds | Per track: the engine's picture, its four knobs, the SOUND sheet (the eight EDIT values), the preset browser with favorites, the library (save, load, rename, erase) | DUMP, DESC, SET, TRACK_PARAM, PRESET, FAV_SET, UP_* or LIBRARY (80) |
 | Pages | The unit's own pages, in its order, under its family buttons (FX, ENV, LFO, SCL, EDIT, GLO, ARP, SEQ, TRK): the effects (SENDS, DELAY .. MASTER, DIST, AUTO PAN, DUB SETUP, DUB, DUB 2), the envelope, the LFOs (with LFO SYNC), MOD's four slots, scale and chord, voice and SLIDE TIME, the arpeggiator, the phrase, TEMPO, the unit's GLOBAL and SYSTEM settings, the MIXER (level, pan, mute of each track). Each cell has the unit's label and the unit's text for its value, from the firmware (`lib/pages.js`); one the link cannot write is grayed and says why | DUMP, SET, TRACK_PARAM, TRACK_MIX |
-| Steps | The phrase's steps as a tracker (notes, time, velocity, the step's flags, chance, drum hits), edited in place; the recorded notes' own onset, length, velocity and bend | TRACK_STEP; backup object 0 |
+| Steps | The phrase's steps as a tracker (notes, time, velocity, ACC, SLIDE, chance, a DRUM-X step's hits), edited in place; GRID (the unit's SEQ > GRID: tiles, a key puts a note in the step, CHORD, undo); Motion (command 64: read, set, delete, on / off, clear); the recorded notes' own onset, length, velocity and bend | TRACK_STEP; backup object 0 |
 | Arrange | The 64 phrases of the pool, the chains (drag a step to reorder), the song (drag a row), the scenes, each track's groove, LAUNCH; a list of what will change, then Write | ARRANGE (102, new in 0.14.2) |
 | Project | Read the music now or a saved slot; save the music now to a slot and load a slot (the unit's own SAVE / LOAD); export and import project files; the complete backup and restore, and what a backup holds | backup objects (65..67), PROJECT (9) |
 | Settings | The page's colors (the unit's palettes); the unit's preferences (screen palette, preset filter, click, count-in, preview, chord entry); the audio readout | UI_STATE, UI_SET, AUDIO_STATS (72) |
@@ -29,6 +29,10 @@ No build step: an HTML page, a style sheet and ES modules.
 | File | What |
 |---|---|
 | `index.html`, `app.css`, `app.js` | the page, its look (the unit's design tokens: `docs/design/README.md`), the tabs |
+| `lib/grid.js` | the GRID card's rules (the unit's `ui_mgrid.c`): sixteen steps a page, the key's note, a chord of four |
+| `lib/kit.js` | a DRUM-X track's kit: the three DXLANE pages' cells (from `fw_tables.js`) as fields of KIT_GET / KIT_PUT |
+| `lib/modules.js` | which engines need a module or the pack, and the tracks that play nothing for want of one (`ui.c` mod_gone, pack_notice) |
+| `lib/backup_ids.js` | what each object of a complete backup is (`editor_backup.c`; `test/test_proto.mjs` holds it) |
 | `lib/pages.js` | the Pages tab's logic: the pages, cells, value text, read-only cells and DUB's packed fields, all from `lib/fw_tables.js` |
 | `lib/session.js` | one connection and everything the tabs ask of it, in the order the old editor does it |
 | `lib/codec.js` | the project record (FBKK, the FUN23 part) and the arrangement (the lists), read and written byte for byte |
@@ -73,10 +77,11 @@ SysEx on localhost).
 
 The full list, with ids, is `docs/orangecat/WEB_AUDIT.md`. In short:
 
-- **Writing a macro knob or SLIDE TIME**: the editor link refuses ids 33..36 and 48 (`editor.c`). The page shows a macro's offset, read from the unit.
+- **Writing a macro knob, SLIDE TIME, BOOT, the DRUM channel or the WEIGHTS** works on this branch with its firmware (`web-cmds`, `docs/orangecat/WEB_CMDS.md`, for Session A to review): the editor link of the Nightly refuses or does not reach them, so on a Nightly the Pages tab shows them grayed, "on the unit" (the page tells the two apart from what `fw_tables.js` says, which is generated from the firmware it was made with).
 - **Per-note editing** of recorded notes, and **clearing** (REC held on the unit): no command (108 is a test-build read).
 - **A step's RATCH, FLAM, condition and NUDGE**: shown from STEP_GET, not written by the page yet.
 - **The unit's menu rows** beyond the preferences (HOME PAGE, HOME SELECT, GLO SELECT, UNUSED TRACKS, AUTOSAVE, PICKER POPUPS, KNOB ACCEL, HOLD, LIGHTS, USB AUDIO): UI_SET has no ids for them.
 - **Project template, "New song", the unsaved-changes flag**: ED_PROJECT takes slots 1 to 4 only.
-- **Mixer, tempo, the FX, ENV, MOD, VOICE sheets, DRUM-X kit and lanes, an Effects table (DUB TAPE)**: the wire carries them; the page has no card yet.
+- **A module's own values** (the Prophet's patch bytes, WHEEL's and SHAPES' knobs and pictures): the page lists a module's pages; no generic command reads or writes the native block, and HOME's knob table of a module is not on the wire (WEB_AUDIT.md, Session A items 2 and 9).
+- **DUB TAPE's module** is not checked for when naming a silent track (no FX_TABLE probe yet); the Effects table has no card.
 - **A project file's arrangement** is not written to another unit (phrase numbers name that unit's pool).
