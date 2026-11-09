@@ -4,15 +4,18 @@ import { ok } from "./t.mjs";
 import { makeAppMock } from "../lib/mock.js";
 import { Session } from "../lib/session.js";
 import { CMD } from "../lib/editor_proto.js";
+import { FW } from "../lib/fw_tables.js";
+import { PACK } from "../lib/mock.js";
 
 /* an .ocm package (format 1) for the mock's unit, as tools/build.py --module lays it out (the shape test_web.mjs builds) */
 const crc = (b) => { let c = 0xFFFFFFFF; for (const x of b) { c ^= x; for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xEDB88320 : c >>> 1; } return (c ^ 0xFFFFFFFF) >>> 0; };
-export function ocmPackage({ engine = 14, iface = 0xE3CB357E, apiAddr = 0x02001100, hash = 0x657ED950, len = 3000, version = 0x000E0300 } = {}) {
+/* (the numbers the unit reports are the firmware's: FW.mod from tests/web_tables.c, fw_api.h; the pack hash is this build's pack) */
+export function ocmPackage({ engine = 14, iface = FW.mod.iface, apiAddr = FW.mod.apiAddr, hash = PACK.hash, len = 3000, version = 0x000E0300 } = {}) {
   const starts = engine === 19 ? [0, 4] : [0, 6], tab = 56, hc = tab + 32, base = hc + 4;
   const imgs = starts.map((start, i) => {
     const im = new Uint8Array(len); for (let j = 0; j < len; j++) im[j] = (j * 7 + i + 1) & 255;
     const dv = new DataView(im.buffer), link = (0x020C4000 + start * 4096) >>> 0;
-    dv.setUint32(0, 0x444F4D4F, true); dv.setUint32(4, iface, true); dv.setUint32(8, 60, true); dv.setUint32(12, 3, true);
+    dv.setUint32(0, 0x444F4D4F, true); dv.setUint32(4, iface, true); dv.setUint32(8, FW.mod.apiSize & 127, true); dv.setUint32(12, FW.mod.apiVersion, true);
     dv.setUint32(16, apiAddr, true); dv.setUint32(20, engine, true); dv.setUint32(24, 11136, true); dv.setUint32(28, link + 0x180, true);
     dv.setUint32(32, link, true); dv.setUint32(36, hash, true); dv.setUint32(40, 0, true); dv.setUint32(44, version, true); dv.setUint32(48, len, true);
     im.fill(0, 60, 0x100); dv.setUint32(52, crc(im.subarray(0x100)), true); dv.setUint32(56, crc(im.subarray(0, 56)), true);
@@ -21,7 +24,7 @@ export function ocmPackage({ engine = 14, iface = 0xE3CB357E, apiAddr = 0x020011
   const b = new Uint8Array(base + 2 * len), dv = new DataView(b.buffer);
   dv.setUint32(0, 0x464D434F, true); dv.setUint16(4, 1, true); dv.setUint16(6, 2, true);
   dv.setUint32(8, iface, true); dv.setUint32(12, apiAddr, true); dv.setUint32(16, engine, true); dv.setUint32(20, 11136, true); dv.setUint32(24, hash, true);
-  b.set(new TextEncoder().encode(engine === 19 ? "PROPHET" : "SHAPES"), 28); dv.setUint32(44, 3, true); dv.setUint32(48, 60, true); dv.setUint32(52, 6, true);
+  b.set(new TextEncoder().encode(engine === 19 ? "PROPHET" : "SHAPES"), 28); dv.setUint32(44, FW.mod.apiVersion, true); dv.setUint32(48, FW.mod.apiSize & 127, true); dv.setUint32(52, 6, true);
   imgs.forEach((im, i) => { dv.setUint32(tab + 16 * i, starts[i], true); dv.setUint32(tab + 16 * i + 4, len, true); dv.setUint32(tab + 16 * i + 8, crc(im), true); dv.setUint32(tab + 16 * i + 12, base + len * i, true); b.set(im, base + len * i); });
   dv.setUint32(hc, crc(b.subarray(0, hc)), true);
   return b;
@@ -42,15 +45,18 @@ export async function run() {
   ok(s.tracks && s.tracks.tracks.length === 4 && s.dump && s.dump.p.length === s.info.pcount, "unit: the tracks and the selected track's sound are read");
   ok(s.watch === 3 && s.v4, "unit: the live pushes are on (WATCH 3: any track's parameters)");
   ok(s.pack && s.pack.state === 1, "unit: the asset pack is read (115): this build's pack");
-  ok(s.mod && s.mod.nstarts === 3 && s.engines && s.engines.engines.length === 20, "unit: the modules (120) and the Engines list (125) are read");
+  ok(s.mod && s.mod.nstarts === FW.mod.starts && s.mod.starts.length === FW.mod.starts && s.engines && s.engines.engines.length === FW.consts.NENGINES && s.engines.starts.length === FW.mod.starts,
+     `unit: the modules (120) and the Engines list (125) are read, as the firmware lays them out (${FW.mod.starts} starts of ${FW.mod.area} sectors)`);
+  ok(s.mod.apiVersion === FW.mod.apiVersion && s.mod.apiSize === (FW.mod.apiSize & 127) && s.mod.iface === FW.mod.iface && s.mod.apiAddr === FW.mod.apiAddr && s.mod.packHash === PACK.hash,
+     "unit: MOD_INFO carries the firmware's table version, size, identifier and address (generated: tests/web_tables.c, fw_api.h) and this build's pack hash");
   ok(s.arrange && s.arrange.version === 1 && s.arrange.size === 2396 && s.arrange.pool.length === 64, "unit: the arrangement command (102) answers: version 1, the lists' size, the pool");
 
   const rows = s.engineRows();
-  const shapes = rows.find((r) => r.num === 14), sid = rows.find((r) => r.num === 3), prophet = rows.find((r) => r.num === 19);
-  ok(shapes && shapes.source === "module" && shapes.version === "0.14.1" && shapes.actions.includes("replace") && shapes.actions.includes("remove") && shapes.canUse,
+  const shapes = rows.find((r) => r.num === 14), macro = rows.find((r) => r.num === 8), prophet = rows.find((r) => r.num === 19), wheel = rows.find((r) => r.num === 7);
+  ok(shapes && shapes.source === "module" && shapes.version === "0.14.2" && shapes.actions.includes("replace") && shapes.actions.includes("remove") && shapes.canUse,
      "unit: the Engines table: SHAPES a module with Replace, Remove and Use (the editor's enginesRows, unchanged)");
-  ok(sid && sid.source === "builtin" && !sid.actions.length && sid.canUse && prophet && prophet.source === "builtin",
-     "unit: a built-in engine has Use only; PROPHET's number is a module slot (Install when no module)");
+  ok(macro && macro.source === "builtin" && !macro.actions.length && macro.canUse && prophet && prophet.source === "none" && prophet.actions.includes("install") && wheel && wheel.actions.includes("install"),
+     "unit: a built-in engine (MACRO, DRUM-X) has Use only; the Prophet's and WHEEL's numbers are module slots (Install when no module), as the Nightly has them");
 
   /* Remove, then Install from a file, then Use on a track */
   await s.removeEngine(14);

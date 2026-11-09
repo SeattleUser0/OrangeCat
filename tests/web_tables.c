@@ -271,6 +271,9 @@ int main(void)
     printf("],\"level\":[");
     for (i = 0; i < 6u; i++) printf("%s%u", i ? "," : "", DUBK_LEVEL[i]);
     printf("]},\n");
+    /* the module loader's numbers MOD_INFO and PACK_INFO answer (editor.c): the table version, size, identifier and address (fw_api.h); the starts and the engines' geometry are oc_module.c's own text, read by tools/gen_fw_tables.mjs */
+    printf("\"mod\":{\"apiVersion\":%u,\"apiSize\":%u,\"iface\":%u,\"apiAddr\":%u,\"wins\":%d,\"shapesBuiltIn\":%d},\n",
+           (unsigned)FW_API_VERSION, (unsigned)sizeof(fw_api_t), (unsigned)FW_API_IFACE, (unsigned)FW_API_ADDR, OC_MODULE_WINS ? 1 : 0, MELODEE_SHAPES ? 1 : 0);
     display();
     printf("\n}\n");
     return 0;

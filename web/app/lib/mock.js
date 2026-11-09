@@ -15,11 +15,17 @@ import { makeMockDevice, frame, unframe, CMD } from "./editor_proto.js";
 import { bkPack, bkUnpack, bkU32, bkR32, bkCrc, BACKUP_IDS } from "#fm1backup";
 import { LAYOUT, decodeLists, encodeLists, listsProblem, decodeFbkk, fnv } from "./codec.js";
 import * as DATA from "./mock_data.js";
+import { FW } from "./fw_tables.js";
+import { MODULE_ENGINES } from "./modules.js";
+import { BK } from "./backup_ids.js";
+import { v14enc, strEnc } from "./editor_proto.js";
 
 const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 const n3 = (v) => [v & 127, (v >> 7) & 127, (v >> 14) & 127];
 const n2 = (v) => [v & 127, (v >> 7) & 127];
 const r2 = (a, o) => a[o] | a[o + 1] << 7;
+/* the asset pack this build carries (build/gen/oc_pack_tables.h OC_PACK_LEN / OC_PACK_HASH; test_proto.mjs compares them when the build has run) */
+export const PACK = { len: 40232, hash: 0x657ED950, area: 40960 };
 const BACKUP_SHARED = Array.from({ length: 29 }, (_, i) => i);   /* fm1backup.js BACKUP_IDS_SHARED: what an Orange Cat unit lists */
 
 export function makeAppMock(opt = {}) {
@@ -34,15 +40,41 @@ export function makeAppMock(opt = {}) {
     slotLists: [b64(DATA.LISTS_NEW), null, null, null],
     settings: new Uint8Array(604).map((_, i) => (i * 7) & 255),
     pool: Array.from({ length: L.NPOOL }, (_, i) => ({ flags: i < 12 ? 1 : 0, len: i < 12 ? 16 : 0, crc: i < 12 ? (0x1000 + i * 77) >>> 0 : 0 })),
-    pack: { state: 1, len: 40232, hash: 0x657ED950, buildLen: 40232, buildHash: 0x657ED950, area: 40960 },
+    pack: { state: 1, len: PACK.len, hash: PACK.hash, buildLen: PACK.len, buildHash: PACK.hash, area: PACK.area },
+    noArrangeObjects: !!opt.noArrangeObjects, arrObj: {},
     noArrange: !!opt.noArrange, noModules: !!opt.noModules,
     engines: null, log: [],
   };
-  /* the Engines list: built in engines from INFO's names, SHAPES (14) as a module at start 0 */
-  const names = ["-", "-", "-", "SID", "-", "-", "-", "-", "MACRO", "DRUM-X", "DRUM", "-", "FM6", "-", "SHAPES", "CZ-1", "-", "-", "-", "PROPHET"];
-  x.engines = names.map((n, i) => ({ src: i === 14 ? 2 : n === "-" ? 0 : 1, state: i === 14 ? 7 : 0, why: 0, start: i === 14 ? 0 : 127,
-    version: i === 14 ? [0, 14, 1] : [0, 0, 0], size: i === 14 ? 23780 : 0 }));
-  x.starts = [{ state: 7, why: 0, engine: 14, length: 23780 }, { state: 0, why: 0, engine: 0, length: 0 }, { state: 0, why: 0, engine: 0, length: 0 }];
+  /* the Engines list as the Nightly's firmware has it: the engines in the image (FW.engines inBuild: MACRO, DRUM-X) are built in (source 1); a module's engine (SHAPES 14,
+     the Prophet 19, WHEEL 7) is source 2 while its module is registered, else not available. SHAPES' module sits at start 0 as a unit from the Nightly's set has it */
+  const MOD = FW.mod, NSTART = MOD.starts, ENGI = Object.fromEntries(Object.entries(MODULE_ENGINES).map(([n, name]) => [name, +n]));
+  const blank = () => ({ src: 0, state: 0, why: 0, start: 127, version: [0, 0, 0], size: 0 });
+  x.engines = FW.engines.map((e) => (e.inBuild ? { ...blank(), src: 1 } : blank()));
+  x.starts = Array.from({ length: NSTART }, () => ({ state: 0, why: 0, engine: 0, length: 0 }));
+  const place = (engine, start, length = 23780) => {
+    Object.assign(x.starts[start], { state: 7, why: 0, engine, length });
+    Object.assign(x.engines[engine], { src: 2, state: 7, start, version: [0, 14, 2], size: length });
+  };
+  if (!opt.noModules && opt.modules !== "none") place(14, 0);
+  /* oc_mod_geo: the sectors a module takes and the starts it may use; a start's sector (oc_mod_sect, from 0xC8000) */
+  const geoOf = (engine) => MOD.geo.find((g) => ENGI[g.engine] === engine);
+  const allowed = (engine, i) => { const g = geoOf(engine); return !!g && i < 31 && ((g.starts >> i) & 1) === 1; };
+  const span = (engine, i) => [MOD.sect[i], MOD.sect[i] + geoOf(engine).sectors];
+  const clash = (engine, i) => x.starts.findIndex((t, j) => t.state === 7 && j !== i && t.engine !== engine && geoOf(t.engine) &&
+    span(t.engine, j)[0] < span(engine, i)[1] && span(engine, i)[0] < span(t.engine, j)[1]);
+  /* where an install of engine goes (oc_mod_plan): a free start that clashes with no other engine's module, else the start that already holds it */
+  const planOf = (engine) => {
+    if (!geoOf(engine)) return { plan: -1, holds: -1, blocker: -1 };
+    const starts = x.starts.map((_, i) => i).filter((i) => allowed(engine, i));
+    const holds = starts.find((i) => x.starts[i].state === 7 && x.starts[i].engine === engine) ?? -1;
+    const free = starts.find((i) => x.starts[i].state === 0 && clash(engine, i) < 0) ?? -1;
+    const plan = free >= 0 ? free : holds;
+    return { plan, holds, blocker: plan >= 0 ? -1 : starts.map((i) => clash(engine, i)).find((j) => j >= 0) ?? -1 };
+  };
+  /* the Prophet module's pages (ED_PAGES / ED_PANEL), the shape of fw_pages.h: two pages over six native parameters */
+  const PANEL = [{ fmt: 0, min: 0, max: 127, def: 64, label: "CUTOFF", unit: "" }, { fmt: 0, min: 0, max: 127, def: 0, label: "RES", unit: "" }, { fmt: 8, min: 0, max: 2, def: 0, label: "WAVE", unit: "", names: ["SAW", "SQR", "TRI"] },
+    { fmt: 0, min: 0, max: 127, def: 32, label: "ENV", unit: "" }, { fmt: 0, min: 0, max: 127, def: 0, label: "RELEASE", unit: "" }, { fmt: 0, min: -12, max: 12, def: 0, label: "TUNE", unit: "st" }];
+  const PAGES = [{ title: "PATCH", ids: [0, 1, 2, 127] }, { title: "ENV", ids: [3, 4, 5, 127] }];
   /* the lists in pool terms: what chains name */
   const recomputePool = () => {
     const l = decodeLists(x.lists);
@@ -52,6 +84,25 @@ export function makeAppMock(opt = {}) {
   /* the backup objects as the unit lists them (bkManifest: 29 ids, sizes, CRCs) */
   const objects = () => BACKUP_SHARED.map((id) => {
     const bytes = id === 0 ? x.runtime : id === 1 ? x.settings : id >= 2 && id <= 5 ? x.slots[id - 2] : null;
+    return { id, bytes: bytes || new Uint8Array(0) };
+  });
+  /* the arrangement objects (LIST 1, editor_backup.c ED_BK_ARR0 ..): each slot's lists record (64..67), the pool's sixteen chunks of four phrases (68..83: flags, length, CRC
+     each), the music loaded's lists then the phrase each bank is (84). The mock keeps them as the records it has: the lists, the pool, a bank table of zeros */
+  const BANKS = C.NTRK * C.NPAT;
+  /* a slot's record starts with its magic ("OCJ3": fm1backup.js checks it); a pool chunk is four 16 bit lengths then the phrases' bytes (here the length of each phrase, of its CRC's bytes) */
+  const MAGIC = Uint8Array.from([0x4f, 0x43, 0x4a, 0x33]);
+  const poolChunk = (c) => {
+    const ph = x.pool.slice(4 * c, 4 * c + 4), lens = ph.map((p) => (p.len ? 8 : 0)), out = [];
+    lens.forEach((n) => out.push(n & 255, n >> 8));
+    ph.forEach((p, i) => { for (let k = 0; k < lens[i]; k++) out.push((p.crc >>> (8 * (k % 4))) & 255); });
+    return Uint8Array.from(out);
+  };
+  const arrObjects = () => Array.from({ length: BK.LIVE - BK.ARR0 + 1 }, (_, i) => {
+    const id = BK.ARR0 + i;
+    let bytes;
+    if (id < BK.POOL0) { const l = x.slots[id - BK.ARR0] && x.slotLists[id - BK.ARR0]; bytes = l ? Uint8Array.from([...MAGIC, ...l]) : null; }
+    else if (id < BK.LIVE) bytes = poolChunk(id - BK.POOL0);
+    else { bytes = new Uint8Array(L.size + BANKS); bytes.set(x.lists); }
     return { id, bytes: bytes || new Uint8Array(0) };
   });
   let snapshot = null, put = null, arr = null;
@@ -72,7 +123,14 @@ export function makeAppMock(opt = {}) {
         return out;
       }
       case CMD.BACKUP_LIST: {
-        if (a.length) { b(1); b(1); b(0); return out; }          /* (LIST 1, the arrangement objects: a firmware without them, as web-app's) */
+        if (a.length) {                                           /* LIST 1: the arrangement objects (a firmware before 0.14.2 answers rc 1) */
+          if (x.noArrangeObjects) { b(1); b(1); b(0); return out; }
+          const arrs = arrObjects();
+          snapshot = [...(snapshot || []).filter((o) => o.id < BK.ARR0), ...arrs.map((o) => ({ ...o, bytes: Uint8Array.from(o.bytes) }))];
+          b(1); b(0); b(arrs.length);
+          for (const o of arrs) { b(o.id); bkU32(o.bytes.length).forEach(b); bkU32(bkCrc(o.bytes)).forEach(b); }
+          return out;
+        }
         if (x.playing) { b(1); b(3); b(0); return out; }         /* (LIST stops the transport on the unit; the mock says 3 as when it cannot) */
         snapshot = objects().map((o) => ({ ...o, bytes: Uint8Array.from(o.bytes) }));
         b(1); b(0); b(snapshot.length);
@@ -93,6 +151,7 @@ export function makeAppMock(opt = {}) {
         else if (op === 0) {
           const size = bkR32(a, 2), crc = bkR32(a, 7);
           if (id === 8 && size) rc = 1;
+          else if (id >= BK.ARR0 && (x.noArrangeObjects || id > BK.LIVE || size > (id === BK.LIVE ? 16384 : 65536))) rc = 1;
           else if ((id === 0 || (id >= 2 && id <= 5)) && size && size !== LAYOUT.fbkk.size) rc = 1;
           else put = { id, size, crc, bytes: new Uint8Array(size), pos: 0 };
         } else if (!put || put.id !== id) rc = 5;
@@ -105,6 +164,9 @@ export function makeAppMock(opt = {}) {
           else {
             if (put.id === 0) { try { decodeFbkk(put.bytes); x.runtime = put.bytes; x.lists = b64(DATA.LISTS_NEW); recomputePool(); } catch (_) { rc = 2; } }   /* (a record from a page: a new project's lists) */
             else if (put.id === 1) x.settings = put.bytes;
+            else if (put.id >= BK.ARR0 && put.id < BK.POOL0) { x.slotLists[put.id - BK.ARR0] = put.size ? put.bytes.slice(4) : null; }
+            else if (put.id >= BK.POOL0 && put.id < BK.LIVE) { /* (a pool chunk: the phrases the mock holds are its own; nothing to take) */ }
+            else if (put.id === BK.LIVE) { try { x.lists = put.bytes.slice(0, L.size); recomputePool(); } catch (_) { rc = 2; } }
             else if (put.id >= 2 && put.id <= 5) { x.slots[put.id - 2] = put.size ? put.bytes : null; x.slotLists[put.id - 2] = put.size ? b64(DATA.LISTS_NEW) : null; }
             put = null;
           }
@@ -163,40 +225,40 @@ export function makeAppMock(opt = {}) {
         b(rc); n3(0).forEach(b);
         return out;
       }
-      case CMD.MOD_INFO: {
+      case CMD.MOD_INFO: {                                       /* editor.c ED_MOD_INFO: the layout, byte for byte (nstarts, sectors, flags, api version and size, iface, api address, pack hash, plan, the starts, blocker, the sectors) */
         if (x.noModules) return null;
-        const iface = 0xE3CB357E, apiAddr = 0x02001100;
-        const engine = a.length ? a[0] : null;
-        /* the starts an engine's module may take (oc_module.c oc_mod_geo: SHAPES 0 and 1, the Prophet 0 and 2): a free one first, else its own */
-        const geo = engine === 19 ? [0, 2] : [0, 1];
-        const holds = engine !== null ? geo.find((i) => x.starts[i].state === 7 && x.starts[i].engine === engine) ?? -1 : -1;
-        const free = geo.find((i) => x.starts[i].state === 0) ?? -1;
-        const plan = engine === null ? 127 : free >= 0 ? free : holds >= 0 ? holds : 127;
-        const flags = (x.starts[0].engine === 14 && x.starts[0].state === 7 ? 2 : 0) | (plan === holds && holds >= 0 ? 8 : 0);
-        [3, 12, flags, 3, 60, ...bkU32(iface), ...bkU32(apiAddr), ...bkU32(x.pack.buildHash), plan].forEach(b);
-        for (const s of x.starts) [s.state, s.why, s.engine, ...n3(s.length)].forEach(b);
-        b(127);
+        const engine = a.length ? a[0] : null, { plan, holds, blocker } = engine === null ? { plan: -1, holds: -1, blocker: -1 } : planOf(engine);
+        const flags = (MOD.shapesBuiltIn ? 1 : 0) | (MOD.wins ? 2 : 0) | (plan >= 0 && plan === holds ? 8 : 0);
+        [NSTART, MOD.area, flags, MOD.apiVersion, MOD.apiSize & 127, ...bkU32(MOD.iface), ...bkU32(MOD.apiAddr), ...bkU32(x.pack.buildHash), plan < 0 ? 127 : plan].forEach(b);
+        for (const t of x.starts) [t.state, t.why, t.engine, ...n3(t.length)].forEach(b);
+        b(engine !== null && plan < 0 && blocker >= 0 ? blocker : 127);
+        b(NSTART); MOD.sect.forEach((v) => b(v + 64)); b(1);
         return out;
       }
       case CMD.MOD_REMOVE: {
         if (x.noModules) return null;
         const e = a[0];
         x.starts.forEach((s) => { if (e === 127 || s.engine === e) Object.assign(s, { state: 0, engine: 0, length: 0 }); });
-        x.engines.forEach((g, i) => { if (e === 127 || i === e) if (g.src === 2) Object.assign(g, { src: 0, state: 0, start: 127, version: [0, 0, 0], size: 0 }); });
+        x.engines.forEach((g, i) => { if (e === 127 || i === e) if (g.src === 2) Object.assign(g, blank()); });
         b(x.playing ? 2 : 0); n3(0).forEach(b);
         x.log.push("remove " + e);
         return out;
       }
       case CMD.MOD_BEGIN: case CMD.MOD_WRITE: case CMD.MOD_END: {
         if (x.noModules) return null;
-        if (cmd === CMD.MOD_BEGIN) x.modBegin = { engine: a[0], start: a[1] };
-        if (cmd === CMD.MOD_END && x.modBegin) {
-          const { engine, start } = x.modBegin;
-          Object.assign(x.starts[start], { state: 7, engine, length: 23780 });
-          Object.assign(x.engines[engine], { src: 2, state: 7, start, version: [0, 14, 2], size: 23780 });
-          x.log.push(`install ${engine} at ${start}`);
+        let rc = x.playing ? 2 : 0;
+        if (cmd === CMD.MOD_BEGIN && !rc) {
+          const { plan } = planOf(a[0]);
+          if (plan < 0 || a[1] !== plan) rc = 1;                  /* (not the plan's start, or an engine no module may supply) */
+          else { x.modBegin = { engine: a[0], start: a[1] }; if (x.starts[a[1]].state === 7) { const old = x.starts[a[1]].engine; Object.assign(x.engines[old], blank()); Object.assign(x.starts[a[1]], { state: 0, engine: 0, length: 0 }); } }
         }
-        b(x.playing ? 2 : 0); n3(0).forEach(b);
+        if (cmd === CMD.MOD_END && x.modBegin && !rc) {
+          const { engine, start } = x.modBegin;
+          place(engine, start);
+          x.log.push(`install ${engine} at ${start}`);
+          x.modBegin = null;
+        }
+        b(rc); n3(0).forEach(b);
         return out;
       }
       case CMD.ENGINES: {
@@ -210,7 +272,23 @@ export function makeAppMock(opt = {}) {
         for (const s of x.starts) [s.state, s.why, s.engine].forEach(b);
         return out;
       }
-      case CMD.PAGES: { b(a[0]); b(0); b(0); b(0); return out; }   /* (no module here brings pages) */
+      case CMD.PAGES: {                                              /* the Prophet module's descriptor while it is registered, else none */
+        const has = a[0] === 19 && x.engines[19].src === 2;
+        b(a[0]); b(has ? 2 : 0); b(has ? PAGES.length : 0); b(has ? PANEL.length : 0);
+        if (has) for (const pg of PAGES) { [...pg.title].forEach((ch) => b(ch.charCodeAt(0))); b(0); pg.ids.forEach(b); }
+        return out;
+      }
+      case CMD.PANEL: {                                              /* engine, first (2 x 7 bits) -> engine, first, count, entries, total */
+        if (!(a[0] === 19 && x.engines[19].src === 2)) return null;
+        const first = a[1] | (a[2] << 7), part = PANEL.slice(first);
+        b(a[0]); b(first & 127); b(first >> 7); b(part.length);
+        for (const e of part) {
+          b(1); b(e.fmt); v14enc(e.min).forEach(b); v14enc(e.max).forEach(b); v14enc(e.def).forEach(b); strEnc(e.label).slice(0, -1).forEach(b); b(0); strEnc(e.unit).slice(0, -1).forEach(b); b(0); b(0);
+          if (e.fmt === 8) for (const nm of e.names) { strEnc(nm).slice(0, -1).forEach(b); b(0); }
+        }
+        b(PANEL.length);
+        return out;
+      }
       default: return undefined;                                     /* the editor's mock answers */
     }
   }

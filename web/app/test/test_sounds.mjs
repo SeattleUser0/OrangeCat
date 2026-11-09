@@ -15,12 +15,13 @@ export async function run() {
   /* ui-fix2 close-out 1e: slot 48 is SLIDE TIME, the track\'s own: a sound or a factory preset leaves it; the unit refuses the editor\'s SET of it */
   ok(trackOwn(48, 116) && trackOwn(48, 84) && paramReserved(48) && s.pdesc[48] && s.pdesc[48].label === "SLIDE",
      "sounds: slot 48 (SLIDE TIME) is the track's own, described as SLIDE, and not written by the editor");
-  /* the four knobs: the unit's STAGE knobs where they are parameters, else E1..E4 */
-  const sid = stageKnobs(3, s.info), cz = stageKnobs(15, s.info), mod = stageKnobs(7, s.info);
-  ok(sid.source === "stage" && sid.ids.join() === LAYOUT.engines[3].knob.join() && sid.ids.every((id) => s.pdesc[id] && s.pdesc[id].label),
-     "sounds: today's HOME knobs come from engines.c knob[] (via tests/app_layout.c), each with the unit's label");
-  ok(cz.source === "edit" && mod.source === "edit" && cz.ids[0] === s.info.pe0,
-     "sounds: CZ-1 (native STAGE values) and an engine the layout does not know fall back to E1..E4");
+  /* the four knobs: oc_knobs.c's table (FW.engines[].knobs) for every engine in the image; an engine of a module, or one the Nightly does not carry, keeps its first four EDIT
+     values and says so (its HOME knobs are the module's own and not on the link: WEB_AUDIT.md "For Session A") */
+  const inImage = FW.engines.filter((e) => e.inBuild), sid = stageKnobs(3, s.info), cz = stageKnobs(15, s.info), mod = stageKnobs(7, s.info), prophet = stageKnobs(19, s.info);
+  ok(inImage.length >= 2 && inImage.every((e) => e.knobs && e.knobs.length === 4) && [sid, cz, mod, prophet].every((k) => k.source === "edit"),
+     `sounds: every engine in the Nightly's image (${inImage.map((e) => e.name)}) has oc_knobs.c's four knobs; no other engine guesses a table (A8: no hand-kept list)`);
+  ok(cz.source === "edit" && mod.source === "edit" && cz.ids[0] === s.info.pe0 && prophet.ids.join() === [0, 1, 2, 3].map((i) => s.info.pe0 + i).join(),
+     "sounds: an engine the firmware's table does not name falls back to the first four EDIT values (E1..E4)");
   ok(editIds(s.info).length === 8 && editIds(s.info)[7] === s.info.pe0 + 7, "sounds: the eight EDIT values are P_E0..P_E0+7");
   const pal = palette("NIGHT");
   ok(KNOB_COLORS.join() === "#4D9EFF,#00E28C,#ECECEC,#FF8020" && [0, 1, 2, 3].every((t) => knobColor(pal, t, 0) === "#4D9EFF"),
@@ -33,9 +34,8 @@ export async function run() {
      "sounds: MACRO's knobs are oc_knobs.c's (HARM TIMB MRPH plain, PLUCK a macro: the offset is read, not written)");
   ok(dx.knobs.map((k) => k.label).join() === "MRPH,TUNE,TONE,DECY" && dx.knobs.every((k, i) => !k.macro && k.id === fwk(9)[i].id),
      "sounds: DRUM-X (MRPH TUNE TONE DECY) as the firmware's table has it");
-  ok(FW.engines.every((e, i) => !e.knobs || [8, 9, 14].includes(i) || false) && designKnobs(14, s.info, s.pdesc).source === "stage",
-     "sounds: an engine the firmware's table does not name (SHAPES without its table, the Prophet) keeps the engine's own HOME knobs");
-  ok(sd.source === "stage" && sd.knobs.every((k) => k.id === LAYOUT.engines[3].knob[sd.knobs.indexOf(k)]), "sounds: an engine the table does not name keeps the unit's HOME knobs (SID)");
+  ok(designKnobs(14, s.info, s.pdesc).source === "edit" && designKnobs(19, s.info, s.pdesc).source === "edit" && sd.source === "edit" && sd.knobs.every((k, i) => k.id === s.info.pe0 + i),
+     "sounds: SHAPES and the Prophet (modules: no table in the image) and SID (not in the Nightly) show the first four EDIT values, not a guessed HOME table");
   const input = { s: { K1: 200, K2: 40, K3: 128, K4: 256, ENV: 200, HIT: 256, GATE: 256, LFO: 0, NOTE: 0, TIME: 77, WOB: 100, PH1: 10, PH2: 20, PH3: 30, PH4: 40 }, col: ["#fff", ...KNOB_COLORS, "#f00", "#555", "#000"], scope: Array(64).fill(50) };
   const drawn = Object.entries(SCENES).map(([n, b]) => [n, sceneSvg(b, input)]);
   ok(drawn.length === 3 && drawn.every(([n, svg]) => /^<svg/.test(svg) && !/NaN|undefined/.test(svg) && (svg.match(/<(line|polyline|polygon|circle|rect)/g) || []).length > 10) &&

@@ -18,6 +18,7 @@ import { PALETTES } from "./lib/palette.js";
 import { BACKUP_WHAT, idsIn } from "./lib/backup_ids.js";
 import * as GR from "./lib/grid.js";
 import * as KT from "./lib/kit.js";
+import { silentTracks, MODULE_ENGINES } from "./lib/modules.js";
 
 const L = K.LAYOUT, C = L.consts;
 const QS = new URLSearchParams(location.search);
@@ -196,6 +197,15 @@ function viewUnit() {
       el("tr", {}, el("td", { class: "dim" }, "Backup"), el("td", {}, i.backupCaps & 2 ? "read and restore" : i.backupCaps & 1 ? "read only" : "no")),
       el("tr", {}, el("td", { class: "dim" }, "Arrangement"), el("td", {}, s.arrange ? "read and write (command 102)" : "not in this firmware (0.14.2 and later)")),
       el("tr", {}, el("td", { class: "dim" }, "Live sync"), el("td", {}, s.watch ? (s.v4 ? "every track" : "the selected track") : "no"))))));
+  /* the tracks (A18): each one's engine, and which play nothing for want of a module or the pack, as the unit's screen says MODULE MISSING / PACK MISSING */
+  const silent = silentTracks(s.tracks?.tracks, s.engines, s.pack, i.engines);
+  g.append(card("Tracks",
+    el("table", {}, el("tbody", {}, ...(s.tracks?.tracks || []).map((tr, k) => {
+      const bad = silent.find((x) => x.track === k);
+      return el("tr", { class: bad ? "bad" : "" }, el("td", { class: "num" }, el("b", { style: { color: trackColor(S.pal, k) } }, String(k + 1))), el("td", {}, i.engines[tr.engine] && i.engines[tr.engine] !== "-" ? i.engines[tr.engine] : MODULE_ENGINES[tr.engine] || "?"),
+        el("td", {}, bad ? (bad.why === "module" ? `Silent: the ${bad.name} module is not installed (the unit says MODULE MISSING). Install it from the set below or the Engines table.` : `Silent: the asset pack is not installed or does not fit (the unit says PACK MISSING).`) : "plays"));
+    }))),
+    silent.length ? el("p", { class: "note" }, `${silent.length} track${silent.length > 1 ? "s" : ""} will play nothing until that is installed; the music and settings are kept.`) : null));
   /* the pack */
   if (s.pack) {
     g.append(card(t("packTitle"),
@@ -327,7 +337,8 @@ function viewSounds() {
       el("div", {}, el("div", { class: "knobs" }, ...design.knobs.map((x, i) => (x.macro ? macroView(x, colors[i], s.dump.p[MAC0 + x.mac]) : knobView(x.id, colors[i])))),
         el("p", { class: "dim small", style: { marginTop: "10px" } }, design.source === "firmware"
           ? `The four knobs of ${name} as the unit's HOME page has them, in the knobs' fixed colors. A knob marked * is a macro: its offset is shown, and is set on the unit (the editor link cannot write it yet).`
-          : `${name} has no knob table of its own: these are the engine's own HOME knobs.`,
+          : design.source === "stage" ? `${name} has no knob table of its own: these are the engine's own HOME knobs.`
+          : `${name} is a module's engine: its HOME knobs are the module's own and the editor link does not carry them yet, so these are its first four values from the SOUND sheet.`,
           " Drag up or down, scroll, or use the arrow keys."))));
   drawScene(box, eng, name, design);
   clearInterval(sceneTimer);
@@ -335,7 +346,18 @@ function viewSounds() {
   const edits = el("section", { class: "card" }, el("h2", {}, "Sound"),
     el("p", { class: "dim small" }, `The SOUND sheet: the eight values of ${name}${s.titles[eng] ? " (" + s.titles[eng].filter(Boolean).join(", ") + ")" : ""}, two rows of four. ENV, MOD, FX and VOICE stay on the unit for now.`),
     el("div", { class: "edits" }, ...editIds(s.info).map((id) => editView(id)).filter(Boolean)));
-  return el("div", { class: "grid" }, top, edits, eng === DRUMX ? kitCard() : null, presetsView(), libraryView());
+  return el("div", { class: "grid" }, top, edits, eng === DRUMX ? kitCard() : null, modPagesCard(eng, name), presetsView(), libraryView());
+}
+/* A module engine's own pages (ED_PAGES, ED_PANEL: the descriptor in the module's flash), as the unit lists them: each page's title and its entries with their ranges and
+ * defaults. Their VALUES are the module's native block (one byte each), which no generic command reads or writes yet (WEB_AUDIT.md "For Session A", item 9): shown, not edited. */
+function modPagesCard(eng, name) {
+  const mp = S.session.modPages[eng];
+  if (!mp) return null;
+  const range = (e) => (e.names ? e.names.join(" / ") : `${e.min} .. ${e.max}${e.unit ? " " + e.unit : ""}`);
+  return card(`${name}: the module's pages`,
+    el("p", { class: "dim small" }, "The pages this module brings to the unit, with the entries' ranges and defaults. The values are the module's own native block: the editor link cannot read or write them yet, so they are not shown here."),
+    el("div", { class: "scroll" }, el("table", {}, el("tbody", {}, ...mp.pages.map((pg) => el("tr", {}, el("th", { style: { textAlign: "left" } }, pg.title),
+      el("td", { class: "small" }, pg.params.filter(Boolean).map((e) => `${e.label} (${range(e)}, default ${e.names ? e.names[e.def - e.min] ?? e.def : e.def})`).join(" · ") || "-")))))));
 }
 /* A DRUM-X track's kit (the unit's EDIT > LANES, LANES 2, LANES 3 pages): the factory kit it is based on, TONE FDBK HANDS DUCK, and each lane's LEVEL TUNE DECAY
  * PAN LAYER PUNCH ATK+ BEND. KIT_GET / KIT_PUT; the cells' names, ranges and texts are the firmware's (lib/kit.js). Not stored until SAVE > USER on the unit. */

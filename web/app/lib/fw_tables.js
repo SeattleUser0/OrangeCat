@@ -5678,6 +5678,53 @@ export const FW = {
    127
   ]
  },
+ "mod": {
+  "apiVersion": 6,
+  "apiSize": 200,
+  "iface": 302327343,
+  "apiAddr": 33558784,
+  "wins": 1,
+  "shapesBuiltIn": 0,
+  "starts": 18,
+  "area": 18,
+  "sect": [
+   0,
+   6,
+   4,
+   1,
+   2,
+   3,
+   5,
+   7,
+   8,
+   9,
+   10,
+   11,
+   -1,
+   -2,
+   -3,
+   -4,
+   -5,
+   -6
+  ],
+  "geo": [
+   {
+    "engine": "SHAPES",
+    "sectors": 6,
+    "starts": 3
+   },
+   {
+    "engine": "PROPHET",
+    "sectors": 8,
+    "starts": 5
+   },
+   {
+    "engine": "WHEEL",
+    "sectors": 4,
+    "starts": 3
+   }
+  ]
+ },
  "cells": [
   [
    {

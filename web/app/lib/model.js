@@ -28,22 +28,25 @@ export const SESSION_C_DOC = "docs/orangecat/UI_DESIGN.md 0.5, UI_BUILD.md";
 /* the cozies' colors, tests/ui_mockup.c KCOL: RGB(77, 158, 255), RGB(0, 226, 140), RGB(236, 236, 236), RGB(255, 128, 32) */
 export const KNOB_COLORS = ["#4D9EFF", "#00E28C", "#ECECEC", "#FF8020"];
 const P_E0 = LAYOUT.consts.P_E0;
-const NATIVE_STAGE = new Set([15, 19]);              /* CZ-1, PROPHET: STAGE's knobs are native patch values (ui.c stage_page) */
 
 /* the four knobs of engine e: [{label, id (a track parameter, or null), macro (the P_MAC index 0..3 or -1)}], and where they came from
  * ("firmware": oc_knobs.c's table, "stage": the engine's own HOME knobs) */
 export function designKnobs(engine, info, pdesc) {
   const row = FW.engines[engine]?.knobs;
   if (row) return { knobs: row.map((k, i) => (k.kind === "macro" ? { label: k.label, id: null, macro: true, mac: i } : { label: k.label, id: k.id, macro: false })), source: "firmware" };
-  return { knobs: stageKnobs(engine, info).ids.map((id) => ({ label: pdesc?.[id]?.label || "", id, macro: false })), source: "stage" };
+  const st = stageKnobs(engine, info);
+  return { knobs: st.ids.map((id) => ({ label: pdesc?.[id]?.label || "", id, macro: false })), source: st.source };
 }
 /* where the unit keeps a macro knob's offset (core.h P_MAC0 = id 33): -64..63, 0 the sound as stored */
 export const P_MAC0 = 33;
-/* today's HOME (STAGE) knobs: track parameter ids */
+/* the knobs of an engine the firmware's knob table (oc_knobs.c, FW.engines[].knobs) does not name: an engine in the image keeps the unit's STAGE knobs
+ * (the parameters engines.c names), an engine of a module (SHAPES, WHEEL, the Prophet: not in the image, so not in the generated table) has its own HOME
+ * knobs that the editor link does not carry (UI_DESIGN.md section 6's command: WEB_AUDIT.md "For Session A"), so the page shows its first four EDIT
+ * values (source "edit") and says so. Nothing here is a list of engines kept by hand. */
 export function stageKnobs(engine, info) {
   const pe0 = info?.pe0 ?? P_E0;
   const g = LAYOUT.engines[engine];
-  if (g && g.name !== "-" && !NATIVE_STAGE.has(engine) && pe0 === P_E0 && g.knob.every((id) => id < LAYOUT.consts.P_COUNT))
+  if (FW.engines[engine]?.inBuild && g && g.name !== "-" && pe0 === P_E0 && g.knob.every((id) => id < LAYOUT.consts.P_COUNT))
     return { ids: g.knob.slice(), source: "stage" };
   return { ids: [pe0, pe0 + 1, pe0 + 2, pe0 + 3], source: "edit" };
 }

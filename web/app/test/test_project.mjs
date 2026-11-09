@@ -6,6 +6,7 @@ import { connected } from "./test_unit.mjs";
 import * as K from "../lib/codec.js";
 import { readBackup } from "#fm1backup";
 import { LISTS_SONG } from "../lib/mock_data.js";
+import { BK } from "../lib/backup_ids.js";
 
 export async function run() {
   const { m, s } = await connected();
@@ -35,20 +36,33 @@ export async function run() {
   await s.projectLoad(0);
   ok(eqBytes(x.runtime, x.slots[0]) && K.decodeFbkk(x.runtime).name === "ONE BANK", "project: Load it on the unit is PROJECT load");
 
-  /* the complete backup, with the arrangement beside it; restored onto the same unit (the same pool) the arrangement comes back */
+  /* the complete backup on the Nightly: 29 objects and the 21 arrangement objects (64..84, LIST 1): the slots' lists, the pool, the music's lists. Restored onto the same unit,
+     every one comes back byte for byte (the music first, then the arrangement objects after it: fm1backup.js restoreBackup) */
   await s.projectLoad(1);
   x.lists = Uint8Array.from(atob(LISTS_SONG), (c) => c.charCodeAt(0));   /* (chains that name phrases 01..64) */
   const file = await s.backup();
-  ok(file.format === "felucca-backup" && file.objects.length === 29 && file.arrangement && file.arrangement.pool.length === 64 && readBackup(JSON.parse(JSON.stringify(file))),
-     "project: the complete backup reads every object (fm1backup.js captureBackup) and adds the arrangement of the music now with the pool's CRCs");
+  const ids = file.objects.map((o) => o.id);
+  ok(file.format === "felucca-backup" && file.objects.length === 50 && ids.slice(29).join() === Array.from({ length: BK.LIVE - BK.ARR0 + 1 }, (_, i) => BK.ARR0 + i).join() && !file.arrangement && readBackup(JSON.parse(JSON.stringify(file))),
+     "project: the complete backup reads the 29 objects and the arrangement objects 64..84 (fm1backup.js captureBackup, LIST 1); no sidecar file is needed");
   const listsBefore = Uint8Array.from(x.lists);
-  x.lists = K.encodeLists(K.decodeLists(listsBefore)); x.runtime[100] ^= 0;   /* (unchanged) */
+  x.lists = K.encodeLists(K.decodeLists(listsBefore));   /* (unchanged) */
   const r1 = await s.restore(JSON.stringify(file));
-  ok(r1.arrangement === "restored" && eqBytes(x.lists.subarray(0, 2304), listsBefore.subarray(0, 2304)),
-     "project: restored onto a unit with the same phrases, the arrangement is written back too (after the music, which brings a new project's lists)");
-  x.pool[0].crc ^= 1;                                     /* a phrase the lists name changed on the unit */
-  const r2 = await s.restore(JSON.stringify(file));
-  ok(r2.arrangement === "different pool", "project: a unit whose phrases differ gets the music, not the arrangement (the phrase numbers would name other music)");
-  x.pool[0].crc ^= 1;
+  ok(r1.arrangement === "in the backup" && eqBytes(x.lists.subarray(0, 2304), listsBefore.subarray(0, 2304)),
+     "project: restored, the arrangement comes back with the objects themselves (the music's lists, id 84, after the music)");
+  /* a firmware before 0.14.2 answers LIST 1 with rc 1: the arrangement of the music now goes beside the backup, and is written back only onto the same phrases */
+  const old = await connected({ noArrangeObjects: true }), ox = old.m.ext;
+  await old.s.projectLoad(1);
+  ox.lists = Uint8Array.from(atob(LISTS_SONG), (c) => c.charCodeAt(0));
+  const ofile = await old.s.backup();
+  ok(ofile.objects.length === 29 && ofile.arrangement && ofile.arrangement.pool.length === 64 && readBackup(JSON.parse(JSON.stringify(ofile))),
+     "project: a firmware without the arrangement objects: 29 objects and the arrangement of the music now beside them, with the pool's CRCs");
+  const lb = Uint8Array.from(ox.lists);
+  ox.lists = K.encodeLists(K.decodeLists(lb));
+  const o1 = await old.s.restore(JSON.stringify(ofile));
+  ok(o1.arrangement === "restored" && eqBytes(ox.lists.subarray(0, 2304), lb.subarray(0, 2304)), "project: ... restored onto a unit with the same phrases, the arrangement is written back too");
+  ox.pool[0].crc ^= 1;                                     /* a phrase the lists name changed on the unit */
+  const o2 = await old.s.restore(JSON.stringify(ofile));
+  ok(o2.arrangement === "different pool", "project: ... a unit whose phrases differ gets the music, not the arrangement (the phrase numbers would name other music)");
+  old.s.close();
   s.close();
 }

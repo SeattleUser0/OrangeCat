@@ -12,6 +12,8 @@ import { BK, BACKUP_WHAT, idsIn } from "../lib/backup_ids.js";
 import { orderRows } from "../lib/model.js";
 import * as PG from "../lib/pages.js";
 import { connected } from "./test_unit.mjs";
+import { PACK } from "../lib/mock.js";
+import { existsSync } from "node:fs";
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "firmware", "src");
 const read = (f) => readFileSync(join(SRC, f), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
@@ -64,6 +66,12 @@ export async function run() {
   const got = orderRows(rows).map((r) => r.engine), want = FW.engineOrder.flatMap((e) => rows.filter((r) => r.engine === e).map((r) => r.engine));
   ok(JSON.stringify(got) === JSON.stringify(want), `proto: the preset list follows the unit's engine order (${got})`);
 
+  /* the mocked unit's pack is this build's (build/gen/oc_pack_tables.h: OC_PACK_LEN, OC_PACK_HASH), when the build has run */
+  const hdr = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "build", "gen", "oc_pack_tables.h");
+  if (existsSync(hdr)) {
+    const h = readFileSync(hdr, "utf8"), len = +/#define OC_PACK_LEN (\d+)u/.exec(h)[1], hash = parseInt(/#define OC_PACK_HASH (0x[0-9A-Fa-f]+)u/.exec(h)[1], 16);
+    ok(PACK.len === len && PACK.hash === hash, `proto: the mocked unit's asset pack is this build's (${len} bytes, hash 0x${hash.toString(16).toUpperCase()}: build/gen/oc_pack_tables.h)`);
+  } else console.log("proto: build/gen/oc_pack_tables.h not built: the mock's pack numbers are not checked");
   const { s } = await connected();
   const rowsU = s.presetRows(), eng = [...new Set(rowsU.filter((r) => !r.user).map((r) => r.engine))];
   const rank = (e) => { const k = FW.engineOrder.indexOf(e); return k < 0 ? 100 + e : k; };
