@@ -387,7 +387,7 @@ function kitCard() {
     return el("td", {}, inp);
   })));
   c.append(el("p", {}, K.on ? "An edited kit." : "The factory kit as it is."),
-    el("label", { class: "edit" }, el("span", { class: "lab" }, "BASE"), base, el("span", { class: "val" }, "the factory kit the lanes play")),
+    el("label", { class: "edit", title: "The factory kit the lanes play" }, el("span", { class: "lab" }, "BASE"), base, el("span", { class: "val" }, "")),
     el("div", { class: "edits" }, ...KT.kitOnlyCells().filter((x) => x.field !== "base").map(kitCell)),
     el("div", { class: "scroll" }, el("table", { class: "kit" }, el("thead", {}, head), el("tbody", {}, ...rows))),
     el("p", { class: "dim small" }, "Hover a value for the unit's word for it (TUNE in semitones, PAN L / R, BEND in semitones)."));

@@ -4,7 +4,7 @@
 on the unit. Run the parts in order; each says what to click, what you should see or hear, and what to write down. Record the results
 in `hw/LOG.md` under "Web app (0.14.2)" and say which commit of `web-app` you ran.
 
-Version 3 (November 8, 2026). The app and the firmware are on branch `web-r3` / the Nightly v0.16.0-2e1056 and later (command 102 ARRANGE since 0.14.2).
+Version 4 (November 9, 2026). The app and the firmware are on branch `web-r3` / the Nightly v0.16.0-2e1056 and later (command 102 ARRANGE since 0.14.2).
 
 ## 0. Before
 
@@ -48,6 +48,17 @@ Version 3 (November 8, 2026). The app and the firmware are on branch `web-r3` / 
 8. **GLO**: A4, BUDGET, CLK, TUNE, MIDI and ROUT can be set; DRUM, the WEIGHTS and (in Project) BOOT say "on the unit" and cannot:
    that is expected (WEB_AUDIT.md A41, A58). **EDIT** > SLIDE is grayed for the same reason (A23).
 9. Write down: any page, name or value text that differs from the unit's screen.
+
+## 2c. Steps, kit, motion, silent tracks (round 3)
+
+1. Steps tab > Read the steps. Tick **ACC** and **SLIDE** on a step, set its **CHANCE** to 50: the unit's NOTES / TRACKER shows the accent, the slide and 50 %.
+2. On a DRUM-X track type **BD >SD CH** in a step's HITS: the unit's grid shows a kick, an accented snare and a closed hat there.
+3. **GRID** card: pick step 5, press C4: the unit's GRID tile 5 reads C4, the cursor did not move. Tick CHORD and press E4, G4: the tile shows C4 + 2. **Undo** takes the last note back.
+4. **Motion**: on the unit record a knob move while playing, press Read the motion: the event is listed with the unit's word for its value. Delete it here; Read again on the unit's side shows it gone.
+5. Sounds tab on a DRUM-X track > **Kit** > Read the kit: change a lane's TUNE and PAN: heard at once, the unit's LANES page shows the same. SAVE > USER on the unit keeps the kit.
+6. Unit tab > **Tracks**: put a track on SHAPES with its module removed: the row says Silent, the unit says MODULE MISSING. Install the module: the row says plays.
+7. Sounds tab preset list: the engines are in the unit's order (DRUM-X, MACRO, SHAPES, the Prophet, WHEEL).
+8. Project tab: the slot in use is marked, as the unit's PROJECT page shows it. Backup now lists 50 objects (29 and the arrangement objects 64..84).
 
 ## 3. A preset saved and loaded
 

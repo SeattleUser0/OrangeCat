@@ -16,6 +16,7 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FW } from "../lib/fw_tables.js";
+import { createHash } from "node:crypto";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..", "..", "..");
@@ -23,6 +24,10 @@ export const MD_OUT = join(ROOT, "docs", "orangecat", "CONTROLS.md");
 export const HTML_OUT = join(HERE, "..", "controls.html");
 export const SRC = JSON.parse(readFileSync(join(HERE, "controls_src.json"), "utf8"));
 
+/* the Nightly the guide describes: the firmware's version (the VERSION file) and the build named in controls_src.json; the fingerprint of the tables it is made from
+   (lib/fw_tables.js, the firmware's own): a firmware change that moves a table moves this, and test_controls.mjs fails until the guide is made again */
+export const NIGHTLY_VERSION = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "VERSION"), "utf8").trim();
+export const TABLES_ID = createHash("sha256").update(JSON.stringify(FW)).digest("hex").slice(0, 8);
 /* the order the guide shows the families in, and their names: every family of the firmware that has pages must be here */
 export const FAMILY_ORDER = ["FX", "ENV", "LFO", "SCL", "EDIT", "GLO", "TRK", "SAVE", "ARP", "SEQ"];
 const FAMILY_TITLE = {
@@ -139,7 +144,7 @@ export function build() {
   const sec = (title, level = 2) => { const id = slug(title); if (level === 2) nav.push([title, id]); B.push({ t: "h" + level, text: title, id }); };
 
   B.push({ t: "h1", text: SRC.title, id: "top" });
-  B.push({ t: "p", text: `For ${SRC.firmware}.` });
+  B.push({ t: "p", text: `For the Nightly v${NIGHTLY_VERSION}-${SRC.nightly.build} and later (firmware commit ${SRC.nightly.commit}, ${SRC.nightly.date}). Made from the firmware's tables ${TABLES_ID}: when they change, this page is made again.` });
   for (const x of SRC.intro) B.push({ t: "p", text: x });
   B.push({ t: "nav" });
 

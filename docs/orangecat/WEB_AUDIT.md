@@ -19,7 +19,12 @@ other pages (B manual, E editor, I installer and site, P protocol document).
 | **total** | 57 | 65 | **122** |
 
 (Round 2: A41 moved from missing to needs-command, and A58 is new; both found by the firmware's own check of what the editor link reaches,
-tests/web_wire.h. Fixed so far: 25 of the 57 web app items (A19 and A57 in part), 11 of the other pages' 65; the lists below.)
+tests/web_wire.h. Fixed after round 2: 25 of the 57 web app items (A19 and A57 in part), 11 of the other pages' 65.)
+
+**After round 3 (2026-11-09): 45 of the 57 web app items are fixed (A19, A27 and A57 in part) and 30 of the other pages' 65 (E12 in part): 75 of the 122, by kind wrong 26,
+missing 23, drift-risk 14, obsolete 12. On branch `web-cmds` four more, all needs-command (A3, A23, A41, A58). Left: web app A12 A37 and the parts of A19, A27, A57, with the needs-command
+items A4 A34 A36 A38 A40 A47 (Session A items 2 to 7, 9); other pages B3..B32 (the manual: not published, replaced by the guide), E1 E6 E7 E11. I1 is not an item (the audit was wrong:
+see "Round 3").**
 
 ## What was done in web-r3
 
@@ -74,16 +79,48 @@ A19 (in part: A4, BUDGET, CLK, TUNE, MIDI, ROUT on the GLO pages; the menu's row
 A24, A25, A48 (all but the DRUM channel: A58), A57 (in part: Mixer, Tempo/Swing, FX sheets, DUB's pages, LFO SYNC; GRID, Kit/Lanes,
 motion and REC-held clears remain: A33, A26, A35, A34). A21 (fixed in round 1 by the generated table) is now used by a view as well.
 
-## Not fixed, web side (no firmware change needed; for a later round)
+## Round 3 (2026-11-09): the rest of the list that needs no new command
 
-A8 A12 A13 A15 A18 A26 A27 A28 A32 A33 A35 A37 A39 A42 A43 A44 A49..A54 (the mocked unit models
-an older unit: its engine list, 3 module starts, no arrangement objects) A57; E1 E3 E4 E8 E9 E10 E11 E12 E13 E14 (the old editor); B3..B32 (the
-Melodee manual is not rewritten: it carries a notice and the guide replaces it); I1 I2 I3 I5 I6 I7 (installer text and `mirror_site.py`: its set
-choices are ("pack","shapes","prophet","dub"), the Standard `wheel` set manifest would be dropped at the next Nightly deploy); P1 P5 P7 P10 P11 P12.
+- **Web app, fixed with a drift test each.**
+  - *Tables from the firmware*: the unit's engine order (`FW.engineOrder`, engines.c: DRUM-X, MACRO, SHAPES, the Prophet, WHEEL; the preset list follows it: A13), the parameters motion
+    can record (`FW.motionParams`, motion.c), DRUM-X's three lane pages with a DRUM-X track (`DXLANE` cells: labels, classes, ranges), the module loader's numbers and geometry
+    (`FW.mod`: oc_module.c's starts, sectors and `oc_mod_geo` read by `gen_fw_tables.mjs`, fw_api.h's table version and identifier compiled). A display class is now a copy (DRUM-X's cells
+    live in storage the next page reuses). `test_tables.mjs` holds all of them to the firmware.
+  - *New in the app*: the Steps tab edits **ACC, SLIDE, chance and a DRUM-X step's hits** (A32), has the unit's **GRID** (A33, `lib/grid.js`, rules held by `test_steps.mjs`) and **Motion**
+    (A35: command 64, the lane's events read, set, deleted, turned off, cleared; refused in words while a song plays); the Sounds tab has the DRUM-X **Kit** (A26 and the DXLANE pages,
+    `lib/kit.js`: KIT_GET / KIT_PUT, ranges equal to the wire's `KIT_RANGE`) and lists a module's own pages (A27, read only); the Unit tab names the tracks that **play nothing for want of
+    a module or the pack** (A18, `lib/modules.js`, the firmware's `mod_gone` and `pack_notice`); the Project tab marks the **slot in use** (A39) and the library lists INFO's own slot count
+    (A28); the backup table is `lib/backup_ids.js`, with the arrangement objects 64..84 (A42, A43, A44), held to editor_backup.c by `test_proto.mjs`, which also holds the editor's command
+    numbers to editor.c's enums (A15) and the mock's pack to build/gen (A51). No hand-kept engine list is left in model.js (A8: an engine the firmware's knob table does not name shows its
+    first four EDIT values and says so).
+  - *The mocked unit is the Nightly's* (A49, A50, A51, A52, A53, A54): MOD_INFO as editor.c lays it out (18 starts, the geometry and the overlaps of oc_mod_geo: the Prophet cannot go in beside SHAPES, WHEEL
+    goes beside it), MACRO and DRUM-X built in, SHAPES / the Prophet / WHEEL modules, the arrangement objects (LIST 1) with the validators' formats, ED_PAGES and ED_PANEL for the Prophet.
+    `test_unit`, `test_sounds` and `test_project` assert the Nightly now; the older-firmware path (no arrangement objects) keeps its own test. Still from the editor's mock: INFO's engine names and
+    the presets (the all-engines host build's: E11).
+  - *Not done*: A12 (DUB's HOME picture: needs the scene command, item 2); A27's values (the module's native block: item 9); A57's REC-held clears (item 3); A37 (item 4); DUB TAPE's module
+    in the silent-track card (no FX_TABLE probe).
+- **Other pages** (a fork on `web-r3-pg`, merged): E3 (DUB SETUP / DUB / DUB 2 groups in editor.html, DRIVE and WOW as packed views, held to all 64 `FW.dubPut` writes), E4, E8 (COND, NUDGE,
+  RATCH columns), E9 (the 16-row song panel hidden), E10 (every LAYOUT page against `FW.pages`: ENV DEST had QNT as a fourth cell), E12 (palettes and the INFO name from the firmware; the power-on
+  sounds not), E13 (WHEEL's geometry, the sample limit 60,896), E14 / A13 (the order in editor.html); I2 (the box says SHAPES and WHEEL), I3 (relinked to the repository), I5
+  (`docs/orangecat/MODULE_IDS.md`, held to make_site.py), I6 (the set manifests mirror_site copies are derived: WHEEL's no longer dropped), I7; P1, P5, P7, P10 (generated), P11, P12
+  (check_editor_protocol.py compares the last P_COUNT, P_E0, G_COUNT, the matrix names and the compiled-out commands). **I1 is not an item**: oc_mod_geo gives SHAPES the starts
+  0x03 and the Prophet 0x05, so every placement of one overlaps the other: "choose one" is true on the Nightly (the mocked unit now says the same). Not fixed: E1, E6, E7 (firmware),
+  E11 (the editor mock's tables are the all-engines host build's; generating them is a build step of its own), B3..B32 (the Melodee manual is not rewritten or published; the site check
+  `mirror_site_test.py` holds that no published page links it).
+- **The controls guide** follows the Nightly: its top line names the firmware version (the VERSION file), build and commit, and the fingerprint of the firmware tables it is made from
+  (`TABLES_ID`); `test_controls.mjs` fails when the tables, VERSION or the sentences change and the guide was not made again (`node web/app/tools/gen_controls.mjs`).
+- **web-cmds** (branch, from linux-hw 52a41894 with web-r3 merged; **not merged into web-r3**): the editor link reaches BOOT, the DRUM channel, the WEIGHTS, SLIDE TIME and the HOME macros.
+  `docs/orangecat/WEB_CMDS.md` says what to review. STEP:GRID, TRACK:MOTION and DXLANE, which were listed with these, needed no command (STEP_SET, MOTION 64, KIT_GET / KIT_PUT exist):
+  they are in web-r3.
+
+## Not fixed (after round 3)
+
+Web app: A12 A37 and the parts of A19, A27 (values), A57 (REC-held clears); A3 A23 A41 A58 only on `web-cmds`; the needs-command items A4 A34 A36 A38 A40 A47 (Session A items 2 to 7). Other pages: B3..B32,
+E1 E6 E7 E11.
 
 ## For Session A: commands the firmware lacks (not added here)
 
-1. SET / TRACK_PARAM of the macro ids 33..36 and of SLIDE TIME id 48 (`editor.c:1098`, `1638` refuse them; DESC gives the reserved view). A3 A23 E6.
+1. SET / TRACK_PARAM of the macro ids 33..36 and of SLIDE TIME id 48 (`editor.c:1098`, `1638` refuse them; DESC gives the reserved view). A3 A23 E6. **Written: branch `web-cmds`.**
 2. A command that returns an engine's four knobs and scene (UI_DESIGN.md section 6 promised it): modules' knobs and pictures (SHAPES, WHEEL, Prophet) are
    not on the wire, so the page cannot show them. A4.
 3. Recorded-note edit and clear (REC held's clears have no command; 108 is a test-build read). A34.
@@ -96,7 +133,17 @@ choices are ("pack","shapes","prophet","dub"), the Standard `wheel` set manifest
    channel (G_DRUMCH 13 -> `settings_drumch`) and the WEIGHTS (G_WP5 .. G_SAFETY, ids 4..9 -> `settings_vpoints[]`, `settings_safety`).
    `ed_val` (editor.c:146) maps A4 and BUDGET to their device values and these not, so the link reads and writes an unused copy in
    `song.g`. The fix is two more cases in `ed_val` (and `settings_save` after SET, as A4 and BUDGET have). `tests/editor_test.c`
-   `web_wire_rule` and the app follow by themselves once it is there. A41 A58.
+   `web_wire_rule` and the app follow by themselves once it is there. A41 A58. **Written: branch `web-cmds` (items 1 and 8: see "web-cmds" below).**
+
+9. (round 3) A generic read and write of a module's native block (one byte each, the entries ED_PANEL describes): the Prophet's patch bytes and every module's pages have values no command
+   reads or writes (the Prophet has its own frames, command 95); the page lists a module's pages and cannot show or edit them. A27.
+
+## For Session A: web-cmds (review this)
+
+Branch `web-cmds` (from linux-hw 52a41894, web-r3 merged in; **not merged into web-r3**): `docs/orangecat/WEB_CMDS.md` is the page to read. The firmware change is `editor.c` (54 lines:
+`ed_val` maps BOOT, the DRUM channel and the WEIGHTS to the unit's own storage; `SET` and `TRACK_PARAM` write SLIDE TIME and a track's own HOME macros; a SET of a device setting saves the
+settings) and `params.c` (WEIGHT_DESC hoisted, 7 lines). `DESC` is unchanged. `tests/editor_test.c` `device_settings()` has 23 checks; against linux-hw's unchanged editor.c 20 of them
+(and the wire-rule check) fail. No command number is added.
 
 ## For Session A: ready
 
