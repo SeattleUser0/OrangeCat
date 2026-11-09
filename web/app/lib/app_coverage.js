@@ -25,7 +25,7 @@ export const PAGE_STATUS = {
   "TRACK:OP1 ENV": "never", "TRACK:OP2 ENV": "never", "TRACK:OP3 ENV": "never", "TRACK:OP4 ENV": "never", "TRACK:OP LEVEL": "never", "TRACK:LANES": "never", "TRACK:LANES 2": "never",
 };
 // Track parameters no page of the firmware's table shows, and global ones likewise: id -> why the app does not either.
-export const UNPAGED_TP = { 0: "LEVEL: the mixer's (TRACK_MIX)", 8: "QNT: TEMPO's third knob", 33: "HOME macro 1 (read, not writable)", 34: "HOME macro 2", 35: "HOME macro 3", 36: "HOME macro 4",
+export const UNPAGED_TP = { 0: "LEVEL: the mixer's (TRACK_MIX)", 8: "QNT: TEMPO's third knob", 33: "HOME macro 1 (the Sounds tab's knob, written for a track whose table has it: web-cmds)", 34: "HOME macro 2", 35: "HOME macro 3", 36: "HOME macro 4",
   46: "DUB MODE (packed view fields)", 47: "DUB TAPE (packed view fields)", 52: "MOD slot 2 SRC", 53: "MOD slot 2 DST", 54: "MOD slot 2 AMT", 55: "MOD slot 3 SRC", 56: "MOD slot 3 DST",
   57: "MOD slot 3 AMT", 58: "MOD slot 4 SRC", 59: "MOD slot 4 DST", 60: "MOD slot 4 AMT" };
 export const UNPAGED_GP = { 10: "retired", 11: "retired", 20: "ENG: the engine switch (G_ENGSEL)", 22: "CLRSQ: a command of the unit", 23: "INIT: a command of the unit", 24: "retired", 25: "retired", 26: "retired" };

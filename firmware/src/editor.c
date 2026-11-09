@@ -141,9 +141,51 @@ static struct {
     uint32_t tpos, pattern_gen;
 } ed_w;
 
+/* (web-cmds) the value of parameter i as the unit has it: the selected track's, or a global. The device settings that the unit keeps beside the song (A4, BUDGET, and since
+ * web-cmds BOOT, the DRUM channel and the WEIGHTS: GLO > SYSTEM, PROJECT, WEIGHTS) are read and written where the unit's own pages do (params.c page_desc); song.g holds none
+ * of them (global_reserved: a project load zeroes the WEIGHTS' ids). BOOT and the DRUM channel are one byte on the unit: a copy (boot_cell, drumch_cell), written back by
+ * ed_dev_put after a SET */
 static int16_t *ed_val(uint32_t i)
 {
-    return i<P_COUNT?&TSEL->p[i]:i==P_COUNT+G_A4?&tuning_a4:i==P_COUNT+G_BUDGET?&settings_budget:&song.g[i-P_COUNT];
+    uint32_t g = i - P_COUNT;
+    if (i < P_COUNT) return &TSEL->p[i];
+    if (g == G_A4) return &tuning_a4;
+    if (g == G_BUDGET) return &settings_budget;
+    if (g == G_BOOT) { boot_cell = settings_boot; return &boot_cell; }
+    if (g == G_DRUMCH) { drumch_cell = settings_drumch; return &drumch_cell; }
+    if (g >= G_WP5 && g <= G_WDRUM) return &settings_vpoints[g - G_WP5];
+    if (g == G_SAFETY) return &settings_safety;
+    return &song.g[g];
+}
+/* (web-cmds) a SET of global g wrote *ed_val: the device settings are saved with the settings, as the unit's page edit does (ui_input.c edit_param) */
+static int ed_dev_global(uint32_t g) { return g == G_A4 || g == G_BUDGET || g == G_BOOT || g == G_DRUMCH || (g >= G_WP5 && g <= G_SAFETY); }
+static void ed_dev_put(uint32_t g, int16_t v)
+{
+    if (g == G_BOOT) settings_boot = (uint8_t)v;
+    else if (g == G_DRUMCH) settings_drumch = (uint8_t)v;
+    settings_save();
+}
+/* (web-cmds) what the link may write: a global that is not reserved, or one of the WEIGHTS (the reserved ids G_WP5 .. G_SAFETY hold the device's settings); a track id that is not
+ * reserved (SLIDE TIME is a track's own setting, kept across a sound load: allowed), or a HOME macro of the track's own table (P_MAC0 .. 3, -64 .. 63: the unit's knob writes
+ * the same cell). The other reserved ids stay refused (param_reserved, global_reserved: padding the stores zero) */
+static int ed_macro(const track_t *t, uint32_t id)
+{
+#if OC_HOME_PIC
+    return id >= P_MAC0 && id <= P_MAC3 && mac_desc(t, id) != 0;
+#else
+    (void)t; (void)id;
+    return 0;
+#endif
+}
+static int ed_may_set(const track_t *t, uint32_t scope, uint32_t id)
+{
+    return scope ? !global_reserved(id) || (id >= G_WP5 && id <= G_SAFETY) : !param_reserved(id) || ed_macro(t, id);
+}
+/* the descriptor a write clamps by: the unit's own for the WEIGHTS and a macro (ED_DESC keeps answering the reserved view for them, as every older editor expects) */
+static const param_desc_t *ed_wdesc(const track_t *t, uint32_t scope, uint32_t id, const param_desc_t *d)
+{
+    if (scope) return id >= G_WP5 && id <= G_SAFETY ? &WEIGHT_DESC[id - G_WP5] : d;
+    return ed_macro(t, id) ? track_desc(t, id) : d;
 }
 static uint32_t ed_step_sig(const step_t *s)
 {
@@ -1096,7 +1138,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     case ED_SET:
         if (na < 2u || !(d = ed_desc(a[0], a[1], &vp)))
             return;
-        if (cmd == ED_SET && na >= 4u && !(a[0] ? global_reserved(a[1]) : param_reserved(a[1]) || param_slide_time(a[1])) && !(chain_busy() && !a[0] && a[1] >= P_SLEN && a[1] <= P_SGATE)) {
+        if (cmd == ED_SET && na >= 4u && ed_may_set(TSEL, a[0], a[1]) && !(chain_busy() && !a[0] && a[1] >= P_SLEN && a[1] <= P_SGATE)) {
+            d = ed_wdesc(TSEL, a[0], a[1], d);
             if (a[0] == 1 && a[1] == G_ENGSEL) {          /* engine change: the safe path */
                 {   uint32_t ne = (uint32_t)clamp(ed_rv(a + 2), 0, NENGINES - 1);
                     int adm = eng_admit(TSEL, ne);                       /* (0.11.0) a module's engine only when the unit can carry it */
@@ -1104,8 +1147,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                 }
             } else if (d->max > d->min) {
                 *vp = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
-                if (a[0] == 1 && (a[1] == G_A4 || a[1] == G_BUDGET))
-                    settings_save();
+                if (a[0] == 1 && ed_dev_global(a[1]))
+                    ed_dev_put(a[1], *vp);
                 if (a[0] == 0) {
                     (void)motion_capture(TSEL, a[1], *vp);
                     load_extend(TSEL);                      /* (ui.c undo: an audition's values after G_ENGSEL) */
@@ -1635,7 +1678,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             return;
         t = &trk[a[0]];
         d = ed_tdesc(t, a[1]);
-        if (na >= 4u && !param_reserved(a[1]) && !param_slide_time(a[1]) && !(chain_busy() && a[1] >= P_SLEN && a[1] <= P_SGATE)) {
+        if (na >= 4u && ed_may_set(t, 0, a[1]) && !(chain_busy() && a[1] >= P_SLEN && a[1] <= P_SGATE)) {
+            d = ed_wdesc(t, 0, a[1], d);
             if (d->max > d->min)                           /* as SET: clamped; a fixed value stays */
                 t->p[a[1]] = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
             (void)motion_capture(t, a[1], t->p[a[1]]);

@@ -985,6 +985,9 @@ static void dxl_put(uint32_t tr, uint32_t l, uint32_t id, int32_t v)
 }
 
 static int16_t dub_cell[4];                              /* (round 13) the value of a DUB field the page shows (page_desc) */
+/* (web-cmds) GLO > WEIGHTS' descriptors (ids G_WP5 .. G_SAFETY), at file scope: the unit's page and the editor link (editor.c) answer with the same ones */
+static const param_desc_t WEIGHT_DESC[] = {PE("P5", N_VPOINTS, 0), PE("CZ-1", N_VPOINTS, 0), PE("FM6", N_VPOINTS, 0),
+    PE("SID", N_VPOINTS, 0), PE("DRUM", N_VPOINTS, 0), PE("GUARD", N_ONOFF, 0)};
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
 {
     uint32_t id = pg->id[slot];
@@ -1045,10 +1048,8 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
         return track_desc(TSEL, P_RECQ);
     }
     if (pg->scope == SC_GLOBAL && id >= G_WP5 && id <= G_SAFETY) {   /* GLO > WEIGHTS: the device's settings */
-        static const param_desc_t weights[] = {PE("P5", N_VPOINTS, 0), PE("CZ-1", N_VPOINTS, 0), PE("FM6", N_VPOINTS, 0),
-            PE("SID", N_VPOINTS, 0), PE("DRUM", N_VPOINTS, 0), PE("GUARD", N_ONOFF, 0)};
         *valp = id == G_SAFETY ? &settings_safety : &settings_vpoints[id - G_WP5];
-        return &weights[id - G_WP5];
+        return &WEIGHT_DESC[id - G_WP5];
     }
     if (pg->scope == SC_GLOBAL && id == G_BOOT) {
         boot_cell = settings_boot;                       /* (a copy: ui_input.c edit_param writes it back) */

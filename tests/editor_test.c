@@ -687,6 +687,111 @@ static int concert_pitch(void)
     settings_budget=old_budget;
     return bad;
 }
+/* (web-cmds) the device settings and the track ids the unit shows and the link used to refuse or write to a dead copy: BOOT, the DRUM channel, the WEIGHTS (device settings: GET,
+ * SET and DUMP read and write the storage the unit's pages use, and SET saves them), SLIDE TIME and the HOME macros (SET and TRACK_PARAM write them), every other reserved id
+ * still refused */
+static int device_settings(void)
+{
+    int bad = 0, ok;
+    uint32_t k;
+    uint8_t a[4];
+    reset();
+    settings_boot = 0; settings_drumch = 10; memset(settings_vpoints, 0, sizeof settings_vpoints); settings_safety = 0;
+    song.g[G_BOOT] = song.g[G_DRUMCH] = 0;
+    /* BOOT (0 OFF, 1..4 A..D) */
+    a[0] = 1; a[1] = G_BOOT; a[2] = (3u + 8192u) & 127u; a[3] = (3u + 8192u) >> 7;
+    request(ED_SET, a, sizeof a);
+    bad += check("BOOT SET writes the device's setting (settings_boot), not song.g; the reply says 3",
+                 settings_boot == 3u && song.g[G_BOOT] == 0 && ed_rv(host_wire + 7) == 3);
+    a[2] = (99u + 8192u) & 127u; a[3] = (99u + 8192u) >> 7;
+    request(ED_SET, a, sizeof a);
+    bad += check("BOOT SET clamps to its range (4: slot D)", settings_boot == 4u);
+    request(ED_GET, a, 2);
+    bad += check("BOOT GET reports the device's setting", ed_rv(host_wire + 7) == 4);
+    request(ED_DUMP, a, 0);
+    bad += check("DUMP reports BOOT as the device has it", ed_rv(host_wire + 7 + 2 * (P_COUNT + G_BOOT)) == 4);
+    settings_boot = 2u;
+    request(ED_DUMP, a, 0);
+    bad += check("DUMP follows a change made on the unit (BOOT 2)", ed_rv(host_wire + 7 + 2 * (P_COUNT + G_BOOT)) == 2);
+    /* the DRUM channel (0 OFF .. 16) */
+    a[1] = G_DRUMCH; a[2] = (12u + 8192u) & 127u; a[3] = (12u + 8192u) >> 7;
+    request(ED_SET, a, sizeof a);
+    bad += check("DRUM channel SET writes settings_drumch (12), not song.g", settings_drumch == 12u && song.g[G_DRUMCH] == 0);
+    request(ED_DUMP, a, 0);
+    bad += check("DUMP reports the DRUM channel as the device has it", ed_rv(host_wire + 7 + 2 * (P_COUNT + G_DRUMCH)) == 12);
+    /* the WEIGHTS: five points a voice (0 AUTO .. 15) and GUARD (SAFETY) */
+    for (k = 0; k < VOICE_KINDS; k++) {
+        a[1] = (uint8_t)(G_WP5 + k); a[2] = (uint8_t)((k + 2u + 8192u) & 127u); a[3] = (uint8_t)((k + 2u + 8192u) >> 7);
+        request(ED_SET, a, sizeof a);
+        bad += check("a WEIGHT SET writes settings_vpoints, not song.g", settings_vpoints[k] == (int16_t)(k + 2u) && song.g[G_WP5 + k] == 0);
+    }
+    a[1] = G_WP5; a[2] = (99u + 8192u) & 127u; a[3] = (99u + 8192u) >> 7;
+    request(ED_SET, a, sizeof a);
+    bad += check("a WEIGHT SET clamps to the unit's own range (N_VPOINTS)", settings_vpoints[0] == WEIGHT_DESC[0].max);
+    a[1] = G_SAFETY; a[2] = (1u + 8192u) & 127u; a[3] = (1u + 8192u) >> 7;
+    request(ED_SET, a, sizeof a);
+    bad += check("GUARD (G_SAFETY) SET writes settings_safety", settings_safety == 1);
+    request(ED_DUMP, a, 0);
+    ok = ed_rv(host_wire + 7 + 2 * (P_COUNT + G_WCZ)) == 3 && ed_rv(host_wire + 7 + 2 * (P_COUNT + G_SAFETY)) == 1;
+    bad += check("DUMP reports the WEIGHTS and GUARD as the device has them", ok);
+    /* the other reserved globals stay refused */
+    a[1] = G_RESERVED10; a[2] = (5u + 8192u) & 127u; a[3] = (5u + 8192u) >> 7;
+    request(ED_SET, a, sizeof a);
+    bad += check("the other reserved globals (10, 11, 24..26) stay refused", song.g[G_RESERVED10] == 0 && ed_rv(host_wire + 7) == 0);
+
+    /* SLIDE TIME (id 48), the selected track's and another's */
+    reset();
+    a[0] = 0; a[1] = P_SLIDET; a[2] = (uint8_t)((-20 + 8192) & 127); a[3] = (uint8_t)((-20 + 8192) >> 7);
+    request(ED_SET, a, sizeof a);
+    bad += check("SLIDE TIME SET writes the selected track's id 48 (-20) and replies it", !OC_SLIDE_TIME || (TSEL->p[P_SLIDET] == -20 && ed_rv(host_wire + 7) == -20));
+    {   uint8_t b[6] = {2, P_SLIDET, (uint8_t)((30 + 8192) & 127), (uint8_t)((30 + 8192) >> 7)};
+        request(ED_TRACK_PARAM, b, 4);
+        bad += check("SLIDE TIME through TRACK_PARAM writes another track's (30)", !OC_SLIDE_TIME || (trk[2].p[P_SLIDET] == 30 && ed_rv(host_wire + 7) == 30));
+    }
+    a[2] = (uint8_t)((99 + 8192) & 127); a[3] = (uint8_t)((99 + 8192) >> 7);
+    request(ED_SET, a, sizeof a);
+    bad += check("SLIDE TIME clamps to its range (+63)", !OC_SLIDE_TIME || TSEL->p[P_SLIDET] == 63);
+    /* the HOME macros: written where the engine's table has a macro on that knob, within -64 .. 63; refused for an engine with none, and every other reserved id */
+#if OC_HOME_PIC
+    {
+        const knob_def_t *kd;
+        uint32_t m = 4, plain = 4;
+        set_engine_of(TSEL, ENGI_MACRO); TSEL->engine = TSEL->eng_req;
+        kd = kdef_of(TSEL->eng_req);
+        for (k = 0; kd && k < 4u; k++) { if (kd[k].kind == KD_MACRO && m == 4u) m = k; if (kd[k].kind != KD_MACRO && plain == 4u) plain = k; }
+        bad += check("MACRO has a macro knob in oc_knobs.c's table (the test's premise)", m < 4u);
+        if (m < 4u) {
+            a[0] = 0; a[1] = (uint8_t)(P_MAC0 + m); a[2] = (uint8_t)((40 + 8192) & 127); a[3] = (uint8_t)((40 + 8192) >> 7);
+            request(ED_SET, a, sizeof a);
+            bad += check("a macro's SET writes the offset (+40) and replies it", TSEL->p[P_MAC0 + m] == 40 && ed_rv(host_wire + 7) == 40);
+            a[2] = (uint8_t)((99 + 8192) & 127); a[3] = (uint8_t)((99 + 8192) >> 7);
+            request(ED_SET, a, sizeof a);
+            bad += check("a macro's offset clamps to +63", TSEL->p[P_MAC0 + m] == 63);
+            a[2] = (uint8_t)((-99 + 8192) & 127); a[3] = (uint8_t)((-99 + 8192) >> 7);
+            request(ED_SET, a, sizeof a);
+            bad += check("... and -64", TSEL->p[P_MAC0 + m] == -64);
+            {   uint8_t b[6] = {1, (uint8_t)(P_MAC0 + m), (uint8_t)((-7 + 8192) & 127), (uint8_t)((-7 + 8192) >> 7)};
+                request(ED_TRACK_PARAM, b, 4);
+                bad += check("TRACK_PARAM writes another track's macro only when that track's own table has it", trk[1].p[P_MAC0 + m] == 0);
+                set_engine_of(&trk[1], ENGI_MACRO); trk[1].engine = trk[1].eng_req;
+                request(ED_TRACK_PARAM, b, 4);
+                bad += check("... and does when it has (MACRO: -7)", trk[1].p[P_MAC0 + m] == -7);
+            }
+        }
+        if (plain < 4u) {
+            int16_t before = TSEL->p[P_MAC0 + plain];
+            a[0] = 0; a[1] = (uint8_t)(P_MAC0 + plain); a[2] = (uint8_t)((12 + 8192) & 127); a[3] = (uint8_t)((12 + 8192) >> 7);
+            request(ED_SET, a, sizeof a);
+            bad += check("a knob that is not a macro in the table keeps its reserved id refused", TSEL->p[P_MAC0 + plain] == before);
+        }
+    }
+#endif
+    reset();
+    a[0] = 0; a[1] = P_RESERVED33; a[2] = (uint8_t)((12 + 8192) & 127); a[3] = (uint8_t)((12 + 8192) >> 7);
+    request(ED_SET, a, sizeof a);
+    bad += check("an engine with no macro table (SID) leaves id 33 refused", TSEL->p[P_RESERVED33] == 0);
+    return bad;
+}
 /* (web-r3, Session D) the web app's page view writes a cell by its id when tests/web_wire.h says "same": that must be exactly when the
  * editor's own GET / SET / DUMP storage (ed_val) is the storage the unit's page shows, for every cell of every page of this build */
 #include "web_wire.h"
@@ -1616,7 +1721,7 @@ static int arrange_protocol(void)
 int main(void)
 {
     int bad = kit_protocol() + arrange_protocol() + module_protocol() + module_overlaps() + fx_protocol() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + reply_counters() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
-              native_protocol() + shared_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + scale_catalogue() + project_scale_protocol() + web_wire_rule();
+              native_protocol() + shared_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + device_settings() + scale_catalogue() + project_scale_protocol() + web_wire_rule();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
 }

@@ -45,8 +45,10 @@ export async function run() {
   const wrongRo = all.filter((c) => PG.writable(c) === (c.wire === "no" || c.k.max <= c.k.min || (c.scope === "GLOBAL" ? c.id !== FW.recq.global && FW.refused.gp.includes(c.id) : FW.refused.tp.includes(c.id))));
   ok(!wrongRo.length, "pages: a cell is writable exactly when the firmware's editor link takes it (not refused, not fixed, reached: web_wire.h)" + (wrongRo.length ? ` (${wrongRo.map((c) => c.label)})` : ""));
   const slide = find("SLIDE", "SLIDE"), boot = find("PROJECT", "BOOT");
-  ok(!PG.writable(slide) && !PG.writable(boot) && PG.cellValue(boot, dump0) === null && /on the unit/.test(PG.refusedWhy(boot)),
-     "pages: SLIDE TIME is shown read only (the link refuses id 48), BOOT is not read from DUMP (a device setting the link does not reach)");
+  const drumch = find("SYSTEM", "DRUM"), w1 = find("WEIGHTS", "P5"), guard = find("WEIGHTS 2", "GUARD");
+  ok(PG.writable(slide) && PG.writable(boot) && PG.writable(drumch) && PG.writable(w1) && PG.writable(guard) && boot.wire === "same" && PG.cellValue(boot, dump0) === dump0.g[boot.id],
+     "pages: SLIDE TIME, BOOT, the DRUM channel and the WEIGHTS are written and read through the link (web-cmds: editor.c ed_val, ed_may_set)");
+  ok(FW.refused.tp.length === 0 && FW.refused.gp.join() === "10,11,24,25,26" && all.every((c) => c.wire !== "no"), "pages: what the link still refuses is the retired padding (globals 10, 11, 24..26); no cell is left to the unit");
 
   // DUB's view fields: the app's write of one field is the firmware's dub_put_field, for every value from two start states
   const fld = { [FW.dub.sync]: "SYNC", [FW.dub.ping]: "PING", [FW.dub.drive]: "DRIVE", [FW.dub.wow]: "WOW" };
@@ -72,6 +74,15 @@ export async function run() {
   await s.setParam(s.sel, wr.id, wr.value);
   const d2 = await s.readDump();
   ok(d2.p[rate.id] === 99 && s.dump.p[rate.id] === 99, "pages: LFO's RATE written from the tab reaches the selected track (SET scope 0)");
+  /* the settings the unit keeps beside the song, through the page's own path (SET scope 1) and read back from DUMP */
+  for (const [c, v] of [[boot, 3], [drumch, 12], [w1, 6], [guard, 1]]) {
+    const w = PG.cellWrite(c, v, s.dump); await s.setGlobal(w.id, w.value);
+    const d = await s.readDump();
+    ok(w.scope === "global" && d.g[c.id] === v && PG.cellText(c, PG.cellValue(c, d)) === c.k.text[v - c.k.min], `pages: ${c.label} written from the tab reads back from DUMP (${PG.cellText(c, v)})`);
+  }
+  const sl = PG.cellWrite(slide, -20, s.dump); await s.setParam(s.sel, sl.id, sl.value);
+  const sl2 = await s.setParam((s.sel + 1) % 4, 48, 30);
+  ok((await s.readDump()).p[48] === -20 && sl2 === 30, "pages: SLIDE TIME written for the selected track (SET) and for another (TRACK_PARAM)");
   const r = await s.trackMix(1, 77, true);
   await s.readTracks();
   ok(r.level === 77 && r.mute === 1 && s.tracks.tracks[1].level === 77 && s.tracks.tracks[1].mute === 1, "pages: the MIXER's LEVEL and MUTE of another track reach it (TRACK_MIX)");

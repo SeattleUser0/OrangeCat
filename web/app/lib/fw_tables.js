@@ -6817,7 +6817,7 @@ export const FW = {
     "c": 51,
     "label": "DRUM",
     "id": 13,
-    "wire": "no"
+    "wire": "same"
    },
    {
     "c": 52,
@@ -6837,25 +6837,25 @@ export const FW = {
     "c": 54,
     "label": "P5",
     "id": 4,
-    "wire": "no"
+    "wire": "same"
    },
    {
     "c": 54,
     "label": "CZ-1",
     "id": 5,
-    "wire": "no"
+    "wire": "same"
    },
    {
     "c": 54,
     "label": "FM6",
     "id": 6,
-    "wire": "no"
+    "wire": "same"
    },
    {
     "c": 54,
     "label": "SID",
     "id": 7,
-    "wire": "no"
+    "wire": "same"
    }
   ],
   [
@@ -6863,7 +6863,7 @@ export const FW = {
     "c": 54,
     "label": "DRUM",
     "id": 8,
-    "wire": "no"
+    "wire": "same"
    },
    {
     "c": 47,
@@ -6876,7 +6876,7 @@ export const FW = {
     "c": 5,
     "label": "GUARD",
     "id": 9,
-    "wire": "no"
+    "wire": "same"
    }
   ],
   [
@@ -6902,7 +6902,7 @@ export const FW = {
     "c": 56,
     "label": "BOOT",
     "id": 17,
-    "wire": "no"
+    "wire": "same"
    },
    {
     "c": 57,
@@ -8536,20 +8536,8 @@ export const FW = {
   ]
  ],
  "refused": {
-  "tp": [
-   33,
-   34,
-   35,
-   36,
-   48
-  ],
+  "tp": [],
   "gp": [
-   4,
-   5,
-   6,
-   7,
-   8,
-   9,
    10,
    11,
    24,

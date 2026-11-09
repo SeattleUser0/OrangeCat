@@ -5,7 +5,7 @@
 //   - the knob colors are FIXED, the cozies': KNOB 1 blue, 2 green, 3 white, 4 orange, on every track and palette.
 //   - the four knobs of an engine are the firmware's own table (oc_knobs.c, through tests/web_tables.c and lib/fw_tables.js): plain knobs
 //     are the engine's parameters, a macro is an offset stored in P_MAC0..3 (ids 33..36) that the unit reads back in DUMP. The editor link
-//     cannot WRITE a macro or SLIDE TIME yet (editor.c refuses ids 33..36 and 48): the page shows the macro's offset and says so.
+//     writes a macro (SET / TRACK_PARAM of P_MAC0..3 for a track whose own table has it) and SLIDE TIME since web-cmds; on a firmware before that, editor.c refuses ids 33..36 and 48.
 //     An engine with no table (a module that declares none: the Prophet, WHEEL) keeps the unit's HOME knobs of its own (engines.c knob[]).
 //   - the pictures: MACRO, SHAPES and DRUM-X are the pack's scenes (lib/scenes.js, drawn by lib/scene_svg.js).
 //   - the tab names Unit, Sounds, Pages, Steps, Arrange, Project, Settings are this page's own (Pages: the unit's own pages, lib/pages.js).

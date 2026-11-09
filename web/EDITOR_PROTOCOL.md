@@ -464,6 +464,19 @@ of a step (v5) play their General MIDI notes on it, and `UP_GET` / `UP_PUT` kind
 drum pages (the grid and the levels) show for engines 9 and 10. A firmware without DRUM-X reports engine 9 as "-" and plays a
 track that holds it silent; an old sound of PHYS (engine 9, not a drum) now plays as a DRUM-X kit.
 
+## Orange Cat: what SET, TRACK_PARAM, GET and DUMP reach since web-cmds
+
+(branch `web-cmds`, for Session A's review: `docs/orangecat/WEB_CMDS.md`.) No command is added; four ids that the link used to refuse or to read from a dead copy are the unit's own now.
+
+| id | before | now |
+|---|---|---|
+| global 17 BOOT, 13 DRUM channel | SET wrote `song.g`, which the unit never reads: the page said "saved" and nothing changed; DUMP gave the copy | GET, SET and DUMP read and write `settings_boot` / `settings_drumch` (the unit's cells `boot_cell`, `drumch_cell`); SET saves the settings as the unit's page edit does |
+| globals 4..9 WEIGHTS (P5 CZ-1 FM6 SID DRUM points, GUARD) | refused (reserved), DUMP 0 | read and written as `settings_vpoints[]` / `settings_safety`; range 0..15 (GUARD 0..1) by the unit's own descriptor; saved |
+| track id 48 SLIDE TIME | refused | written (SET the selected track's, TRACK_PARAM any track's), -64..63 |
+| track ids 33..36 HOME macros | refused | written for a track whose own knob table has a macro on that knob (oc_knobs.c), -64..63; the other ids stay refused |
+
+DESC (command 5) still answers the reserved view for 4..9 and 33..36 as before, so every older editor sees what it always saw. The reserved globals 10, 11, 24..26 stay refused.
+
 ## Orange Cat: commands past 127, and DRUM-X kits (commands 0, 128, 129, firmware 0.14.2)
 
 **Command 0 is the extension.** Every data byte is 7 bit, so `<cmd>` stops at 127 (`PANEL`). A request

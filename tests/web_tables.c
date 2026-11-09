@@ -163,9 +163,9 @@ static void display(void)
     printf("],");
     /* the ids the editor link's SET / TRACK_PARAM refuse (editor.c: param_reserved, param_slide_time, global_reserved): the app shows them, read only */
     printf("\n\"refused\":{\"tp\":[");
-    for (i = 0, v = 0; i < (uint32_t)P_COUNT; i++) if (param_reserved(i) || param_slide_time(i)) printf("%s%u", v++ ? "," : "", i);
+    for (i = 0, v = 0; i < (uint32_t)P_COUNT; i++) if (web_tp_refused(i)) printf("%s%u", v++ ? "," : "", i);
     printf("],\"gp\":[");
-    for (i = 0, v = 0; i < (uint32_t)G_COUNT; i++) if (global_reserved(i)) printf("%s%u", v++ ? "," : "", i);
+    for (i = 0, v = 0; i < (uint32_t)G_COUNT; i++) if (web_gp_refused(i)) printf("%s%u", v++ ? "," : "", i);
     printf("]},");
     printf("\n\"classes\":[");
     for (i = 0; i < ndcls; i++) {

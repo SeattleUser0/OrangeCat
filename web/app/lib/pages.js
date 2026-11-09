@@ -8,7 +8,8 @@
 //   - DUB's four view fields (SYNC, PING, DRIVE, WOW: dub_fields.h), packed in the track's ids 46 (MODE) and 47 (TAPE): read from them,
 //     written by putting the one field into the packed id as dub_put_field does, the other half kept;
 //   - TEMPO's QNT (G_TRK_RECQ): the selected track's RECQ (id 8);
-//   - an id the firmware refuses (the HOME macros 33..36, SLIDE TIME 48, the reserved globals) or a fixed range: shown, read only;
+//   - an id the firmware refuses (the retired padding: globals 10, 11, 24..26; on a firmware before web-cmds also the HOME macros 33..36, SLIDE TIME 48, BOOT, the DRUM
+//     channel and the WEIGHTS) or a fixed range: shown, read only;
 //   - a device setting the link does not reach (the cell's wire "no": BOOT, the DRUM channel, the WEIGHTS; tests/web_wire.h, which
 //     tests/editor_test.c holds equal to editor.c's ed_val): named, its value not shown (DUMP's copy is not what the unit uses);
 //   - MOD (one SRC DST AMT row on the unit, the slot picked there): the four slots, each its own ids (49 + 3 x slot ...).

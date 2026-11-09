@@ -2200,6 +2200,11 @@ const engineLabel = (engines, e) => (e === 1 && (engines || [])[1] === "-" ? "FM
 
 const paramReserved = id => (id>=33 && id<=36) || id===48;
 const globalReserved = id => (id>=4 && id<=11) || (id>=24 && id<=26);
+/* (web-cmds) what the link may write since editor.c ed_may_set: the reserved ids stay refused except the WEIGHTS (globals 4..9: the device's settings), SLIDE TIME (track id 48) and a
+   HOME macro of the track's own knob table (the mock knows MACRO's PLUCK, id 36: oc_knobs.c); a write clamps by the unit's own range (WEIGHTS 0..15, GUARD 0..1, a macro -64..63) */
+const macroId = (engName, id) => engName === "MACRO" && id === 36;
+const mayWrite = (scope, id, engName) => scope ? !globalReserved(id) || (id >= 4 && id <= 9) : !paramReserved(id) || id === 48 || macroId(engName, id);
+const writeRange = (scope, id, engName, d) => scope ? (id >= 4 && id <= 9 ? {...d, min: 0, max: id === 9 ? 1 : 15} : d) : macroId(engName, id) ? {...d, min: -64, max: 63} : d;
 function makeMockDevice(opt = {}) {
   const NONOFF = ["OFF", "ON"], NDIV = ["1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"], NGO = ["--", "GO"], NDASH = ["--"];
   const D = (label, fmt, min, max, def, names = null, unit = "") => ({ label, fmt, min, max, def, names, unit });
@@ -2797,9 +2802,10 @@ function makeMockDevice(opt = {}) {
         const d = desc(a[0], a[1]);
         if (!d) return null;
         const arr = a[0] ? st.g : st.p;
-        if (cmd === CMD.SET && a.length >= 4 && !(a[0] ? globalReserved(a[1]) : paramReserved(a[1]))) {
+        if (cmd === CMD.SET && a.length >= 4 && mayWrite(a[0], a[1], ENG[st.engine].name)) {
+          const wd = writeRange(a[0], a[1], ENG[st.engine].name, d);
           if (a[0] === 1 && a[1] === G_ENGSEL) setEngine(clamp(v14dec(a[2], a[3]), 0, ENG.length - 1));
-          else if (d.max > d.min) arr[a[1]] = enumOrig(d, clamp(v14dec(a[2], a[3]), d.min, d.max));
+          else if (wd.max > wd.min) arr[a[1]] = enumOrig(wd, clamp(v14dec(a[2], a[3]), wd.min, wd.max));
           if (!a[0] && [26, 27, P_MPCDEG].includes(a[1])) {
             for (const track of st.tracks) {
               track.p[26] = st.p[26]; track.p[27] = st.p[27];
@@ -2838,7 +2844,8 @@ function makeMockDevice(opt = {}) {
       case CMD.TRACK_PARAM: {
         if (a.length < 2 || a[0] >= NTRK || a[1] >= P_COUNT) return null;
         const t = st.tracks[a[0]], d = a[1] >= P_E0 ? ENG[t.engine].edit[a[1] - P_E0] : TP[a[1]];
-        if (a.length >= 4 && !paramReserved(a[1]) && d.max > d.min) t.p[a[1]] = enumOrig(d, clamp(v14dec(a[2], a[3]), d.min, d.max));
+        const wd = writeRange(0, a[1], ENG[t.engine].name, d);
+        if (a.length >= 4 && mayWrite(0, a[1], ENG[t.engine].name) && wd.max > wd.min) t.p[a[1]] = enumOrig(wd, clamp(v14dec(a[2], a[3]), wd.min, wd.max));
         b(a[0]); b(a[1]); v(t.p[a[1]]);
         break;
       }

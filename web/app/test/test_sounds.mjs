@@ -31,7 +31,12 @@ export async function run() {
   const mac = await at(8), dx = await at(9), sd = await at(3);
   const fwk = (e) => FW.engines[e].knobs;
   ok(mac.source === "firmware" && mac.knobs.map((k) => k.label).join() === fwk(8).map((k) => k.label).join() && mac.knobs.slice(0, 3).every((k, i) => k.id === fwk(8)[i].id && !k.macro) && mac.knobs[3].macro && mac.knobs[3].mac === 3,
-     "sounds: MACRO's knobs are oc_knobs.c's (HARM TIMB MRPH plain, PLUCK a macro: the offset is read, not written)");
+     "sounds: MACRO's knobs are oc_knobs.c's (HARM TIMB MRPH plain, PLUCK a macro: an offset in P_MAC3)");
+  /* a macro is written through the link (web-cmds: SET / TRACK_PARAM of P_MAC0..3 for a track whose table has the macro), clamped to -64 .. 63, and read back in DUMP */
+  await at(8);
+  const mk = mac.knobs.find((k) => k.macro), mid = 33 + mk.mac;
+  const wv = await s.setParam(s.sel, mid, 40), big = await s.setParam(s.sel, mid, 99), neg = await s.setParam(s.sel, mid, -99);
+  ok(wv === 40 && big === 63 && neg === -64 && (await s.readDump()).p[mid] === -64, `sounds: MACRO's ${mk.label} macro (P_MAC${mk.mac}, id ${mid}) is written through the link and clamped to -64 .. 63`);
   ok(dx.knobs.map((k) => k.label).join() === "MRPH,TUNE,TONE,DECY" && dx.knobs.every((k, i) => !k.macro && k.id === fwk(9)[i].id),
      "sounds: DRUM-X (MRPH TUNE TONE DECY) as the firmware's table has it");
   ok(designKnobs(14, s.info, s.pdesc).source === "edit" && designKnobs(19, s.info, s.pdesc).source === "edit" && sd.source === "edit" && sd.knobs.every((k, i) => k.id === s.info.pe0 + i),

@@ -334,9 +334,9 @@ function viewSounds() {
     el("div", { class: "stage" },
       el("div", { class: "scenebox", style: { "--tc": trackColor(S.pal, k) } }, box,
         el("div", { class: "caption" }, el("b", { style: { color: trackColor(S.pal, k) } }, name), el("span", { class: "dim" }, presetName))),
-      el("div", {}, el("div", { class: "knobs" }, ...design.knobs.map((x, i) => (x.macro ? macroView(x, colors[i], s.dump.p[MAC0 + x.mac]) : knobView(x.id, colors[i])))),
+      el("div", {}, el("div", { class: "knobs" }, ...design.knobs.map((x, i) => (x.macro ? knobView(MAC0 + x.mac, colors[i], { label: x.label + "*", min: -64, max: 63, def: 0, fmt: E.F.INT, unit: "", names: null }) : knobView(x.id, colors[i])))),
         el("p", { class: "dim small", style: { marginTop: "10px" } }, design.source === "firmware"
-          ? `The four knobs of ${name} as the unit's HOME page has them, in the knobs' fixed colors. A knob marked * is a macro: its offset is shown, and is set on the unit (the editor link cannot write it yet).`
+          ? `The four knobs of ${name} as the unit's HOME page has them, in the knobs' fixed colors. A knob marked * is a macro: an offset of -64 to 63 over its targets, 0 the sound as stored.`
           : design.source === "stage" ? `${name} has no knob table of its own: these are the engine's own HOME knobs.`
           : `${name} is a module's engine: its HOME knobs are the module's own and the editor link does not carry them yet, so these are its first four values from the SOUND sheet.`,
           " Drag up or down, scroll, or use the arrow keys."))));
@@ -409,15 +409,10 @@ function drawScene(box, eng, name, design) {
     scope: Array.from({ length: 64 }, (_, i) => Math.round(200 * Math.sin(i / 64 * Math.PI * 4 + t * 6))) };
   box.innerHTML = enginePicture(name, input) ?? engineScene(eng, name, KNOB_COLORS);
 }
-function macroView(x, color, off) {
-  const o = Number.isFinite(off) ? off : 0;
-  return el("div", { class: "knob macro", style: { "--kc": color }, title: "A macro: an offset of -64 to 63 stored in P_MAC" + x.mac + " (0 is the sound as stored). Set it on the unit; the editor link cannot write it yet" },
-    svgEl(`<svg viewBox="0 0 100 100">${dial(0.5 + o / 128, color)}</svg>`), el("span", { class: "lab" }, x.label + "*"), el("span", { class: "val" }, (o > 0 ? "+" : "") + o));
-}
 const visible = (d) => d && d.max > d.min && !!d.label && d.label !== "-";
 function fmt(d, v) { if (!d) return String(v); const [a, u] = E.fmtValue(d, v); return u ? `${a} ${u}` : a; }
-function knobView(id, color) {
-  const s = S.session, d = s.pdesc[id];
+function knobView(id, color, over) {
+  const s = S.session, d = over || s.pdesc[id];      /* (over: a macro's own descriptor, -64 .. 63: the table's reserved view of id 33..36 is 0 .. 127) */
   if (!visible(d)) return el("div", { class: "knob", style: { "--kc": "var(--dim)" } }, svgEl(`<svg viewBox="0 0 100 100">${dial(0, "var(--line)")}</svg>`), el("span", { class: "lab" }, "-"), el("span", { class: "val" }, ""));
   let v = s.dump.p[id];
   const frac = () => (v - d.min) / Math.max(1, d.max - d.min);
