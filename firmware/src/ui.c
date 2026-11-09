@@ -372,7 +372,10 @@ static int mod_gone(uint32_t e) { return (e == ENGI_SHAPES || e == ENGI_WHEEL ||
 static int track_mod_gone(const track_t *t)
 {
     uint32_t e = t->eng_req % NENGINES;
-    return mod_gone(e) || (MELODEE_MACRO && e == ENGI_MACRO && mc_track_missing(t));
+#if MELODEE_MACRO
+    if (e == ENGI_MACRO && mc_track_missing(t)) return 1;
+#endif
+    return mod_gone(e);
 }
 static void pack_notice(uint32_t force)
 {
