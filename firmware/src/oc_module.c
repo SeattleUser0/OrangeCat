@@ -493,21 +493,24 @@ static void oc_models_park(uint32_t engine)
         oc_mod_park_voices(e);
     }
 }
-static void oc_models_guard(uint32_t first, uint32_t n)
+static void oc_mod_reload(void);
+static uint32_t oc_models_guard(uint32_t first, uint32_t n)       /* the MODELS modules taken out of their engine (their count) */
 {
-    uint32_t i;
+    uint32_t i, parked = 0;
     for (i = 0; i < OC_MOD_STARTS; i++) {
         if (oc_mod.state[i] != MD_OK || oc_mod.kind[i] != FW_MOD_KIND_MODELS) continue;
         {   uint32_t s0 = OC_MOD_START_SECTOR(i), n0 = oc_mod_nsec(oc_mod.length[i]);
-            if (first < s0 + n0 && s0 < first + n) { oc_mod_live = 1; oc_models_park(oc_mod.mid[i] & 0xFFu); oc_mod_live = 0; }
+            if (first < s0 + n0 && s0 < first + n) { oc_mod_live = 1; oc_models_park(oc_mod.mid[i] & 0xFFu); oc_mod_live = 0; parked++; }
         }
     }
+    return parked;
 }
 #if MELODEE_DUB && OC_FX_MODK
 static uint32_t oc_fxk_start;                                   /* (round 18) the start of the module whose kernel the insert host holds (valid while fx_modk_ok) */
 #endif
 static void oc_mod_boot(uint32_t crashed)
 {
+    uint32_t models_at = 0;                                     /* starts of MODELS modules to hand to their engine after the window */
     uint32_t i, e, loser = 0;
     oc_mod_guard_init();
 #if MELODEE_DUB && OC_FX_MODK
@@ -559,14 +562,7 @@ static void oc_mod_boot(uint32_t crashed)
             oc_mod.fx[oc_mod.nfxmod].module_id = oc_mod.mid[i]; oc_mod.fx[oc_mod.nfxmod].version = oc_mod.version[i];
             oc_mod.fx[oc_mod.nfxmod].start = (uint8_t)i; oc_mod.fx[oc_mod.nfxmod].kind = oc_mod.kind[i]; oc_mod.fx[oc_mod.nfxmod].nfx = oc_mod.nfx[i];
             oc_mod.fx[oc_mod.nfxmod].state = MD_OK; oc_mod.fx[oc_mod.nfxmod].why = 0;
-            if (oc_mod.kind[i] == FW_MOD_KIND_MODELS) {         /* (the model picker) the engine's glue reads the module's tables from here on (eng_macro.c mc_model) */
-                int rc;
-                if (oc_mod_live) fm1_irq_off();
-                rc = eng_models_set(FW_MOD_ENGINE(&h), (const void *const *)OC_MOD_XIP_PTR(h.engine_ptr + FW_MODELS_AT), oc_models_count(i),
-                                    (const void *const *)OC_MOD_XIP_PTR(h.engine_ptr + FW_MODELS_BANKS_AT));
-                if (oc_mod_live) fm1_irq_on();
-                if (rc != EM_OK) { oc_mod.state[i] = MD_NOSLOT; oc_mod.why[i] = (uint8_t)-rc; oc_mod.fx[oc_mod.nfxmod].state = MD_NOSLOT; }
-            }
+            if (oc_mod.kind[i] == FW_MOD_KIND_MODELS) models_at |= 1u << i;   /* (the model picker) the engine's glue reads the module's tables from here on, registered after the PC window below (review of the picker: the DUB kernel is, for the same reason) */
             oc_mod.nfxmod++;
             continue;
         }
@@ -589,6 +585,19 @@ static void oc_mod_boot(uint32_t crashed)
     }
 #endif
     oc_mod_window();                                            /* (0.10.1) a running session too: the window follows the registered modules (0.11.1: the one helper) */
+    {   uint32_t mi;                                              /* (the model picker) the MODELS modules, now that the window covers their code */
+        for (mi = 0; mi < OC_MOD_STARTS; mi++) {
+            if (!((models_at >> mi) & 1u)) continue;
+            {   const fw_mod_hdr_t *mh = oc_mod_hdr_ptr(mi);
+                int fxi = oc_fx_find(oc_mod.mid[mi]), rc;
+                if (oc_mod_live) fm1_irq_off();
+                rc = eng_models_set(FW_MOD_ENGINE(mh), (const void *const *)OC_MOD_XIP_PTR(mh->engine_ptr + FW_MODELS_AT), oc_models_count(mi),
+                                    (const void *const *)OC_MOD_XIP_PTR(mh->engine_ptr + FW_MODELS_BANKS_AT));
+                if (oc_mod_live) fm1_irq_on();
+                if (rc != EM_OK) { oc_mod.state[mi] = MD_NOSLOT; oc_mod.why[mi] = (uint8_t)-rc; if (fxi >= 0) oc_mod.fx[fxi].state = MD_NOSLOT; }
+            }
+        }
+    }
 #if MELODEE_DUB && OC_FX_MODK
     {   int fi = oc_fx_find(FX_MODK_ID);                        /* AFTER the window: the kernel's first call may come from the next audio interrupt, into code above the old window's end */
         if (!fx_modk_ok && fi >= 0) oc_fxmod_kernel_reg(oc_mod.fx[fi].start);
@@ -652,12 +661,12 @@ static void oc_mod_ban_notice(void)
 }
 /* (0.11.1) set the use bit of the registered module that supplies `engine`. The project load calls it for every track as it gives the track its engine
  * (project_restore_runtime), so a death before the main loop's first pass (oc_mod_note_use) is still attributed to the module. */
-static void oc_mod_note_engine(uint32_t engine)
+static void oc_mod_note_engine(uint32_t engine, uint32_t model)    /* model: the track's P_E0 (MACRO's model id; 0 = VA, built in) */
 {
     uint32_t i;
     for (i = 0; i < OC_MOD_STARTS; i++)
         if (oc_mod.state[i] == MD_OK && ((oc_mod.engine[i] == engine && engine < NENGINES && eng_mod[engine] == oc_mod_hdr_ptr(i)) ||
-                                         (oc_mod.kind[i] == FW_MOD_KIND_MODELS && oc_mod.mid[i] == FW_MODELS_ID(engine))))   /* (the model picker) a MACRO track may play the module's models */
+                                         (oc_mod.kind[i] == FW_MOD_KIND_MODELS && oc_mod.mid[i] == FW_MODELS_ID(engine) && model != 0)))   /* (the model picker) a MACRO track on a model other than the built-in VA plays the module's (review: a VA track does not mark it, so an unrelated crash cannot ban the module) */
             oc_modguard.inuse |= 1u << i;
 }
 /* main loop, all session (0.10.1; the first 30 s before): set the use bit of every registered module a track is playing */
@@ -864,13 +873,14 @@ static void oc_fxmod_kernel_guard(uint32_t first, uint32_t n)
 static int oc_mod_erase_span(uint32_t first, uint32_t n)
 {
     uint32_t s;
+    uint32_t parked;
     oc_fxmod_kernel_guard(first, n);
-    oc_models_guard(first, n);                                  /* (the model picker) a MODELS module in the span: out of its engine first */
+    parked = oc_models_guard(first, n);                         /* (the model picker) a MODELS module in the span: out of its engine first */
     for (s = 0; s < n && first + s < OC_MOD_AREA; s++) {
         int rc;
-        if (first + s < OC_MOD_BASE_SECTOR && !OC_MOD_LOW_OK()) return -1;   /* (Release 3) never a sector that may hold a live record part: refused, not skipped */
+        if (first + s < OC_MOD_BASE_SECTOR && !OC_MOD_LOW_OK()) { if (parked) oc_mod_reload(); return -1; }   /* (Release 3) never a sector that may hold a live record part: refused, not skipped */
         SMP_FEED();
-        if ((rc = st_erase(ST_MODULE_LO + (first + s) * 0x1000u)) != 0) return rc;
+        if ((rc = st_erase(ST_MODULE_LO + (first + s) * 0x1000u)) != 0) { if (parked) oc_mod_reload(); return rc; }   /* (review of the picker) the models were taken out of MACRO: read the area again, so a module that is still good is registered again (a failed erase left MACRO on VA until the next boot) */
     }
     return 0;
 }

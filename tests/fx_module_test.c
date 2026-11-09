@@ -499,6 +499,31 @@ int main(void)
             ok &= oc_mod_end(IMG) == MI_OK && oc_mod.state[0] == MD_OK && mc_ext_n == 25u;
             chk("the area full: a replacement goes in place; the glue lets go of the table before the erase and has the new one at the end", ok);
         }
+        /* (review of the picker, 8) an erase that fails after the glue let go of the table: the area is read again, so a models module that is still good is registered again
+         * (it was left parked, MACRO on VA, until the next boot) */
+        {   uint32_t r;
+            clean_m();
+            len = make_models(0, 25, 6u * 0x1000u - 0x100u, 0); put(0, len);    /* the area full as above: the replacement can only go in place */
+            good(1, 0x1001u, 0x010000u, 6);
+            good(17, 0x1002u, 0x010000u, 6);
+            oc_mod_boot(0);
+            ok = oc_mod.state[0] == MD_OK && mc_ext_n == 25u;
+            len = make_models(0, 25, 6u * 0x1000u - 0x100u, 0);
+            erase_fail_after = 0;                                                  /* the first erase fails: nothing of the old module was touched */
+            r = (uint32_t)oc_fxmod_begin(mid, 0, len);
+            erase_fail_after = -1;
+            ok &= r != MI_OK && oc_mod.state[0] == MD_OK && mc_ext_n == 25u;
+            chk("an erase that fails after the models were let go: the module is read again and registered, MACRO has its table (review 8)", ok);
+        }
+        /* (review of the picker, 6) a track on the built-in VA (model 0) marks no use of the models module; a track on a model of the module does */
+        {   clean_m();
+            len = make_models(0, 25, 4u * 0x1000u - 0x100u, 0); put(0, len); oc_mod_boot(0);
+            oc_modguard.inuse = 0; oc_mod_note_engine(ENGI_MACRO, 0);
+            ok = oc_modguard.inuse == 0u;
+            oc_mod_note_engine(ENGI_MACRO, 3);
+            ok &= (oc_modguard.inuse & 1u) != 0u;
+            chk("the project load marks the models module used for a model of the module, not for VA (review 6)", ok);
+        }
         clean();
     }
     printf(bad ? "fx modules: FAILED\n" : "fx modules: all passed\n");

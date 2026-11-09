@@ -334,6 +334,7 @@ web_tests() {                                     # the editor mock's tables mus
         step "TransitFM1: verified package, backup, loader isolation and resume" node web/test_transit.mjs
         step "web backup: capture, validation before writes, restore order" node web/test_backup.mjs
         step "stock restore: the unmodified official V15 file is the image, CHECK HEAD range" node web/test_stock_restore.mjs
+        step "installer page: the room meter's placement against the unit loader's own planner (oc_mod_plan, oc_fxmod_plan), random and edge unit states, mutants caught" node web/test_place.mjs
         step "relocatable modules (Orange Cat 0.14.1): the page's relocation = ocflash.py's, the build's packages = their variants, damaged lists refused" node web/test_ocm.mjs
         step "the model picker's packer (web/fm1pick.js): the linker's picks and tools/pick_module.py's reproduced byte for byte, refusals, the pick block, the room meter" node web/test_pick.mjs
         # (Orange Cat 0.14.2, Session D) the web app (web/app): its project codec's layout and fixtures from the firmware's C (tests/app_layout.c), then its tests

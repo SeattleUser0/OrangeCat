@@ -378,6 +378,7 @@ def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=
     lib = strip_module((HERE / "fm1pkg.js").read_text(encoding="utf-8")) + "\n" + \
         strip_module((HERE / "fm1ota.js").read_text(encoding="utf-8")) + "\n" + \
         strip_module((HERE / "fm1backup.js").read_text(encoding="utf-8")) + "\n" + \
+        strip_module((HERE / "fm1place.js").read_text(encoding="utf-8")) + "\n" + \
         strip_module((HERE / "fm1oc.js").read_text(encoding="utf-8")) + "\n" + \
         strip_module((HERE / "fm1pick.js").read_text(encoding="utf-8"))    # (0.11.2) the pack and module stages; (the model picker) the packer and the room meter
     v = re.sub(r'[^A-Za-z0-9.-]', '-', version)

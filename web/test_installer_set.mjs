@@ -11,6 +11,7 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {bkCrc, bkPack} from "./fm1backup.js";
+import {PLACE} from "./fm1place.js";
 import {OcLink, OCM, runSet, probeUnit, installPack, installModule, moduleCurrent, OC_WRITE_TRIES, ocmVersion, packFits, OC_BEGIN_MS} from "./fm1oc.js";
 
 const n3 = (v) => [v & 127, (v >> 7) & 127, (v >> 14) & 127];
@@ -496,5 +497,94 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
   // an engine-only set sends no extension command: its requests are what they always were
   const ue = makeUnit({ pack: "current" }); r = await run(ue, ALL, files());
   assert.deepEqual(r.sum, { firmware: "installed", pack: "current", module: ["installed"] }); assert.ok(!ue.sent.includes(0), "no command 0 in an engine set");
+}
+// 16. (the review of the picker) placement: a mocked unit whose start table, planner and FX commands are the loader's rules (web/fm1place.js, held equal to the C
+//     planner in web/test_place.mjs). A set whose modules the loader cannot place is refused BEFORE the first byte (the preflight), and if a unit's state changes under
+//     the page so that a module still finds no place, the effect modules this run added are taken out again: the unit is as it was.
+{
+  const SECT = PLACE.OC_SECT;
+  const fxImg = (mid, sectors, kind = 1, version = 0x00010203) => {            // an effect module package with a variant at every start of the area
+    const imgLen = sectors * 4096, imgs = SECT.map((sc) => {
+      const a = new Uint8Array(imgLen), h = new DataView(a.buffer), link = (0x020C4000 + sc * 4096) >>> 0;
+      for (let k = 0x400; k < imgLen; k++) a[k] = (k * 3 + sc) & 255;
+      [[0x180, 1], [0x184, mid], [0x188, version], [0x18C, link + 0x200], [0x190, 0]].forEach(([o, v]) => h.setUint32(o, v >>> 0, true));
+      a[0x200] = 7; a[0x201] = kind;
+      h.setUint32(0, 0x444F4D4F, true); h.setUint32(4, IFACE, true); h.setUint32(8, 100, true); h.setUint32(12, 1, true); h.setUint32(16, API, true); h.setUint32(20, kind << 8, true);
+      h.setUint32(24, 0, true); h.setUint32(28, link + 0x180, true); h.setUint32(32, link, true); h.setUint32(36, PHASH, true); h.setUint32(44, version, true);
+      h.setUint32(48, imgLen, true); h.setUint32(52, bkCrc(a.subarray(0x100)), true); h.setUint32(56, bkCrc(a.subarray(0, 56)), true);
+      return a;
+    });
+    const n = imgs.length, tab = 56, hc = tab + 16 * n, off0 = hc + 4, out = new Uint8Array(off0 + imgLen * n), dv = new DataView(out.buffer);
+    dv.setUint32(0, 0x464D434F, true); dv.setUint16(4, 1, true); dv.setUint16(6, n, true); dv.setUint32(8, IFACE, true); dv.setUint32(12, API, true);
+    dv.setUint32(16, kind << 8, true); dv.setUint32(20, 0, true); dv.setUint32(24, PHASH, true); dv.setUint32(44, 1, true); dv.setUint32(48, 100, true); dv.setUint32(52, 1, true);
+    imgs.forEach((img, i) => {
+      dv.setUint32(tab + 16 * i, SECT[i], true); dv.setUint32(tab + 16 * i + 4, imgLen, true); dv.setUint32(tab + 16 * i + 8, bkCrc(img), true); dv.setUint32(tab + 16 * i + 12, off0 + imgLen * i, true);
+      out.set(img, off0 + imgLen * i);
+    });
+    dv.setUint32(hc, bkCrc(out.subarray(0, hc)), true);
+    return out;
+  };
+  const id5 = (a) => a.slice(0, 5).reduce((v, b, i) => v + b * 2 ** (7 * i), 0);
+  // the unit: its state is a PLACE state; its planner is PLACE's; `lie` makes FX_INFO answer "no place" for the module ids in it (a unit whose state changed under the page)
+  const placedUnit = (initial, { lie = [] } = {}) => {
+    const u = { st: PLACE.cloneState(initial), sent: [], begin: null, removed: [], begins: 0 };
+    const input = { state: "connected", onmidimessage: null };
+    const reply = (cmd, data) => setImmediate(() => input.onmidimessage({ data: Uint8Array.from([240, 125, 70, 76, cmd, ...data, 247]) }));
+    const nfx = () => u.st.starts.filter((x) => x.state === 7 && x.kind);
+    const output = { state: "connected", send(m) {
+      const cmd = m[4], args = Array.from(m.slice(5, -1)); u.sent.push(cmd);
+      if (cmd === 115) reply(115, [1, 1, ...n3(PLEN), ...n5(PHASH), ...n3(PLEN), ...n5(PHASH), ...n3(4096)]);
+      else if (cmd === 120) reply(120, [18, 18, 0, 1, 120, ...n5(IFACE), ...n5(API), ...n5(PHASH), 127,
+        ...u.st.starts.flatMap((x) => [x.state, 0, x.kind ? 127 : x.engine, ...n3(x.length)]), 127, 18, ...SECT.map((c) => c + 64), u.st.lowOk ? 1 : 0]);
+      else if (cmd === 125) { const eng = []; for (let e = 0; e < 20; e++) eng.push(1, 7, 0, 127, 0, 0, 0, ...n3(0), 0); reply(125, [20, ...eng, 2, 7, 0, 127, 0, 0, 0]); }
+      else if (cmd === 0) {
+        const n = args[0], a = args.slice(1);
+        if (n === 2) {                                             // FX_INFO: id (5), sectors
+          const mid = id5(a), sec = a[5], c = lie.includes(mid) ? -1 : PLACE.planFx(u.st, mid, sec);
+          const inPlace = c >= 0 && u.st.starts.some((x, j) => x.state === 7 && x.kind && x.mid === mid && SECT[c] < SECT[j] + Math.max(1, Math.ceil(x.length / 4096)) && SECT[j] < SECT[c] + sec);
+          reply(0, [2, c < 0 ? 127 : c, inPlace ? 1 : 0, 127, u.st.lowOk ? 1 : 0]);
+        } else if (n === 3) { u.begin = { id: id5(a), start: a[5], len: a[6] | a[7] << 7 | a[8] << 14 }; u.begins++; reply(0, [3, 0, ...n3(256)]); }
+        else if (n === 4) { const mid = id5(a); u.removed.push(mid); u.st.starts = u.st.starts.map((x) => (x.kind && x.mid === mid ? { state: 0, kind: 0, mid: 0, engine: 0, length: 0 } : x)); u.st.nfxmod = nfx().length; reply(0, [4, 0, ...n3(0)]); }
+        else if (n === 5) reply(0, [5, nfx().length, ...u.st.starts.flatMap((x, i) => x.state === 7 && x.kind ? [...n5(x.mid), 1, 2, 3, 1, 1, 7, 0, i, Math.ceil(x.length / 4096), 0, 0] : [])]);
+      }
+      else if (cmd === 121) reply(121, [0, ...n3(0)]);
+      else if (cmd === 122) reply(122, [0, ...n3(args[0] | args[1] << 7 | args[2] << 14)]);
+      else if (cmd === 123) { if (u.begin) u.st = PLACE.apply(u.st, { mid: u.begin.id, sectors: Math.ceil(u.begin.len / 4096) }, u.begin.start); reply(123, [0, ...n3(u.begin ? u.begin.len : 0)]); }
+    } };
+    u.link = () => new OcLink(input, output);
+    return u;
+  };
+  const MIDA = 0x80000A01, MIDB = 0x80000B02, MIDC = 0x80000C03;
+  const snap = (st) => JSON.stringify(st.starts.map((x) => [x.state, x.kind, x.mid, x.length]));
+  // a unit with SHAPES (start 0), WHEEL (start 1): 12 of the 18 sectors left as one run of 6 below and a run of 2 above
+  const base = PLACE.emptyState(true);
+  base.starts[0] = { state: 7, kind: 0, mid: 0, engine: 14, length: 24160 }; base.starts[1] = { state: 7, kind: 0, mid: 0, engine: 7, length: 2928 };
+  const need = (mid, sectors) => ({ mid, sectors });
+  const MODS = { module: true };
+  // (a) the set A (3), B (6): no 6-run is left after A has taken the low run: the loader cannot place the set; the preflight refuses it before the first byte
+  const setAB = [fxImg(MIDA, 3), fxImg(MIDB, 6)];
+  const simAB = PLACE.simulate(base, [need(MIDA, 3), need(MIDB, 6)]);
+  let u = placedUnit(base), r = await run(u, MODS, { modules: setAB });
+  assert.equal(simAB.ok, false, "the planner itself says the set has no place (A takes the low run, B finds no 6 sectors)");
+  assert.ok(r.sum.module.every((m) => m && m.error === "modNoPlace" && /6 sectors in one run/.test(m.detail)), "every module of the refused set says why: " + JSON.stringify(r.sum.module));
+  assert.equal(u.begins, 0, "the preflight wrote nothing: no FX_BEGIN"); assert.equal(snap(u.st), snap(base), "the unit is as it was");
+  // (b) the same set where the unit's own planner differs from what the page read (it changed under the page): B finds no place after A was put on; A is taken out again
+  u = placedUnit(base, { lie: [MIDB] }); r = await run(u, MODS, { modules: [fxImg(MIDA, 3), fxImg(MIDB, 2)], preflight: false });
+  assert.equal(r.sum.module[0], "installed", "A was put on"); assert.equal(r.sum.module[1].error, "modNoFree", "B found no place: " + JSON.stringify(r.sum.module));
+  assert.deepEqual(r.sum.rolledBack, [MIDA], "A was added by this run, so it is taken out");
+  assert.deepEqual(u.removed, [MIDA], "FX_REMOVE for A only"); assert.equal(snap(u.st), snap(base), "the unit is as it was before the run");
+  // (c) A was on the unit already (an older version): its replacement stays, it is not an addition of this run
+  const withA = PLACE.apply(base, need(MIDA, 3), PLACE.planFx(base, MIDA, 3));
+  u = placedUnit(withA, { lie: [MIDB] }); r = await run(u, MODS, { modules: [fxImg(MIDA, 3, 1, 0x00020000), fxImg(MIDB, 2)], preflight: false });
+  assert.equal(r.sum.module[0], "installed"); assert.ok(!r.sum.rolledBack, "a module the unit had is not removed"); assert.deepEqual(u.removed, []);
+  assert.ok(u.st.starts.some((x) => x.state === 7 && x.kind && x.mid === MIDA), "A is still there");
+  // (d) a set the loader can place goes through and each module sits where the planner said
+  u = placedUnit(base); r = await run(u, MODS, { modules: [fxImg(MIDA, 3), fxImg(MIDC, 2)] });
+  assert.deepEqual(r.sum.module, ["installed", "installed"]); assert.ok(!r.sum.placement && !r.sum.rolledBack);
+  const sim = PLACE.simulate(base, [need(MIDA, 3), need(MIDC, 2)]);
+  assert.equal(snap(u.st), snap(sim.final), "the unit ends where the page's plan put the modules");
+  // (e) an engine-only set or a set already on the unit has no plan to refuse
+  u = placedUnit(withA); r = await run(u, MODS, { modules: [fxImg(MIDA, 3)] });
+  assert.ok(!r.sum.placement);
 }
 console.log("installer set: stages, skips, old firmware, retry, refusals and the shared .ocm reader, effect modules by module id, a models module by its id passed");

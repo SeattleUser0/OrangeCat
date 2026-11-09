@@ -8,6 +8,7 @@ import {readFileSync} from "node:fs";
 import vm from "node:vm";
 import {MELODEE_LOADER, STOCK_LOADER} from "./fm1ota.js";
 import {PICK} from "./fm1pick.js";
+import {PLACE} from "./fm1place.js";
 
 const template = readFileSync(new URL("index_pkg.html", import.meta.url), "utf8");
 
@@ -35,7 +36,7 @@ const STANDARD = {version: "0.15.0", product: "FM-1_900", pkg: {dual: "standard.
 const META = {...STANDARD, releases: [STANDARD], nightly: NIGHTLY};
 
 function boot(storage, unit = {model: "FM-1", text: "FM-1_710010300"}, meta = META) {
-  const elements = new Map(), pending = [], installs = [], runs = [];
+  const elements = new Map(), pending = [], installs = [], runs = [], unitReads = {n: 0, data: null};
   const element = (id) => {
     if (!elements.has(id)) elements.set(id, {checked: id === "build-dual" || id === "stage-fw" || id === "stage-pack" || id === "stage-mod", disabled: false, hidden: false,
       textContent: "", listeners: {}, options: [], value: "", dataset: {},
@@ -45,7 +46,7 @@ function boot(storage, unit = {model: "FM-1", text: "FM-1_710010300"}, meta = ME
   };
   const context = vm.createContext({
     Uint8Array, setTimeout: () => 0,
-    navigator: {language: "en", requestMIDIAccess: async () => ({})},
+    navigator: {language: "en", requestMIDIAccess: async () => unitReads.data ? {inputs: new Map([["i", {name: "Orange Cat", state: "connected"}]]), outputs: new Map([["o", {name: "Orange Cat", state: "connected"}]])} : {inputs: new Map(), outputs: new Map()}},
     document: {documentElement: {}, querySelectorAll: () => [], getElementById: element, createElement: () => element("_o")},
     window: {addEventListener() {}},
     localStorage: storage,
@@ -62,13 +63,15 @@ function boot(storage, unit = {model: "FM-1", text: "FM-1_710010300"}, meta = ME
       if (ctx.stages.firmware) await ctx.runFirmware(() => {});
       return {firmware: ctx.stages.firmware ? "installed" : "off", pack: ctx.stages.pack ? "installed" : "off", module: ctx.files.modules.map(() => "installed")};
     },
-    OcLink: class {},
-    PICK,                                                 // (the model picker) the packer and the room meter, inlined into the page by make_site.py
+    OcLink: class { close() {} },
+    listUnit: async () => { unitReads.n++; return unitReads.data; },          // (the review) Install reads the unit before it writes; the test says what the unit holds
+    Date: class extends Date { static now() { return (unitReads.clock = (unitReads.clock || 0) + 6000); } },   // the page waits for a unit in steps of a second; here the wait runs out at once
+    PICK, PLACE,                                                 // (the model picker) the packer and the room meter, inlined into the page by make_site.py
   });
   const script = template.match(/<script type="module">([\s\S]*?)<\/script>/)[1].replace("/*LIB*/", "").replace("/*META*/{}", JSON.stringify(meta));
   vm.runInContext(script, context);
   const tick = () => new Promise((r) => setImmediate(r));
-  return {element, pending, installs, runs, tick, context};
+  return {element, pending, installs, runs, tick, context, unitReads};
 }
 const answer = async (page, url) => {            // the fetch for url answers with the url's bytes
   const i = page.pending.findIndex((p) => p.url.startsWith(url)); assert.ok(i >= 0, "a fetch of " + url + " in " + page.pending.map((p) => p.url));
@@ -214,7 +217,7 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
   assert.equal(page.element("go").disabled, true, "Install waits while the pick does not fit");
   assert.match(page.element("install-what").textContent, /the effect modules, the MACRO models \(0\.15\.0\)$/);
   page.element("mdl-3").checked = false; page.element("mdl-3").listeners.change();
-  assert.match(page.element("models-room").textContent, /This pick \(WAVSHP, FM\) needs 3: it fits, 6 to spare\.$/, page.element("models-room").textContent);
+  assert.match(page.element("models-room").textContent, /This pick \(WAVSHP, FM\) needs 3: it fits, 6 to spare\. The unit has not been read yet\. Install reads it first/, page.element("models-room").textContent);
   assert.equal(page.element("go").disabled, false, "... and is ready once it does");
   assert.equal(storage.m.get("oc-models"), "[1,2]", "the pick is remembered");
   page.element("stage-fx").checked = false; page.element("stage-fx").listeners.change();
@@ -231,6 +234,42 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
   await answer(again, "standard.fwsc");
   { const i = again.pending.findIndex((p) => p.url.startsWith("orangecat-plaits-")); const [p] = again.pending.splice(i, 1); p.resolve({ok: true, arrayBuffer: async () => masterBytes.buffer}); await again.tick(); await again.tick(); }
   assert.ok(again.element("mdl-1").checked && !again.element("mdl-3").checked, "the next visit opens on the remembered pick");
+  {   // (the review of the picker) the room is placed the way the unit's loader places it, from the unit as it is read; Install reads the unit again each time
+    const unitOf = (mods) => {                     // mods: [[start, engine, state, length, fx?{id, sectors}]] -> what listUnit answers
+      const starts = Array.from({length: 18}, () => ({state: 0, why: 0, engine: 0, length: 0})), effects = [], engines = [];
+      for (const [st, eng, state, len, fx] of mods) { starts[st] = {state, why: 0, engine: fx ? 127 : eng, length: len}; if (fx) effects.push({id: fx.id, kind: 1, version: [1, 0, 0], count: 1, state, why: 0, start: st, sectors: fx.sectors, resident: false, uses: 0}); else engines.push({num: eng, src: 2, state, start: st}); }
+      return {mod: {nstarts: 18, sectors: 18, lowOk: true, starts}, engines: {engines}, fx: {effects}};
+    };
+    const fresh = async (unit) => {
+      const pg = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...WITH, releases: [WITH]});
+      await answer(pg, "standard.fwsc");
+      const i = pg.pending.findIndex((q) => q.url.startsWith("orangecat-plaits-")); const [q] = pg.pending.splice(i, 1); q.resolve({ok: true, arrayBuffer: async () => masterBytes.buffer}); await pg.tick(); await pg.tick();
+      pg.element("stage-models").checked = true; pg.element("stage-models").listeners.change();
+      pg.element("stage-fx").checked = false; pg.element("stage-fx").listeners.change();
+      pg.element("mdl-3").checked = false; pg.element("mdl-3").listeners.change();            // WAVSHP and FM: 3 sectors
+      pg.unitReads.data = unit;
+      return pg;
+    };
+    // 6 + 4 + 3 + 1 = 14 of 18 sectors used, 4 free by subtraction; a 3 sector pick needs one run of 3, and the runs left are 2, 1 and 1: "fits" by 18 minus what is installed, no place for the loader
+    const frag = unitOf([[0, 14, 7, 24160], [1, 7, 7, 2928], [14, 0, 7, 11612, {id: 0xDB0001, sectors: 3}], [16, 0, 7, 4000, {id: 0x1234, sectors: 1}]]);
+    const pg = await fresh(frag);
+    const before = pg.unitReads.n;
+    const clk = pg.element("go").listeners.click(); await pg.tick(); await pg.tick(); await clk;
+    assert.equal(pg.unitReads.n, before + 1, "Install reads the unit before it decides: " + pg.element("status").textContent + " | go.disabled " + pg.element("go").disabled);
+    assert.equal(pg.runs.length, 0, "no place for the pick: nothing is written");
+    assert.match(pg.element("models-room").textContent, /needs 3 sectors in one run; the biggest run the unit's loader can use is 2\./, pg.element("models-room").textContent);
+    assert.equal(PLACE.simulate(PLACE.fromUnit(frag), [{mid: 0x4D08, sectors: 3}]).ok, false, "the same answer from the planner");
+    // the same pick on a unit with room: the click reads, places and writes
+    const roomy = await fresh(unitOf([[0, 14, 7, 24160]]));
+    const c2 = roomy.element("go").listeners.click(); await roomy.tick(); await roomy.tick(); await answer(roomy, WITH.pak); await answer(roomy, WITH.ocm[0]);
+    await c2;
+    assert.equal(roomy.runs.length, 1, "a pick the loader can place is written: " + roomy.element("status").textContent + " | " + roomy.element("models-room").textContent);
+    // the low sectors not usable: the same fragments but only the area from 0xC8000 (12 sectors)
+    const lowOff = unitOf([[0, 14, 7, 24160], [1, 7, 7, 2928]]); lowOff.mod.lowOk = false;
+    const lo = await fresh(lowOff);
+    lo.element("go").listeners.click(); await lo.tick(); await lo.tick();
+    assert.ok(/low sectors are not usable/.test(lo.element("models-room").textContent) && lo.runs.length === 0, "SHAPES 6 and WHEEL 4 leave 2 of the 12 usable sectors: the 3 sector pick is refused, with the reason: " + lo.element("models-room").textContent);
+  }
   const plain = boot(store());
   await answer(plain, "standard.fwsc");
   assert.equal(plain.element("stage-models").disabled, true, "no master in the release list: the box is off");

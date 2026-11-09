@@ -25,6 +25,7 @@
 //           (no extension command is sent unless the set holds an effect module). files.want[i] (optional): {kind, module_id} from the manifest, checked against the file.
 
 import { bkPack, bkCrc } from "./fm1backup.js";
+import { PLACE } from "./fm1place.js";
 
 export const OC_CMD = { PACK_INFO: 115, PACK_BEGIN: 116, PACK_WRITE: 117, PACK_END: 118, PACK_ERASE: 119,
   MOD_INFO: 120, MOD_BEGIN: 121, MOD_WRITE: 122, MOD_END: 123, MOD_REMOVE: 124, ENGINES: 125,
@@ -546,6 +547,23 @@ export function moduleCurrent(ocm, engines) {
   return x.version.every((v, i) => v === want[i]) && ocm.variants.some((v) => v.length === x.size);
 }
 
+// (the model picker review) Where the unit's loader will put each module of this set, computed with the loader's own planner (fm1place.js, tested against the C functions
+// over random and edge unit states in web/test_place.mjs) from what the unit holds now: probe is probeUnit's answer. The modules the unit already has (the same file) are not
+// written, so they are not in the plan. -> {ok, text, mods, steps} (text names the first module with no place and what the unit can still take), or null when the unit's
+// start table could not be read.
+export function placementOf(probe, ocms) {
+  const st = PLACE.fromUnit(probe);
+  if (!st) return null;
+  const mods = [];
+  for (const ocm of ocms) {
+    if (!ocm || !ocm.ok) continue;
+    if (ocm.kind) { if (fxCurrent(ocm, probe.fx)) continue; mods.push({ mid: ocm.moduleId, sectors: ocm.fxSectors, name: ocm.kind === 4 ? "MACRO models" : "effect module 0x" + ocm.moduleId.toString(16).toUpperCase() }); }
+    else { if (moduleCurrent(ocm, probe.engines)) continue; mods.push({ engine: ocm.engine, name: { 14: "SHAPES", 7: "WHEEL", 19: "PROPHET" }[ocm.engine] || "engine " + ocm.engine }); }
+  }
+  const r = PLACE.simulate(st, mods);
+  return { ok: r.ok, mods, steps: r.steps, text: r.ok ? "" : PLACE.whyNot(st, mods, r) };
+}
+
 // The set. ctx: {
 //   stages: {firmware, pack, module}   which stages the user wants
 //   files: {pack: bytes|null, modules: [bytes], want: [{kind, module_id} | null]}      fetched before anything is written; want (Release 3 step 4, optional): what the
@@ -598,6 +616,14 @@ export async function runSet(ctx) {
     }
     if (stages.module) {
       if (!probe.mod) { sum.module = mods.map(() => "oldfw"); return sum; }
+      const pf = ctx.preflight === false ? null : placementOf(probe, mods.map((b) => ocmParse(b)));
+      if (pf && !pf.ok) {                               // (review) no module is written when the loader would have no place for one of them: the unit stays as it is
+        log(`placement: ${pf.text}`);
+        sum.placement = pf.text;
+        sum.module = mods.map(() => ({ error: "modNoPlace", detail: pf.text }));
+        return sum;
+      }
+      const added = [];                                  // effect modules this run put on a unit that had none of that id: taken out again if a later module fails for want of room
       for (let i = 0; i < mods.length; i++) {
         const p = part(96);
         const ocm = ocmParse(mods[i]);
@@ -607,7 +633,8 @@ export async function runSet(ctx) {
         if (ocm.kind) {                                 // (Release 3 step 4) an effect module: by its module id
           if (!probe.fx) { sum.module.push("oldfw"); continue; }
           if (fxCurrent(ocm, probe.fx)) { sum.module.push("current"); p(1); continue; }
-          try { say("modWorking"); await installFx(link, ocm, p, { sleep, confirmInPlace: ctx.confirmInPlace }); sum.module.push("installed"); }
+          const existed = !!(probe.fx && probe.fx.effects.some((x) => x.id === ocm.moduleId && !x.resident));
+          try { say("modWorking"); await installFx(link, ocm, p, { sleep, confirmInPlace: ctx.confirmInPlace }); sum.module.push("installed"); if (!existed) added.push(ocm.moduleId); }
           catch (e) { if (e.code === "ocLost") throw e; sum.module.push(e.detail ? { error: e.code || "modFail", detail: e.detail } : { error: e.code || "modFail" }); }
           probe = await probeUnit(link, { fx: anyFx });
           continue;
@@ -616,6 +643,12 @@ export async function runSet(ctx) {
         try { say("modWorking"); await installModule(link, ocm, p, { sleep, confirmInPlace: ctx.confirmInPlace }); sum.module.push("installed"); }
         catch (e) { if (e.code === "ocLost") throw e; sum.module.push(e.detail ? { error: e.code || "modFail", detail: e.detail } : { error: e.code || "modFail" }); }
         probe = await probeUnit(link, { fx: anyFx });
+      }
+      const noRoom = sum.module.some((m) => m && m.error && (m.error === "modNoFree" || m.error === "modBlocked"));
+      if (noRoom && added.length) {                     // (review) a module found no place after others were put on the unit: those are taken out again, so the unit is as it was
+        sum.rolledBack = [];
+        for (const id of added.reverse()) { try { await removeFx(link, id); sum.rolledBack.push(id); } catch (e) { if (e.code === "ocLost") throw e; sum.rollbackFailed = true; } }
+        log(`rolled back: ${sum.rolledBack.map((i) => "0x" + (i >>> 0).toString(16)).join(", ")}`);
       }
     } else sum.module = mods.map(() => "off");
     if (anyFx && probe.fx) sum.fx = probe.fx;           // (Release 3 step 4) the Effects table after the run, for the page's list
