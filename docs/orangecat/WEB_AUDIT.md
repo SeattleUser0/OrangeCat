@@ -100,7 +100,9 @@ choices are ("pack","shapes","prophet","dub"), the Standard `wheel` set manifest
 
 ## For Session A: ready
 
-READY_PLACEHOLDER
+**web-r3 ready: yes.** Head 1e7c775d (on the merge of linux-hw 52a41894, Nightly v0.16.0-2e1056). The full SAN=1 suite passed through /tmp/oc-suite.lock on cbf6d128 (6398 s) and on 1e7c775d (7126 s); the web app's own tests (117 checks) pass, the firmware tables are checked in and match what tests/web_tables.c writes now. This entry is a doc-only commit on top of 1e7c775d; no code changed after the second suite.
+
+Session A's open items for the web app are items 1 to 8 in the list above (commands the firmware lacks: not added here).
 
 ## The audits in full
 
