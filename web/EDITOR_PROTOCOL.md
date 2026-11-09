@@ -83,8 +83,8 @@ P_COUNT 69): slot k (1..4) is `SRCk`, `DSTk`, `AMTk` at ids 49 + 3 (k − 1) .. 
 
 | id | label | values |
 | --- | --- | --- |
-| 49, 52, 55, 58 | SRC1..SRC4 | enum: 0 OFF, 1 LFO, 2 ENV, 3 VEL, 4 KEY, 5 RAND, 6 MODW (CC1), 7 AT (channel aftertouch), 8 EXPR (CC11) |
-| 50, 53, 56, 59 | DST1..DST4 | enum (20 names): 0 OFF, 1 PITCH, 2 CUT, 3 SHP, 4 AMP (per voice); 5 PAN, 6..9 retired (empty names), 10 RATE (LFO rate), 11 VIB (LFO pitch depth), 12..19 E1..E8 = `P_E0..P_E7` (per block) |
+| 49, 52, 55, 58 | SRC1..SRC4 | enum (11 names): 0 OFF, 1 LFO, 2 ENV, 3 VEL, 4 KEY, 5 RAND, 6 MODW (CC1), 7 AT (channel aftertouch), 8 EXPR (CC11), 9 S&H, 10 SLEW |
+| 50, 53, 56, 59 | DST1..DST4 | enum (21 names): 0 OFF, 1 PITCH, 2 CUT, 3 SHP, 4 AMP (per voice); 5 PAN, 6..9 retired (empty names), 10 RATE (LFO rate), 11 VIB (LFO pitch depth), 12..19 E1..E8 = `P_E0..P_E7` (per block), 20 DEPTH |
 | 51, 54, 57, 60 | AMT1..AMT4 | −64..63 (fmt BIPCT) |
 
 `DESC` names E1..E8 as such; the device shows the engine's label of that parameter instead (`DESC` of
@@ -239,12 +239,13 @@ case), all P_COUNT instrument parameters (v14 each, the same order as `DUMP`), a
 the parameters of the sound, as a factory preset (the track's own parameters, the steps and LEN stay; see
 "Sound loads and undo"). The stored pattern is kept and returned by `UP_GET`; the device no longer loads
 it (its phrase list, SEQ > PHRASES, was removed in 2026-10). The slots are
-numbered 0..63 (the device shows U01..U64).
+numbered 0..383 on the Nightly (UP_SLOTS; the device shows U001..U384); the commands of this section reach 0..127.
 
-- `UP_LIST`: count is cut at 16 and at the last slot (start ≥ 32: count 0, no entries).
+- Legacy commands: 16..21 address one slot in one 7-bit byte, so only slots 0..127 of the library (`UP_SLOTS` = 384, core.h; advertised in INFO's 0x55 tag). The whole library, every engine and the native SysEx kinds, is command 80 ("Shared user library"). Use that.
+- `UP_LIST`: count is cut at 16 and at slot 128 (start ≥ 128: count 0, no entries).
 - `UP_GET` of an empty slot has the same shape with used 0, engine 0, name "" and all values 0.
   Values come back in the current parameter order, inside their ranges.
-- `UP_PUT`: rc 1 for a slot ≥ 32, an engine ≥ NENGINES, a name that is empty, longer than 12 or has
+- `UP_PUT`: rc 1 for a slot ≥ 128 (upreset.c up_parse), an engine ≥ NENGINES, a name that is empty, longer than 12 or has
   bytes outside 32..126, or an incomplete or oversized frame. Values are clamped to their ranges for that
   engine. A note with flag 4 is stored as a tie (note 0); flags on a rest are dropped.
 - **DRUM** (engine 10) was PHYS's MODEL 4 (DRUM) before 1.0. A record of PHYS with E1 (MODEL) = 4,
@@ -1163,14 +1164,13 @@ group to manual step playback. Replies mask the internal recorded flag. Full run
 retain original timing and every bank. User-preset patterns carry the overview only. Capacity is 1024
 notes across the project; overflow reports RECORDING FULL without overwriting existing entries.
 
-All external effects have been removed. Track ids 33..36 and 45..48, global ids
-4..11 and 24..26, and modulation destination ids 6..9 retain their positions as
-inert format padding. Their labels are empty and editors must hide them. Old
-project/preset bytes still parse; runtime loads clear the track/global values,
-and old motion or modulation routes to these ids are ignored. New FX motion
-cannot be captured. CC91 and CC93 have no effect. No FX pages, hold layer, key
-assignment or latch setting remain; UI preference 9 reports 127 (unsupported)
-and UI_SET for id 9 returns rc 2. The physical FX button has no action.
+**Effects and reserved ids (Orange Cat 0.6.0 and later; corrected web-r3 round 3).** The effects are back: track ids 96..113 (DIST, AUTO PAN, the sends
+REV DLY CHO, DUB TAPE's FDBK SEND FILTER ECHO, TIM L, TIM R, SPRNG) and globals 27..75 (DELAY, REVERB, CHORUS, SLICER, MASTER) are parameters with labels,
+shown on the unit's FX pages; CC 91, 93, 94 and 104 are the REV, CHO, DLY and DIST sends (midi_control.c). What stays reserved, and what each id
+is now, is in "Orange Cat parameters" below: track ids 33..36 are the four HOME knob macros, 45..47 DUB TAPE's SPEED, MODE and TAPE, 48 SLIDE TIME;
+global ids 4..11 and 24..26 have empty labels (4..9 are the WEIGHTS, device settings the link does not carry). `SET` and `TRACK_PARAM` refuse
+the ids 33..36 and 48 (and the reserved globals) and answer with the stored value; old project and preset bytes still parse and a load clears the
+reserved values. A client takes a parameter's meaning from `DESC`, never from this list.
 
 ## Shared user library (command 80)
 
@@ -1657,3 +1657,97 @@ palettes of UI_SET id 0 are NIGHT DAY CONTRAST SUNSET OCEAN NEON CANDY LO-FI. Th
 DEPTH (params.c N_MSRC, N_MDST). The track ids 33..36 (HOME macros) and 48 (SLIDE TIME) are refused by SET and TRACK_PARAM. The firmware's own
 pages and parameters as the Nightly has them are generated into `web/app/lib/fw_tables.js` (`tests/web_tables.c`), and the owner's guide into
 `docs/orangecat/CONTROLS.md`.
+
+### Commands this build does not answer (P11)
+
+Compiled out on the Nightly (`MELODEE_FM6`, `MELODEE_CZ`, `MELODEE_P5` are 0: editor.c `case` guards), so the unit sends no reply and a client that waits for one times out: **68..71** (FM6), **75, 76** (CZ-1) and **78** (native pools, Prophet frames), and the native SysEx tags in INFO are advertised nevertheless (Session A's list, item 6). A page asks INFO's engine names first and shows the FM6, CZ-1 and Prophet native panels only for engines the unit has. `tools/check_editor_protocol.py` knows which rows these are (BUILD_DEPENDENT) and lists them.
+
+## Orange Cat parameters (generated; web-r3 round 3)
+
+The ids below are the Nightly's own. The table between the markers is written by `python3 tools/check_editor_protocol.py --write` from `web/app/lib/fw_tables.js` (`tests/web_tables.c`: params.c TP and GP as compiled with the Nightly's switches);
+`tools/check_editor_protocol.py` fails when it differs from the firmware's tables, and when a number this document states (`P_COUNT=n`, `P_E0=n`, `G_COUNT=n` in the last section above) is not what the firmware says.
+
+- **DUB TAPE** (the effect module, ids on the effects' free ids and on the old padding): `FDBK` 104, `SEND` 105, `FILTER` 106, `ECHO` 107 (0..127), `TIM L` 111, `TIM R` 112, `SPRNG` 113, `SPEED` 45.
+  `MODE` (46) and `TAPE` (47) are packed. `MODE` = 64 | PING << 1 | SYNC (range 64..127, default 65). `TAPE` = DRIVE × 12 + WOW − 64 (DRIVE 0..15, WOW 0..11; −64..127, default 8).
+  An editor shows four fields, SYNC, PING, DRIVE and WOW, and writes the packed id with the one field changed and the other half kept (firmware `dub_put_field`, dub_fields.h). With SYNC on, `TIM L` and `TIM R` are positions on the beat (1/32 .. 1/1), otherwise 20 ms to 1 s.
+- **SLIDE TIME** (48): −64 quicker, 0 as slides were, +63 slower (seq.c slide_gstep). The unit shows it on its SLIDE page; `SET` refuses it until the firmware's editor mapping lands (Session A item 1).
+- **HOME's knob macros** (33..36): offsets −64..63 over the knobs' targets (oc_knobs.c, oc_macro.c). The unit's, not the link's: refused, and cleared on every load.
+- **Device settings with no wire id** (the WEIGHTS 4..9, the DRUM channel 13, BOOT 17): `SET scope 1` writes a copy in the song that the unit does not use. Not carried until Session A's item 8.
+
+<!-- FW-PARAMS-BEGIN -->
+| id | label | range | default | values |
+| --- | --- | --- | --- | --- |
+| 45 | SPEED | 0..127 | 64 |  |
+| 46 | MODE | 64..127 | 65 |  |
+| 47 | TAPE | -64..127 | 8 |  |
+| 48 | SLIDE | -64..63 | 0 |  |
+| 96 | DIST | 0..127 | 0 |  |
+| 97 | TYPE | 0..5 | 0 | SOFT/HARD/FOLD/CRUSH/RECT/AMP |
+| 98 | TONE | -64..63 | 0 |  |
+| 99 | DEPTH | 0..127 | 0 |  |
+| 100 | RATE | 0..127 | 2 |  |
+| 101 | WAVE | 0..4 | 1 | SIN/TRI/SAW/SQR/S&H |
+| 102 | SYNC | 0..1 | 1 | FREE/BEAT |
+| 103 | SLC | 0..1 | 1 | OFF/ON |
+| 104 | FDBK | 0..127 | 55 |  |
+| 105 | SEND | 0..127 | 127 |  |
+| 106 | FILTER | 0..127 | 60 |  |
+| 107 | ECHO | 0..127 | 0 |  |
+| 108 | REV | 0..127 | 0 |  |
+| 109 | DLY | 0..127 | 0 |  |
+| 110 | CHO | 0..127 | 0 |  |
+| 111 | TIM L | 0..127 | 53 |  |
+| 112 | TIM R | 0..127 | 67 |  |
+| 113 | SPRNG | 0..127 | 0 |  |
+| 114 | STRUM | 0..7 | 0 | OFF/1/8/1/16/1/32/1/64/1/128/16T/32T |
+| 115 | STROKE | 0..2 | 0 | DOWN/UP/ALT |
+| G 27 | TIME | 0..63 | 1 |  |
+| G 28 | FDBK | 0..120 | 60 |  |
+| G 29 | TONE | 0..127 | 64 |  |
+| G 30 | MIX | 0..127 | 90 |  |
+| G 31 | WIDE | 0..127 | 0 |  |
+| G 32 | PITCH | -12..12 | 0 |  |
+| G 33 | SPRAY | 0..127 | 0 |  |
+| G 34 | MOD | 0..127 | 0 |  |
+| G 35 | TYPE | 0..1 | 0 | ANALOG/DIGITAL |
+| G 36 | PING | 0..1 | 0 | OFF/ON |
+| G 37 | TYPE | 0..4 | 0 | ROOM/SPRING/SHIMR/RESO/CLOUD |
+| G 38 | SIZE | 0..127 | 90 |  |
+| G 39 | DAMP | 0..127 | 60 |  |
+| G 40 | PRE | -24..100 | 0 |  |
+| G 41 | BUDGET | 8..32 | 16 |  |
+| G 42 | MOD | 0..127 | 0 |  |
+| G 43 | RATE | 0..127 | 30 |  |
+| G 44 | FILT | -64..63 | 0 |  |
+| G 45 | WIDE | 0..127 | 0 |  |
+| G 46 | RATE | 0..127 | 40 |  |
+| G 47 | DEPTH | 0..127 | 60 |  |
+| G 48 | WIDE | -64..63 | 0 |  |
+| G 49 | MODE | 0..2 | 0 | OFF/GATE/STUT |
+| G 50 | PAT | 1..16 | 1 |  |
+| G 51 | RATE | 0..5 | 1 | 1/8/1/16/1/32/8T/16T/32T |
+| G 52 | DEPTH | 0..127 | 127 |  |
+| G 53 | FX | 0..1 | 1 | OFF/ON |
+| G 54 | LEN | 1..16 | 16 |  |
+| G 55 | QUANT | 0..1 | 1 | CHR/SCL |
+| G 56 | PITCH | -24..24 | 0 |  |
+| G 57 | PITCH | -24..24 | 0 |  |
+| G 58 | PITCH | -24..24 | 0 |  |
+| G 59 | PITCH | -24..24 | 0 |  |
+| G 60 | PITCH | -24..24 | 0 |  |
+| G 61 | PITCH | -24..24 | 0 |  |
+| G 62 | PITCH | -24..24 | 0 |  |
+| G 63 | PITCH | -24..24 | 0 |  |
+| G 64 | PITCH | -24..24 | 0 |  |
+| G 65 | PITCH | -24..24 | 0 |  |
+| G 66 | PITCH | -24..24 | 0 |  |
+| G 67 | PITCH | -24..24 | 0 |  |
+| G 68 | PITCH | -24..24 | 0 |  |
+| G 69 | PITCH | -24..24 | 0 |  |
+| G 70 | PITCH | -24..24 | 0 |  |
+| G 71 | PITCH | -24..24 | 0 |  |
+| G 72 | DJF | -64..63 | 0 |  |
+| G 73 | CLIP | 0..100 | 0 |  |
+| G 74 | LEVEL | 0..1 | 0 | OFF/ON |
+| G 75 | SPK | 0..2 | 0 | OFF/LOWCUT/BASS+ |
+<!-- FW-PARAMS-END -->

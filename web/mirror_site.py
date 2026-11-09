@@ -59,6 +59,17 @@ def fetch(url, tries=3):
     raise SystemExit(f"{url}: {last}")
 
 
+def set_choices(entry):
+    """The module choices make_site.py writes one set manifest for: "pack" and the NAME of every orangecat-NAME-VER.ocm of the entry (derived,
+    not typed: a module added to the build, WHEEL for one, gets its set mirrored without this file changing; web-r3 round 3, I6)."""
+    out = ["pack"]
+    for o in entry.get("ocm", []):
+        m = re.fullmatch(r"orangecat-([a-z0-9]+)-.*\.ocm", Path(o["url"] if isinstance(o, dict) else o).name)
+        if m and m[1] not in out:
+            out.append(m[1])
+    return out
+
+
 def mirror(base, out, nightly=False):
     base, out = base.rstrip("/") + "/", Path(out)
     got = {}
@@ -87,7 +98,7 @@ def mirror(base, out, nightly=False):
             take("firmware/" + Path(ref).name, required=True)
     for entry in entries:                                    # the sets for the card of each release (optional)
         v = entry.get("version", "")
-        for choice in ("pack", "shapes", "prophet", "dub"):
+        for choice in set_choices(entry):
             take(f"firmware/orangecat-{v}.{choice}.set.json")
     for doc in ("LICENSE", "LICENSING.md"):
         take("firmware/" + doc)
@@ -142,7 +153,7 @@ def mirror_nightly(base, out):
         take("firmware/" + Path(ref).name, required=True)
     for name in entry.get("sets", []):
         take("firmware/" + Path(name).name)
-    for choice in ("pack", "shapes", "prophet", "dub"):
+    for choice in set_choices(entry):
         take(f"firmware/orangecat-nightly.{choice}.set.json")
     listed = take("webapp/nightly-app/files.json")
     if listed:

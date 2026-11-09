@@ -27,6 +27,10 @@ assert.match(template, /<input type="checkbox" id="stage-pack" checked>/);
 assert.match(template, /<input type="checkbox" id="stage-mod" checked>/);
 assert.doesNotMatch(template, /<input type="checkbox" id="stage-prophet" checked>/, "the Prophet module does not fit with SHAPES: off by default (one at a time)");
 assert.equal((template.match(/<button id="go"/g) || []).length, 1, "one Install button");
+// (round 3, I2 I3) the links go to Orange Cat's repo, never Melodee's; the module box names the WHEEL module it also installs (ocmKind sorts a wheel file under it)
+assert.doesNotMatch(template, /keremimo/, "no link to the Melodee repository");
+assert.match(template, /github\.com\/SeattleUser0\/OrangeCat\/blob\/main\/docs\/RECOVERY\.md/, "recovery instructions: this repository's docs/RECOVERY.md");
+assert.match(template, /stageMod: "SHAPES and WHEEL modules"/, "the module box names WHEEL");
 
 const NIGHTLY = {version: "v0.16.0-abcdef", product: "FM-1_900", branchName: "linux-hw", commit: "abcdef0123456789", builtAt: "2026-10-31T00:00:00Z",
   pkg: {dual: "nightly.fwsc"}, pak: "orangecat-nightly.pak", ocm: ["orangecat-shapes-nightly.ocm", "orangecat-prophet-nightly.ocm"]};
@@ -109,14 +113,14 @@ const store = () => { const m = new Map(); return {getItem: (k) => (m.has(k) ? m
   page.element("build-dual").checked = false; page.element("build-nightly-dual").checked = true; page.element("build-nightly-dual").listeners.change();
   await answer(page, "nightly.fwsc");
   assert.equal(page.element("install-what").textContent,
-    "The Install button writes what is ticked above, for the build you chose: the firmware, the asset pack, the SHAPES module (v0.16.0-abcdef)");
+    "The Install button writes what is ticked above, for the build you chose: the firmware, the asset pack, the SHAPES and WHEEL modules (v0.16.0-abcdef)");
   page.element("stage-pack").checked = false; page.element("stage-pack").listeners.change();
   assert.equal(page.element("install-what").textContent,
-    "The Install button writes what is ticked above, for the build you chose: the firmware, the SHAPES module (v0.16.0-abcdef)");
+    "The Install button writes what is ticked above, for the build you chose: the firmware, the SHAPES and WHEEL modules (v0.16.0-abcdef)");
   page.element("stage-fw").checked = false; page.element("stage-mod").checked = false; page.element("stage-fw").listeners.change();
   assert.match(page.element("install-what").textContent, /nothing is ticked: nothing will be written$/);
   page.element("stage-fw").checked = page.element("stage-pack").checked = page.element("stage-mod").checked = true; page.element("stage-fw").listeners.change();
-  assert.equal(page.element("install-what").textContent.endsWith("the firmware, the asset pack, the SHAPES module (v0.16.0-abcdef)"), true);
+  assert.equal(page.element("install-what").textContent.endsWith("the firmware, the asset pack, the SHAPES and WHEEL modules (v0.16.0-abcdef)"), true);
 }
 
 // c. a unit on stock M-VAVE firmware takes the Nightly in one run, as it takes Standard: one click, the package, the pack and the module of the chosen build
@@ -153,7 +157,7 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
   page.element("stage-fx").checked = true; page.element("stage-fx").listeners.change();
   assert.equal(page.element("stage-fx").disabled, false, "the box is on when the release offers an effect module");
   assert.equal(page.element("fx-names").textContent, "(DUB TAPE)", "(Release 3 step 6) the effects box names what the release list offers: DUB TAPE");
-  assert.match(page.element("install-what").textContent, /the SHAPES module, the effect modules \(0\.15\.0\)$/);
+  assert.match(page.element("install-what").textContent, /the SHAPES and WHEEL modules, the effect modules \(0\.15\.0\)$/);
   const click = page.element("go").listeners.click();
   await page.tick();
   await answer(page, FX.pak); await answer(page, FX.ocm[0]); await answer(page, "orangecat-dub-0.15.0.ocm");

@@ -14,13 +14,14 @@
   firmware/orangecat-VER.pak        (0.11.2) the asset pack of the same build, offered by the installer after the firmware
   firmware/orangecat-NAME-VER.ocm   (0.11.2) the engine module packages of the same build (shapes), likewise
   firmware/melodee-nightly*.fwsc    next's development builds (nightly.json; publish_nightly.py), kept as published
-  firmware/orangecat-nightly.pak, orangecat-NAME-nightly.ocm, orangecat-nightly.{pack,shapes,prophet}.set.json
+  firmware/orangecat-nightly.pak, orangecat-NAME-nightly.ocm, orangecat-nightly.CHOICE.set.json (CHOICE: pack and each module's name)
                                     (0.13.6) the pack, modules and set manifests of a branch build in the Nightly channel (nightly.json)
   firmware/melodee-*-rc.*.fwsc      published release candidate (rc.json; publish_rc.py), kept as published
   webapp/installer/index.html       index_pkg.html, self-contained (fm1pkg.js, fm1ota.js, metadata inlined)
   webapp/editor/index.html          editor.html (+ fukiai.ttf, FUKIAI-LICENSE.txt)
-  webapp/manual/                    web/manual/ on a full publish (the stable manual: HTML and screenshots).
-                                    Nightly and release-candidate updates leave it in place.
+  webapp/manual/                    MELODEE'S full publish only (web/manual/: HTML and screenshots). Orange Cat always calls main(installer_only=True)
+                                    (tools/orangecat_site.py) and publishes no manual: the owner's controls guide (web/app/controls.html) replaces it.
+                                    tests/mirror_site_test.py holds that.
   src/                              not touched
 
   web/make_site.py build/melodee-X.Y.fwsc X.Y OUT_DIR
@@ -28,7 +29,7 @@
 Packages must be made by tools/fm1pkg_make.py (Melodee's own loader, no vendor files).
 Their identity is read from the package; the device must report it after installation.
 
-Manual screenshots are generated into web/manual/ and are not stored in git. A full
+(Melodee's full publish; Orange Cat's installer_only run does none of this.) Manual screenshots are generated into web/manual/ and are not stored in git. A full
 publish and web/quick-host.sh run tools/manual_shots.py first — see BUILDING.md "Local site".
 The figure names are the <img src> values in web/manual/index.html. A full publish checks
 every one of them before it writes the output site, then replaces webapp/manual/ with the

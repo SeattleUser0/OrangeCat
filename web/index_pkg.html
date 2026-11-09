@@ -55,7 +55,7 @@
   <p class="small" data-t="direct"></p>
   <p class="small" data-t="beta"></p>
   <p class="small"><span data-t="brick"></span>
-    <a href="https://github.com/keremimo/melodee/blob/next/docs/RECOVERY.md" target="_blank" rel="noopener" style="color:inherit" data-t="recoveryLink"></a></p>
+    <a href="https://github.com/SeattleUser0/OrangeCat/blob/main/docs/RECOVERY.md" target="_blank" rel="noopener" style="color:inherit" data-t="recoveryLink"></a></p>
   <p><label><span data-t="releaseTitle"></span><br><select id="release"></select></label></p>
   <fieldset id="builds">
     <legend data-t="buildsTitle"></legend>
@@ -118,7 +118,7 @@
     <p class="small" data-t="stockBackup"></p>
     <p class="small"><label><input id="stock-skip-backup" type="checkbox"> <span data-t="stockSkipBackup"></span></label></p>
     <p class="small"><label><input id="stock-recovery" type="checkbox"> <span data-t="stockRecovery"></span></label></p>
-    <p class="small"><a href="https://github.com/keremimo/melodee/blob/next/docs/RECOVERY.md#return-to-stock-from-running-melodee" target="_blank" rel="noopener" style="color:inherit" data-t="stockHelp"></a></p>
+    <p class="small"><a href="https://github.com/SeattleUser0/OrangeCat/blob/main/docs/RECOVERY.md#return-to-stock-from-running-melodee" target="_blank" rel="noopener" style="color:inherit" data-t="stockHelp"></a></p>
   </details>
   <progress id="bar" max="100" value="0"></progress>
   <p id="status"></p>
@@ -128,7 +128,7 @@
     Font: Inter Tight (The Inter Project Authors, SIL OFL 1.1). Samples: Versilian Studios VSCO-2 Community Edition and VCSL (CC0 1.0).<br>
     FM6 engine: msfa from Dexed (Google Inc., Pascal Gauthier, Apache-2.0). The package also holds three JieLi AC79 SDK files, uboot.boot, cfg_tool.bin and eq_cfg_hw.bin (JieLi Technology, Apache-2.0). <a href="../../firmware/LICENSING.md" style="color:inherit">Licences</a>: <a href="../../firmware/LICENSE" style="color:inherit">GPL-3.0</a>, <a href="../../firmware/LICENSES/Apache-2.0.txt" style="color:inherit">Apache-2.0</a>, <a href="../../firmware/LICENSES/" style="color:inherit">all</a>.<br>
     M-VAVE and FM-1 are trademarks of their respective owners.<br>
-    <span data-t="license"></span> <a href="https://github.com/keremimo/melodee" target="_blank" rel="noopener" style="color:inherit">github.com/keremimo/melodee</a></p>
+    <span data-t="license"></span> <a href="https://github.com/SeattleUser0/OrangeCat" target="_blank" rel="noopener" style="color:inherit">github.com/SeattleUser0/OrangeCat</a></p>
 </main>
 <script type="module">
 /*LIB*/
@@ -144,7 +144,7 @@ const TEXT = {
     dualWhy: "テスト済みのリリースです。確実に動かしたいときはこちら。",
     installWhat: "インストールボタンは、選んだビルドについて上でチェックした内容を書き込みます：",
     installNone: "何もチェックされていません：何も書き込みません",
-    installFw: "ファームウェア", installPack: "アセットパック", installMod: "SHAPESモジュール", installProphet: "Prophetモジュール", installFx: "エフェクトモジュール",
+    installFw: "ファームウェア", installPack: "アセットパック", installMod: "SHAPESとWHEELのモジュール", installProphet: "Prophetモジュール", installFx: "エフェクトモジュール",
     stageFx: "エフェクトモジュール", fxWhy: "このビルドのエフェクトモジュール（インサート、センド、マスター）。モジュールIDで入ります。エンジンのモジュールとは別に、空いている場所に入ります。",
     unitModsTitle: "ユニットに入っているモジュール", unitRead: "ユニットから読む", unitEngines: "エンジン", unitFx: "エフェクト",
     unitNone: "なし", fxNoTable: "このファームウェアにはエフェクトモジュールがありません", fxRemoveTitle: "エフェクトモジュールを消す", fxRemove: "消す",
@@ -203,7 +203,7 @@ const TEXT = {
     mismatch: "書き込みは終わりましたが、FM-1 が別のバージョンを報告しています: ",
     badpkg: "インストールするファイルが壊れています。ページを再読み込みしてください。",
     leave: "書き込み中です。ページを閉じないでください。",
-    stagesTitle: "インストールボタンが書き込む内容（チェックしたものすべて）", stageFw: "ファームウェア", stagePack: "アセットパック", stageMod: "SHAPESモジュール", stageProphet: "Prophetモジュール",
+    stagesTitle: "インストールボタンが書き込む内容（チェックしたものすべて）", stageFw: "ファームウェア", stagePack: "アセットパック", stageMod: "SHAPESとWHEELのモジュール", stageProphet: "Prophetモジュール",
     packWhy: "パックが無いとMACROとSHAPESは鳴りません。", modWhy: "SHAPES（マクロ・オシレーター）: 新しいビルドではファームウェアに内蔵されず、このモジュールとして入ります（チェック済み）。入れないとSHAPESを使うトラックは無音になり MODULE MISSING と表示されますが、曲と設定は残ります。以前のSHAPES内蔵ビルドのユニットも、このモジュールを入れればSHAPESが戻ります。",
     prophetWhy: "Prophetモジュール(32 KB)はSHAPESモジュールと一緒には入りません。どちらか一方を選んでください。もう一方が入っているときは、先に消してください。",
     downgradeWhy: "このファームウェアより古いファームウェアは、モジュール領域の新しい部分に入れたモジュールを認識しません。古いファームウェアに戻す場合は、それらのモジュールを入れ直してください。",
@@ -233,7 +233,7 @@ const TEXT = {
     dualWhy: "The tested release. Choose this for a unit that is known to work.",
     installWhat: "The Install button writes what is ticked above, for the build you chose: ",
     installNone: "nothing is ticked: nothing will be written",
-    installFw: "the firmware", installPack: "the asset pack", installMod: "the SHAPES module", installProphet: "the Prophet module", installFx: "the effect modules",
+    installFw: "the firmware", installPack: "the asset pack", installMod: "the SHAPES and WHEEL modules", installProphet: "the Prophet module", installFx: "the effect modules",
     stageFx: "Effect modules", fxWhy: "The build's effect modules (insert, send, master). They go in by their module id, into a free place beside the engine modules.",
     unitModsTitle: "Modules in the unit", unitRead: "Read from the unit", unitEngines: "Engines", unitFx: "Effects",
     unitNone: "none", fxNoTable: "this firmware has no effect modules", fxRemoveTitle: "Remove an effect module", fxRemove: "Remove",
@@ -292,7 +292,7 @@ const TEXT = {
     mismatch: "Written, but the FM-1 reports another version: ",
     badpkg: "The file to install is damaged. Reload the page.",
     leave: "Writing. Do not close the page.",
-    stagesTitle: "What the Install button installs (everything ticked)", stageFw: "Firmware", stagePack: "Asset pack", stageMod: "SHAPES module", stageProphet: "Prophet module",
+    stagesTitle: "What the Install button installs (everything ticked)", stageFw: "Firmware", stagePack: "Asset pack", stageMod: "SHAPES and WHEEL modules", stageProphet: "Prophet module",
     packWhy: "Without the pack, MACRO and SHAPES stay silent.", modWhy: "SHAPES: the macro oscillator engine. New builds have no SHAPES inside the firmware; it comes as this module (ticked). Without it, tracks that use SHAPES are silent and flagged MODULE MISSING; their music and settings are kept. A unit that had SHAPES built in gets it back by installing this module.",
     prophetWhy: "Prophet: a polysynth engine in the same place as SHAPES. The Prophet module (32 KB) does not fit in the unit together with the SHAPES module: choose one. If the other is already in the unit, remove it first.",
     downgradeWhy: "A firmware older than this one does not see modules installed in the new part of the module area; going back means installing those modules again.",

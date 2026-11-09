@@ -330,6 +330,7 @@ web_tests() {                                     # the editor mock's tables mus
     fi
     if command -v node >/dev/null 2>&1; then
         step "web pages: editor protocol + native CZ patches, package builder, update protocol" node web/test_web.mjs
+        step "editor page layout and DUB fields against the firmware's tables (web-r3 round 3: LAYOUT = page_desc, the generated DUB words, dub_put_field)" node web/test_editor_layout.mjs
         step "installer UI: release selection, fetch races, cache and write lock" node web/test_installer.mjs
         step "TransitFM1: verified package, backup, loader isolation and resume" node web/test_transit.mjs
         step "web backup: capture, validation before writes, restore order" node web/test_backup.mjs
@@ -560,6 +561,7 @@ core && t "the asset pack with HOME's scene trailer (new interface 1b): installe
     oc_pack_trailer_test -O1 -DOC_HOME_PIC=1 $FW
 core && run "web/EDITOR_PROTOCOL.md against editor.c's switch, both directions (Orange Cat 0.12.2)" python3 tools/check_editor_protocol.py
 core && run "the set checker (web/make_site.py check_set): sector bounds of the module area (Orange Cat 0.12.1)" python3 tests/check_set_test.py
+core && run "the site mirror copies every module choice's set; MODULE_IDS.md = make_site.FX_NAMES = the firmware (web-r3 round 3, I5 I6)" python3 tests/mirror_site_test.py
 core && run "the asset pack's generator (Orange Cat 0.8.0): 57 tables laid out in the 10 sectors, no sector tail like an update record" python3 tools/gen_pack.py --check
 core && run "the interface identifier (Orange Cat 0.9.0): the generated header is what the sources give; a comment leaves it, a changed field moves it" sh -c "python3 tools/gen_fw_api_id.py --check build/gen/fw_api_id.h && python3 tools/gen_fw_api_id.py --selftest"
 # (Release 3, step 3, r3-pages) the interface identifier moved: the headers of the last Release 2 build's modules (tests/fixtures/r2_modules) are refused, this build's accepted
