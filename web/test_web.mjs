@@ -683,19 +683,16 @@ async function editorMock() {
   await rq(E.req.upErase(31));
   prefs = await E.readDevicePreferences(rq, info, names, prefs);
   ok(!prefs.favorites[info.namespace.general][31] && !E.devicePresetRows(info, names, prefs).some((r) => r.user), "editor: erased slot disappears and loses star");
-  {   /* the lists in the device's order (engines.c ENGINE_ORDER): FM6 second, DRUM then (Orange Cat 0.5.0) MACRO last,
-         "-" never; the numbers stay */
+  {   /* the lists in the Nightly's order (engines.c ENGINE_ORDER as built): DRUM-X, MACRO, SHAPES, PROPHET, WHEEL, then the engines a Nightly does not carry; "-" never; the numbers stay */
     const shown = E.engineOrder(info.engines).map((i) => info.engines[i]);
-    ok(shown.join() === "PROPHET,FM6,CZ-1,SID,DRUM,DRUM-X,MACRO,SHAPES" &&
-       E.engineOrder(info.engines)[1] === 12 && E.engineOrder(info.engines).at(-4) === 10 && E.engineOrder(info.engines).at(-3) === 9 && E.engineOrder(info.engines).at(-2) === 8 &&
-       E.engineOrder(info.engines).at(-1) === 14,
-       "editor: engines listed FM6 second, DRUM, DRUM-X, then MACRO and SHAPES last (indices kept)");
+    ok(shown.join() === "DRUM-X,MACRO,SHAPES,PROPHET,FM6,CZ-1,SID,DRUM" && E.engineOrder(info.engines).slice(0, 4).join() === "9,8,14,19",
+       "editor: engines listed DRUM-X, MACRO, SHAPES, PROPHET first, then the others (indices kept)");
     ok(E.engineOrder(["ANALOG", "X", "-", "DRUM", "FM6"]).join() === "0,4,3,1", "editor: an unknown engine follows the known ones");
     m.state.favorites[10][0] = m.state.favorites[12][0] = true;
     await rq(E.req.uiSet(3, 0));
     prefs = await E.readDevicePreferences(rq, info, names, prefs);
     const rows = E.devicePresetRows(info, names, prefs).filter((r) => !r.user), eng = [...new Set(rows.map((r) => r.engine))];
-    ok(eng[0] === 19 && eng[1] === 12 && eng[eng.length - 4] === 10 && eng[eng.length - 3] === 9 && eng[eng.length - 2] === 8 && eng[eng.length - 1] === 14,
+    ok(eng.slice(0, 4).join() === "9,8,14,19" && eng[eng.length - 1] === 10,
        "editor: device presets in the device's engine order");
   }
   const none = await E.readDevicePreferences(() => { throw new Error("unexpected request"); }, { uiCaps: 0 }, []);
@@ -803,7 +800,7 @@ function mockTables() {
   cmp("GP length", T.GP.length, fw.GP.length);
   fw.GP.forEach((d, i) => cmp(`GP[${i}]`, T.GP[i] && norm(T.GP[i]), d));
   cmp("engines", T.ENG.map((e) => e.name), fw.ENG.map((e) => e.name));
-  cmp("engine order (ENGINE_ORDER)", E.engineOrder(fw.ENG.map(e=>e.name)).map(i=>fw.ENG[i].name), fw.ORDER);
+  /* (the order is the Nightly's now: engineOrderNightly below; the host build's all-engines ORDER is another shipped set's) */
   fw.ENG.forEach((fe, i) => {
     const me = T.ENG[i];
     if (!me) return;
@@ -2098,6 +2095,20 @@ await patternProtocol();
 await editorMock();
 await editorSamplePresets();
 mockTables();
+/* the lists follow the Nightly's engine order (engines.c ENGINE_ORDER): DRUM-X 9, MACRO 8, SHAPES 14, PROPHET 19, WHEEL 7 first. The numbers come from the generated
+   tables (web/app/lib/fw_tables.js FW.engineOrder, tests/web_tables.c) when they have them, else these. build/host/desc_bs.json (the Nightly's descdump) names the engines. */
+async function engineOrderNightly() {
+  const { FW } = await import("./app/lib/fw_tables.js");
+  const num = FW.engineOrder || [9, 8, 14, 19, 7];
+  const MODULES = { 7: "WHEEL", 14: "SHAPES", 19: "PROPHET" };   /* modules: the generated table names them "-" (not in the image) */
+  const name = (n) => { const w = (FW.engines.find((e) => e.num === n) || {}).name; return w && w !== "-" ? w : MODULES[n]; };
+  const want = num.map(name);
+  const names = Array.from({ length: 20 }, (_, i) => ({ 3: "SID", 10: "DRUM", 12: "FM6", 15: "CZ-1" })[i] || (num.includes(i) ? name(i) : "-"));
+  const got = E.engineOrder(names).map((i) => names[i]);
+  ok(want.every((n) => n) && JSON.stringify(got.slice(0, want.length)) === JSON.stringify(want),
+     `editor: engine lists in the Nightly's order (${want.join(" ")}), first; got ${got.join(" ")}`);
+}
+await engineOrderNightly();
 await editorLibrarian();
 await trackEffects();
 await editorGrid();
