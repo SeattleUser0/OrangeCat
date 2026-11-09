@@ -139,3 +139,14 @@ footer a { color: var(--mid); }
 .mixrow > b { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; color: #000; }
 @media (max-width: 600px) { .mixrow { grid-template-columns: 28px minmax(0, 1fr); } .mixrow > :nth-child(n+3) { grid-column: 2; } }
 [aria-label="Family"] button[aria-pressed=true] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, var(--surface)); color: var(--text); }
+/* GRID (the Steps tab): sixteen tiles, the octave's keys */
+.gridtiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 8px 0; max-width: 460px; }
+.gridtiles .tile { display: flex; flex-direction: column; align-items: flex-start; padding: 6px 8px; min-height: 48px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.gridtiles .tile small { color: var(--mid); }
+.gridtiles .tile.on { background: var(--raised); }
+.gridtiles .tile.tie { border-style: dashed; }
+.gridtiles .tile.cur { outline: 2px solid var(--tc, var(--text)); }
+.gridtiles .tile:disabled { opacity: .35; }
+.keys { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.keys button { min-width: 44px; min-height: 44px; }
+.keys button.black { background: var(--quiet); }

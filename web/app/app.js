@@ -16,6 +16,7 @@ import { FW } from "./lib/fw_tables.js";
 import { P_MAC0 as MAC0, TABS, designKnobs, editIds, palette, trackColor, engineScene, enginePicture, KNOB_COLORS, SESSION_C_DOC } from "./lib/model.js";
 import { PALETTES } from "./lib/palette.js";
 import { BACKUP_WHAT, idsIn } from "./lib/backup_ids.js";
+import * as GR from "./lib/grid.js";
 
 const L = K.LAYOUT, C = L.consts;
 const QS = new URLSearchParams(location.search);
@@ -456,6 +457,7 @@ function libraryView() {
 
 /* ================================================================= Steps === */
 const NOTE = (n) => (n ? E.noteName(n) : "");
+const DRUMX = FW.engines.find((e) => e.name === "DRUM-X")?.num;      /* (the engine whose steps are lane hits) */
 /* ================================================================= Pages === */
 /* The unit's own pages (lib/pages.js): every page of the firmware's table this tab covers, in the unit's order, by the unit's family
    buttons; each cell with the unit's label and the unit's own text for its value. A cell the editor link cannot write is shown, read only. */
@@ -531,6 +533,7 @@ function viewSteps() {
     el("div", { class: "bar" }, el("button", { onclick: () => op(async () => { S.steps = await s.readSteps(k); }) }, S.steps ? "Read again" : "Read the steps"),
       el("span", { class: "dim small" }, `Track ${k + 1}, the phrase it is on: LEN ${len}. Notes as C4, D#3; up to four in a step.`)));
   if (!S.steps) return el("div", { class: "grid" }, head);
+  const drumx = s.tracks?.tracks[k]?.engine === DRUMX;
   const rows = S.steps.map((st, i) => {
     const on = st.time === 0 && (st.n > 0 || (st.hit | 0) > 0);
     const noteIn = (j) => {
@@ -547,16 +550,89 @@ function viewSteps() {
     };
     const vel = el("input", { type: "number", min: 0, max: 127, value: st.vel, style: { width: "4.5em" }, "aria-label": `step ${i + 1} velocity` });
     vel.addEventListener("change", () => op(async () => { S.steps[i] = await s.writeStep(k, i, { ...st, vel: Math.max(0, Math.min(127, +vel.value | 0)) }); }));
-    const fx = [st.flags & 1 ? "ACC" : "", st.flags & 2 ? "SLIDE" : "", st.chance !== undefined && st.chance < 100 ? st.chance + "%" : "", st.hit ? E.hitsText(st.hit, st.acc) : "",
+    const flag = (bit, what) => {
+      const cb = el("input", { type: "checkbox", checked: st.flags & bit ? true : null, "aria-label": `step ${i + 1} ${what}` });
+      cb.addEventListener("change", () => op(async () => { S.steps[i] = await s.writeStep(k, i, { ...st, flags: cb.checked ? st.flags | bit : st.flags & ~bit }); }));
+      return el("td", {}, cb);
+    };
+    const chance = el("input", { type: "number", min: 0, max: 100, value: st.chance ?? 100, style: { width: "4.5em" }, "aria-label": `step ${i + 1} chance`, disabled: s.info.chance ? null : true });
+    chance.addEventListener("change", () => op(async () => { S.steps[i] = await s.writeStep(k, i, { ...st, chance: Math.max(0, Math.min(100, +chance.value | 0)) }); }));
+    const hits = el("input", { type: "text", value: st.hit ? E.hitsText(st.hit, st.acc) : "", "aria-label": `step ${i + 1} hits`, placeholder: "BD >SD", style: { width: "9em" } });
+    hits.addEventListener("change", () => op(async () => {
+      const h = hits.value.trim() ? E.parseHits(hits.value) : { hit: 0, acc: 0 };
+      if (!h) throw new Error(`"${hits.value}" is not a list of lanes (BD SD CP CH OH ...; a > before a name is an accent)`);
+      S.steps[i] = await s.writeStep(k, i, { ...st, hit: h.hit, acc: h.acc, time: h.hit && !st.n ? 0 : st.time });
+    }));
+    const fx = [st.hit && !drumx ? E.hitsText(st.hit, st.acc) : "",
       st.cond ? ["", "FILL", "!FILL", "1:2", "2:2", "1:3", "2:3", "3:3", "1:4", "2:4", "3:4", "4:4"][st.cond] : "", st.nudge ? "NUDGE " + (st.nudge > 0 ? "+" : "") + st.nudge : "",
       st.rflam > 1 ? (st.rflam === 5 ? "FLAM" : "x" + st.rflam) : ""].filter(Boolean).join(" ");
     return el("tr", { class: (i % 4 === 0 ? "beat " : "") + (on ? "on " : "") + (i >= len ? "out" : "") },
       el("td", { class: "num" }, two(i + 1)), noteIn(0), noteIn(1), noteIn(2), noteIn(3),
-      el("td", {}, ["NOTE", "TIE", "REST"][st.time] ?? st.time), el("td", {}, vel), el("td", { class: "small" }, fx));
+      el("td", {}, ["NOTE", "TIE", "REST"][st.time] ?? st.time), el("td", {}, vel), flag(C.SF_ACCENT, "accent"), flag(C.SF_SLIDE, "slide"), el("td", {}, chance),
+      drumx ? el("td", {}, hits) : null, el("td", { class: "small" }, fx));
   });
   const tracker = el("section", { class: "card wide", style: { "--tc": trackColor(S.pal, k) } }, el("h2", {}, "Tracker"),
-    el("div", { class: "scroll" }, el("table", { class: "tracker" }, el("thead", {}, el("tr", {}, ...["#", "N1", "N2", "N3", "N4", "Time", "Vel", "FX"].map((x) => el("th", {}, x)))), el("tbody", {}, ...rows))));
-  return el("div", { class: "grid" }, head, tracker, recordedNotesView());
+    el("div", { class: "scroll" }, el("table", { class: "tracker" }, el("thead", {}, el("tr", {}, ...["#", "N1", "N2", "N3", "N4", "Time", "Vel", "ACC", "SLIDE", "CHANCE %", ...(drumx ? ["HITS"] : []), "FEEL"].map((x) => el("th", {}, x)))), el("tbody", {}, ...rows))));
+  return el("div", { class: "grid" }, head, gridCard(), tracker, motionCard(), recordedNotesView());
+}
+/* GRID (SEQ > GRID, OC_MGRID; ui_mgrid.c): a pitched track's steps as tiles, four pages of sixteen (a page past LEN is dim), a cursor, and the keys of an
+ * octave that put a note into the cursor's step. The function is STEP_SET; the unit's two stages are one switch here: CHORD adds the key to the step
+ * (up to four notes), else the key replaces the step's notes and the cursor goes on. A GRID page is not on a DRUM-X track on the unit either. */
+const NOTE_KEYS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+function gridCard() {
+  const s = S.session, k = s.sel, G = S.grid || (S.grid = { page: 0, cursor: 0, octave: 4, chord: false, undo: [] });
+  const c = el("section", { class: "card wide", style: { "--tc": trackColor(S.pal, k) } }, el("h2", {}, "GRID"));
+  if (s.tracks?.tracks[k]?.engine === DRUMX) { c.append(el("p", { class: "dim" }, "A DRUM-X track has no GRID on the unit either: its steps are lane hits (the HITS column).")); return c; }
+  const len = Math.max(1, Math.min(s.info.nstep, s.dump.p[C.P_SLEN] || 16)), pages = GR.pagesOf(len);
+  G.page = Math.min(G.page, pages - 1);
+  if (G.cursor >= len) G.cursor = len - 1;
+  const put = async (i, next) => { G.undo.push({ i, step: S.steps[i] }); if (G.undo.length > 32) G.undo.shift(); S.steps[i] = await s.writeStep(k, i, next); };
+  const pageBar = el("div", { class: "bar", role: "group", "aria-label": "Grid page" }, ...[0, 1, 2, 3].map((p) =>
+    el("button", { "aria-pressed": String(p === G.page), disabled: p * 16 >= len ? true : null, onclick: () => { G.page = p; G.cursor = Math.min(len - 1, p * 16); render(); } }, String(p + 1))));
+  const tiles = el("div", { class: "gridtiles" }, ...Array.from({ length: 16 }, (_, j) => {
+    const i = G.page * 16 + j, st = S.steps[i], past = i >= len;
+    const on = st && st.time === 0 && st.n > 0;
+    return el("button", { class: "tile" + (i === G.cursor ? " cur" : "") + (on ? " on" : "") + (st && st.time === 1 ? " tie" : ""), disabled: past ? true : null, "aria-label": `step ${i + 1}`,
+      onclick: () => { G.cursor = i; render(); } }, el("small", {}, two(i + 1)), el("b", {}, on ? NOTE(st.notes[0]) + (st.n > 1 ? " +" + (st.n - 1) : "") : ""));
+  }));
+  const keys = el("div", { class: "keys" }, ...NOTE_KEYS.map((n, j) => el("button", { class: n.includes("#") ? "black" : "", onclick: () => op(async () => {
+    const next = GR.enterNote(S.steps[G.cursor], GR.keyNote(G.octave, j), G.chord);
+    if (!next) throw new Error("That note is above the unit's range");
+    await put(G.cursor, next);                       /* (the cursor stays: ui_mgrid_edit.c, seq_entry_finish does not advance on this page) */
+  }) }, n + (G.octave))));
+  const oct = el("select", { "aria-label": "Octave" }, ...[0, 1, 2, 3, 4, 5, 6, 7, 8].map((o) => el("option", { value: String(o) }, "Octave " + o)));
+  oct.value = String(G.octave); oct.addEventListener("change", () => { G.octave = +oct.value; render(); });
+  const chord = el("label", { class: "bar" }, el("input", { type: "checkbox", checked: G.chord ? true : null, onchange: (e) => { G.chord = e.target.checked; render(); } }), "CHORD: a key adds a note to the step");
+  c.append(el("p", { class: "dim small" }, `Track ${k + 1}: ${len} steps, 4 pages. Pick a step (a tile), then a key: the step takes the note and the cursor stays, as on the unit's keys. Read the steps first.`),
+    S.steps ? el("div", {}, pageBar, tiles, el("div", { class: "bar" }, oct, chord), keys,
+      el("div", { class: "bar" },
+        el("button", { onclick: () => op(async () => { const i = G.cursor, st = S.steps[i]; await put(i, GR.clearStep(st)); }) }, "Clear step " + (G.cursor + 1)),
+        el("button", { disabled: G.undo.length ? null : true, onclick: () => op(async () => { const u = G.undo.pop(); S.steps[u.i] = await s.writeStep(k, u.i, u.step); G.cursor = u.i; G.page = Math.floor(u.i / 16); }) }, "Undo"))) : el("p", { class: "note" }, "Press “Read the steps” above."));
+  return c;
+}
+/* MOTION (command 64): the recorded knob moves of the selected track. The parameters it can record are the firmware's motion_param (FW.motionParams) */
+function motionCard() {
+  const s = S.session, k = s.sel, M = S.motion && S.motion.track === k ? S.motion : null;
+  const c = el("section", { class: "card wide", style: { "--tc": trackColor(S.pal, k) } }, el("h2", {}, "Motion"));
+  const read = () => op(async () => { S.motion = await s.motion(k); });
+  c.append(el("div", { class: "bar" }, el("button", { onclick: read }, M ? "Read again" : "Read the motion"),
+    el("span", { class: "dim small" }, "Knob moves recorded per step (the four tracks share 64 events). The unit does not push them: read again to see a change.")));
+  if (!M) return c;
+  const label = (id) => (id >= 112 && !FW.motionParams.includes(id) ? `native #${id}` : s.pdesc[id]?.label || FW.TP[id]?.label || "#" + id);
+  const ids = FW.motionParams.filter((id) => s.pdesc[id] && visible(s.pdesc[id]));
+  const stepSel = el("select", { "aria-label": "Step" }, ...Array.from({ length: 64 }, (_, i) => el("option", { value: String(i) }, two(i + 1))));
+  const parSel = el("select", { "aria-label": "Parameter" }, ...ids.map((id) => el("option", { value: String(id) }, label(id))));
+  const val = el("input", { type: "number", value: 0, min: -64, max: 127, style: { width: "5em" }, "aria-label": "Value" });
+  const text = (e) => (e.param < s.pdesc.length && s.pdesc[e.param] && !(e.param >= 112 && e.value >= 256) ? fmt(s.pdesc[e.param], e.value) : String(e.value));
+  c.append(el("p", {}, `Motion is ${M.on ? "on" : "off"}; ${M.count} of ${M.max} events in use (all tracks).`),
+    el("div", { class: "bar" },
+      el("button", { onclick: () => op(async () => { S.motion = await s.motionOn(k, !M.on); }) }, M.on ? "Turn off (keep it)" : "Turn on"),
+      el("button", { class: "danger", disabled: M.events.length ? null : true, onclick: () => op(async () => { if (!confirm(`Clear all of track ${k + 1}'s motion? SAVE held on the unit brings it back.`)) return; S.motion = await s.motionClear(k); }) }, "Clear this track's motion")),
+    M.events.length ? el("div", { class: "scroll" }, el("table", {}, el("thead", {}, el("tr", {}, ...["Step", "Parameter", "Value", ""].map((x) => el("th", {}, x)))),
+      el("tbody", {}, ...M.events.map((e) => el("tr", {}, el("td", { class: "num" }, two(e.step + 1)), el("td", {}, label(e.param)), el("td", {}, text(e)),
+        el("td", {}, el("button", { class: "small", onclick: () => op(async () => { S.motion = await s.motionDel(k, e.step, e.param); }) }, "Delete"))))))) : el("p", { class: "dim" }, "No motion recorded on this track."),
+    el("div", { class: "bar" }, "Add or change:", stepSel, parSel, val, el("button", { onclick: () => op(async () => { S.motion = await s.motionPut(k, +stepSel.value, +parSel.value, +val.value | 0); }) }, "Set")));
+  return c;
 }
 function recordedNotesView() {
   const s = S.session, k = s.sel;

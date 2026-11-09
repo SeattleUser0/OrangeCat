@@ -10,9 +10,9 @@
 export const PAGE_STATUS = {
   "ENGINE:EDIT 1": "app Sounds", "ENGINE:EDIT 2": "app Sounds",
   "GLOBAL:PRESETS": "app Sounds", "GLOBAL:USER": "app Sounds", "GLOBAL:PROJECT": "app Project",
-  "STEP:NOTES": "app Steps", "STEP:FEEL": "app Steps", "STEP:TRACKER": "app Steps", "STEP:GRID": "unit",
+  "STEP:NOTES": "app Steps", "STEP:FEEL": "app Steps", "STEP:TRACKER": "app Steps", "STEP:GRID": "app Steps",
   "GLOBAL:CHAIN": "app Arrange", "GLOBAL:SONG": "app Arrange", "GLOBAL:PHRASES": "app Arrange", "GLOBAL:GROOVE": "app Arrange",
-"TRK:MIXER": "app Pages", "TRACK:PHRASE": "app Pages", "GLOBAL:TEMPO": "app Pages", "TRACK:MOTION": "unit",
+"TRK:MIXER": "app Pages", "TRACK:PHRASE": "app Pages", "GLOBAL:TEMPO": "app Pages", "TRACK:MOTION": "app Steps",
   "TRACK:SENDS": "app Pages", "TRACK:DIST": "app Pages", "TRACK:AUTO PAN": "app Pages", "TRACK:DUB SETUP": "app Pages", "TRACK:DUB": "app Pages", "TRACK:DUB 2": "app Pages",
   "GLOBAL:DELAY": "app Pages", "GLOBAL:DELAY 2": "app Pages", "GLOBAL:DELAY 3": "app Pages", "GLOBAL:REVERB": "app Pages", "GLOBAL:REVERB 2": "app Pages", "GLOBAL:CHORUS": "app Pages",
   "GLOBAL:SLICER": "app Pages", "GLOBAL:SLICER 2": "app Pages", "GLOBAL:SL PITCH 1": "app Pages", "GLOBAL:SL PITCH 2": "app Pages", "GLOBAL:SL PITCH 3": "app Pages", "GLOBAL:SL PITCH 4": "app Pages",

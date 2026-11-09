@@ -255,6 +255,18 @@ export class Session {
     return this.info.ntrk ? parse[CMD.TRACK_STEP](await this.rq(req.trackStep(track, i, s))) : parse[CMD.STEP_SET](await this.rq(req.stepSet(i, s)));
   }
 
+  /* (web-r3 round 3) MOTION (command 64): a track's recorded knob moves. The reply (rc 0 ok, 1 invalid, 2 full, 3 a song is playing) is
+   * read as the page's tab; a refusal is an error with the unit's word */
+  async motion(k, op = 0, arg = {}) {
+    const r = parse[CMD.MOTION](await this.rq(req.motion(k, op, arg), { timeout: 600 }));
+    if (r.rc) throw new Error(({ 1: "The unit refused that motion event (a step, a parameter or a value it cannot record)", 2: "MOTION FULL: the four tracks share 64 events", 3: "A song is playing: stop it first" })[r.rc] || `motion rc ${r.rc}`);
+    return r;
+  }
+  motionOn(k, on) { return this.motion(k, 1, { on }); }
+  motionClear(k) { return this.motion(k, 2); }
+  motionPut(k, step, param, value) { return this.motion(k, 3, { step, param, value }); }
+  motionDel(k, step, param) { return this.motion(k, 4, { step, param }); }
+
   /* ----------------------------------------------------------- Project --- */
   /* one backup object, read as captureBackup reads them (LIST, then GET in pieces, its CRC checked) */
   async readObject(id, onProgress = () => {}) {

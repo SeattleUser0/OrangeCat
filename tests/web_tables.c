@@ -212,6 +212,9 @@ int main(void)
     /* the order the unit shows its engines in (engines.c ENGINE_ORDER: engine numbers; a module's engine only while its module is there) */
     printf("],\n\"engineOrder\":[");
     for (i = 0; i < NENG_SHOWN; i++) printf("%s%u", i ? "," : "", ENGINE_ORDER[i]);
+    /* the parameters motion can record (motion.c motion_param), by track parameter id */
+    printf("],\n\"motionParams\":[");
+    for (i = 0, k = 0; i < P_COUNT; i++) if (motion_param(i)) printf("%s%u", k++ ? "," : "", i);
     /* the system menu's items, in order (ui_menu.c) */
     printf("],\n\"scenes\":[");
     for (i = 0; i < NELEM(SCENES); i++) {
