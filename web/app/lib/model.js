@@ -80,3 +80,10 @@ export function engineScene(engine, name, colors, w = 240, h = 120) {
     `<animate attributeName="stroke-dashoffset" values="420;0;0" dur="3s" repeatCount="indefinite"/></path>` +
     `${lamps}</svg>`;
 }
+
+/* the preset rows in the order the unit shows its engines in (engines.c ENGINE_ORDER, generated: FW.engineOrder; an engine it does not list
+ * goes last, in engine number order). Stable: a group keeps the order it came in, the factory presets before the library's of an engine */
+export function orderRows(rows) {
+  const rank = (e) => { const k = FW.engineOrder.indexOf(e); return k < 0 ? FW.engineOrder.length + e : k; };
+  return rows.map((r, i) => [r, i]).sort((a, b) => rank(a[0].user ? a[0].actualEngine : a[0].engine) - rank(b[0].user ? b[0].actualEngine : b[0].engine) || a[1] - b[1]).map((x) => x[0]);
+}

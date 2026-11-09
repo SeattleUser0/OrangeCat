@@ -14,6 +14,7 @@ import { BACKUP_CMD, bkManifest, bkU32, bkR32, bkUnpack, bkPack, bkCrc, captureB
 import { OcLink, runSet } from "#fm1oc";
 import { readArrangement, writeArrangement, parseInfo as parseArrInfo, arrReq } from "./arrange.js";
 import { decodeFbkk, decodeLists } from "./codec.js";
+import { orderRows } from "./model.js";
 
 const { CMD, req, parse } = E;
 export const isUnitPort = (p) => /orange cat|melodee|felucca/i.test(p.name || "") && p.state !== "disconnected";
@@ -209,7 +210,7 @@ export class Session {
   }
   async setGlobal(id, v) { const r = parse[CMD.SET](await this.rq(req.set(1, id, v), { key: "g:" + id })); if (this.dump) this.dump.g[id] = r.value; return r.value; }
   /* the preset browser's rows (factory presets in the unit's engine order, then the library's used slots; starred) */
-  presetRows() { return this.prefs ? E.devicePresetRows(this.info, this.names, this.prefs) : this.factoryRows(); }
+  presetRows() { return orderRows(this.prefs ? E.devicePresetRows(this.info, this.names, this.prefs) : this.factoryRows()); }   /* (the unit's engine order: A13) */
   factoryRows() {
     return E.engineOrder(this.info.engines).filter((e) => this.names[e]).flatMap((engine) => this.names[engine].map((name, preset) => ({ engine, preset, name, user: false, favorite: false })));
   }

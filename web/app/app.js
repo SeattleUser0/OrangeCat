@@ -15,6 +15,7 @@ import * as PG from "./lib/pages.js";
 import { FW } from "./lib/fw_tables.js";
 import { P_MAC0 as MAC0, TABS, designKnobs, editIds, palette, trackColor, engineScene, enginePicture, KNOB_COLORS, SESSION_C_DOC } from "./lib/model.js";
 import { PALETTES } from "./lib/palette.js";
+import { BACKUP_WHAT, idsIn } from "./lib/backup_ids.js";
 
 const L = K.LAYOUT, C = L.consts;
 const QS = new URLSearchParams(location.search);
@@ -438,7 +439,7 @@ function libraryView() {
   const slotName = (i) => (s.info.shared ? "U" + String(i + 1).padStart(3, "0") : "U" + two(i + 1));
   const sel = S.lib.slots[S.libSlot] || { slot: 0, used: 0 };
   const name = el("input", { type: "text", id: "lib-name", maxlength: 12, placeholder: "NAME", value: sel.used ? sel.name : "" });
-  const list = el("div", { class: "list", style: { maxHeight: "300px" } }, ...S.lib.slots.slice(0, s.info.shared ? 384 : 64).map((x, i) =>
+  const list = el("div", { class: "list", style: { maxHeight: "300px" } }, ...S.lib.slots.slice(0, s.info.shared ? s.info.shared.total : 64).map((x, i) =>
     el("div", { class: "row" + (i === S.libSlot ? " on" : ""), onclick: () => { S.libSlot = i; render(); } },
       el("span", { class: "dim small" }, slotName(i)), el("span", { class: x.used ? "" : "dim" }, x.used ? x.name : "empty"),
       el("span", { class: "dim small" }, x.used ? s.info.engines[x.engine] || "" : ""))));
@@ -715,7 +716,8 @@ function viewProject() {
   if (s) {
     const src = el("select", { "aria-label": "Read from" }, el("option", { value: "0" }, "The music on the unit now"),
       ...[0, 1, 2, 3].map((k) => el("option", { value: String(k + 2), disabled: s.slotUsed[k] === 0 ? true : null }, `Saved slot ${k + 1}${s.slotUsed[k] === 0 ? " (empty)" : ""}`)));
-    const slot = el("select", { "aria-label": "Slot" }, ...[0, 1, 2, 3].map((k) => el("option", { value: String(k) }, `Slot ${k + 1}${s.slotUsed[k] ? " (used)" : ""}`)));
+    const inUse = PG.projectSlot(s.dump);      /* the unit's SLOT (A39): 0..3 the four slots, 4 the template */
+    const slot = el("select", { "aria-label": "Slot" }, ...[0, 1, 2, 3].map((k) => el("option", { value: String(k) }, `Slot ${k + 1}${s.slotUsed[k] ? " (used)" : ""}${inUse && inUse.index === k ? " (in use)" : ""}`)));
     g.append(card("On the unit",
       el("div", { class: "bar" }, src, el("button", { class: "primary", onclick: () => op(async () => {
         const id = +src.value, r = await s.readProject(id, progress);
@@ -726,6 +728,7 @@ function viewProject() {
         say(`Read: ${r.fbkk.name || "(no name)"}`);
       }) }, "Read")),
       el("p", { class: "dim small" }, "Saving and loading a slot is the unit's own SAVE and LOAD (PROJECT): the chains and the song go with them."),
+      inUse ? el("p", {}, `The unit's slot in use: ${inUse.text}${inUse.index > 3 ? " (the template: the editor link cannot save or load it yet)" : ""}. Whether the music has unsaved changes is not on the link yet.`) : null,
       el("div", { class: "bar" }, slot,
         el("button", { onclick: () => op(async () => { const k = +slot.value; if (s.slotUsed[k] && !confirm(`Save the music now over slot ${k + 1}?`)) return; await s.projectSave(k); say(`Saved to slot ${k + 1}`); }) }, "Save the music now here"),
         el("button", { onclick: () => op(async () => { const k = +slot.value; if (!s.slotUsed[k]) throw new Error("That slot is empty"); if (!confirm(`Load slot ${k + 1}? What is not saved of the music now is lost.`)) return; await s.projectLoad(k); S.arr = null; S.steps = null; say(`Slot ${k + 1} loaded`); }) }, "Load it on the unit"))));
@@ -798,12 +801,11 @@ function backupView() {
       })) }, t("backupImport"))),
     el("p", { class: "note" }, "A backup does not carry the saved slots' chains and songs, nor the phrase pool itself: the firmware's project record has no room for them (web/EDITOR_PROTOCOL.md). This page adds the arrangement of the music now, and writes it back only to a unit whose phrases are still the same."));
   const b = S.lastBackup;
-  const what = [["0", "the music now (project record)"], ["1", "settings and the template"], ["2..5", "project slots 1 to 4"], ["6, 7, 17, 18", "library banks (general sounds)"], ["9..16", "CZ-1 tones"], ["19..22", "FM6 voices"], ["23..28", "Prophet programs, the last bank"], ["8", "retired (always empty)"]];
+  const what = BACKUP_WHAT;
   c.append(el("h3", { style: { marginTop: "12px" } }, "What a backup holds"), el("table", { class: "small" }, el("tbody", {}, ...what.map(([id, x]) => el("tr", {}, el("td", { class: "num dim" }, id), el("td", {}, x),
-    el("td", { class: "num dim" }, b ? String(b.objects.filter((o) => String(id).split(/[^0-9]+/).length && inIds(o.id, id)).reduce((n, o) => n + o.size, 0)) + " B" : ""))))));
+    el("td", { class: "num dim" }, b ? String(b.objects.filter((o) => idsIn(o.id, id)).reduce((n, o) => n + o.size, 0)) + " B" : ""))))));
   return c;
 }
-function inIds(v, spec) { return spec.split(",").some((p) => { const [a, z] = p.trim().split(".."); return z === undefined ? +a === v : v >= +a && v <= +z; }); }
 
 /* ============================================================== Settings === */
 function viewSettings() {

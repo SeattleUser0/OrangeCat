@@ -88,3 +88,12 @@ export const MIXER = {
   mute: { id: MIX.mute, k: klass(FW.tpClass[MIX.mute]) },
 };
 export const mixText = (which, v) => { const k = MIXER[which].k, t = k.text[v - k.min]; return t === undefined ? String(v) : t; };
+
+/* the PROJECT page's SLOT (G_SLOT: the slot the music in use came from or went to; 1..4, 5 the template) as the unit words it */
+const PROJECT_PAGE = FW.pages.find((p) => p.title === "PROJECT");
+const SLOT_CELL = PROJECT_PAGE && (FW.cells[PROJECT_PAGE.i] || []).find((c) => c && c.label === "SLOT");
+export function projectSlot(dump) {
+  if (!SLOT_CELL) return null;
+  const c = { ...SLOT_CELL, scope: PROJECT_PAGE.scope, k: klass(SLOT_CELL.c) }, v = cellValue(c, dump);
+  return v === null || v === undefined ? null : { value: v, index: v - c.k.min, text: cellText(c, v) };
+}

@@ -4829,6 +4829,13 @@ export const FW = {
    "knobs": null
   }
  ],
+ "engineOrder": [
+  9,
+  8,
+  14,
+  19,
+  7
+ ],
  "scenes": [
   {
    "engine": 8,

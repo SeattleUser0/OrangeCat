@@ -209,6 +209,9 @@ int main(void)
         }
         printf("}");
     }
+    /* the order the unit shows its engines in (engines.c ENGINE_ORDER: engine numbers; a module's engine only while its module is there) */
+    printf("],\n\"engineOrder\":[");
+    for (i = 0; i < NENG_SHOWN; i++) printf("%s%u", i ? "," : "", ENGINE_ORDER[i]);
     /* the system menu's items, in order (ui_menu.c) */
     printf("],\n\"scenes\":[");
     for (i = 0; i < NELEM(SCENES); i++) {
