@@ -16,9 +16,9 @@
  *   (melodic-grid) first version.
  */
 #if OC_MGRID
-static int mgrid_on(void) { return mgrid_page() && !ui.menu && !ui.confirm && mgrid_track(TSEL) && !name_on(); }
+static __attribute__((noinline)) int mgrid_on(void) { return mgrid_page() && !ui.menu && !ui.confirm && mgrid_track(TSEL) && !name_on(); }
 /* STEP stage with the keys the UI's (seq.c keyboard_block reads it through song.grid 3, ui_name.c keys_mode) */
-static int mgrid_stage_step(void) { return mgrid_on() && !mg.stage && !live_rec_sel(); }
+static __attribute__((noinline)) int mgrid_stage_step(void) { return mgrid_on() && !mg.stage && !live_rec_sel(); }
 static void mgrid_reset(void) { mg.stage = mg.arm = mg.played = 0; }
 /* the stage changes: the keys are the UI's or the player's from this pass on (seq.c keyboard_block reads song.grid), not from the next */
 static void mgrid_stage(uint32_t v)
