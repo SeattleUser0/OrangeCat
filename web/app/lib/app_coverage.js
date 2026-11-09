@@ -21,7 +21,7 @@ export const PAGE_STATUS = {
   "TRACK:SCALES": "app Pages", "TRACK:SCL": "app Pages", "TRACK:CHORD": "app Pages", "TRACK:MPC": "app Pages",
   "TRACK:VOICE": "app Pages", "TRACK:VOICE 2": "app Pages", "TRACK:SLIDE": "app Pages", "TRACK:VOICE 3": "app Pages", "TRACK:ARP": "app Pages", "TRACK:ARP 2": "app Pages",
   "GLOBAL:GLOBAL": "app Pages", "GLOBAL:SYSTEM": "app Pages", "GLOBAL:WEIGHTS": "app Pages", "GLOBAL:WEIGHTS 2": "app Pages",
-  "DXLANE:LANES": "unit", "DXLANE:LANES 2": "unit", "DXLANE:LANES 3": "unit",
+  "DXLANE:LANES": "app Sounds", "DXLANE:LANES 2": "app Sounds", "DXLANE:LANES 3": "app Sounds",
   "TRACK:OP1 ENV": "never", "TRACK:OP2 ENV": "never", "TRACK:OP3 ENV": "never", "TRACK:OP4 ENV": "never", "TRACK:OP LEVEL": "never", "TRACK:LANES": "never", "TRACK:LANES 2": "never",
 };
 // Track parameters no page of the firmware's table shows, and global ones likewise: id -> why the app does not either.

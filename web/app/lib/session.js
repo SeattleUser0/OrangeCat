@@ -267,6 +267,18 @@ export class Session {
   motionPut(k, step, param, value) { return this.motion(k, 3, { step, param, value }); }
   motionDel(k, step, param) { return this.motion(k, 4, { step, param }); }
 
+  /* (web-r3 round 3) a DRUM-X track's kit: KIT_GET / KIT_PUT (128, 129). null: the track is not DRUM-X (or the firmware has no kit command) */
+  async kitGet(k) {
+    try { const r = parse[CMD.KIT_GET](await this.rq(req.kitGet(k), { timeout: 400, retries: 1 })); return r.rc ? null : r; }
+    catch (e) { if (e.message === "closed") throw e; return null; }
+  }
+  async kitPut(k, kit) {
+    const r = parse[CMD.KIT_PUT](await this.rq(req.kitPut(k, kit), { key: "kit:" + k }));
+    if (r.rc) throw new Error(r.rc === 1 ? "That track is not DRUM-X" : "The unit refused a kit value (out of range)");
+    if (this.dump && k === this.sel) this.dump = await this.readDump();        /* (the eight LEVELs are P_LN0 .. P_LN7) */
+    return r;
+  }
+
   /* ----------------------------------------------------------- Project --- */
   /* one backup object, read as captureBackup reads them (LIST, then GET in pieces, its CRC checked) */
   async readObject(id, onProgress = () => {}) {

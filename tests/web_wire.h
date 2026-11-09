@@ -6,6 +6,7 @@
  *            setting ed_val maps: A4, BUDGET)
  *   "packed" DUB's view fields (SYNC PING DRIVE WOW), held in the track's ids 46 (MODE) and 47 (TAPE): dub_fields.h
  *   "recq"   TEMPO's QNT (G_TRK_RECQ): the selected track's RECQ
+ *   "kit"    DRUM-X's lane pages (SC_DXLANE): the lane's or the kit's value, KIT_GET / KIT_PUT (commands 128, 129), LEVEL included
  *   "no"     the page shows a device setting the link does not read (BOOT, the DRUM channel, the WEIGHTS): the app leaves it to the unit
  *
  * Revisions:
@@ -16,6 +17,8 @@
 static const char *web_wire(const page_t *pg, uint32_t k, const int16_t *vp)
 {
     uint32_t id = pg->id[k];
+    if (pg->scope == SC_DXLANE)
+        return "kit";
     if (pg->scope == SC_GLOBAL && id == G_TRK_RECQ)
         return vp == &TSEL->p[P_RECQ] ? "recq" : "no";
     if (pg->scope == SC_GLOBAL && id < (uint32_t)G_COUNT)

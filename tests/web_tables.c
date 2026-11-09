@@ -62,19 +62,24 @@ static void desc(const param_desc_t *d)
  * (param_format: what the unit's column shows, "value unit"), and each TRACK / GLOBAL page's four cells as page_desc gives them:
  * the class of the cell's format, its label, and the id the editor link reads and writes it by. The web app shows these strings
  * and never formats a value itself, so a changed format, range or name reaches the app through the generated file. */
-static const param_desc_t *DCLS[400];
+/* the display classes: one per distinct (format, range, names, unit); a COPY of the descriptor (a page's descriptor can live in storage the next page
+ * reuses: DRUM-X's lane cells), and GLOBAL's SLOT apart (its text is its own: the template) */
+static param_desc_t DCLC[400];
+static uint8_t DCLSLOT[400];
 static uint32_t ndcls;
+#define DCLS(i) (DCLSLOT[i] ? &GP[G_SLOT] : &DCLC[i])      /* (param_format knows SLOT by the descriptor's address: params.c) */
 static int dclass(const param_desc_t *d)
 {
     uint32_t i;
+    int slot = d == &GP[G_SLOT];
     for (i = 0; i < ndcls; i++) {
-        const param_desc_t *c = DCLS[i];
-        if (c == d || (c->fmt == d->fmt && c->min == d->min && c->max == d->max && c->names == d->names && c->unit == d->unit &&
-                       c != &GP[G_SLOT] && d != &GP[G_SLOT]))
+        const param_desc_t *c = &DCLC[i];
+        if (slot ? DCLSLOT[i] : (!DCLSLOT[i] && c->fmt == d->fmt && c->min == d->min && c->max == d->max && c->names == d->names && c->unit == d->unit))
             return (int)i;
     }
-    if (ndcls == NELEM(DCLS)) { fprintf(stderr, "web_tables.c: more than %u display classes\n", (unsigned)NELEM(DCLS)); exit(1); }
-    DCLS[ndcls] = d;
+    if (ndcls == NELEM(DCLC)) { fprintf(stderr, "web_tables.c: more than %u display classes\n", (unsigned)NELEM(DCLC)); exit(1); }
+    DCLC[ndcls] = *d;
+    DCLSLOT[ndcls] = (uint8_t)slot;
     return (int)ndcls++;
 }
 static void cell_row(const page_t *pg)
@@ -91,6 +96,24 @@ static void cell_row(const page_t *pg)
     }
     putchar(']');
 }
+/* DRUM-X's lane pages (SC_DXLANE; the track must be DRUM-X for page_desc to answer): each cell's label, class and whether it is the lane's value
+ * (lane 1: LEVEL TUNE DECAY PAN LAYER PUNCH ATK+ BEND of the lane the keys picked) or the kit's (TONE FDBK HANDS DUCK); the link reaches them by KIT_GET / KIT_PUT */
+static void dx_row(const page_t *pg)
+{
+    uint8_t keep = TSEL->eng_req;
+    putchar('[');
+    TSEL->eng_req = ENGI_DRUMX;
+    for (uint32_t k = 0; k < 4u; k++) {
+        int16_t *vp = 0;
+        const param_desc_t *d = pg->id[k] == 0xFFu ? 0 : page_desc(pg, k, &vp);
+        if (k) putchar(',');
+        if (!d) { printf("null"); continue; }
+        printf("{\"c\":%d,\"label\":", dclass(d)); js(d->label);
+        printf(",\"id\":%d,\"wire\":\"%s\",\"lane\":%d,\"name\":", pg->id[k], web_wire(pg, k, vp), DXL[pg->id[k]].lane); js(DXL[pg->id[k]].label); putchar('}');
+    }
+    putchar(']');
+    TSEL->eng_req = keep;
+}
 static void display(void)
 {
     uint32_t i;
@@ -99,7 +122,9 @@ static void display(void)
     printf("\"cells\":[");
     for (i = 0; i < NPAGES; i++) {
         printf("%s\n ", i ? "," : "");
-        if (PAGES[i].scope == SC_TRACK || PAGES[i].scope == SC_GLOBAL) cell_row(&PAGES[i]); else printf("null");
+        if (PAGES[i].scope == SC_TRACK || PAGES[i].scope == SC_GLOBAL) cell_row(&PAGES[i]);
+        else if (PAGES[i].scope == SC_DXLANE) dx_row(&PAGES[i]);
+        else printf("null");
     }
     printf("],\n\"cellsDubSync\":[");
     {   int16_t keep = TSEL->p[P_DUB_MODE];
@@ -144,7 +169,7 @@ static void display(void)
     printf("]},");
     printf("\n\"classes\":[");
     for (i = 0; i < ndcls; i++) {
-        const param_desc_t *d = DCLS[i];
+        const param_desc_t *d = DCLS(i);
         printf("%s\n {\"fmt\":%d,\"min\":%d,\"max\":%d,\"text\":[", i ? "," : "", d->fmt, d->min, d->max);
         for (v = d->min; v <= d->max; v++) {
             char val[16] = {0};

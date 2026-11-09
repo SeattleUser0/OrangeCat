@@ -17,6 +17,7 @@ import { P_MAC0 as MAC0, TABS, designKnobs, editIds, palette, trackColor, engine
 import { PALETTES } from "./lib/palette.js";
 import { BACKUP_WHAT, idsIn } from "./lib/backup_ids.js";
 import * as GR from "./lib/grid.js";
+import * as KT from "./lib/kit.js";
 
 const L = K.LAYOUT, C = L.consts;
 const QS = new URLSearchParams(location.search);
@@ -334,8 +335,43 @@ function viewSounds() {
   const edits = el("section", { class: "card" }, el("h2", {}, "Sound"),
     el("p", { class: "dim small" }, `The SOUND sheet: the eight values of ${name}${s.titles[eng] ? " (" + s.titles[eng].filter(Boolean).join(", ") + ")" : ""}, two rows of four. ENV, MOD, FX and VOICE stay on the unit for now.`),
     el("div", { class: "edits" }, ...editIds(s.info).map((id) => editView(id)).filter(Boolean)));
-  return el("div", { class: "grid" }, top, edits, presetsView(), libraryView());
+  return el("div", { class: "grid" }, top, edits, eng === DRUMX ? kitCard() : null, presetsView(), libraryView());
 }
+/* A DRUM-X track's kit (the unit's EDIT > LANES, LANES 2, LANES 3 pages): the factory kit it is based on, TONE FDBK HANDS DUCK, and each lane's LEVEL TUNE DECAY
+ * PAN LAYER PUNCH ATK+ BEND. KIT_GET / KIT_PUT; the cells' names, ranges and texts are the firmware's (lib/kit.js). Not stored until SAVE > USER on the unit. */
+function kitCard() {
+  const s = S.session, k = s.sel, K = S.kit && S.kit.track === k ? S.kit : null;
+  const c = el("section", { class: "card wide", style: { "--tc": trackColor(S.pal, k) } }, el("h2", {}, "Kit"));
+  const read = () => op(async () => { const r = await s.kitGet(k); if (!r) throw new Error("This firmware has no kit command (0.14.2 and later), or the track is not DRUM-X"); S.kit = { track: k, ...r }; });
+  c.append(el("div", { class: "bar" }, el("button", { onclick: read }, K ? "Read again" : "Read the kit"),
+    el("span", { class: "dim small" }, "The kit is not stored by the unit until SAVE › USER saves it with the sound. A change here is the unit's own, at once.")));
+  if (!K) return c;
+  const put = (kit) => op(async () => { await s.kitPut(k, kit); const r = await s.kitGet(k); S.kit = { track: k, ...r }; });
+  const base = el("select", { "aria-label": "Factory kit" }, ...Array.from({ length: KT_BASES }, (_, i) => el("option", { value: String(i) }, (s.names[DRUMX] || [])[i] ?? `Kit ${i + 1}`)));
+  base.value = String(K.kit.base); base.addEventListener("change", () => put({ ...K.kit, base: +base.value }));
+  const kitCell = (cell) => {
+    const v = KT.kitGetValue(K.kit, cell, 0), val = el("span", { class: "val" }, KT.kitText(cell, v));
+    const inp = el("input", { type: "range", min: cell.k.min, max: cell.k.max, value: v, "aria-label": cell.name });
+    inp.addEventListener("input", () => { val.textContent = KT.kitText(cell, +inp.value); });
+    inp.addEventListener("change", () => put(KT.kitSet(K.kit, cell, 0, +inp.value)));
+    return el("label", { class: "edit" }, el("span", { class: "lab" }, cell.name), inp, val);
+  };
+  const lc = KT.laneCells();
+  const head = el("tr", {}, el("th", {}, "Lane"), ...lc.map((x) => el("th", {}, x.name)));
+  const rows = KT.LANES.map((name, l) => el("tr", {}, el("th", { style: { textAlign: "left" } }, name), ...lc.map((cell) => {
+    const v = KT.kitGetValue(K.kit, cell, l);
+    const inp = el("input", { type: "number", min: cell.k.min, max: cell.k.max, value: v, title: KT.kitText(cell, v), "aria-label": `${name} ${cell.name}`, style: { width: "4.5em" } });
+    inp.addEventListener("change", () => put(KT.kitSet(K.kit, cell, l, +inp.value)));
+    return el("td", {}, inp);
+  })));
+  c.append(el("p", {}, K.on ? "An edited kit." : "The factory kit as it is."),
+    el("label", { class: "edit" }, el("span", { class: "lab" }, "BASE"), base, el("span", { class: "val" }, "the factory kit the lanes play")),
+    el("div", { class: "edits" }, ...KT.kitOnlyCells().filter((x) => x.field !== "base").map(kitCell)),
+    el("div", { class: "scroll" }, el("table", { class: "kit" }, el("thead", {}, head), el("tbody", {}, ...rows))),
+    el("p", { class: "dim small" }, "Hover a value for the unit's word for it (TUNE in semitones, PAN L / R, BEND in semitones)."));
+  return c;
+}
+const KT_BASES = E.KIT_RANGE.base[1] + 1;
 /* the picture: Session C's scene where the engine has one (its sources: the knobs' positions, a clock, a bob, phases at the knobs'
  * rates, an envelope and a hit after a knob is turned; the page hears no sound, so the scope is a sine), else a placeholder */
 const sceneT0 = Date.now(), scenePh = [0, 0, 0, 0];

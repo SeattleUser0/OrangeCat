@@ -6557,12 +6557,111 @@ export const FW = {
     "wire": "same"
    }
   ],
-  null,
-  null,
-  null,
   [
    {
+    "c": 0,
+    "label": "BD LV",
+    "id": 0,
+    "wire": "kit",
+    "lane": 1,
+    "name": "LEVEL"
+   },
+   {
     "c": 40,
+    "label": "TUNE",
+    "id": 1,
+    "wire": "kit",
+    "lane": 1,
+    "name": "TUNE"
+   },
+   {
+    "c": 9,
+    "label": "DECAY",
+    "id": 2,
+    "wire": "kit",
+    "lane": 1,
+    "name": "DECAY"
+   },
+   {
+    "c": 41,
+    "label": "PAN",
+    "id": 3,
+    "wire": "kit",
+    "lane": 1,
+    "name": "PAN"
+   }
+  ],
+  [
+   {
+    "c": 23,
+    "label": "BD LY",
+    "id": 4,
+    "wire": "kit",
+    "lane": 1,
+    "name": "LAYER"
+   },
+   {
+    "c": 23,
+    "label": "PUNCH",
+    "id": 5,
+    "wire": "kit",
+    "lane": 1,
+    "name": "PUNCH"
+   },
+   {
+    "c": 23,
+    "label": "ATK+",
+    "id": 6,
+    "wire": "kit",
+    "lane": 1,
+    "name": "ATK+"
+   },
+   {
+    "c": 3,
+    "label": "BEND",
+    "id": 7,
+    "wire": "kit",
+    "lane": 1,
+    "name": "BEND"
+   }
+  ],
+  [
+   {
+    "c": 23,
+    "label": "TONE",
+    "id": 8,
+    "wire": "kit",
+    "lane": 0,
+    "name": "TONE"
+   },
+   {
+    "c": 23,
+    "label": "FDBK",
+    "id": 9,
+    "wire": "kit",
+    "lane": 0,
+    "name": "FDBK"
+   },
+   {
+    "c": 23,
+    "label": "HANDS",
+    "id": 10,
+    "wire": "kit",
+    "lane": 0,
+    "name": "HANDS"
+   },
+   {
+    "c": 15,
+    "label": "DUCK",
+    "id": 11,
+    "wire": "kit",
+    "lane": 0,
+    "name": "DUCK"
+   }
+  ],
+  [
+   {
+    "c": 42,
     "label": "VCE",
     "id": 37,
     "wire": "same"
@@ -6574,13 +6673,13 @@ export const FW = {
     "wire": "same"
    },
    {
-    "c": 41,
+    "c": 43,
     "label": "GLMOD",
     "id": 41,
     "wire": "same"
    },
    {
-    "c": 42,
+    "c": 44,
     "label": "PRIO",
     "id": 42,
     "wire": "same"
@@ -6588,7 +6687,7 @@ export const FW = {
   ],
   [
    {
-    "c": 43,
+    "c": 45,
     "label": "ALLOC",
     "id": 43,
     "wire": "same"
@@ -6636,25 +6735,25 @@ export const FW = {
   ],
   [
    {
-    "c": 44,
+    "c": 46,
     "label": "A4",
     "id": 21,
     "wire": "same"
    },
    {
-    "c": 45,
+    "c": 47,
     "label": "BUDGET",
     "id": 41,
     "wire": "same"
    },
    {
-    "c": 46,
+    "c": 48,
     "label": "CLK",
     "id": 2,
     "wire": "same"
    },
    {
-    "c": 47,
+    "c": 49,
     "label": "TUNE",
     "id": 3,
     "wire": "same"
@@ -6662,25 +6761,25 @@ export const FW = {
   ],
   [
    {
-    "c": 48,
+    "c": 50,
     "label": "MIDI",
     "id": 12,
     "wire": "same"
    },
    {
-    "c": 49,
+    "c": 51,
     "label": "DRUM",
     "id": 13,
     "wire": "no"
    },
    {
-    "c": 50,
+    "c": 52,
     "label": "ROUT",
     "id": 14,
     "wire": "same"
    },
    {
-    "c": 51,
+    "c": 53,
     "label": "CPU",
     "id": 15,
     "wire": "same"
@@ -6688,25 +6787,25 @@ export const FW = {
   ],
   [
    {
-    "c": 52,
+    "c": 54,
     "label": "P5",
     "id": 4,
     "wire": "no"
    },
    {
-    "c": 52,
+    "c": 54,
     "label": "CZ-1",
     "id": 5,
     "wire": "no"
    },
    {
-    "c": 52,
+    "c": 54,
     "label": "FM6",
     "id": 6,
     "wire": "no"
    },
    {
-    "c": 52,
+    "c": 54,
     "label": "SID",
     "id": 7,
     "wire": "no"
@@ -6714,13 +6813,13 @@ export const FW = {
   ],
   [
    {
-    "c": 52,
+    "c": 54,
     "label": "DRUM",
     "id": 8,
     "wire": "no"
    },
    {
-    "c": 45,
+    "c": 47,
     "label": "BUDGET",
     "id": 41,
     "wire": "same"
@@ -6747,25 +6846,25 @@ export const FW = {
   ],
   [
    {
-    "c": 53,
+    "c": 55,
     "label": "SLOT",
     "id": 16,
     "wire": "same"
    },
    {
-    "c": 54,
+    "c": 56,
     "label": "BOOT",
     "id": 17,
     "wire": "no"
    },
    {
-    "c": 55,
+    "c": 57,
     "label": "LOAD",
     "id": 18,
     "wire": "same"
    },
    {
-    "c": 55,
+    "c": 57,
     "label": "SAVE",
     "id": 19,
     "wire": "same"
@@ -6773,25 +6872,25 @@ export const FW = {
   ],
   [
    {
-    "c": 56,
+    "c": 58,
     "label": "MODE",
     "id": 17,
     "wire": "same"
    },
    {
-    "c": 57,
+    "c": 59,
     "label": "RATE",
     "id": 18,
     "wire": "same"
    },
    {
-    "c": 58,
+    "c": 60,
     "label": "OCT",
     "id": 19,
     "wire": "same"
    },
    {
-    "c": 59,
+    "c": 61,
     "label": "GATE",
     "id": 20,
     "wire": "same"
@@ -6817,7 +6916,7 @@ export const FW = {
     "wire": "same"
    },
    {
-    "c": 60,
+    "c": 62,
     "label": "ORD",
     "id": 24,
     "wire": "same"
@@ -6829,13 +6928,13 @@ export const FW = {
   null,
   [
    {
-    "c": 61,
+    "c": 63,
     "label": "LEN",
     "id": 29,
     "wire": "same"
    },
    {
-    "c": 57,
+    "c": 59,
     "label": "DIV",
     "id": 30,
     "wire": "same"
@@ -6847,7 +6946,7 @@ export const FW = {
     "wire": "same"
    },
    {
-    "c": 59,
+    "c": 61,
     "label": "GATE",
     "id": 32,
     "wire": "same"
@@ -6861,7 +6960,7 @@ export const FW = {
   ],
   [
    {
-    "c": 62,
+    "c": 64,
     "label": "BPM",
     "id": 0,
     "wire": "same"
@@ -6873,7 +6972,7 @@ export const FW = {
     "wire": "same"
    },
    {
-    "c": 63,
+    "c": 65,
     "label": "QNT",
     "id": 254,
     "wire": "recq"
@@ -7006,13 +7105,13 @@ export const FW = {
     "wire": "packed"
    },
    {
-    "c": 64,
+    "c": 66,
     "label": "TIM L",
     "id": 111,
     "wire": "same"
    },
    {
-    "c": 64,
+    "c": 66,
     "label": "TIM R",
     "id": 112,
     "wire": "same"
@@ -7485,7 +7584,7 @@ export const FW = {
   null,
   [
    {
-    "c": 40,
+    "c": 42,
     "label": "VCE",
     "id": 37,
     "wire": "same"
@@ -7497,13 +7596,13 @@ export const FW = {
     "wire": "same"
    },
    {
-    "c": 41,
+    "c": 43,
     "label": "GLMOD",
     "id": 41,
     "wire": "same"
    },
    {
-    "c": 42,
+    "c": 44,
     "label": "PRIO",
     "id": 42,
     "wire": "same"
@@ -7511,7 +7610,7 @@ export const FW = {
   ],
   [
    {
-    "c": 43,
+    "c": 45,
     "label": "ALLOC",
     "id": 43,
     "wire": "same"
@@ -7566,25 +7665,25 @@ export const FW = {
   null,
   [
    {
-    "c": 56,
+    "c": 58,
     "label": "MODE",
     "id": 17,
     "wire": "same"
    },
    {
-    "c": 57,
+    "c": 59,
     "label": "RATE",
     "id": 18,
     "wire": "same"
    },
    {
-    "c": 58,
+    "c": 60,
     "label": "OCT",
     "id": 19,
     "wire": "same"
    },
    {
-    "c": 59,
+    "c": 61,
     "label": "GATE",
     "id": 20,
     "wire": "same"
@@ -7610,7 +7709,7 @@ export const FW = {
     "wire": "same"
    },
    {
-    "c": 60,
+    "c": 62,
     "label": "ORD",
     "id": 24,
     "wire": "same"
@@ -7622,13 +7721,13 @@ export const FW = {
   null,
   [
    {
-    "c": 61,
+    "c": 63,
     "label": "LEN",
     "id": 29,
     "wire": "same"
    },
    {
-    "c": 57,
+    "c": 59,
     "label": "DIV",
     "id": 30,
     "wire": "same"
@@ -7640,7 +7739,7 @@ export const FW = {
     "wire": "same"
    },
    {
-    "c": 59,
+    "c": 61,
     "label": "GATE",
     "id": 32,
     "wire": "same"
@@ -7660,7 +7759,7 @@ export const FW = {
   ]
  ],
  "tpClass": [
-  65,
+  67,
   26,
   26,
   0,
@@ -7668,7 +7767,7 @@ export const FW = {
   9,
   9,
   9,
-  63,
+  65,
   8,
   19,
   22,
@@ -7677,37 +7776,37 @@ export const FW = {
   9,
   9,
   0,
-  56,
-  57,
   58,
   59,
+  60,
+  61,
   15,
   0,
   5,
-  60,
+  62,
   33,
   32,
   34,
   14,
-  61,
-  57,
-  15,
+  63,
   59,
+  15,
+  61,
   22,
   22,
   22,
   22,
-  40,
+  42,
   26,
   9,
   5,
-  41,
-  42,
   43,
+  44,
+  45,
   22,
   25,
-  66,
-  67,
+  68,
+  69,
   9,
   30,
   31,
@@ -7778,30 +7877,30 @@ export const FW = {
   38
  ],
  "gpClass": [
-  62,
+  64,
   15,
-  46,
-  47,
-  22,
-  22,
-  22,
-  22,
-  22,
-  22,
-  22,
-  22,
   48,
   49,
+  22,
+  22,
+  22,
+  22,
+  22,
+  22,
+  22,
+  22,
   50,
   51,
+  52,
   53,
-  54,
   55,
-  55,
-  68,
-  44,
-  55,
-  55,
+  56,
+  57,
+  57,
+  70,
+  46,
+  57,
+  57,
   22,
   22,
   22,
@@ -7818,8 +7917,8 @@ export const FW = {
   6,
   0,
   0,
-  69,
-  45,
+  71,
+  47,
   0,
   8,
   9,
@@ -10301,6 +10400,276 @@ export const FW = {
     "10",
     "11",
     "12"
+   ]
+  },
+  {
+   "fmt": 19,
+   "min": -64,
+   "max": 63,
+   "text": [
+    "-12.0 st",
+    "-11.8 st",
+    "-11.6 st",
+    "-11.4 st",
+    "-11.2 st",
+    "-11.0 st",
+    "-10.8 st",
+    "-10.6 st",
+    "-10.5 st",
+    "-10.3 st",
+    "-10.1 st",
+    "-9.9 st",
+    "-9.7 st",
+    "-9.5 st",
+    "-9.3 st",
+    "-9.1 st",
+    "-9.0 st",
+    "-8.8 st",
+    "-8.6 st",
+    "-8.4 st",
+    "-8.2 st",
+    "-8.0 st",
+    "-7.8 st",
+    "-7.6 st",
+    "-7.5 st",
+    "-7.3 st",
+    "-7.1 st",
+    "-6.9 st",
+    "-6.7 st",
+    "-6.5 st",
+    "-6.3 st",
+    "-6.1 st",
+    "-6.0 st",
+    "-5.8 st",
+    "-5.6 st",
+    "-5.4 st",
+    "-5.2 st",
+    "-5.0 st",
+    "-4.8 st",
+    "-4.6 st",
+    "-4.5 st",
+    "-4.3 st",
+    "-4.1 st",
+    "-3.9 st",
+    "-3.7 st",
+    "-3.5 st",
+    "-3.3 st",
+    "-3.1 st",
+    "-3.0 st",
+    "-2.8 st",
+    "-2.6 st",
+    "-2.4 st",
+    "-2.2 st",
+    "-2.0 st",
+    "-1.8 st",
+    "-1.6 st",
+    "-1.5 st",
+    "-1.3 st",
+    "-1.1 st",
+    "-.9 st",
+    "-.7 st",
+    "-.5 st",
+    "-.3 st",
+    "-.1 st",
+    ".0 st",
+    "+.1 st",
+    "+.3 st",
+    "+.5 st",
+    "+.7 st",
+    "+.9 st",
+    "+1.1 st",
+    "+1.3 st",
+    "+1.5 st",
+    "+1.6 st",
+    "+1.8 st",
+    "+2.0 st",
+    "+2.2 st",
+    "+2.4 st",
+    "+2.6 st",
+    "+2.8 st",
+    "+3.0 st",
+    "+3.1 st",
+    "+3.3 st",
+    "+3.5 st",
+    "+3.7 st",
+    "+3.9 st",
+    "+4.1 st",
+    "+4.3 st",
+    "+4.5 st",
+    "+4.6 st",
+    "+4.8 st",
+    "+5.0 st",
+    "+5.2 st",
+    "+5.4 st",
+    "+5.6 st",
+    "+5.8 st",
+    "+6.0 st",
+    "+6.1 st",
+    "+6.3 st",
+    "+6.5 st",
+    "+6.7 st",
+    "+6.9 st",
+    "+7.1 st",
+    "+7.3 st",
+    "+7.5 st",
+    "+7.6 st",
+    "+7.8 st",
+    "+8.0 st",
+    "+8.2 st",
+    "+8.4 st",
+    "+8.6 st",
+    "+8.8 st",
+    "+9.0 st",
+    "+9.1 st",
+    "+9.3 st",
+    "+9.5 st",
+    "+9.7 st",
+    "+9.9 st",
+    "+10.1 st",
+    "+10.3 st",
+    "+10.5 st",
+    "+10.6 st",
+    "+10.8 st",
+    "+11.0 st",
+    "+11.2 st",
+    "+11.4 st",
+    "+11.6 st",
+    "+11.8 st"
+   ]
+  },
+  {
+   "fmt": 18,
+   "min": -64,
+   "max": 63,
+   "text": [
+    "L100",
+    "L98",
+    "L96",
+    "L95",
+    "L93",
+    "L92",
+    "L90",
+    "L89",
+    "L87",
+    "L85",
+    "L84",
+    "L82",
+    "L81",
+    "L79",
+    "L78",
+    "L76",
+    "L75",
+    "L73",
+    "L71",
+    "L70",
+    "L68",
+    "L67",
+    "L65",
+    "L64",
+    "L62",
+    "L60",
+    "L59",
+    "L57",
+    "L56",
+    "L54",
+    "L53",
+    "L51",
+    "L50",
+    "L48",
+    "L46",
+    "L45",
+    "L43",
+    "L42",
+    "L40",
+    "L39",
+    "L37",
+    "L35",
+    "L34",
+    "L32",
+    "L31",
+    "L29",
+    "L28",
+    "L26",
+    "L25",
+    "L23",
+    "L21",
+    "L20",
+    "L18",
+    "L17",
+    "L15",
+    "L14",
+    "L12",
+    "L10",
+    "L9",
+    "L7",
+    "L6",
+    "L4",
+    "L3",
+    "L1",
+    "C",
+    "R1",
+    "R3",
+    "R4",
+    "R6",
+    "R7",
+    "R9",
+    "R10",
+    "R12",
+    "R14",
+    "R15",
+    "R17",
+    "R18",
+    "R20",
+    "R21",
+    "R23",
+    "R25",
+    "R26",
+    "R28",
+    "R29",
+    "R31",
+    "R32",
+    "R34",
+    "R35",
+    "R37",
+    "R39",
+    "R40",
+    "R42",
+    "R43",
+    "R45",
+    "R46",
+    "R48",
+    "R50",
+    "R51",
+    "R53",
+    "R54",
+    "R56",
+    "R57",
+    "R59",
+    "R60",
+    "R62",
+    "R64",
+    "R65",
+    "R67",
+    "R68",
+    "R70",
+    "R71",
+    "R73",
+    "R75",
+    "R76",
+    "R78",
+    "R79",
+    "R81",
+    "R82",
+    "R84",
+    "R85",
+    "R87",
+    "R89",
+    "R90",
+    "R92",
+    "R93",
+    "R95",
+    "R96",
+    "R98"
    ]
   },
   {
