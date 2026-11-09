@@ -4,7 +4,7 @@
 on the unit. Run the parts in order; each says what to click, what you should see or hear, and what to write down. Record the results
 in `hw/LOG.md` under "Web app (0.14.2)" and say which commit of `web-app` you ran.
 
-Version 2 (November 4, 2026). The app and the firmware are on branch `web-r3` / the Nightly v0.16.0-02bf7a and later (command 102 ARRANGE since 0.14.2).
+Version 3 (November 8, 2026). The app and the firmware are on branch `web-r3` / the Nightly v0.16.0-2e1056 and later (command 102 ARRANGE since 0.14.2).
 
 ## 0. Before
 
@@ -34,6 +34,20 @@ Version 2 (November 4, 2026). The app and the firmware are on branch `web-r3` / 
 4. Turn KNOB 2 on the unit: within about half a second the page's TIMB dial follows (the live sync).
 5. In SOUND, change **HARM** with its slider: heard, and on the unit.
 6. Write down: any lag over half a second, any value that jumps back.
+
+## 2b. The unit's pages (Pages tab, version 3)
+
+1. Pages tab > **FX**. Track 1 selected. Expect the same pages as the unit's FX button, in the same order (SENDS, DELAY .. MASTER,
+   DIST, AUTO PAN, DUB SETUP, DUB, DUB 2), and the same value text as the unit's screen for each (DELAY TIME "1/8", DUB's TIME "1/8D").
+2. On DUB, raise **ECHO** while a note plays: the track's DUB comes in, heard, and the unit's DUB page shows the same value.
+3. On DUB SETUP, set **SYNC** to FREE: TIME L and TIME R now read in ms on the page and on the unit. Set it back to SYNC.
+4. On DUB 2, change **DRIVE**, then **WOW**: each reads back what you set, and the other one does not move (they share one stored value).
+5. **LFO** > LFO 2: set **SYNC** to 1/8; the unit's LFO 2 page shows 1/8.
+6. **SEQ** > TEMPO: set BPM to 133: the unit's tempo is 133.
+7. **TRK** (MIXER): move track 2's LEVEL and PAN and tick MUTE: the unit's MIXER follows, and the track goes quiet.
+8. **GLO**: A4, BUDGET, CLK, TUNE, MIDI and ROUT can be set; DRUM, the WEIGHTS and (in Project) BOOT say "on the unit" and cannot:
+   that is expected (WEB_AUDIT.md A41, A58). **EDIT** > SLIDE is grayed for the same reason (A23).
+9. Write down: any page, name or value text that differs from the unit's screen.
 
 ## 3. A preset saved and loaded
 
