@@ -330,6 +330,7 @@ web_tests() {                                     # the editor mock's tables mus
     fi
     if command -v node >/dev/null 2>&1; then
         step "web pages: editor protocol + native CZ patches, package builder, update protocol" node web/test_web.mjs
+        step "editor page layout and DUB fields against the firmware's tables (web-r3 round 3: LAYOUT = page_desc, the generated DUB words, dub_put_field)" node web/test_editor_layout.mjs
         step "installer UI: release selection, fetch races, cache and write lock" node web/test_installer.mjs
         step "TransitFM1: verified package, backup, loader isolation and resume" node web/test_transit.mjs
         step "web backup: capture, validation before writes, restore order" node web/test_backup.mjs
