@@ -4,22 +4,23 @@
 // this list names one the firmware no longer has. Adding a page or a parameter to the firmware therefore stops the suite until someone
 // decides here what the app does with it (and, when it is "unit", WEB_AUDIT.md says why).
 //
-// Key: "SCOPE:TITLE" (a title may repeat in another scope). Value: "app" (the page's function is in a tab: the tab is named), "unit"
+// Key: "SCOPE:TITLE" (a title may repeat in another scope). Value: "app" (the page's function is in a tab: the tab is named; "app Pages" is
+// the Pages tab, lib/pages.js, which shows the unit's own page with its own cells and text), "unit"
 // (only on the unit for now: the editor link carries the values, the page has no card), "never" (the unit never shows it on the Nightly).
 export const PAGE_STATUS = {
   "ENGINE:EDIT 1": "app Sounds", "ENGINE:EDIT 2": "app Sounds",
   "GLOBAL:PRESETS": "app Sounds", "GLOBAL:USER": "app Sounds", "GLOBAL:PROJECT": "app Project",
   "STEP:NOTES": "app Steps", "STEP:FEEL": "app Steps", "STEP:TRACKER": "app Steps", "STEP:GRID": "unit",
   "GLOBAL:CHAIN": "app Arrange", "GLOBAL:SONG": "app Arrange", "GLOBAL:PHRASES": "app Arrange", "GLOBAL:GROOVE": "app Arrange",
-"TRK:MIXER": "unit", "TRACK:PHRASE": "unit", "GLOBAL:TEMPO": "unit", "TRACK:MOTION": "unit",
-  "TRACK:SENDS": "unit", "TRACK:DIST": "unit", "TRACK:AUTO PAN": "unit", "TRACK:DUB SETUP": "unit", "TRACK:DUB": "unit", "TRACK:DUB 2": "unit",
-  "GLOBAL:DELAY": "unit", "GLOBAL:DELAY 2": "unit", "GLOBAL:DELAY 3": "unit", "GLOBAL:REVERB": "unit", "GLOBAL:REVERB 2": "unit", "GLOBAL:CHORUS": "unit",
-  "GLOBAL:SLICER": "unit", "GLOBAL:SLICER 2": "unit", "GLOBAL:SL PITCH 1": "unit", "GLOBAL:SL PITCH 2": "unit", "GLOBAL:SL PITCH 3": "unit", "GLOBAL:SL PITCH 4": "unit",
-  "GLOBAL:MASTER": "unit",
-  "TRACK:ENV": "unit", "TRACK:ENV DEST": "unit", "TRACK:LFO": "unit", "TRACK:LFO 2": "unit", "TRACK:LFO DEST": "unit", "TRACK:MOD": "unit",
-  "TRACK:SCALES": "unit", "TRACK:SCL": "unit", "TRACK:CHORD": "unit", "TRACK:MPC": "unit",
-  "TRACK:VOICE": "unit", "TRACK:VOICE 2": "unit", "TRACK:SLIDE": "unit", "TRACK:VOICE 3": "unit", "TRACK:ARP": "unit", "TRACK:ARP 2": "unit",
-  "GLOBAL:GLOBAL": "unit", "GLOBAL:SYSTEM": "unit", "GLOBAL:WEIGHTS": "unit", "GLOBAL:WEIGHTS 2": "unit",
+"TRK:MIXER": "app Pages", "TRACK:PHRASE": "app Pages", "GLOBAL:TEMPO": "app Pages", "TRACK:MOTION": "unit",
+  "TRACK:SENDS": "app Pages", "TRACK:DIST": "app Pages", "TRACK:AUTO PAN": "app Pages", "TRACK:DUB SETUP": "app Pages", "TRACK:DUB": "app Pages", "TRACK:DUB 2": "app Pages",
+  "GLOBAL:DELAY": "app Pages", "GLOBAL:DELAY 2": "app Pages", "GLOBAL:DELAY 3": "app Pages", "GLOBAL:REVERB": "app Pages", "GLOBAL:REVERB 2": "app Pages", "GLOBAL:CHORUS": "app Pages",
+  "GLOBAL:SLICER": "app Pages", "GLOBAL:SLICER 2": "app Pages", "GLOBAL:SL PITCH 1": "app Pages", "GLOBAL:SL PITCH 2": "app Pages", "GLOBAL:SL PITCH 3": "app Pages", "GLOBAL:SL PITCH 4": "app Pages",
+  "GLOBAL:MASTER": "app Pages",
+  "TRACK:ENV": "app Pages", "TRACK:ENV DEST": "app Pages", "TRACK:LFO": "app Pages", "TRACK:LFO 2": "app Pages", "TRACK:LFO DEST": "app Pages", "TRACK:MOD": "app Pages",
+  "TRACK:SCALES": "app Pages", "TRACK:SCL": "app Pages", "TRACK:CHORD": "app Pages", "TRACK:MPC": "app Pages",
+  "TRACK:VOICE": "app Pages", "TRACK:VOICE 2": "app Pages", "TRACK:SLIDE": "app Pages", "TRACK:VOICE 3": "app Pages", "TRACK:ARP": "app Pages", "TRACK:ARP 2": "app Pages",
+  "GLOBAL:GLOBAL": "app Pages", "GLOBAL:SYSTEM": "app Pages", "GLOBAL:WEIGHTS": "app Pages", "GLOBAL:WEIGHTS 2": "app Pages",
   "DXLANE:LANES": "unit", "DXLANE:LANES 2": "unit", "DXLANE:LANES 3": "unit",
   "TRACK:OP1 ENV": "never", "TRACK:OP2 ENV": "never", "TRACK:OP3 ENV": "never", "TRACK:OP4 ENV": "never", "TRACK:OP LEVEL": "never", "TRACK:LANES": "never", "TRACK:LANES 2": "never",
 };

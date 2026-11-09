@@ -4,7 +4,7 @@ One page to manage the unit: its modules, its sounds, its steps, its arrangement
 USB-MIDI SysEx (Chrome, Edge or Opera), with the same protocol code as the old editor. Firmware is still installed from the installer
 page; the old editor (`web/editor.html`) stays until this page does everything it does.
 
-Version 0.16.0 (web-r3, November 4, 2026, Session D): follows the Nightly v0.16.0-02bf7a. Its tables (pages, parameters, HOME knobs, menu,
+Version 0.16.0 (web-r3, November 8, 2026, Session D): follows the Nightly v0.16.0-2e1056. Its tables (pages, parameters, HOME knobs, menu,
 layers, scenes) are generated from the firmware (`tests/web_tables.c`), and `controls.html` is the owner's controls guide. Not yet tried
 on the unit (`HARDWARE_TEST.md` is the procedure). `docs/orangecat/WEB_AUDIT.md` lists what the page still lacks.
 
@@ -14,6 +14,7 @@ on the unit (`HARDWARE_TEST.md` is the procedure). `docs/orangecat/WEB_AUDIT.md`
 |---|---|---|
 | Unit | Connect; the firmware and what it can do; the asset pack (install, erase); the Engines table (Install, Replace, Remove, Use on a track); Install the set (the pack and the modules the site publishes with its firmware, or files picked here) | INFO, 115..119, 120..125, 126/127, the installer's `runSet` (`web/fm1oc.js`) |
 | Sounds | Per track: the engine's picture, its four knobs, the SOUND sheet (the eight EDIT values), the preset browser with favorites, the library (save, load, rename, erase) | DUMP, DESC, SET, TRACK_PARAM, PRESET, FAV_SET, UP_* or LIBRARY (80) |
+| Pages | The unit's own pages, in its order, under its family buttons (FX, ENV, LFO, SCL, EDIT, GLO, ARP, SEQ, TRK): the effects (SENDS, DELAY .. MASTER, DIST, AUTO PAN, DUB SETUP, DUB, DUB 2), the envelope, the LFOs (with LFO SYNC), MOD's four slots, scale and chord, voice and SLIDE TIME, the arpeggiator, the phrase, TEMPO, the unit's GLOBAL and SYSTEM settings, the MIXER (level, pan, mute of each track). Each cell has the unit's label and the unit's text for its value, from the firmware (`lib/pages.js`); one the link cannot write is grayed and says why | DUMP, SET, TRACK_PARAM, TRACK_MIX |
 | Steps | The phrase's steps as a tracker (notes, time, velocity, the step's flags, chance, drum hits), edited in place; the recorded notes' own onset, length, velocity and bend | TRACK_STEP; backup object 0 |
 | Arrange | The 64 phrases of the pool, the chains (drag a step to reorder), the song (drag a row), the scenes, each track's groove, LAUNCH; a list of what will change, then Write | ARRANGE (102, new in 0.14.2) |
 | Project | Read the music now or a saved slot; save the music now to a slot and load a slot (the unit's own SAVE / LOAD); export and import project files; the complete backup and restore, and what a backup holds | backup objects (65..67), PROJECT (9) |
@@ -28,6 +29,7 @@ No build step: an HTML page, a style sheet and ES modules.
 | File | What |
 |---|---|
 | `index.html`, `app.css`, `app.js` | the page, its look (the unit's design tokens: `docs/design/README.md`), the tabs |
+| `lib/pages.js` | the Pages tab's logic: the pages, cells, value text, read-only cells and DUB's packed fields, all from `lib/fw_tables.js` |
 | `lib/session.js` | one connection and everything the tabs ask of it, in the order the old editor does it |
 | `lib/codec.js` | the project record (FBKK, the FUN23 part) and the arrangement (the lists), read and written byte for byte |
 | `lib/arrange.js` | command 102: read and write the arrangement |

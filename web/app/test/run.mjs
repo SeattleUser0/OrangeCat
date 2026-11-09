@@ -26,7 +26,7 @@ if (existsSync(join(built, "layout.json"))) {
   console.log("app: build/host/app not built (tests/run_tests.sh builds it): the layout's drift check skipped");
 }
 
-const files = ["test_codec.mjs", "test_unit.mjs", "test_sounds.mjs", "test_project.mjs", "test_arrange.mjs", "test_steps.mjs", "test_settings.mjs", "test_page.mjs", "test_tables.mjs", "test_controls.mjs"];
+const files = ["test_codec.mjs", "test_unit.mjs", "test_sounds.mjs", "test_project.mjs", "test_arrange.mjs", "test_steps.mjs", "test_settings.mjs", "test_page.mjs", "test_tables.mjs", "test_pages.mjs", "test_controls.mjs"];
 for (const f of files) {
   if (!existsSync(join(HERE, f))) continue;
   try { await (await import("./" + f)).run(); }

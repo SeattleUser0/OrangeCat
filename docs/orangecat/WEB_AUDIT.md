@@ -1,21 +1,25 @@
 # Web audit: the web app, the editor, the manual and the site against the Nightly (web-r3)
 
-Session D, 2026-11-04. Firmware: origin/linux-hw 1ab4bfca, the Nightly v0.16.0-02bf7a, built with the switches of `tools/orangecat_engines.sh`
+Session D, 2026-11-04; brought to origin/linux-hw 52a41894 (the Nightly v0.16.0-2e1056, melodic-grid merged) on 2026-11-08 (section
+"Round 2" below). Firmware audited first: origin/linux-hw 1ab4bfca, the Nightly v0.16.0-02bf7a, built with the switches of `tools/orangecat_engines.sh`
 (the new interface on, SID / CZ-1 / FM6 / Prophet / DRUM out of the image; MACRO and DRUM-X built in, SHAPES, the Prophet and WHEEL as
 modules, DUB TAPE as an effect module). Audited before any change; every item is judged against the firmware's own tables (`params.c`
 PAGES and TP / GP, `oc_knobs.c`, `editor.c`, `ui_*.c`), `UI_DESIGN.md` and `UI_BUILD.md`. Two audits: web/app (items A1..A57) and the
 other pages (B manual, E editor, I installer and site, P protocol document).
 
-## Count by kind (121 items; two more were checked and are right)
+## Count by kind (122 items; two more were checked and are right)
 
 | kind | web app (A) | other pages (B, E, I, P) | total |
 |---|---|---|---|
 | wrong | 12 | 30 | 42 |
-| missing | 20 | 13 | 33 |
+| missing | 19 | 13 | 32 |
 | obsolete | 9 | 11 | 20 |
 | drift-risk | 7 | 9 | 16 |
-| needs-command | 8 | 2 | 10 |
-| **total** | 56 | 65 | **121** |
+| needs-command | 10 | 2 | 12 |
+| **total** | 57 | 65 | **122** |
+
+(Round 2: A41 moved from missing to needs-command, and A58 is new; both found by the firmware's own check of what the editor link reaches,
+tests/web_wire.h. Fixed so far: 25 of the 57 web app items (A19 and A57 in part), 11 of the other pages' 65; the lists below.)
 
 ## What was done in web-r3
 
@@ -38,9 +42,41 @@ P2 P3 P4 P6 P8 P9 (a "Numbers on the Nightly" section and the corrected slot, pa
 The web app also reads and shows a macro's offset (A2), a step's condition, nudge and ratchet (A31), the screen-off preference and the
 unit's menu names (A45, A46).
 
+## Round 2 (2026-11-08): the unit's own pages in the app
+
+- **The firmware is the Nightly v0.16.0-2e1056** (linux-hw 52a41894 merged into web-r3: melodic-grid and its ui_draw fix). The tables were
+  regenerated from it.
+- **A Pages tab** (`web/app/lib/pages.js`, the view in `app.js`): every TRACK and GLOBAL page of the firmware's table that the unit shows, in
+  the unit's order, under the unit's family buttons (FX, ENV, LFO, SCL, EDIT, GLO, ARP, SEQ, TRK): 42 pages, 153 cells. That is the FX pages
+  in their order (SENDS, DELAY .. MASTER, DIST, AUTO PAN, DUB SETUP, DUB, DUB 2), ENV, LFO and LFO 2 (with LFO SYNC), MOD with its four slots,
+  SCALES, SCL, CHORD, MPC, VOICE .. VOICE 3 with SLIDE TIME, ARP, PHRASE, TEMPO (BPM, SWG, QNT), GLOBAL, SYSTEM, the WEIGHTS and the MIXER
+  (LEVEL, PAN and MUTE of each track; FREEZE stays on the unit). No table in it is kept by hand:
+  - `tests/web_tables.c` writes, through the firmware's own `page_desc` and `param_format`, each cell's label, id and format class, and
+    the unit's text for every value of every class (70 classes, 2,968 strings: "1/8D", "TMPL", "+3 st"). The app shows these strings and
+    formats nothing itself. DUB's TIME L / R have a second row for when the track's SYNC is on.
+  - The ids the link refuses (`param_reserved`, `param_slide_time`, `global_reserved`) and `dub_put_field`'s own results (64 writes) come
+    from the firmware too. The view writes DUB's SYNC, PING, DRIVE and WOW into the packed ids 46 and 47 exactly as the unit does.
+  - `tests/web_wire.h` says how the link reaches each cell's value. `tests/editor_test.c` compiles `editor.c` and holds that equal to
+    `ed_val` for every cell of every page.
+- **Corrections from that check.** BOOT and the DRUM channel are not "SET already takes" (A41, A48). SET scope 1 writes `song.g[17]` /
+  `song.g[13]`, but the unit uses `settings_boot` and `settings_drumch`. Only the unit's own page edit (ui_input.c:1574, 1584) and the
+  settings load write those. The WEIGHTS (ids 4..9) are reserved globals with the same problem. So the Pages tab shows these cells as "on
+  the unit", does not read them from DUMP, and lists them for Session A (item 8). Before this, a page writing BOOT over the link would have
+  said "saved" and changed nothing.
+- **Tests (task 3):** `web/app/test/test_pages.mjs`, 12 checks. They cover every shown page and cell with the firmware's text and range,
+  the unit's words for SLOT, LFO SYNC and DUB TIME, what is read only and why, the DUB writes against `dub_put_field`, and the writes
+  against the mocked unit (TEMPO BPM, LFO RATE, the MIXER). Checked by mutating `params.c`. A page renamed (DUB 2 to DUB 3) fails the
+  tables' drift check. Once regenerated, it fails the coverage list and the guide (7 failures). A changed range (SPEED 0..120) fails the
+  drift check.
+
+Fixed by item in round 2: A16 (on the Pages tab: the firmware's text, not fmtValue's formulas; the Sounds tab still uses fmtValue),
+A19 (in part: A4, BUDGET, CLK, TUNE, MIDI, ROUT on the GLO pages; the menu's rows stay A47), A20, A22 (shown, read only: A23),
+A24, A25, A48 (all but the DRUM channel: A58), A57 (in part: Mixer, Tempo/Swing, FX sheets, DUB's pages, LFO SYNC; GRID, Kit/Lanes,
+motion and REC-held clears remain: A33, A26, A35, A34). A21 (fixed in round 1 by the generated table) is now used by a view as well.
+
 ## Not fixed, web side (no firmware change needed; for a later round)
 
-A8 A12 A13 A15 A16 A18 A19 A20 A22 (display) A24 A25 A26 A27 A28 A32 A33 A35 A37 A39 A41 A42 A43 A44 A48 A49..A54 (the mocked unit models
+A8 A12 A13 A15 A18 A26 A27 A28 A32 A33 A35 A37 A39 A42 A43 A44 A49..A54 (the mocked unit models
 an older unit: its engine list, 3 module starts, no arrangement objects) A57; E1 E3 E4 E8 E9 E10 E11 E12 E13 E14 (the old editor); B3..B32 (the
 Melodee manual is not rewritten: it carries a notice and the guide replaces it); I1 I2 I3 I5 I6 I7 (installer text and `mirror_site.py`: its set
 choices are ("pack","shapes","prophet","dub"), the Standard `wheel` set manifest would be dropped at the next Nightly deploy); P1 P5 P7 P10 P11 P12.
@@ -56,6 +92,11 @@ choices are ("pack","shapes","prophet","dub"), the Standard `wheel` set manifest
 6. INFO sends the 0x46 / 0x43 / 0x35 tags (FM6, CZ-1, Prophet) although the handlers are compiled out (`editor.c:1089-1092`, `527-533`): the old
    editor shows its 6-OP FM tab and native panels on the Nightly. E1.
 7. ARRANGE does not carry where each track is or PLAY's mode (A36).
+8. (round 2) GET / SET / DUMP of the device settings the GLO and PROJECT pages show: BOOT (G_BOOT 17 -> `settings_boot`), the DRUM
+   channel (G_DRUMCH 13 -> `settings_drumch`) and the WEIGHTS (G_WP5 .. G_SAFETY, ids 4..9 -> `settings_vpoints[]`, `settings_safety`).
+   `ed_val` (editor.c:146) maps A4 and BUDGET to their device values and these not, so the link reads and writes an unused copy in
+   `song.g`. The fix is two more cases in `ed_val` (and `settings_save` after SET, as A4 and BUDGET have). `tests/editor_test.c`
+   `web_wire_rule` and the app follow by themselves once it is there. A41 A58.
 
 ## For Session A: ready
 
@@ -125,7 +166,7 @@ A37 | wrong | app.js:644-646, 657-659 | four slots, "Slot 1..4" | SLOT is 1..5 w
 A38 | needs-command | app.js:658-659 | no template save/load, no New song | ui_slots.c:46-66; params.c:59 | Firmware: ED_PROJECT slot 4 = template (and a "new" op), or leave to the unit.
 A39 | missing | app.js:643-660 | no "slot in use" marker, no unsaved-changes indication (OC_PROJECT_PAGE=1: SAVE opens the PROJECT page, the slot in use marked, LOAD warns of unsaved changes: ui_slots.c:22-47) | the slot in use is song.g[G_SLOT] (GP[16], readable in DUMP); the dirty flag is project_unsaved (project.c:1537, ui_slots.c:34) with no wire read | Show G_SLOT now (no command). Dirty flag: needs-command (A40).
 A40 | needs-command | app.js:659 | the Load confirm always asks "What is not saved ... is lost" | project_unsaved() is internal only (ui_slots.c:29-47 pj.d) | Firmware: expose it (a bit in ED_PROJECT's reply or UI_STATE) so the page asks only when it is true, as the unit does.
-A41 | missing | app.js:643-660 | BOOT (which slot loads at power-on) | GP[17] BOOT OFF/A/B/C/D, SET scope 1 id 17 (ui_slots.c:58 slot_boot) | No command needed.
+A41 | needs-command | app.js:643-660 | BOOT (which slot loads at power-on) (round 2: was "missing, no command needed"; SET writes song.g[17], not settings_boot: Session A item 8) | GP[17] BOOT OFF/A/B/C/D, SET scope 1 id 17 (ui_slots.c:58 slot_boot) | No command needed.
 A42 | drift-risk | app.js:729 `what` | hand-typed id -> label table of a backup: 0 music, 1 settings and template, 2..5 slots, "6,7,17,18 library banks", "9..16 CZ-1 tones", "19..22 FM6 voices", "23..28 Prophet programs", 8 retired | editor_backup.c:137-145 ed_bk_preset_bank maps 6,7,17,18,19..22,9..16,23..28 all to user-preset banks of the shared library (UP_BANKS), and the Nightly's CZ/FM6/P5 engines are out of the image; EDITOR_PROTOCOL.md:850-858 lists only 0,1,2..5,6-7,8,17-18,19..22,32..34 | Relabel as "library banks" or generate from editor_backup.c; the labels name engines the Nightly does not ship.
 A43 | missing | app.js:728-731 | the table lacks the arrangement objects 64..67 (slot records), 68..83 (pool chunks 0..15), 84 (the music's lists + banks' phrases) | editor_backup.c:24-27,35-38; EDITOR_PROTOCOL.md:892-905 (50 objects with them) | Add the three rows (the sizes sum over ids >= 64 as for the others).
 A44 | wrong | app.js:725 text, session.js:295-309 | handles both "arrangement objects present" and "absent" but the Nightly always has them (21 objects, ids 64..84, LIST 1) | editor_backup.c:6-8,35-38 | Keep the fallback, but the "arrangement" sidecar path (session.js:295-299, orangecat-arrangement file) is dead on this firmware; test it only against a mock that has the objects (A52).
@@ -151,6 +192,8 @@ A54 | obsolete | test/test_sounds.mjs:15,34-38; test/test_unit.mjs:49,56 (20 eng
 A55 | obsolete | README.md:5-7; HARDWARE_TEST.md:5-12 | "Version 0.14.2 (October 26, 2026, branch web-app) ... not tried on the unit"; unit ABOUT "v0.6.2-"; web-app firmware and nightly steps | firmware is Nightly v0.16.0-02bf7a on linux-hw (PLAY_LIST.md:1); the Nightly's own app is served at webapp/nightly-app/ (README.md:56-59) | Rewrite the status paragraph and Part 0 for the Nightly; note which parts were run.
 A56 | obsolete | README.md:68-71 "What it cannot do yet" | RATCH/FLAM/condition/NUDGE not on the wire (A30); macro knobs need P_MAC0..3 (A2); effects/step generators not modules (A17) | see those items | Rewrite the list: still true are per-note editing (A34), a project file's arrangement is not portable, and the ENV/MOD/FX/VOICE sheets (A20).
 A57 | missing | README.md:10-19 tab table | the app has no tab or card for: Mixer, Tempo/Swing, FX sheets, Kit/Lanes, Effects modules, motion, GRID, REC-held clears, DUB view, LFO SYNC (P_LSYNC id 92: OFF 4BAR 2BAR 1/1 1/2 1/4 1/8 8T 1/16 16T 1/32, desc_bs TP[92]) | the Nightly's switch set (OC_MIXER, OC_LANES, OC_STEP_PAGES, OC_MGRID, OC_REC_CLEAR, OC_SLIDE_TIME, OC_PROJECT_PAGE) | Decide the page's scope (manager vs panel). Everything but the needs-command items above is writable with the commands the app already imports.
+
+A58 | needs-command | (round 2) lib/pages.js, the GLO > SYSTEM and WEIGHTS pages | the DRUM channel and the six WEIGHTS cannot be read or set over the link | page_desc (params.c) shows settings_drumch and settings_vpoints / settings_safety; ed_val (editor.c:146) maps only A4 and BUDGET; ids 4..9 are global_reserved, SET refuses them | Firmware: Session A item 8. The Pages tab shows them as "on the unit".
 
 (A29 is a "no finding" line kept so the numbering stays stable; it is not counted below. HARDWARE_TEST.md:31 "the lighthouse picture" for MACRO is right: oc_scenes.h:5-7.)
 

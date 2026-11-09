@@ -24,7 +24,7 @@ export async function run() {
   const missing = [...keys].filter((k) => !(k in PAGE_STATUS)), stale = Object.keys(PAGE_STATUS).filter((k) => !keys.has(k));
   ok(!missing.length && !stale.length, "tables: every page of the firmware's table has a line in lib/app_coverage.js, and every line a page" +
      (missing.length ? ` (the firmware has, the app does not name: ${missing.join(", ")})` : "") + (stale.length ? ` (the app names, the firmware lacks: ${stale.join(", ")})` : ""));
-  ok(Object.values(PAGE_STATUS).every((v) => /^(app (Sounds|Steps|Arrange|Project|Settings|Unit)|unit|never)$/.test(v)), "tables: a page's status is app <tab>, unit or never");
+  ok(Object.values(PAGE_STATUS).every((v) => /^(app (Sounds|Pages|Steps|Arrange|Project|Settings|Unit)|unit|never)$/.test(v)), "tables: a page's status is app <tab>, unit or never");
 
   const used = new Set(), usedG = new Set();
   for (const p of FW.pages) for (const i of p.id) { if (i < 0) continue; if (p.scope === "GLOBAL") usedG.add(i); else if (p.scope === "TRACK") used.add(i); }

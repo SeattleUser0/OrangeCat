@@ -194,6 +194,19 @@ export class Session {
     }
     return parse[CMD.TRACK_PARAM](await this.rq(req.trackParam(k, id, v), { key: `tp:${k}:${id}` })).value;
   }
+  /* (web-r3) the MIXER: LEVEL and MUTE of any track (TRACK_MIX); a track parameter of any track read (TRACK_PARAM with no value, v4) */
+  async trackMix(k, level, mute) {
+    const r = parse[CMD.TRACK_MIX](await this.rq(req.trackMix(k, level, mute), { key: "mix:" + k }));
+    const t = this.tracks?.tracks[k];
+    if (t) { t.level = r.level; t.mute = r.mute; }
+    if (this.dump && k === this.sel) { this.dump.p[0] = r.level; this.dump.p[40] = r.mute; }
+    return r;
+  }
+  async trackParamGet(k, id) {
+    if (k === this.sel && this.dump) return this.dump.p[id];
+    if (!this.v4) return null;
+    return parse[CMD.TRACK_PARAM](await this.rq(req.trackParam(k, id))).value;
+  }
   async setGlobal(id, v) { const r = parse[CMD.SET](await this.rq(req.set(1, id, v), { key: "g:" + id })); if (this.dump) this.dump.g[id] = r.value; return r.value; }
   /* the preset browser's rows (factory presets in the unit's engine order, then the library's used slots; starred) */
   presetRows() { return this.prefs ? E.devicePresetRows(this.info, this.names, this.prefs) : this.factoryRows(); }

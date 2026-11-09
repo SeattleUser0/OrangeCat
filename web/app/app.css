@@ -130,3 +130,12 @@ tr.bad td { color: #FFB3A8; }
 
 footer { margin-top: 36px; color: var(--dim); font-size: 12px; }
 footer a { color: var(--mid); }
+
+/* (web-r3) the Pages tab: a cell the editor link cannot write; MOD's four slots; the MIXER's rows (one a track) */
+.edit.ro { opacity: .55; }
+.modslot { display: grid; gap: 4px; padding: 6px 0; border-top: 1px solid var(--line, #3334); }
+.mixrow { display: grid; grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 6px 0; }
+.mixrow .mute { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--mid); font-weight: 600; letter-spacing: .05em; }
+.mixrow > b { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; color: #000; }
+@media (max-width: 600px) { .mixrow { grid-template-columns: 28px minmax(0, 1fr); } .mixrow > :nth-child(n+3) { grid-column: 2; } }
+[aria-label="Family"] button[aria-pressed=true] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, var(--surface)); color: var(--text); }

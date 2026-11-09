@@ -8,7 +8,7 @@
 //     cannot WRITE a macro or SLIDE TIME yet (editor.c refuses ids 33..36 and 48): the page shows the macro's offset and says so.
 //     An engine with no table (a module that declares none: the Prophet, WHEEL) keeps the unit's HOME knobs of its own (engines.c knob[]).
 //   - the pictures: MACRO, SHAPES and DRUM-X are the pack's scenes (lib/scenes.js, drawn by lib/scene_svg.js).
-//   - the tab names Unit, Sounds, Steps, Arrange, Project, Settings are this page's own.
+//   - the tab names Unit, Sounds, Pages, Steps, Arrange, Project, Settings are this page's own (Pages: the unit's own pages, lib/pages.js).
 //
 // Revisions:
 //   0.14.2: first version (Session D); then UI_DESIGN.md 0.1 read: the fixed knob colors, its knob table, its scenes.
@@ -21,7 +21,7 @@ import { SCENES } from "./scenes.js";
 import { sceneSvg } from "./scene_svg.js";
 
 export const TABS = [
-  { id: "unit", label: "Unit" }, { id: "sounds", label: "Sounds" }, { id: "steps", label: "Steps" },
+  { id: "unit", label: "Unit" }, { id: "sounds", label: "Sounds" }, { id: "pages", label: "Pages" }, { id: "steps", label: "Steps" },
   { id: "arrange", label: "Arrange" }, { id: "project", label: "Project" }, { id: "settings", label: "Settings" },
 ];
 export const SESSION_C_DOC = "docs/orangecat/UI_DESIGN.md 0.5, UI_BUILD.md";

@@ -687,6 +687,35 @@ static int concert_pitch(void)
     settings_budget=old_budget;
     return bad;
 }
+/* (web-r3, Session D) the web app's page view writes a cell by its id when tests/web_wire.h says "same": that must be exactly when the
+ * editor's own GET / SET / DUMP storage (ed_val) is the storage the unit's page shows, for every cell of every page of this build */
+#include "web_wire.h"
+static int web_wire_rule(void)
+{
+    uint32_t i, k, cells = 0, wrong = 0;
+    reset();
+    for (i = 0; i < NPAGES; i++) {
+        const page_t *pg = &PAGES[i];
+        if (pg->scope != SC_TRACK && pg->scope != SC_GLOBAL)
+            continue;
+        for (k = 0; k < 4u; k++) {
+            int16_t *vp = 0;
+            uint32_t id = pg->id[k];
+            if (id == 0xFFu || !page_desc(pg, k, &vp) || !vp)
+                continue;
+            if ((pg->scope == SC_GLOBAL && id >= (uint32_t)G_COUNT) || (pg->scope == SC_TRACK && id >= (uint32_t)P_COUNT))
+                continue;                                     /* the view fields and QNT: "packed" / "recq", not ids of ed_val */
+            cells++;
+            int same = !strcmp(web_wire(pg, k, vp), "same");
+            int16_t *ev = ed_val(pg->scope == SC_GLOBAL ? P_COUNT + id : id);
+            if (same != (ev == vp)) {
+                wrong++;
+                printf("  %s cell %u (id %u): web_wire says %s, ed_val %s\n", pg->title, k, id, same ? "same" : "not same", ev == vp ? "is the page's" : "is not");
+            }
+        }
+    }
+    return check("web_wire.h (the web app's page view) reaches a page cell by its id exactly when ed_val's storage is the page's, every cell", cells > 40 && !wrong);
+}
 static int scale_catalogue(void)
 {
     reset(); uint8_t a[2] = {0, P_SCALE};
@@ -1587,7 +1616,7 @@ static int arrange_protocol(void)
 int main(void)
 {
     int bad = kit_protocol() + arrange_protocol() + module_protocol() + module_overlaps() + fx_protocol() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + reply_counters() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
-              native_protocol() + shared_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + scale_catalogue() + project_scale_protocol();
+              native_protocol() + shared_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + scale_catalogue() + project_scale_protocol() + web_wire_rule();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
 }

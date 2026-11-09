@@ -11,6 +11,8 @@ import * as E from "./lib/editor_proto.js";
 import { TEXT } from "./lib/editor_text.js";
 import { Session } from "./lib/session.js";
 import * as K from "./lib/codec.js";
+import * as PG from "./lib/pages.js";
+import { FW } from "./lib/fw_tables.js";
 import { P_MAC0 as MAC0, TABS, designKnobs, editIds, palette, trackColor, engineScene, enginePicture, KNOB_COLORS, SESSION_C_DOC } from "./lib/model.js";
 import { PALETTES } from "./lib/palette.js";
 
@@ -143,7 +145,7 @@ function render() {
   renderHeader(); renderTabs();
   const main = $("main");
   const keep = document.activeElement && main.contains(document.activeElement) && document.activeElement.matches("input[type=text],input[type=search]") ? document.activeElement.id : null;
-  const view = ({ unit: viewUnit, sounds: viewSounds, steps: viewSteps, arrange: viewArrange, project: viewProject, settings: viewSettings })[S.tab]();
+  const view = ({ unit: viewUnit, sounds: viewSounds, pages: viewPages, steps: viewSteps, arrange: viewArrange, project: viewProject, settings: viewSettings })[S.tab]();
   main.replaceChildren(el("div", { class: "progress" }, el("i", { style: { width: Math.round(S.progress * 100) + "%" } })), view);
   if (keep && $(keep)) { const i = $(keep); i.focus(); try { i.setSelectionRange(i.value.length, i.value.length); } catch (_) {} }
 }
@@ -453,6 +455,73 @@ function libraryView() {
 
 /* ================================================================= Steps === */
 const NOTE = (n) => (n ? E.noteName(n) : "");
+/* ================================================================= Pages === */
+/* The unit's own pages (lib/pages.js): every page of the firmware's table this tab covers, in the unit's order, by the unit's family
+   buttons; each cell with the unit's label and the unit's own text for its value. A cell the editor link cannot write is shown, read only. */
+const FAM_WORD = { ENV: "Envelope", LFO: "LFO", SCL: "Scale and chord", EDIT: "Voice and slide", GLO: "Unit settings", ARP: "Arpeggiator", SEQ: "Tempo and phrase", TRK: "Mixer", FX: "Effects" };
+function viewPages() {
+  const s = S.session;
+  if (!s) return needUnit("see its pages");
+  const fams = PG.families();
+  if (!fams.some((f) => f.fam === S.fam)) S.fam = fams[0].fam;
+  const g = el("div", { class: "grid" });
+  const chips = el("div", { class: "bar", role: "group", "aria-label": "Family" }, ...fams.map((f) =>
+    el("button", { "aria-pressed": String(f.fam === S.fam), onclick: () => { S.fam = f.fam; render(); } }, f.fam)));
+  const fam = fams.find((f) => f.fam === S.fam);
+  g.append(wide(FAM_WORD[fam.fam] || fam.fam, chips, fam.pages.some((p) => p.scope === "TRACK") ? trackBar() : null,
+    el("p", { class: "dim small" }, "The unit's own pages, in its order, with its own names and values. Grayed: the unit keeps it to itself for now.")));
+  for (const page of fam.pages) g.append(page.scope === "TRK" ? mixerCard() : page.graph === "MOD" ? modCard(page) : pageCard(page));
+  return g;
+}
+function pageCard(page) {
+  const s = S.session;
+  return card(page.title, ...PG.cellsOf(page, s.dump.p).map((c) => c ? cellView(c) : null));
+}
+function modCard(page) {
+  return card(page.title, ...PG.modSlots(page).map((row, i) => el("div", { class: "modslot" }, el("span", { class: "dim small" }, `Slot ${i + 1}`), ...row.map((c) => c ? cellView(c) : null))));
+}
+function cellView(c) {
+  const s = S.session, v = PG.cellValue(c, s.dump);
+  const val = el("span", { class: "val" }, v === null ? "on the unit" : PG.cellText(c, v));
+  const can = v !== null && PG.writable(c), n = c.k.max - c.k.min + 1;
+  let input;
+  if (n <= 24) {
+    input = el("select", { "aria-label": c.label, disabled: can ? null : true }, ...c.k.text.map((t, i) => el("option", { value: String(c.k.min + i) }, t)));
+    if (v !== null) input.value = String(v);
+  } else input = el("input", { type: "range", min: c.k.min, max: c.k.max, value: v ?? c.k.min, "aria-label": c.label, disabled: can ? null : true });
+  const write = async (nv) => {
+    const w = PG.cellWrite(c, nv, s.dump);
+    if (w.scope === "global") await s.setGlobal(w.id, w.value); else await s.setParam(s.sel, w.id, w.value);
+    const now = PG.cellValue(c, s.dump);
+    val.textContent = PG.cellText(c, now);
+    if (+input.value !== now) input.value = String(now);
+    if (c.id === FW_DUB_SYNC) render();                 /* TIME L / R read on the beat now, or in ms */
+  };
+  if (can) input.addEventListener(n <= 24 ? "change" : "input", () => { val.textContent = PG.cellText(c, +input.value); op(() => write(+input.value)); });
+  return el("label", { class: "edit" + (can ? "" : " ro"), title: can ? null : PG.refusedWhy(c) }, el("span", { class: "lab" }, c.label), input, val);
+}
+const FW_DUB_SYNC = FW.dub.sync;
+function mixerCard() {
+  const s = S.session, M = PG.MIXER, rows = [];
+  for (let k = 0; k < (s.info.ntrk || 1); k++) {
+    const t = s.tracks?.tracks[k];
+    if (!t) continue;
+    const lv = el("input", { type: "range", min: M.level.k.min, max: M.level.k.max, value: t.level, "aria-label": `Track ${k + 1} level` });
+    const lvT = el("span", { class: "val" }, PG.mixText("level", t.level));
+    const mu = el("input", { type: "checkbox", checked: t.mute ? true : null, "aria-label": `Track ${k + 1} mute` });
+    const pn = el("input", { type: "range", min: M.pan.k.min, max: M.pan.k.max, value: 0, "aria-label": `Track ${k + 1} pan`, disabled: true });
+    const pnT = el("span", { class: "val" }, "");
+    lv.addEventListener("input", () => { lvT.textContent = PG.mixText("level", +lv.value); op(() => s.trackMix(k, +lv.value, mu.checked)); });
+    mu.addEventListener("change", () => op(() => s.trackMix(k, +lv.value, mu.checked)));
+    s.trackParamGet(k, M.pan.id).then((v) => { if (v === null) { pnT.textContent = "on the unit"; return; } pn.value = String(v); pnT.textContent = PG.mixText("pan", v); pn.disabled = false; }).catch(() => {});
+    pn.addEventListener("input", () => { pnT.textContent = PG.mixText("pan", +pn.value); op(() => s.setParam(k, M.pan.id, +pn.value)); });
+    rows.push(el("div", { class: "mixrow", style: { "--tc": trackColor(S.pal, k) } }, el("b", { style: { background: trackColor(S.pal, k) } }, String(k + 1)),
+      el("label", { class: "edit" }, el("span", { class: "lab" }, "LEVEL"), lv, lvT), el("label", { class: "edit" }, el("span", { class: "lab" }, "PAN"), pn, pnT),
+      el("label", { class: "mute" }, mu, "MUTE")));
+  }
+  return wide("MIXER", ...rows, el("p", { class: "dim small" }, "FREEZE (the unit's USB recording of a track) stays on the unit."));
+}
+
 function viewSteps() {
   const s = S.session;
   if (!s) return needUnit("edit its steps");
