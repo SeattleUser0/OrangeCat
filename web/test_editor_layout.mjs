@@ -61,5 +61,45 @@ const wordsOk = (title, label, d, sync) => { const pg = FW.pages.find((x) => x.t
 globalThis.dev = undefined;
 ok(wordsOk("DUB 2", "SPEED", { fmt: E.F.DUBSPD, min: 0 }), "editor DUB SPEED: fmtValue gives the firmware's words for every value");
 ok(wordsOk("DUB SETUP", "TIM L", { fmt: E.F.DUBTF, min: 0 }, false), "editor DUB TIME L free: the firmware's milliseconds");
+
+// E8: the step table's trig conditions and ratchet names are the firmware's (core.h TC_*, seq.c's A:B table, editor.c's ratchet range)
+{
+  const core = readFileSync(new URL("../firmware/src/core.h", import.meta.url), "utf8"), seq = readFileSync(new URL("../firmware/src/seq.c", import.meta.url), "utf8"), ed = readFileSync(new URL("../firmware/src/editor.c", import.meta.url), "utf8");
+  const tc = core.match(/enum\s*\{\s*TC_NONE[^}]*\}/)?.[0].match(/TC_\w+/g) || [];
+  const A = seq.match(/static const uint8_t A\[TC_COUNT\] = \{([^}]*)\}/)?.[1].split(",").map(Number), B = seq.match(/static const uint8_t B\[TC_COUNT\] = \{([^}]*)\}/)?.[1].split(",").map(Number);
+  const want = tc.slice(0, -1).map((n, i) => (n === "TC_NONE" ? "" : n === "TC_FILL" ? "FILL" : n === "TC_NFILL" ? "!FILL" : `${A[i]}:${B[i]}`));
+  const names = new Function(html.match(/const COND_NAMES = (\[[^\]]*\])/)[1].replace(/^/, "return "))();
+  ok(tc.length === 13 && JSON.stringify(names) === JSON.stringify(want), `editor step table: the ${names.length} trig conditions are the firmware's (TC_*, seq.c A:B)` + (JSON.stringify(names) === JSON.stringify(want) ? "" : ` ${names} vs ${want}`));
+  const r = html.match(/RATCH_NAMES = (\[[^\]]*\])/)[1];
+  ok(/f\[2\] >= 1u && f\[2\] <= 5u/.test(ed) && JSON.parse(r).length === 5, "editor step table: RATCH 1..5 (4 hits and FLAM), editor.c's ed_feel_ok range");
+  ok(/!QS\.has\("bankSong"\)/.test(html), "editor: the legacy bank-song panel is hidden by default (E9)");
+}
+
+// E12: the mock unit's palettes and INFO name are the firmware's (tools/gen_ui_palettes.py PALETTES, editor.c ED_INFO)
+{
+  const py = readFileSync(new URL("../tools/gen_ui_palettes.py", import.meta.url), "utf8"), ed = readFileSync(new URL("../firmware/src/editor.c", import.meta.url), "utf8");
+  const want = [...py.matchAll(/^\s*\("([A-Z\- ]+)",\s*\(/gm)].map((m) => m[1]);
+  const got = JSON.parse(html.match(/palettes: (\[[^\]]*\])/)[1]);
+  ok(want.length === 8 && JSON.stringify(got) === JSON.stringify(want), `editor mock: the palettes are the firmware's (${want.join(" ")})`);
+  ok(/ed_str\("ORANGE CAT " MELODEE_VERSION/.test(ed) && /"ORANGE CAT 0\.16\.0-MOCK"/.test(html), "editor mock: INFO names the unit as editor.c does (ORANGE CAT version)");
+}
+
+// E13: the module geometry the editor plans swaps with is oc_module.c's (oc_mod_geo, oc_mod_sect) and the sample slot's limit is smp_slot.c's
+{
+  const om = readFileSync(new URL("../firmware/src/oc_module.c", import.meta.url), "utf8"), core = readFileSync(new URL("../firmware/src/core.h", import.meta.url), "utf8");
+  const engi = (n) => +core.match(new RegExp(`#define ${n} (\\d+)u`))[1];
+  const geo = {};
+  for (const m of om.match(/oc_mod_geo\[\] = \{([\s\S]*?)#if OC_CANDIDATES/)[1].matchAll(/\{ (ENGI_\w+), (\d+)u, (0x[0-9A-Fa-f]+)u \}/g)) {
+    const starts = []; for (let i = 0; i < 18; i++) if ((parseInt(m[3], 16) >> i) & 1) starts.push(i);
+    geo[engi(m[1])] = { sectors: +m[2], starts };
+  }
+  const got = new Function("return " + html.match(/const OCM_GEO = (\{[^;]*\});/)[1])();
+  ok(Object.keys(geo).length === 3 && JSON.stringify(Object.keys(geo).sort()) === JSON.stringify(Object.keys(got).sort()) && Object.keys(geo).every((e) => JSON.stringify(geo[e]) === JSON.stringify(got[e])),
+     `editor module geometry == oc_mod_geo (${Object.entries(geo).map(([e, g]) => `${e}: ${g.sectors} sectors, starts ${g.starts}`).join("; ")})`);
+  const smp = readFileSync(new URL("../firmware/src/smp_slot.c", import.meta.url), "utf8");
+  ok(+smp.match(/#define SMP_SLOT_MAX (\d+)u/)[1] === +html.match(/SMP\.MAX_DATA = (\d+);/)[1], "editor sample limit == smp_slot.c SMP_SLOT_MAX (the Release 3 slot of 16 sectors)");
+  const sect = om.match(/oc_mod_sect\[OC_MOD_STARTS\] = \{([^}]*)\}/)[1].split(",").map(Number), esect = JSON.parse(html.match(/const OCM_SECTOR = (\[[^\]]*\])/)[1]);
+  ok(JSON.stringify(sect) === JSON.stringify(esect), "editor module start sectors == oc_mod_sect (18 starts)");
+}
 console.log(failed ? `editor layout FAILED (${failed})` : "editor layout passed");
 process.exit(failed ? 1 : 0);

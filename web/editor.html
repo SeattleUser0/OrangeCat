@@ -1188,7 +1188,7 @@ function fmtValue(d, v) {
 /* A port of tools/sampleio.py (read_any_wav, resample, to_int16, ima_encode, user_slot),
    byte for byte: web/test_web.mjs compares them. */
 const SMP = { SLOT_SIZE: 0x14000, DATA_OFF: 512, RATE: 22050, HDR_LEN: 32 + 16 * 28, MAX_ZONES: 16 };
-SMP.MAX_DATA = SMP.SLOT_SIZE - SMP.DATA_OFF;
+SMP.MAX_DATA = 60896;   /* smp_slot.c SMP_SLOT_MAX (Release 3 step 1: 16 sectors; was SLOT_SIZE - DATA_OFF = 81,408, a Felucca slot): test_editor_layout.mjs holds it equal */
 
 /* groups of up to 7 bytes, each preceded by their top bits */
 function pack7(b) {
@@ -2464,7 +2464,7 @@ function makeMockDevice(opt = {}) {
     bank: new Array(opt.shared?384:(opt.slots||64)).fill(null),     /* user presets: {engine, name, p, pattern, grid} */
     uiCaps: opt.legacy || opt.v3 || opt.v5 ? 0 : opt.uiCaps ?? 57,
     palette: 0, font: 0, monitor: 0, filter: 0, bankSig: 0, click:0, clickLevel:1, countin:0, preview:0, chordAdd:0, retiredPreference:127, screenOff:0,
-    palettes: ["MONO", "GREEN", "AMBER", "ICE", "VIOLET", "ROSE", "PAPER", "HI-CON"],
+    palettes: ["NIGHT", "DAY", "CONTRAST", "SUNSET", "OCEAN", "NEON", "CANDY", "LO-FI"],   /* tools/gen_ui_palettes.py: test_editor_layout.mjs holds them equal */
     favorites: Array.from({ length: ENG.length + 3 }, () => []),
     watch: false, v4: false, lastReq: 0,
   };
@@ -2784,7 +2784,7 @@ function makeMockDevice(opt = {}) {
         b(target);b(index);b(rc);if(!rc && cmd===CMD.CZ_GET)CZ.nibbles(raw).forEach(b);break;
       }
       case CMD.INFO:
-        s(opt.legacy ? "MELODEE 0.4 BETA (MOCK)" : "MELODEE v1.2.1 (MOCK)"); b(ENG.length); b(P_COUNT); b(G_COUNT); b(NSTEP); b(P_E0);
+        s(opt.legacy ? "MELODEE 0.4 BETA (MOCK)" : "ORANGE CAT 0.16.0-MOCK");   /* editor.c ED_INFO: "ORANGE CAT " MELODEE_VERSION */ b(ENG.length); b(P_COUNT); b(G_COUNT); b(NSTEP); b(P_E0);
         ENG.forEach((e) => s(e.name));
         if (!opt.legacy) b(NTRK);
         if (!opt.legacy && !opt.v3 && !opt.v5) {
@@ -3492,7 +3492,7 @@ async function ocmWrite(send, ocm, variant, progress = () => {}) {
 /* (0.12.1) The planner of oc_module.c for a swap, in JS: where a module of `engine` would go once the module of engine `removed` is out. Each engine's span (oc_mod_geo): SHAPES 6
  * sectors, starts 0 and 1; the Prophet 8 sectors, starts 0 and 2. A start is blocked by a usable module (state crashed, noslot or ok) of ANOTHER engine than the new one that stays
  * (the removed engine's modules go first). Returns {plan, blocker}: the first free start (an empty one before one that holds junk), or 127 and the start in the way. */
-const OCM_GEO = { 14: { sectors: 6, starts: [0, 1] }, 19: { sectors: 8, starts: [0, 2] } };
+const OCM_GEO = { 14: { sectors: 6, starts: [0, 1] }, 19: { sectors: 8, starts: [0, 2] }, 7: { sectors: 4, starts: [0, 1] } };   /* oc_module.c oc_mod_geo (SHAPES 6 / 0x03, Prophet 8 / 0x05, WHEEL 4 / 0x03): test_editor_layout.mjs holds them equal */
 function ocmSwapPlan(info, engine, removed) {
   const g = OCM_GEO[engine];
   if (!g || !info.starts) return { plan: 127, blocker: null };
@@ -4566,7 +4566,7 @@ $("patternpick").addEventListener("change", () => op(async () => {
 }));
 function renderSong() {
   const box = $("songchain");
-  box.hidden = !dev || !dev.info?.chainRows || !dev.song;
+  box.hidden = !dev || !dev.info?.chainRows || !dev.song || !QS.has("bankSong");   /* (round 3, E9) the 16-row bank song is a legacy panel: the SONG page of the unit is the 64 x 4 chain, edited in the web app Arrange tab. ?bankSong=1 brings it back */
   if (box.hidden) return;
   const s = dev.song;
   $("songplay").textContent = t(s.playing ? "songStop" : "songPlay");
@@ -4888,7 +4888,7 @@ function renderSteps() {
   if (!dev || !dev.steps.length) return;
   const len = stepLen();
   const box = $("steptables");
-  const shape = String(len);
+  const shape = String(len) + (stepFeel() ? "f" : "");
   $("noteshelp").textContent = t("notesHelp");
   renderGrid();
   /* keep the rows the user is typing in */
@@ -4897,12 +4897,16 @@ function renderSteps() {
   const tables = [];
   for (let b = 0; b < len; b += 16) {
     const tb = el("table", {}, el("tr", {}, el("th"), el("th", { text: t("notes") }), el("th", { text: t("hits") }), el("th", { text: t("time") }),
-      el("th", { text: t("acc") }), el("th", { text: t("slide") }), el("th", { text: t("vel") }), ...(dev.info.chance ? [el("th", { text: t("chance") })] : [])));
+      el("th", { text: t("acc") }), el("th", { text: t("slide") }), el("th", { text: t("vel") }), ...(dev.info.chance ? [el("th", { text: t("chance") })] : []),
+      ...(stepFeel() ? [el("th", { text: "COND" }), el("th", { text: "NUDGE" }), el("th", { text: "RATCH" })] : [])));
     for (let i = b; i < Math.min(len, b + 16); i++) tb.append(stepRow(i));
     tables.push(tb);
   }
   box.replaceChildren(...tables);
 }
+/* the trig conditions in TC_* order (core.h; seq.c's A:B table: 1:2 .. 4:4) and the ratchet's five values (editor.c: 1..4 the hits, 5 FLAM); test_editor_layout.mjs holds them equal to the firmware's */
+const COND_NAMES = ["", "FILL", "!FILL", "1:2", "2:2", "1:3", "2:3", "3:3", "1:4", "2:4", "3:4", "4:4"], RATCH_NAMES = ["1", "2", "3", "4", "FLAM"];
+const stepFeel = () => !!(dev && dev.info.chance && dev.steps.some((x) => x && x.rflam != null));   /* the feel columns when the unit sends the v8 feel */
 function stepRow(i) {
   const notes = el("input", { type: "text", placeholder: "—", spellcheck: "false" });
   const hits = el("input", { type: "text", placeholder: "—", spellcheck: "false", class: "hits" });
@@ -4911,9 +4915,14 @@ function stepRow(i) {
   const sl = el("input", { type: "checkbox" });
   const vel = el("input", { type: "number", min: 0, max: 127 });
   const chance = dev.info.chance ? el("input", { type: "number", min: 0, max: 100, "aria-label": `${t("chance")} ${i + 1}` }) : null;
+  const feel = stepFeel();     /* (round 3, E8) the v8 feel: the trig condition, the nudge, the ratchet (editor.c ed_feel_ok: TC_* < TC_COUNT, nudge + 32 0..63, 1..5 with 5 FLAM) */
+  const cond = feel ? el("select", { "aria-label": `COND ${i + 1}` }, ...COND_NAMES.map((n, k) => el("option", { value: k, text: n || "-" }))) : null;
+  const nudge = feel ? el("input", { type: "number", min: -32, max: 31, "aria-label": `NUDGE ${i + 1}` }) : null;
+  const ratch = feel ? el("select", { "aria-label": `RATCH ${i + 1}` }, ...RATCH_NAMES.map((n, k) => el("option", { value: k + 1, text: n }))) : null;
   const tr = el("tr", { "data-i": i }, el("td", { class: "i", text: String(i + 1) }),
-    el("td", {}, notes), el("td", {}, hits), el("td", {}, time), el("td", {}, acc), el("td", {}, sl), el("td", {}, vel), ...(chance ? [el("td", {}, chance)] : []));
-  tr._c = { notes, hits, time, acc, sl, vel, chance };
+    el("td", {}, notes), el("td", {}, hits), el("td", {}, time), el("td", {}, acc), el("td", {}, sl), el("td", {}, vel), ...(chance ? [el("td", {}, chance)] : []),
+    ...(feel ? [el("td", {}, cond), el("td", {}, nudge), el("td", {}, ratch)] : []));
+  tr._c = { notes, hits, time, acc, sl, vel, chance, cond, nudge, ratch };
   fillStep(tr, dev.steps[i]);
   const send = () => writeStep(i, tr);
   notes.addEventListener("change", send);
@@ -4923,6 +4932,7 @@ function stepRow(i) {
   sl.addEventListener("change", send);
   vel.addEventListener("change", send);
   if (chance) chance.addEventListener("change", send);
+  for (const x of [cond, nudge, ratch]) if (x) x.addEventListener("change", send);
   return tr;
 }
 function fillStep(tr, s) {
@@ -4937,6 +4947,7 @@ function fillStep(tr, s) {
   c.sl.checked = !!(s.flags & 2);
   c.vel.value = String(s.vel);
   if (c.chance) c.chance.value = String(s.chance ?? 100);
+  if (c.cond) { c.cond.value = String(s.cond ?? 0); c.nudge.value = String(s.nudge ?? 0); c.ratch.value = String(s.rflam ?? 1); }
   tr.classList.toggle("off", !stepOn(s));
 }
 function updateStepRows() {
@@ -4985,6 +4996,7 @@ async function writeStep(i, tr) {
   const s = { n: notes.length, notes: all, time, flags: (c.acc.checked ? 1 : 0) | (c.sl.checked ? 2 : 0),
     vel: Math.max(0, Math.min(127, +c.vel.value || 0)), hit: hits.hit, acc: hits.acc };
   if (c.chance) s.chance = Math.max(0, Math.min(100, Math.round(+c.chance.value || 0)));
+  if (c.cond) { s.cond = +c.cond.value; s.nudge = Math.max(-32, Math.min(31, Math.round(+c.nudge.value || 0))); s.rflam = +c.ratch.value; }
   if ((s.n || s.hit) && !s.vel) s.vel = 96;
   stepEdit.set(i, performance.now());
   try {

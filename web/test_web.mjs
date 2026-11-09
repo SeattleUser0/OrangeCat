@@ -652,7 +652,7 @@ async function editorMock() {
   const cut = E.parse[E.CMD.NAMES]([15, 4, 65, 0, 66, 0, 67]);   /* 0.11: CZ-1's names overran the 600-byte reply */
   ok(cut.names.join() === "A,B,PRESET 3,PRESET 4" && !cut.titles.length, "editor: a NAMES reply cut short keeps its whole names");
   let prefs = await E.readDevicePreferences(rq, info, names);
-  ok(info.uiCaps === 57 && prefs.palettes.length === 8 && prefs.palettes[0] === "MONO" && prefs.palettes.includes("HI-CON"),
+  ok(info.uiCaps === 57 && prefs.palettes.length === 8 && prefs.palettes[0] === "NIGHT" && prefs.palettes.includes("LO-FI"),
      "editor: preference capabilities (palette, favorites) and palette names");
   for(const [id,key,value] of [[4,"click",2],[5,"clickLevel",0],[6,"countin",2],[7,"preview",1],[8,"chordAdd",1]]) {
     const changed=E.parse[E.CMD.UI_SET](await rq(E.req.uiSet(id,value)));
