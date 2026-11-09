@@ -371,7 +371,7 @@ const modelsUrl = () => (selection().channel || {}).ocp || "";
 const PICK_KEY = "oc-models";
 const rememberedPick = () => { try { const v = JSON.parse(localStorage.getItem(PICK_KEY) || "null"); return Array.isArray(v) ? v : null; } catch (_) { return null; } };
 const rememberPick = (items) => { try { localStorage.setItem(PICK_KEY, JSON.stringify(items)); } catch (_) { /* no storage: the pick is not kept */ } };
-const pickItems = () => master ? master.manifest.items.filter((it) => it.id !== 0 && $("mdl-" + it.id).checked).map((it) => it.id) : [];
+const pickedItems = () => master ? master.manifest.items.filter((it) => it.id !== 0 && $("mdl-" + it.id).checked).map((it) => it.id) : [];
 function modelsList() {                               /* one box a model, VA locked (built in); the wave banks after the models */
   if (!master) { $("models-list").innerHTML = ""; return; }
   const want = new Set(rememberedPick() || PICK.default(master.manifest));
@@ -379,7 +379,7 @@ function modelsList() {                               /* one box a model, VA loc
   master.manifest.items.forEach((it) => {              /* the boxes' state set on the elements (not in the markup: a plain object stands for an element in the page's test) */
     const box = $("mdl-" + it.id);
     box.checked = it.id === 0 || want.has(it.id); box.disabled = it.id === 0;
-    if (it.id) box.addEventListener("change", () => { rememberPick(pickItems()); installWhat(); });
+    if (it.id) box.addEventListener("change", () => { rememberPick(pickedItems()); installWhat(); });
   });
 }
 function modelsOthers() {                             /* the modules beside the pick: the ticked module stages of this build (an engine module's geometry, an effect module's sectors), and the unit's when read */
@@ -410,7 +410,7 @@ const unitHolds = (st, m) => st.starts.some((x) => (x.state === 7 || x.state ===
 const modelsOk = () => modelsLoading ? !$("stage-models").checked : !$("stage-models").checked || $("stage-models").disabled || !master || (!!modelsRoom && modelsRoom.ok);
 function modelsMeter() {                              /* the line under the list: the room, what the other modules take, what this pick needs; Install waits while it does not fit */
   if (!master) { modelsRoom = null; $("models-room").textContent = ""; $("models-count").textContent = ""; return; }
-  const items = pickItems(), bad = PICK.validate(master.manifest, items);
+  const items = pickedItems(), bad = PICK.validate(master.manifest, items);
   const area = unitState && unitState.mod ? unitState.mod.sectors : 18, places = modelsPlaces(area);
   modelsRoom = PICK.room(master.manifest, master.img0.length, items, places, modelsOthers());
   const st = PLACE.fromUnit(unitState);               /* the unit as it was read: where the loader puts each module (not 18 minus what is installed) */
@@ -680,10 +680,10 @@ $("go").addEventListener("click", async () => {
     if (stages.pack) files.pack = await getFile(o.pak);
     if (stages.module) files.modules = await Promise.all(modules.map(getFile));
     if (modelsOn) {                       /* (the model picker) the pick packed from the master: a format 2 module package, as the build's own (web/test_pick.mjs) */
-      const pk = PICK.pack(master, pickItems(), 0, null, modelsRoom && modelsRoom.place === "tail" ? "tail" : null);
+      const pk = PICK.pack(master, pickedItems(), 0, null, modelsRoom && modelsRoom.place === "tail" ? "tail" : null);
       if (pk.error) throw new Error(pk.error);
       files.modules.push(pk.ocm); want.push({kind: 4, module_id: 0x4D00 | (master.manifest.engine & 0xFF)});
-      log(`models: ${pickItems().length} picked, ${pk.ocm.length} B, ${pk.sectors} sectors`);
+      log(`models: ${pickedItems().length} picked, ${pk.ocm.length} B, ${pk.sectors} sectors`);
     }
   } catch (e) { sayK("loadfail", e.message); lockInstaller(false); return; }
   try {

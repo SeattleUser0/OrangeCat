@@ -275,4 +275,15 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
   assert.equal(plain.element("stage-models").disabled, true, "no master in the release list: the box is off");
   assert.doesNotMatch(plain.element("install-what").textContent, /MACRO models/);
 }
+// (the review of the picker) the page as make_site.py builds it is the library files joined in front of the page script: one scope, so a name declared in two of them (fm1pick.js
+// and the page both had pickItems) is a SyntaxError and the installer is dead. The joined script must compile.
+{
+  const site = readFileSync(new URL("make_site.py", import.meta.url), "utf8");
+  const libs = [...site.matchAll(/strip_module\(\(HERE \/ "(fm1[a-z]+\.js)"\)/g)].map((m) => m[1]);
+  assert.ok(libs.includes("fm1place.js") && libs.includes("fm1pick.js") && libs.includes("fm1oc.js"), "make_site.py joins the libraries: " + libs);
+  const strip = (src) => src.replace(/^export\s+/gm, "").replace(/^import .*?;\n/gm, "");
+  const lib = libs.map((f) => strip(readFileSync(new URL(f, import.meta.url), "utf8"))).join("\n");
+  const joined = template.match(/<script type="module">([\s\S]*?)<\/script>/)[1].replace("/*LIB*/", lib).replace("/*META*/{}", "{}");
+  assert.doesNotThrow(() => new vm.Script(joined), "the page script with its libraries joined compiles (no name declared twice)");
+}
 console.log("installer page: Standard and the Nightly side by side, the choice kept, the boxes are what Install writes, a stock unit takes either in one run, the model picker: passed");
