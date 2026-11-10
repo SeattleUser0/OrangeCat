@@ -502,7 +502,7 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
 //     planner in web/test_place.mjs). A set whose modules the loader cannot place is refused BEFORE the first byte (the preflight), and if a unit's state changes under
 //     the page so that a module still finds no place, the effect modules this run added are taken out again: the unit is as it was.
 {
-  const SECT = PLACE.OC_SECT;
+  const SECT = PLACE.OC_SECT.slice(0, 18);                                        // the area's 18 starts (the table also lists the tail's four, FLASH_MAP_R3.md 10)
   const fxImg = (mid, sectors, kind = 1, version = 0x00010203) => {            // an effect module package with a variant at every start of the area
     const imgLen = sectors * 4096, imgs = SECT.map((sc) => {
       const a = new Uint8Array(imgLen), h = new DataView(a.buffer), link = (0x020C4000 + sc * 4096) >>> 0;
