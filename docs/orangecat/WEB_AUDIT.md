@@ -150,6 +150,15 @@ settings) and `params.c` (WEIGHT_DESC hoisted, 7 lines). `DESC` is unchanged. `t
 - `firmware/src/params.c`: `WEIGHT_DESC[]` moved to file scope; `page_desc` uses it unchanged.
 - Tests: `tests/editor_test.c` `device_settings()` and `web_wire_rule()` (tests/web_wire.h: BOOT, DRUM, WEIGHTS "same").
 
+## From Session A: the review of web-cmds (Round 22, November 10, 2026)
+
+Independent review of e23b769f's firmware (editor.c, params.c, the tests). Merged into r22-int with one fix:
+1. **Fixed (was blocking):** `ed_macro` accepted a macro's SET / TRACK_PARAM while MENU > HOME PAGE is TRACKS (the default), where the unit shows no macro knob and `mac_commit` zeroes the offsets: an offset the owner cannot see or centre. Now `home_pic_on() && ...`; `tests/editor_test.c` checks the refusal in TRACKS and the write in PICTURE.
+2. **For Session D, not fixed:** a SET of a device setting erases a settings sector per changed value when the unit is idle (`ed_dev_put` -> `settings_save()`; as A4 and BUDGET already did; eight more ids now). Debounce: save about 1 s after the last device SET. The page should not send these on every key repeat.
+3. **For Session D, not fixed:** the editor's audition (`web/editor.html` auditionPatch) SETs every differing id except `trackOwn`, which leaves out 48 but not 33..36: an old positional patch file's effect values land in a macro (PICTURE mode). Skip 33..36 in audition.
+4. Tests to add: the save itself (the test builds with MELODEE_FLASH 0), the lower clamps, ids 11 and 24..26, a DESC assertion for 4..9 and 33..36, a job with OC_HOME_PIC=0 and one with OC_SLIDE_TIME=0; `_Static_assert`s tying G_WP5..G_SAFETY to `WEIGHT_DESC` and VOICE_KINDS.
+Checked and fine: every write clamped by the unit's descriptor; the editor runs in the main loop like the unit's own pages; `settings_save()` defers while playing; refused ids answer 0; DESC untouched; `param_reserved` unchanged (loads still zero 33..36, motion does not record them).
+
 ## For Session A: ready
 
 **web-r3 ready: yes (round 3).** Head 3e39c996 on the merge of linux-hw 52a41894 (Nightly v0.16.0). The full SAN=1 suite passed through /tmp/oc-suite.lock and the suites.slice on 3e39c996 (6393 s), with every temporary and build output on disk (TMPDIR and OC_TMP = ~/oc-tmp; /tmp stayed at 7.0 GB throughout). The web app's own tests (159 checks) pass, and the firmware tables are checked in and match what tests/web_tables.c writes now. 3e39c996 adds one opt-in: OC_TMP (default /tmp) for the three fixed /tmp paths, in tests/mgrid_mutations.sh (scratch dir), web/quick-host.sh (SITE_DIR default) and tools/hw/hw_test.py (say --out default); everything else uses mktemp/tempfile and follows TMPDIR. This entry is a doc-only commit on top of 3e39c996; no code changed after the suite.

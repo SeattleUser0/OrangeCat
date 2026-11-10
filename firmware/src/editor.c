@@ -171,7 +171,8 @@ static void ed_dev_put(uint32_t g, int16_t v)
 static int ed_macro(const track_t *t, uint32_t id)
 {
 #if OC_HOME_PIC
-    return id >= P_MAC0 && id <= P_MAC3 && mac_desc(t, id) != 0;
+    return home_pic_on() && id >= P_MAC0 && id <= P_MAC3 && mac_desc(t, id) != 0;   /* (Session A's review) only while MENU > HOME PAGE is PICTURE: in TRACKS the unit has no macro knob
+                                                                                      * to show or centre an offset (mac_commit zeroes them on the way back, ui_home_pic.c) */
 #else
     (void)t; (void)id;
     return 0;

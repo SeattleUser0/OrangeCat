@@ -762,6 +762,10 @@ static int device_settings(void)
         bad += check("MACRO has a macro knob in oc_knobs.c's table (the test's premise)", m < 4u);
         if (m < 4u) {
             a[0] = 0; a[1] = (uint8_t)(P_MAC0 + m); a[2] = (uint8_t)((40 + 8192) & 127); a[3] = (uint8_t)((40 + 8192) >> 7);
+            GLO_SELECT &= ~HOME_PIC_BIT;
+            request(ED_SET, a, sizeof a);
+            bad += check("HOME PAGE TRACKS (no macro knob on the unit): a macro's SET is refused, the cell stays 0", TSEL->p[P_MAC0 + m] == 0);
+            GLO_SELECT |= HOME_PIC_BIT;                     /* HOME PAGE PICTURE: the macros are the unit's knobs */
             request(ED_SET, a, sizeof a);
             bad += check("a macro's SET writes the offset (+40) and replies it", TSEL->p[P_MAC0 + m] == 40 && ed_rv(host_wire + 7) == 40);
             a[2] = (uint8_t)((99 + 8192) & 127); a[3] = (uint8_t)((99 + 8192) >> 7);
