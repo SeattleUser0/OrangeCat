@@ -592,8 +592,8 @@ async function editorMock() {
     for(const id of [33,34,35,36,48]){
       const d=E.parse[E.CMD.DESC](await rq(E.req.desc(0,id)));
       const r=E.parse[E.CMD.SET](await rq(E.req.set(0,id,127)));
-      /* (ui-fix2 4) 48 is SLIDE TIME: it has a description, the track's own, but the unit refuses the editor's SET (editor.c) as for a reserved id */
-      ok((id===48 ? d.label==="SLIDE" : !d.label) && r.value===0,"editor: removed effect parameter is inert "+id);
+      /* (ui-fix2 4) 48 is SLIDE TIME: it has a description, the track's own. (web-cmds) SET now writes it, -64..63 by TP[48]: the value is clamped, not refused */
+      ok(id===48 ? d.label==="SLIDE" && r.value===63 : !d.label && r.value===0,"editor: removed effect parameter is inert "+id);
     }
   }
   {
@@ -735,7 +735,9 @@ async function editorMock() {
     for(const id of [4,5,6,7,8,9,10,11,24,25,26]){
       const d=E.parse[E.CMD.DESC](await rq(E.req.desc(1,id)));
       const r=E.parse[E.CMD.SET](await rq(E.req.set(1,id,127)));
-      ok(!d.label && r.value===0,"editor: removed global effect parameter is inert "+id);
+      /* (web-cmds) 4..9 are the WEIGHTS and GUARD: SET writes them, clamped by the unit's descriptors (0..15; GUARD 0..1) */
+      if(id>=4&&id<=9) ok(r.value===(id===9?1:15),"editor: weight "+id+" is written and clamped");
+      else ok(!d.label && r.value===0,"editor: removed global effect parameter is inert "+id);
     }
   }
   const st = E.parse[E.CMD.STEP_SET](await rq(E.req.stepSet(5, { n: 2, notes: [60, 64], time: 0, flags: 1, vel: 100 })));
