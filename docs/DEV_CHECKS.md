@@ -14,12 +14,18 @@ existing suite is removed or changed in what it tests; every new thing is opt-in
 3. **Before a flash or a Nightly**: the full suite under the sanitizers, `SAN=1 tests/run_tests.sh`, through the shared lock
    (below). It is the only run that writes the CI marker `build/orangecat-tests-passed.txt`.
 
-On this NUC every suite goes through the shared lock and scope, never outside it:
+On this NUC everything heavy runs inside the capped slice `suites.slice` (`~/.config/systemd/user/suites.slice`: MemoryHigh=8G,
+MemoryMax=10G for all scopes in it together; since 2026-11-10, after the NUC ran out of memory on Nov 8). A suite goes through the
+shared lock and the slice, never outside them; a build or a single test goes through the slice at `nice -n 19`, and so does the
+build half of a suite script. At most 3 jobs (`PARALLEL=3`). A suite or build that does not start is a failure: read its log, never
+assume it is waiting.
 
 ```
-flock /tmp/oc-suite.lock systemd-run --user --scope -p MemoryMax=12G -- \
-    env PARALLEL=4 JIELI_TOOLCHAIN=~/fm1-toolchain/jieli/toolchain AC79_SDK=~/fm1-toolchain/fw-AC79_AIoT_SDK \
+flock /tmp/oc-suite.lock systemd-run --user --scope --slice=suites.slice -- \
+    env PARALLEL=3 JIELI_TOOLCHAIN=~/fm1-toolchain/jieli/toolchain AC79_SDK=~/fm1-toolchain/fw-AC79_AIoT_SDK \
     PATH=~/fm1-toolchain/venv/bin:$PATH sh tests/run_tests.sh [--fast] [--changed REF]
+
+systemd-run --user --scope --slice=suites.slice nice -n 19 <build or single test>
 ```
 
 `~/.profile` exports `FM1_TOOLS`, `JIELI_TOOLCHAIN` and `AC79_SDK` for the layout of BUILDING.md's "Building on a Linux PC", and
