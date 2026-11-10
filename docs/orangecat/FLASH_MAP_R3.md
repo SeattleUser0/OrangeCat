@@ -112,3 +112,58 @@ Option B is in code: BUILD.md 7.26. The numbering is `oc_mod_sect[]` (signed sec
 | 16, 17 | the image arithmetic, the loader's bounds, the marker, the record rule, the window, the store's rules, the slot's writers | OK | — |
 
 The reviewer's verdict: option B sound in principle (the sectors exist and hold no records in the claimed state; the loader, stub, window and pack untouched), understated as written and with three real hazards the text had wrong; A described fairly on what matters. 0.2 is the text above.
+
+## 10. Option A as built: the tail region (Round 22; design 0.3, November 10, 2026; the owner approved A)
+
+**Status:** design, before any code. Independent review of this section: see 10.9 (filled by the review). The owner's goal: today's 14 MACRO models fit as the default pick beside SHAPES, WHEEL, DUB and the coming effect modules, so nobody loses a sound.
+
+### 10.1 What it is
+
+The app body is capped at **0x88000 B (136 sectors, flash 0x5000..0x8CFFF)**; flash **0x8D000..0x90FFF (4 sectors) is the tail region**, a second module region; 0x91000 (the marker) and 0x92000 (cfg_tool, written with the body) are as today; 0x93000 up as today. The module area stays 18 sectors (option B, built); the modules now have **two places**: the area (0xC2000..0xD3FFF, 18 sectors, starts 0..17) and the tail (4 sectors, starts 18..21). A module lies wholly in one place. Total 22 sectors.
+
+### 10.2 The body cap, and what it must hold
+
+BODY_MAX_A = 0x88000 = 557,056 B. It must hold: **the image with the picker + the project format revision's cost + the 8 KB reserve** (UI_BUILD.md). Measured on picker-r4 (2026-11-10, ci_step build, CI's switches): image 524,464 B = stub 3,808 + body **520,656 B**; free under the cap 36,400 B. Stack: body 520,656 + the format revision whole 28,600 (PROJECT_FORMAT_R3.md 11.2b, central) + reserve 8,192 = **557,448 B: 392 B over the cap with SHAPES still in the image**. With SHAPES out (23,528 B, round 11) it is 533,920 B, **23,136 B under**; the effects' extraction and 7a and the host (net -3,000 to -9,500 B) move that only inside the margin. **The cap therefore ships only with SHAPES out of the image (the plan's step 2), exactly as 4A said**; until then a build whose body is over 0x88000 is refused by the build (tools/build.py: `fm1pkg_make.BODY_MAX`), and the plan's order (R3 step 2 with step 1) keeps the two together. The reserve is the policy of UI_BUILD.md, not a hard check; the hard checks are the cap (build, package maker, loader) and the marker's length field.
+
+### 10.3 The loader writes only the body, never the tail
+
+`firmware/loader/ldr_core.c` (it ships inside every package and runs from RAM from the package being installed, so it is the one rule that matters):
+
+1. the marker's `len` limit `<= 0x8C000` becomes `<= 0x88000` (LDR_BODY_MAX), so a body that would run into the tail is refused before any erase (-16 is new);
+2. the sector loop writes **0x4000 (the stub, only if different), 0x5000 .. ceil((0x5000 + len)/0x1000)** (the body, never past 0x8D000), **0x92000** (cfg_tool, as today), and the marker's sector last. It **never writes or erases 0x8D000..0x90FFF**, and does not write the padding sectors between the body's end and 0x8D000 (they are 0xFF in the package and stale, harmless bytes on the unit: the stub's CRC covers `len` only);
+3. a package **without a valid marker** (the legacy order wrote the whole area, tail included) is **refused** (-17) by this loader, before any erase. The safer reading: no unit loses a module to a package type nobody builds any more. (tests/ldr_test.c's legacy cases are changed to expect the refusal.)
+4. the `fl_size != LDR_APP_HI` check and the package layout are unchanged: **a package is the same file**; the old loader, installing the same package, still writes the whole area.
+
+The stub (stub_core.h `STUB_BODY_MAX` 0x8C000) is **not changed**: it is the one unprotected window's program and the loader rewrites it only when it differs; a stub that accepts a longer body than the loader will install is harmless, and a body over 0x88000 cannot be built. The marker format and the compensation bytes are unchanged.
+
+### 10.4 The firmware: the window, the store rule, the start table
+
+- **The plaintext window** (`hal/fm1_flash.h` `SFCENC_UNENC_L`, at both sites, and `fl_inval`'s range): from FL_XIP(0x93000) to **FL_XIP(0x8D000)**. The body ends under it; the tail's modules read as plain through XIP, as the pack and the area do. One bound only: 0x91000 (the marker, written encrypted) and 0x92000 (cfg_tool) read as plaintext through XIP too; nothing reads them that way (said; checked by grep in the review). A 4 KB-aligned value: the register takes the same form as today's.
+- **The store's rule** (`FL_STORE_OK`): FL_TAIL_LO 0x8D000 .. FL_TAIL_HI 0x91000 added, so the installer's erase and program reach exactly these four sectors and not the marker's.
+- **The start table** (`oc_module.c`): 22 starts. `oc_mod_sect[18..21] = -59, -58, -57, -56` (signed sectors from 0xC8000: 0x8D000 is 59 below). Every constraint that said "start sector + sectors <= OC_MOD_AREA" becomes "the span is inside the start's place" (`oc_mod_place(i)`: 0 area, 1 tail). `OC_MOD_STARTS` 22 widens: the `.noinit` guard record's per-start bytes (a new magic; a record of the old size is discarded, as option B's was), MOD_INFO's reply, the notice bytes, the loops; the page's start table `OC_SECT` and `OC_STARTS`.
+- **The geometry table**: WHEEL **one sector, every start** (its 2,928 B; the 4 were the grid's), SHAPES 6 sectors, the Prophet 8 (area only: a place holds 4), an effect module its header's sectors (area or tail); the models module (kind 4): the area's 18 or the tail's 4, whichever its pick fits (the master carries a variant for every start the pick fits at, `places` in its manifest). A published WHEEL package (4 sectors, starts 0 and 6) still installs at its starts: its image is the same; its reach is now 1 sector. The re-cut WHEEL package carries a variant per start it may take.
+- **MOD_INFO** gains, appended (compatible), the tail's sector count (0 on a firmware without the region): the page and the card read it, and a unit without it has the area alone. The page treats `tail` as the master's `places` do.
+- **Foreign bytes**: on a unit upgraded from a build whose body ran past 0x8D000 the region holds old body bytes (encrypted app code). A start whose header magic is not a module is EMPTY for the planner and **erased before any write** as every install does (`oc_mod_erase_span`); nothing is read as a module without its magic and CRC.
+
+### 10.5 The planner, the meter and the page
+
+The loader's planner (`oc_mod_plan`, `oc_fxmod_plan`, the models id's span) is extended to places; `web/fm1place.js` ports it again and `web/test_place.mjs` runs it against `tests/plan_oracle.c` (the C functions themselves) over many unit states including tail starts, one place full, the low six off, the page's own install order. The room meter (`PICK.room` with the places; the page's `modelsPlaces`) counts both regions and, with the tail on the unit, the placement is the planner's, not a sum. The default pick (the 14 models, 9 sectors) goes in the area; the models module does not go in the tail unless its pick is 4 sectors or fewer; WHEEL (1), DUB (3) and the reverb mode (1) go to the tail first when they fit: the planner's order is the page's install order (engine modules, effect modules, models last) and each module takes the first allowed free start of the lowest place that holds it, so the area keeps its long runs for the pick. (The rule is the planner's, written once in the C and ported.)
+
+### 10.6 The updates, power cuts and downgrades
+
+- A cut in any window of an update: the windows are the loader's as before (before the first write; marker erased; stub sector; each body sector; marker written); the tail is outside all of them, so **no window can damage a module**. A cut leaves the stub's rule (no marker: rescue). Host proof: the NOR simulator's power-cut test (`tests/loader_powercut_test.c`) cuts at every program and erase of an update over a unit image with modules in the tail and checks the tail bytes are identical after every cut and after the completed update, and that the body is old, new or refused as before. The bench: a cut in every window on the unit, **blocked until the FM-1 is on USB**.
+- **An older loader** (an older package installed later) writes the whole area and **erases the tail's modules**; the page's line: "Installing an older firmware erases the modules in the extra module space (the tail region); install them again from this page." (the page reads the unit's `tail` before and after.) An **older firmware** cannot place modules in the tail, and cannot reinstall them; the same line.
+- The official loader and the recovery tool write the whole area as well: they wipe the tail. Same line, and BUILD.md's recovery note.
+- The first boot of an A firmware over a B unit changes nothing in the area; the tail is empty (or foreign bytes, 10.4).
+
+### 10.7 Omissions the review of 0.1 listed (item 10) and where each is answered
+
+(1) the body caps: 10.2, 10.3 (loader, package maker, build; the stub unchanged); (2) the window's one bound: 10.4; (3) the stub: 10.3; (4) the older package wipes the tail: 10.6; (5) an older firmware cannot reinstall: 10.6; (6) the official loader and the recovery tool wipe it: 10.6; (7) the start table: 10.4; (8) the page's downgrade line: 10.6.
+
+### 10.8 What is tested
+
+Host: `ldr_test.c` (the loader writes the body only, skips the tail, refuses a longer body, refuses a markerless package); `loader_powercut_test.c` (above); `boot_stub_pkg_test.py` (the package maker's cap); `fx_module_test.c` / `module_host` (starts 18..21, spans inside a place, the window); `plan_oracle` + `test_place.mjs` (the page's planner against the C); the picker's tail picks (`pick_module.py` proofs). Bench (blocked until the unit is present): a power cut in every window of an update with modules in the tail; the window register at 0x8D000 (a module in the tail runs; a SHAPES track plays); a MOD_INFO read.
+
+### 10.9 The independent review
+
+(filled in below by the review of this section.)
