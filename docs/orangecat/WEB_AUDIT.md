@@ -152,7 +152,7 @@ settings) and `params.c` (WEIGHT_DESC hoisted, 7 lines). `DESC` is unchanged. `t
 
 ## For Session A: ready
 
-**web-r3 ready: yes.** Head 1e7c775d (on the merge of linux-hw 52a41894, Nightly v0.16.0-2e1056). The full SAN=1 suite passed through /tmp/oc-suite.lock on cbf6d128 (6398 s) and on 1e7c775d (7126 s); the web app's own tests (117 checks) pass, the firmware tables are checked in and match what tests/web_tables.c writes now. This entry is a doc-only commit on top of 1e7c775d; no code changed after the second suite.
+**web-r3 ready: yes (round 3).** Head 3e39c996 on the merge of linux-hw 52a41894 (Nightly v0.16.0). The full SAN=1 suite passed through /tmp/oc-suite.lock and the suites.slice on 3e39c996 (6393 s), with every temporary and build output on disk (TMPDIR and OC_TMP = ~/oc-tmp; /tmp stayed at 7.0 GB throughout). The web app's own tests (159 checks) pass, and the firmware tables are checked in and match what tests/web_tables.c writes now. 3e39c996 adds one opt-in: OC_TMP (default /tmp) for the three fixed /tmp paths, in tests/mgrid_mutations.sh (scratch dir), web/quick-host.sh (SITE_DIR default) and tools/hw/hw_test.py (say --out default); everything else uses mktemp/tempfile and follows TMPDIR. This entry is a doc-only commit on top of 3e39c996; no code changed after the suite.
 
 Session A's open items for the web app are items 1 to 8 in the list above (commands the firmware lacks: not added here).
 
