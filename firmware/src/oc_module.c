@@ -87,6 +87,8 @@
  * (Orange Cat 0.12.0) a module's pages as data (fw_pages.h), the Prophet's number is a module slot
  * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
  * (Orange Cat 0.12.2) fuzzers for the library group, the pack and the module loader; the loser of two modules no longer erases the winner's sectors; module link overflow...
+ * (Orange Cat 0.16.0) oc_mod_reg widens the PC window to the module inside its critical section: an engine module registered in a running session under a track that is on
+ *   the engine (WHEEL's and the Prophet's block hooks run every block) was called by the next audio interrupt while LIMIT0_H was still below it (tests/oc_module_test.c, "PC window")
  * (Orange Cat 0.14.0) WHEEL (engine 7) as a module: 4 sectors (2,920 B built), starts 0 and 1 (sectors 0 and 6): beside SHAPES at 0, beside the Prophet at 4
  *   0.10.0: first version.
  *   0.10.1: the crash count beyond the first 30 s (oc_mod_power_on, oc_mod_ban_notice); the update loader's record rule on the sector tails (MD_BAD_TAIL, MI_TAIL, oc_mod_tails). A replacement is written beside the old
@@ -398,6 +400,14 @@ static int oc_mod_reg(uint32_t i, const fw_mod_hdr_t *h, const engine_t *engine)
     int rc;
     if (oc_mod_live) fm1_irq_off();
     rc = eng_register_hot(h, engine, (const eng_hot_t *)(uintptr_t)oc_mod.hot[i], oc_mod.nhot[i]);   /* (0.13.7) the hot set as oc_mod_check found it */
+    /* (0.16.0) the PC guard's window reaches the module BEFORE interrupts come back: a track already on this engine (an install under it) has the next audio
+     * interrupt call the module's block hook at once (voice.c track_render_audio: every block, voices or not; WHEEL's wheel_block), and oc_mod_boot writes the
+     * window only at its end, after the later starts are read again (milliseconds). Found on the unit: WHEEL installed under a track on engine 7 took the CPU
+     * exception there. Only ever widened here; oc_mod_window at oc_mod_boot's end sets it from what is registered, as before. At power-on the guard is not armed. */
+    if (rc == EM_OK && fm1_guard_code_end < oc_mod_link(i) + oc_mod.length[i] - 1u) {
+        fm1_guard_code_end = oc_mod_link(i) + oc_mod.length[i] - 1u;
+        fm1_guard_pc_window();
+    }
     if (oc_mod_live) fm1_irq_on();
     return rc;
 }
