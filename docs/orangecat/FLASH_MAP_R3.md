@@ -162,7 +162,7 @@ The loader's planner (`oc_mod_plan`, `oc_fxmod_plan`, the models id's span) is e
 
 ### 10.8 What is tested
 
-Host: `ldr_test.c` (the loader writes the body only, skips the tail, refuses a longer body, refuses a markerless package); `loader_powercut_test.c` (above); `boot_stub_pkg_test.py` (the package maker's cap); `fx_module_test.c` / `module_host` (starts 18..21, spans inside a place, the window); `plan_oracle` + `test_place.mjs` (the page's planner against the C); the picker's tail picks (`pick_module.py` proofs). Bench (blocked until the unit is present): a power cut in every window of an update with modules in the tail; the window register at 0x8D000 (a module in the tail runs; a SHAPES track plays); a MOD_INFO read.
+Host: `ldr_test.c` (the loader writes the body only, skips the tail, refuses a longer body; the markerless refusal (-17) has no test yet: every package the suite builds carries the marker); `loader_powercut_test.c` (above); `boot_stub_pkg_test.py` (the package maker's cap); `fx_module_test.c` / `module_host` (starts 18..21, spans inside a place, the window); `plan_oracle` + `test_place.mjs` (the page's planner against the C); the picker's tail picks (`pick_module.py` proofs). Bench (blocked until the unit is present): a power cut in every window of an update with modules in the tail; the window register at 0x8D000 (a module in the tail runs; a SHAPES track plays); a MOD_INFO read.
 
 ### 10.9 The independent review
 

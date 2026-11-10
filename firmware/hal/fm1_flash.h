@@ -259,9 +259,11 @@ static void fl_plain_window_init(void)
  * 32 of the marker, both through XIP as found. fl_probe_window(lo): the window from lo (the gate sets 0x8D000 before a restart). fl_probe_stub_test: the word the
  * stub takes as "check the staged loader on the way" (stub_core.h STUB_REQ_TEST, the stub's RAM at 0x01C7C000). */
 static uint8_t fl_boot_con, fl_boot_xip[64];
+static uint32_t fl_boot_unenc_l;
 static void fl_probe_boot_sample(void)
 {
     fl_boot_con = SFCENC_CON;
+    fl_boot_unenc_l = SFCENC_UNENC_L;
     for (uint32_t i = 0; i < 32u; i++) {
         fl_boot_xip[i] = ((const volatile uint8_t *)FL_XIP(0x93000u))[i];
         fl_boot_xip[32u + i] = ((const volatile uint8_t *)FL_XIP(0x91FE0u))[i];
