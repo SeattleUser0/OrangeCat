@@ -1028,7 +1028,7 @@ int main(void)
         chk("the six low sectors not yet the module area's: no start there is allowed, planned, read as a module or erased",
             !oc_mod_allowed(ENGI_WHEEL, 17) && !oc_mod_allowed(ENGI_WHEEL, 12) && oc_mod_allowed(ENGI_WHEEL, 11) && oc_mod.state[17] == MD_EMPTY && !eng_mod[ENGI_WHEEL] &&
             oc_mod_plan(ENGI_WHEEL) == 0);
-        ok = oc_mod_erase_span(0, OC_MOD_AREA) == -1 && oc_mod_erase_span(3, 1) == -1 && oc_mod_erase_span(OC_MOD_BASE_SECTOR, OC_MOD_AREA) == 0;   /* refused, not skipped */
+        ok = oc_mod_erase_span(0, OC_MOD_AREA) == -1 && oc_mod_erase_span(3, 1) == -1 && oc_mod_erase_span(OC_MOD_BASE_SECTOR, OC_MOD_AREA) == -1 /* (option A) a span past the place's end is refused, not clipped */ && oc_mod_erase_span(OC_MOD_BASE_SECTOR, OC_MOD_AREA - OC_MOD_BASE_SECTOR) == 0;   /* refused, not skipped */
         for (i = 0; i < 6u; i++) ok &= nor[0xC2000u + i * 0x1000u + 7u] != 0xFFu;       /* the six: not erased (0x55 and the image) */
         for (i = 6; i < 18u; i++) ok &= nor[0xC2000u + i * 0x1000u + 7u] == 0xFFu;
         chk("... an erase reaching into the six is refused and leaves them alone; from sector 6 up it erases", ok);

@@ -247,7 +247,7 @@ int main(void)
     {   fw_mod_hdr_t h; memset(&h, 0, sizeof h); /* a SHAPES-like engine module is made by oc_module_test; here only the table interplay: an engine entry in the area blocks the effect planner */ }
     memset(&oc_mod, 0, sizeof oc_mod);
     oc_mod.state[0] = MD_OK; oc_mod.engine[0] = ENGI_WHEEL; oc_mod.length[0] = 3000u;
-    chk("the planner never plans over a usable module of an engine (start 0 holds one): a 2 sector effect module goes to start 1, not 0 or 2", oc_fxmod_plan(0x5000u, 2) == 1 || oc_fxmod_plan(0x5000u, 2) == 3);
+    chk("the planner never plans over a usable module of an engine (start 0 holds one): a 2 sector effect module goes to start 1, not 0 or 2", oc_fxmod_plan(0x5000u, 2) == 1 || oc_fxmod_plan(0x5000u, 2) == 3 || (OC_MOD_TAIL && oc_fxmod_plan(0x5000u, 2) == (int)OC_MOD_AREA_STARTS) /* (option A) the tail first */);
     chk("... and the engine planner sees an effect module as a blocker, never as its own",
         ({ clean(); good(0, 0x1001u, 1, 2); oc_mod_boot(0); oc_mod_blocker(ENGI_WHEEL, 0) == 0 && !oc_mod_own_overlap(ENGI_WHEEL, 0); }));
     /* ------------------------------------------------ 6. the planner on 18 sectors */
@@ -306,6 +306,48 @@ int main(void)
         chk("removal by module id: that bank's sectors erased and gone from the Effects table, the other bank untouched",
             ok && oc_fx_find(0x1001u) < 0 && oc_fx_find(0x1002u) >= 0 && oc_mod.nfxmod == 1 && nor[oc_mod_flash(i)] == 0xFF && nor[oc_mod_flash(i) + 0x2000u] == 0xFF && nor[oc_mod_flash(0) + 5u] != 0xFF);
         chk("removal of an id nobody has, and of id 0", oc_fxmod_remove(0x7777u) == 0 && oc_mod.nfxmod == 1 && oc_fxmod_remove(0) == MI_REFUSED);
+#if OC_MOD_TAIL
+        /* (option A, FLASH_MAP_R3.md 10.9 blocker 2) the tail region: starts 18..21 at flash 0x8D000..0x90FFF, a second place. Spans and erases stay inside one place */
+        {
+            uint32_t q, t0 = OC_MOD_AREA_STARTS, bad_e;
+            chk("the tail's starts: 18..21 are flash 0x8D000, 0x8E000, 0x8F000, 0x90000, linked at their XIP address; signed sectors -59..-56 from 0xC8000",
+                OC_MOD_STARTS == 22u && oc_mod_flash(18) == 0x8D000u && oc_mod_flash(21) == 0x90000u && oc_mod_link(18) == FL_XIP(0x8D000u) && OC_MOD_START_REL(18) == -59 && OC_MOD_START_REL(21) == -56);
+            chk("a span lies in one place: 4 at the tail's first sector, 1 at its last; not 5 at its first, 2 at its last, nor anything in the sectors between the tail and the area (the marker, the pack, the stores)",
+                oc_span_ok(OC_MOD_TAIL_S0, 4) && oc_span_ok(OC_MOD_TAIL_S0 + 3, 1) && !oc_span_ok(OC_MOD_TAIL_S0, 5) && !oc_span_ok(OC_MOD_TAIL_S0 + 3, 2) &&
+                !oc_span_ok(OC_MOD_TAIL_S0 + 4, 1) && !oc_span_ok(-1, 1) && !oc_span_ok(-1, 2) && !oc_span_ok(OC_MOD_TAIL_S0 - 1, 2) && oc_span_ok(17, 1) && !oc_span_ok(17, 2) && !oc_span_ok(0, 19));
+            clean();
+            memset(nor + 0x8C000u, 0x5A, 0x7000u);                      /* the body's last sector, the tail, the marker's sector and 0x92000: all written */
+            erases = 0;
+            bad_e = oc_mod_erase_span(OC_MOD_TAIL_S0, 5) == -1 && oc_mod_erase_span(OC_MOD_TAIL_S0 + 3, 2) == -1 && oc_mod_erase_span(OC_MOD_TAIL_S0 - 1, 1) == -1 && oc_mod_erase_span(OC_MOD_TAIL_S0 - 1, 3) == -1 && oc_mod_erase_span(-2, 4) == -1 && oc_mod_erase_span(16, 3) == -1;
+            for (q = 0; q < 0x7000u && nor[0x8C000u + q] == 0x5A; q++) ;
+            chk("an erase across a place's end, or outside every place, is refused with nothing erased (not clipped, not a silent 0): the marker's sector and the body are never reached", bad_e && !erases && q == 0x7000u);
+            chk("an erase of the tail erases exactly its four sectors", oc_mod_erase_span(OC_MOD_TAIL_S0, 4) == 0 && erases == 4u && nor[0x8CFFFu] == 0x5A && nor[0x8D000u] == 0xFF && nor[0x90FFFu] == 0xFF && nor[0x91000u] == 0x5A);
+            clean();
+            len = make(t0, 0x1001u, 0x00010000u, 2, 1, 3u * 0x1000u - 0x100u, 0);
+            i = (uint32_t)oc_fxmod_plan(0x1001u, oc_mod_nsec(len));
+            chk("the planner names the tail first for a module that fits there (3 sectors: start 18)", i == t0);
+            r = (uint32_t)oc_fxmod_begin(0x1001u, i, len);
+            for (o = FW_MOD_CODE_OFF; !r && o < len; o += 256u) r = (uint32_t)oc_mod_write(o, IMG + o, len - o > 256u ? 256u : len - o);
+            r = r ? r : (uint32_t)oc_mod_end(IMG);
+            chk("an install at a tail start: written at 0x8D000, registered, the PC guard's window reaches the area's modules or this one",
+                r == 0 && oc_mod.state[t0] == MD_OK && oc_fx_find(0x1001u) >= 0 && !memcmp(nor + 0x8D000u, IMG, len));
+            chk("a 4-sector module no longer fits beside it in the tail and goes to the area; a 2-sector one finds no tail start either (one sector is left)",
+                oc_fxmod_plan(0x1002u, 4) >= 0 && (uint32_t)oc_fxmod_plan(0x1002u, 4) < t0 && (uint32_t)oc_fxmod_plan(0x1002u, 2) < t0 && (uint32_t)oc_fxmod_plan(0x1002u, 1) == t0 + 3u);
+            chk("a models module of 9 sectors never plans into the tail; one of 5 does not either", (uint32_t)oc_fxmod_plan(FW_MODELS_ID(8u), 9) < t0 && (uint32_t)oc_fxmod_plan(FW_MODELS_ID(8u), 5) < t0);
+            erases = 0;
+            ok = oc_fxmod_remove(0x1001u) == 0;
+            for (q = 0; q < 3u * 0x1000u && nor[0x8D000u + q] == 0xFF; q++) ;
+            chk("a remove at a tail start erases its sectors (it was a silent success with nothing erased) and the table entry goes", ok && erases == 3u && q == 3u * 0x1000u && oc_fx_find(0x1001u) < 0 && oc_mod.state[t0] == MD_EMPTY);
+            len = make(t0 + 2u, 0x1003u, 1, 1, 1, 3u * 0x1000u - 0x100u, 0);
+            chk("begin of a 3-sector module at the tail's third sector (it would run into the marker's sector): refused, nothing erased",
+                (erases = 0, oc_fxmod_begin(0x1003u, t0 + 2u, len) == MI_REFUSED) && !erases);
+            {   /* the whole area out (engine 127): the tail goes too */
+                len = make(t0, 0x1001u, 0x00010000u, 2, 1, 0x1000u - 0x100u, 0); memcpy(nor + 0x8D000u, IMG, len); oc_mod_boot(0);
+                chk("(setup) a module standing in the tail is read at boot", oc_mod.state[t0] == MD_OK);
+                chk("MOD_REMOVE 127 erases the tail as well as the area", oc_mod_remove(127) == 0 && nor[0x8D000u] == 0xFF && oc_mod.state[t0] == MD_EMPTY);
+            }
+        }
+#endif
         /* the install is refused when the descriptor's id is not the one asked for */
         clean();
         len = make(0, 0x2222u, 1, 1, 1, 0x1000u, 0);

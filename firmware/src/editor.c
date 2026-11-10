@@ -679,6 +679,22 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
          * 2 KB (5 x 7 bits each). 127: bad request, 126: an offset outside 0x93000..0xFF000. Stop the transport first. */
         uint8_t got[64];
         uint32_t ticks[4], key, off = na == 4u ? (a[1] | (uint32_t)a[2] << 7 | (uint32_t)a[3] << 14) & ~31u : 0u;
+        if (na == 4u && a[0] == 3u) {                /* (Round 22, the stub window's bench gate) what this boot found before it set the window: 3, SFCENC_CON, then
+                                                      * 32 bytes at flash 0x93000 and the 32 of the stub's marker (0x91FE0), through XIP as found (each as two bytes) */
+            ed_b(3); ed_b(fl_boot_con & 127u);
+            for (uint32_t i = 0; i < 64u; i++) { ed_b(fl_boot_xip[i] & 127u); ed_b(fl_boot_xip[i] >> 7); }
+            break;
+        }
+        if (na == 4u && a[0] == 4u) {                /* .. [4, window (0 as it is, 1 from 0x8D000), restart (0 core reset, 1 the watchdog, 2 core reset with the stub's test request), 0]:
+                                                      * no reply; the unit restarts. Stop the transport first. */
+            if (a[1] > 1u || a[2] > 2u) { ed_b(127); break; }
+            fm1_irq_off();
+            if (a[1]) fl_probe_window(0x8D000u);
+            if (a[2] == 1u) { for (;;) ; }           /* the watchdog ends it (never fed again) */
+            if (a[2] == 2u) fl_probe_stub_test();
+            reset_intended();
+            fm1_core_reset();
+        }
         if (na != 4u || a[0] > 2u) { ed_b(127); break; }
         if (off < 0x93000u || off + 0x1000u > 0x100000u) { ed_b(126); break; }
         fm1_irq_off();
