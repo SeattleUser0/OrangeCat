@@ -11,7 +11,7 @@ cd "$ROOT"
 
 PYTHON="${PYTHON:-python3}"
 VERSION="${VERSION:-$("$PYTHON" "$ROOT/tools/fm1_recover.py" --version | awk '{print $NF}')}"
-SITE_DIR="${SITE_DIR:-/tmp/melodee-site}"
+SITE_DIR="${SITE_DIR:-${OC_TMP:-/tmp}/melodee-site}"
 HOST_PORT="${HOST_PORT:-8000}"
 
 if [ -z "$SITE_DIR" ] || [ -z "$VERSION" ]; then

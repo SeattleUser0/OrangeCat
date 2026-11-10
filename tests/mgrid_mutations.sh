@@ -27,7 +27,7 @@ fail=0
 for m in "${MUTANTS[@]}"; do
     IFS='^' read -r n file old new must <<<"$m"
     [ $# -gt 0 ] && ! printf '%s\n' "$@" | grep -qx "$n" && continue
-    T=$(mktemp -d /tmp/mgrid_mut.XXXXXX)
+    T=$(mktemp -d "${OC_TMP:-/tmp}/mgrid_mut.XXXXXX")
     cp -r "$ROOT/firmware" "$ROOT/tests" "$T/"; mkdir -p "$T/build"; cp -r "$ROOT/build/gen" "$T/build/gen"
     python3 - "$T/$file" "$old" "$new" <<'PY' || { echo "mutant $n: the text to change is not in $file"; fail=1; rm -rf "$T"; continue; }
 import sys
