@@ -145,6 +145,11 @@ Branch `web-cmds` (from linux-hw 52a41894, web-r3 merged in; **not merged into w
 settings) and `params.c` (WEIGHT_DESC hoisted, 7 lines). `DESC` is unchanged. `tests/editor_test.c` `device_settings()` has 23 checks; against linux-hw's unchanged editor.c 20 of them
 (and the wire-rule check) fail. No command number is added.
 
+**web-cmds ready: yes.** Head = this entry's commit on top of c5f0207f. The full SAN=1 suite passed through /tmp/oc-suite.lock and the suites.slice on c5f0207f (6578 s), temporary and build output on disk (OC_TMP). An earlier run on d20ae326 failed in the "web pages" job: web/test_web.mjs still expected SLIDE TIME (48) and the weights (4..9) to be refused; fixed in c5f0207f (they now expect the clamped write). What to review:
+- `firmware/src/editor.c`: `ed_val` (BOOT through `boot_cell`, the DRUM channel through `drumch_cell`, WEIGHTS and GUARD from `settings_vpoints[]` / `settings_safety`); `ed_dev_global` / `ed_dev_put` (write back and `settings_save()`); `ed_may_set` (ids 4..9, 48); `ed_macro` under OC_HOME_PIC via `mac_desc` (ids 33..36); `ed_wdesc` (clamp by the unit's descriptors) in SET and TRACK_PARAM. Check that a refused id still answers 0 and that DESC is untouched.
+- `firmware/src/params.c`: `WEIGHT_DESC[]` moved to file scope; `page_desc` uses it unchanged.
+- Tests: `tests/editor_test.c` `device_settings()` and `web_wire_rule()` (tests/web_wire.h: BOOT, DRUM, WEIGHTS "same").
+
 ## For Session A: ready
 
 **web-r3 ready: yes.** Head 1e7c775d (on the merge of linux-hw 52a41894, Nightly v0.16.0-2e1056). The full SAN=1 suite passed through /tmp/oc-suite.lock on cbf6d128 (6398 s) and on 1e7c775d (7126 s); the web app's own tests (117 checks) pass, the firmware tables are checked in and match what tests/web_tables.c writes now. This entry is a doc-only commit on top of 1e7c775d; no code changed after the second suite.
