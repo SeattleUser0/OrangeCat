@@ -685,6 +685,14 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             for (uint32_t i = 0; i < 64u; i++) { ed_b(fl_boot_xip[i] & 127u); ed_b(fl_boot_xip[i] >> 7); }
             break;
         }
+        if (na == 4u && a[0] == 5u) {                /* (Round 22, the PRESETS knob) [5, clear, 0, 0]: 5, the ring's write count (5 x 7 bits), then its last 100 entries, oldest
+                                                      * first (5 x 7 bits each: hal/fm1_input.h fm1_enc_log); clear = 1 empties it after the reply */
+            uint32_t w = fm1_enc_log.w, n = w < 100u ? w : 100u;
+            ed_b(5); ed_bk_u32(w);
+            for (uint32_t i = 0; i < n; i++) ed_bk_u32(fm1_enc_log.e[(w - n + i) & 255u]);
+            if (a[1]) fm1_enc_log.w = 0;
+            break;
+        }
         if (na == 4u && a[0] == 4u) {                /* .. [4, window (0 as it is, 1 from 0x8D000), restart (0 core reset, 1 the watchdog, 2 core reset with the stub's test request), 0]:
                                                       * no reply; the unit restarts. Stop the transport first. */
             if (a[1] > 1u || a[2] > 2u) { ed_b(127); break; }
