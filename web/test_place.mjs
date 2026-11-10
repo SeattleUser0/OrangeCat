@@ -99,8 +99,10 @@ console.log("place: " + cases.length + " unit states x " + q.length + " modules 
     // (option A, FLASH_MAP_R3.md 10.5) the goal: SHAPES, the default pick (14 models, 9 sectors), WHEEL re-cut, a 2 sector effect module, DUB TAPE (3) and a 1 sector reverb mode:
     // 22 sectors of 22, in the order SHAPES, the models, then the small modules. The placement rule (the longest run left) is what makes it fit
     const goal = [{ engine: 14 }, { mid: 0x4D08, sectors: 9 }, { engine: 7 }, { mid: 0x1002, sectors: 2 }, { mid: 0x1001, sectors: 3 }, { mid: 0x1003, sectors: 1 }];
-    const g = simulate(emptyState(true, TAIL), goal), used = g.ok ? g.final.starts.reduce((a, x, i) => a + (x.state === 7 ? (x.kind ? Math.ceil(x.length / 4096) : PLACE.ENG_GEO_TAIL[x.engine].sectors) : 0), 0) : 0;
-    const okg = g.ok && used === 22 && g.steps[0].start === 1;
+    const g = simulate(emptyState(true, TAIL), goal), cover = new Set();
+    let inside = g.ok;                                            // every sector of every span: in the area (-6 .. 11) or the tail (-59 .. -56), and nobody else's
+    if (g.ok) g.steps.forEach((x) => { const n = x.mod.engine != null ? PLACE.ENG_GEO_TAIL[x.mod.engine].sectors : x.mod.sectors; for (let q = 0; q < n; q++) { const v = PLACE.OC_SECT[x.start] + q; if (cover.has(v) || !((v >= -6 && v <= 11) || (v >= -59 && v <= -56))) inside = false; cover.add(v); } });
+    const used = cover.size, okg = g.ok && inside && used === 22 && g.steps.map((x) => x.start).join(" ") === "1 17 5 2 18 21";
     console.log("place: the goal set on an empty unit (SHAPES, a 9 sector pick, WHEEL, 2, DUB TAPE 3, 1): " + (okg ? "all placed, 22 of 22 sectors, starts " + g.steps.map((x) => x.start).join(" ") + " ok" : "FAIL at " + g.failAt + " " + JSON.stringify(g.steps.map((x) => x.start))));
     if (!okg) bad++;
     // the same set in the old order (the pick last) does not fit: the page must install SHAPES, the models, then the small ones

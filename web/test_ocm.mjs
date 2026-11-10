@@ -144,6 +144,9 @@ json.dump(out, sys.stdout)`], { cwd: ROOT, input: JSON.stringify(cases), maxBuff
   assert.equal(OCM.check(p, info(0)).key, "modNoVariant", "a start the package does not carry");
   assert.equal(OCM.check(p, info(18)).key, "modNoFree", "a plan past the table");
   assert.equal(OCM.check(p, { ...info(17), lowOk: false }).key, "modNoFree", "starts 12..17 are not offered while the low sectors are not usable");
+  // (option A) the low-six gate goes by the start's sector: a tail start (18 .. 21) is not gated, a low sector is gated wherever the unit's table has it
+  assert.equal(OCM.check(p, { ...info(18, [...SECT, -59, -58, -57, -56]), lowOk: false }).key, "modNoVariant", "a tail start passes the low-six gate (this package has no image there)");
+  assert.equal(OCM.check(p, { ...info(0, [-6, ...SECT.slice(1)]), lowOk: false }).key, "modNoFree", "a low sector at start 0 of the unit's table is gated");
   assert.ok(OCM.check(p, info(0, [11, ...SECT.slice(1)])).ok, "the unit's own table (start 0 at sector 11) decides which variant");
   // the cap: 18 starts read (every start of the area)
   const all = SECT.slice().sort((a, b) => a - b);

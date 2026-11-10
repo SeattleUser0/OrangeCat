@@ -1099,7 +1099,7 @@ int main(void)
         modeng = ENGI_SHAPES; good(0, LEN); modeng = ENGI_WHEEL; good(1, LEN); oc_mod_boot(0);
         i = (uint32_t)oc_mod_plan(ENGI_WHEEL);
         chk("planner, 18 sectors: SHAPES at 0 and WHEEL at 1: a WHEEL replacement goes BESIDE, to start 15 (sectors 0xC4000..0xC7FFF), not in place",
-            (i == 15u || (OC_MOD_TAIL && i == 17u)) && !oc_mod_inplace(ENGI_WHEEL, 15u) && oc_mod_inplace(ENGI_WHEEL, 1u) && oc_mod_blocker(ENGI_WHEEL, 0) == 0);
+            i == (OC_MOD_TAIL ? 17u : 15u) && !oc_mod_inplace(ENGI_WHEEL, 15u) && oc_mod_inplace(ENGI_WHEEL, 1u) && oc_mod_blocker(ENGI_WHEEL, 0) == 0);
         /* (option A: the placement rule takes the lowest four, start 17 at 0xC2000, and leaves the two above them free; the install below is still made at start 15) */
         {   /* the install itself, through begin / write / end, below the base */
             uint32_t before = erases, r;
@@ -1192,7 +1192,7 @@ int main(void)
             chk("... and installs there: one sector erased, registered, SHAPES untouched", r == 0 && erases - before == 1u && eng_mod[ENGI_WHEEL] == oc_mod_hdr_ptr(17) && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1));
         }
         chk("... a module of another engine may now start in the sectors the published WHEEL held for itself (start 16: 0xC3000), WHEEL's reach is its one sector",
-            oc_mod_blocker(ENGI_SHAPES, 0) < 0 && oc_mod_reach(17) == 1u);
+            oc_mod_reach(17) == 1u && oc_fx_blocker(0x1234u, 1u, 16u) < 0 && oc_fx_blocker(0x1234u, 1u, 17u) == 17);
         clean(); ocs_resv = 0; oc_mod_boot(0);
         chk("placement rule with the six not yet the area's: SHAPES at start 0 as every unit has it (the two starts tie; the lowest sector)", oc_mod_plan(ENGI_SHAPES) == 0);
         clean(); ocs_resv = SMP_LEGACY_MASK; modeng = ENGI_WHEEL; good(1, LEN); modeng = ENGI_SHAPES; good(0, LEN); oc_mod_boot(0);
