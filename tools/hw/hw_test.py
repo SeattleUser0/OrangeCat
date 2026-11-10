@@ -21,6 +21,7 @@ Revisions:
 """
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -146,7 +147,7 @@ def main():
     s = sub.add_parser("turn"); s.add_argument("knob"); s.add_argument("steps", type=int)
     s = sub.add_parser("page"); s.add_argument("page")
     s = sub.add_parser("events"); s.add_argument("track", type=int); s.add_argument("step", type=int)
-    s = sub.add_parser("say"); s.add_argument("--out", default="/tmp/hw_say.wav"); s.add_argument("--trs", action="store_true")
+    s = sub.add_parser("say"); s.add_argument("--out", default=os.path.join(os.environ.get("OC_TMP", "/tmp"), "hw_say.wav")); s.add_argument("--trs", action="store_true")
     s.add_argument("--source", default="usb")
     a = ap.parse_args()
     if a.cmd == "say":
