@@ -319,6 +319,7 @@ int main(int argc, char **argv)
     rc = ldr_session();
     printf("  rc %d, %u requests, %u sector erases\n", rc, requests, erases);
     bad += check("install completes", rc == 0);
+    ldr_chip_key(&chip_key);
     bad += check("the body, 0x92000 and the marker == the new package's; the tail region untouched", area_ok(nor, logical + nfo, chip_key));
     bad += check("flash head [0, 0x4000) untouched", !memcmp(nor, head, sizeof head));
     bad += check("finish asked (0xF0000000)", f0_asked >= 1);
