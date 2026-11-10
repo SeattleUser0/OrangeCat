@@ -21,6 +21,7 @@
  * (Orange Cat 0.10.1) module sector tails against the update loader's record rule
  * (Orange Cat 0.11.1) every path that takes a module out of the table writes the PC window
  * (Orange Cat 0.12.1) the Prophet as a module at 8 sectors, three module starts, a module of another engine in the way is refused and named
+ * (Orange Cat 0.16.0) the PC window covers a module before interrupts can call into it (the WHEEL install crash: a track on the engine, its block hook)
  * (Orange Cat 0.12.2) the Prophet module fits 8 sectors (34,764 B measured): the firmware's PITCH_OCT and ENV_LIN through the table, the factory programs in a palette fo...
  */
 #include <stdint.h>
@@ -107,6 +108,35 @@ static void m_st0(fw_mod_hdr_t *h) { h->state_size = 0; }
 static void m_stbig(fw_mod_hdr_t *h) { h->state_size = OC_MOD_STATE_MAX + 1u; }
 static void m_pack(fw_mod_hdr_t *h) { h->pack_hash ^= 1u; }
 static void m_hcrc(fw_mod_hdr_t *h) { h->state_size ^= 0x10u; }       /* used with reseal 0 and the hcrc then made before this: see below */
+
+/* (0.16.0) A model of the audio interrupt for the PC guard's window (hal/fm1_guard.h: an instruction fetch above LIMIT0_H is the CPU exception, DBG_MSG bit 12).
+ * tests/persistence_test.c calls it wherever the device could take the interrupt (interrupts coming back on; after a flash read). The interrupt renders every
+ * track with its engine's table entry, and an engine's block hook runs every block, with or without a voice (voice.c track_render_audio; WHEEL's wheel_block,
+ * the Prophet's): so a track whose engine a module supplies means a fetch from that module at once. Counted as a fault only when the module's FIRST code byte
+ * is above the window, where every fetch from it faults. host_pc_hi is what LIMIT0_H would hold (oc_module.c's host fm1_guard_pc_window). */
+static uint32_t pcm_irqs, pcm_faults;
+static void pcm_irq(void)
+{
+    uint32_t t;
+    pcm_irqs++;
+    for (t = 0; t < NTRK; t++) {
+        uint32_t e = trk[t].engine;
+        const fw_mod_hdr_t *h = e < NENGINES ? eng_mod[e] : 0;
+        if (h && h->link_addr + FW_MOD_CODE_OFF > host_pc_hi)
+            pcm_faults++;
+    }
+}
+static int pcm_install(uint32_t engine, uint32_t start, uint32_t len, uint32_t seed)   /* a made module of `engine` through begin / write / end */
+{
+    uint32_t keep = modeng, o;
+    int r;
+    modeng = engine;
+    { fw_mod_hdr_t hh = mk(start, len); code(seed); seal(&hh); memcpy(IMG, &hh, sizeof hh); }
+    modeng = keep;
+    r = oc_mod_begin(engine, start, len);
+    for (o = FW_MOD_CODE_OFF; !r && o < len; o += 256u) r = oc_mod_write(o, IMG + o, len - o > 256u ? 256u : len - o);
+    return r ? r : oc_mod_end(IMG);
+}
 
 int main(void)
 {
@@ -1086,6 +1116,49 @@ int main(void)
         chk("a published-layout SHAPES at start 1 (sector 6 from 0xC8000) registers on 18 sectors with the six not yet migrated", oc_mod.state[1] == MD_OK && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1));
         gw->starts = keep; modeng = ENGI_SHAPES;
         clean(); ocs_resv = 0;
+    }
+    /* (0.16.0) The WHEEL install crash (Nightly v0.16.0-2e1056, on the unit): a track on engine 7 while its module registers at the end of an install. The loader
+     * put the module in the engine table (oc_mod_reg, interrupts back on) and wrote the PC window only at the end of oc_mod_boot, after the later starts were read
+     * again: the audio interrupt in between called the module's block hook above LIMIT0_H. At power-on the same registration is before the audio starts. */
+    {
+        #define ON(e_) do { trk[2].engine = trk[2].eng_req = (uint8_t)(e_); } while (0)
+        uint32_t irqs;
+        int r;
+        clean(); ocs_resv = 0; oc_mod_boot(0);
+        host_irq_point = pcm_irq; pcm_irqs = pcm_faults = 0;
+        r = pcm_install(ENGI_WHEEL, 0, LEN, 101);
+        chk("PC window, control: WHEEL installed with no track on it: registered, the model's interrupt ran, no fetch outside the window",
+            r == 0 && eng_mod[ENGI_WHEEL] == oc_mod_hdr_ptr(0) && pcm_irqs > 0u && pcm_faults == 0u && host_pc_hi == oc_mod_link(0) + LEN - 1u);
+        ON(ENGI_WHEEL); pcm_faults = 0;
+        chk("PC window, the unit's case 2: WHEEL removed under a track on it: the track keeps engine 7, the window is _etext, no fetch outside it",
+            oc_mod_remove(ENGI_WHEEL) == 0 && trk[2].engine == ENGI_WHEEL && !eng_mod[ENGI_WHEEL] && host_pc_hi == OC_HOST_ETEXT && pcm_faults == 0u);
+        irqs = pcm_irqs;
+        r = pcm_install(ENGI_WHEEL, (uint32_t)oc_mod_plan(ENGI_WHEEL), LEN, 102);
+        chk("... then installed again (the start is free) with the track still on engine 7: registered, and no interrupt found the module above the window",
+            r == 0 && eng_mod[ENGI_WHEEL] && pcm_irqs > irqs && pcm_faults == 0u && host_pc_hi == eng_mod[ENGI_WHEEL]->link_addr + LEN - 1u);
+        pcm_faults = 0;
+        r = pcm_install(ENGI_WHEEL, (uint32_t)oc_mod_plan(ENGI_WHEEL), LEN + 256u, 103);
+        chk("PC window: a replacement written beside (the old module parked, the new one registered) under the track: no fetch outside the window",
+            r == 0 && eng_mod[ENGI_WHEEL] && pcm_faults == 0u && host_pc_hi == eng_mod[ENGI_WHEEL]->link_addr + LEN + 256u - 1u);
+        /* the published layout: SHAPES at start 0 (0xC8000), WHEEL at start 1 (0xCE000, the highest module); a WHEEL replacement can only go in place */
+        host_irq_point = 0;
+        clean(); ocs_resv = 0; modeng = ENGI_SHAPES; good(0, LEN); modeng = ENGI_WHEEL; good(1, LEN); modeng = ENGI_SHAPES; oc_mod_boot(0);
+        chk("(setup) SHAPES at start 0 and WHEEL at start 1, both registered; a WHEEL install is in place at start 1",
+            eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(0) && eng_mod[ENGI_WHEEL] == oc_mod_hdr_ptr(1) && oc_mod_plan(ENGI_WHEEL) == 1 && oc_mod_inplace(ENGI_WHEEL, 1u));
+        ON(ENGI_SHAPES); host_irq_point = pcm_irq; pcm_irqs = pcm_faults = 0;
+        r = pcm_install(ENGI_WHEEL, 1, LEN, 104);
+        chk("PC window, the unit's control: WHEEL installed in place with a track on SHAPES (the lower module, inside the window throughout): no fetch outside it",
+            r == 0 && eng_mod[ENGI_WHEEL] == oc_mod_hdr_ptr(1) && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(0) && pcm_irqs > 0u && pcm_faults == 0u);
+        ON(ENGI_WHEEL); pcm_faults = 0;
+        r = pcm_install(ENGI_WHEEL, 1, LEN, 105);
+        chk("PC window, the unit's case 1: WHEEL installed in place with a track on WHEEL: no interrupt found the module in the table and above the window",
+            r == 0 && eng_mod[ENGI_WHEEL] == oc_mod_hdr_ptr(1) && trk[2].engine == ENGI_WHEEL && pcm_faults == 0u);
+        chk("... and the window ends at the highest registered module's last byte (WHEEL's) when the install is over", host_pc_hi == oc_mod_link(1) + LEN - 1u && fm1_guard_code_end == host_pc_hi);
+        pcm_faults = 0;
+        chk("... SHAPES removed under it (WHEEL is read and registered again, the window already at its end): no fetch outside the window, the window unchanged",
+            oc_mod_remove(ENGI_SHAPES) == 0 && eng_mod[ENGI_WHEEL] == oc_mod_hdr_ptr(1) && pcm_faults == 0u && host_pc_hi == oc_mod_link(1) + LEN - 1u);
+        host_irq_point = 0;
+        #undef ON
     }
     /* a flash that will not read */
     clean(); good(0, LEN);

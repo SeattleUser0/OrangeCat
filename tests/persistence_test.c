@@ -25,16 +25,20 @@ static uint32_t oc_feeds;
 
 static int32_t fm1_enc_take(uint32_t e) { (void)e; return 0; }
 static uint32_t irq_start_race, irq_races, irq_offs, irq_ons;   /* (0.11.1) the pairs counted: oc_module_test checks the engine table stores */
+static uint8_t host_irq_masked;                    /* (0.16.0) between fm1_irq_off and fm1_irq_on */
+static void (*host_irq_point)(void);               /* (0.16.0) a test's model of the audio interrupt, called wherever the device could take one: as interrupts come back on,
+                                                    * and after a flash read (storage_hw.c st_read masks them 256 bytes at a time). 0: none (every test but oc_module_test's) */
 static void fm1_irq_off(void)
 {
     irq_offs++;
+    host_irq_masked = 1;
     if (irq_start_race) {                         /* audio serviced PLAY immediately before main masks it */
         irq_start_race = 0;
         events_block(CTL);
         irq_races++;
     }
 }
-static void fm1_irq_on(void) { irq_ons++; }
+static void fm1_irq_on(void) { irq_ons++; host_irq_masked = 0; if (host_irq_point) host_irq_point(); }
 static uint32_t boot_syncs, boot_trace, boot_trace_bad;
 static void lcd_sync(void) { boot_syncs++; }
 static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { (void)x; (void)y; (void)w; (void)h; (void)c; }
@@ -50,7 +54,7 @@ static uint8_t nor[0x100000], flash_ok = 1;
 static int erase_error, fail_after = -1;
 static int erase_fail_after = -1;           /* (0.10.1) like fail_after, for erases: the nth erase from now and every later one fails (a power cut between erases) */
 static uint32_t erases, preset_reads;
-static int st_read(uint32_t off, void *dst, uint32_t n) { preset_reads++; memcpy(dst, nor + off, n); return 0; }
+static int st_read(uint32_t off, void *dst, uint32_t n) { preset_reads++; memcpy(dst, nor + off, n); if (host_irq_point && !host_irq_masked) host_irq_point(); return 0; }
 static int st_erase(uint32_t off)
 {
     erases++;
