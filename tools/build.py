@@ -271,7 +271,7 @@ def app_flags():
                  "MELODEE_SID", "MELODEE_CZ", "MELODEE_FM6", "MELODEE_DRUM", "MELODEE_P5",
                  "MELODEE_MACRO", "MELODEE_SHAPES", "MELODEE_DRUMX",   # (Orange Cat 0.5.0, 0.5.1, 0.9.0) MACRO, SHAPES, DRUM-X
                  "MELODEE_MACRO_PICK",   # (Release 3, the model picker) 1: MACRO carries VA alone, the other models come from the MODELS module the installer page packs (eng_macro.c)
-                 "OC_MODULES", "OC_MODULE_WINS", "OC_SFC_PROBE", "OC_HW_TEST", "OC_CANDIDATES", "OC_CORE_STATS", "OC_LATE_DIAG", "OC_DUB_SRAM", "OC_DUB_KSRAM", "OC_DUB_NOGOV",    # (round 20: OC_FX_MODK is retired, fx_insert.h; OC_DUB_SRAM and OC_DUB_KSRAM place only the insert host now) (Orange Cat 0.10.0) loadable engine modules (core.h); (0.14.0) the candidates' build
+                 "OC_MODULES", "OC_MODULE_WINS", "OC_SFC_PROBE", "OC_MOD_TAIL", "OC_HW_TEST", "OC_CANDIDATES", "OC_CORE_STATS", "OC_LATE_DIAG", "OC_DUB_SRAM", "OC_DUB_KSRAM", "OC_DUB_NOGOV",    # (round 20: OC_FX_MODK is retired, fx_insert.h; OC_DUB_SRAM and OC_DUB_KSRAM place only the insert host now) (Orange Cat 0.10.0) loadable engine modules (core.h); (0.14.0) the candidates' build
                  "OC_HOME_PIC",     # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md) HOME's picture page, its knobs and macros; off by default
                  "OC_EDIT_SHEETS",  # (the new interface 0.2: UI_BUILD.md step 2) EDIT's sheets; needs OC_HOME_PIC=1; off by default
                  "OC_SHIFT_MAP",    # (the new interface 0.3: UI_BUILD.md step 3; ui-fix 6) HOME as SHIFT and its combos; needs OC_EDIT_SHEETS=1; off by default

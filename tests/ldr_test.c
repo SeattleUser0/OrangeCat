@@ -82,7 +82,7 @@ static void ota_commit(const uint8_t *parm) { (void)parm; }
 static int ldr_fread(uint32_t off, void *p, uint32_t n) { memcpy(p, nor + off, n); return 0; }
 static int ldr_erase(uint32_t off)
 {
-    if (off < 0x4000u || off >= 0xFC000u || (off & 0xFFFu)) bad_range++;
+    if (off < 0x4000u || off >= 0xFC000u || (off & 0xFFFu) || (off >= 0x8D000u && off < 0x91000u)) bad_range++;
     if (off < 0x4000u) { printf("ERASE IN THE HEAD %#x\n", off); exit(1); }
     erases++;
     if (marker_erase_stuck && off == 0x91000u) return 0;
@@ -96,7 +96,7 @@ static int ldr_prog(uint32_t off, const void *p, uint32_t n)
     uint32_t i;
     if (prog_fail_after && !--prog_fail_after) return -1;
     /* Programming is restricted to the application. */
-    if (off < 0x4000u || off + n > 0x93000u || ((off & 0xFFu) + n) > 256u) bad_range++;
+    if (off < 0x4000u || off + n > 0x93000u || ((off & 0xFFu) + n) > 256u || (off + n > 0x8D000u && off < 0x91000u)) bad_range++;   /* (option A) never a byte of the tail region */
     for (i = 0; i < n; i++) nor[off + i] &= s[i];
     return 0;
 }
