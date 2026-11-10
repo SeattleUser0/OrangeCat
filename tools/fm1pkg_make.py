@@ -38,7 +38,8 @@ KEY = 0x980F
 # the boot stub's layout (firmware/stub/stub_core.h), as app.bin offsets (app.bin offset 0 = flash 0x4120)
 STUB_LEN = 0xEE0                    # the stub; the body (the app proper) follows: flash 0x5000, XIP 0x02001000
 STUB_SIG = b"CRSTUB"                # at app.bin + 8 (crt0_stub.S), then the stub's version (u16)
-BODY_MAX = 0x8C000                  # the body ends below the marker's sector (flash 0x91000)
+BODY_MAX = 0x88000                  # (Release 3, option A: FLASH_MAP_R3.md 10) the body ends below the tail region (flash 0x8D000..0x90FFF, the second module region);
+                                    # the stub still accepts up to 0x8C000 (below the marker's sector, flash 0x91000), the update loader refuses a body past this
 MARK_OFF = 0x91FE0 - 0x4120         # the marker: the last 32 bytes of flash sector 0x91000
 MARK_MAGIC, MARK_FORMAT = 0x4D425243, 1     # "CRBM"
 COMP_OFF = MARK_OFF + 20            # the four compensation bytes
