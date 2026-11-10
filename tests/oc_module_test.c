@@ -963,7 +963,7 @@ int main(void)
             chk("remove the Prophet: out of the table, 8 sectors erased, the area empty", (e = erases, oc_mod_remove(ENGI_PROPHET) == 0) && erases - e == 8u && !eng_mod[ENGI_PROPHET] &&
                 oc_mod.state[0] == MD_EMPTY && nor[oc_mod_flash(0)] == 0xFF && !fm1_guard_code_end);
             PSTAND(P_AT2);
-            chk("remove 127 erases all 12 sectors", (e = erases, oc_mod_remove(127) == 0) && erases - e == 12u && oc_mod.state[2] == MD_EMPTY);
+            chk("remove 127 erases all 12 sectors", (e = erases, oc_mod_remove(127) == 0) && erases - e == 12u + OC_MOD_TAIL && oc_mod.state[2] == MD_EMPTY);
             PSTAND(P_AT0); oc_mod_remove(ENGI_PROPHET); PBUILD(ENGI_SHAPES, 0, LEN, 106);
             chk("... and after the Prophet is gone SHAPES installs at once", (PINSTALL(ENGI_SHAPES, 0, LEN, &rcp) == 0) &&
                 eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(0) && !eng_mod[ENGI_PROPHET]);
@@ -1012,7 +1012,7 @@ int main(void)
         uint32_t keep = gw->starts, seen = 0, ok = 1, i;
         for (i = 0; i < 18u; i++) { ok &= OC_MOD_START_REL(i) == want[i]; seen |= 1u << OC_MOD_START_SECTOR(i); }
         chk("the start table: 18 starts, 0 / 6 / 4 as published, then 1 2 3 5 7 .. 11, then -1 .. -6; every sector of the area exactly once",
-            ok && OC_MOD_STARTS == 18u && OC_MOD_AREA == 18u && seen == 0x3FFFFu && oc_mod_flash(0) == 0xC8000u && oc_mod_flash(1) == 0xCE000u && oc_mod_flash(2) == 0xCC000u &&
+            ok && OC_MOD_STARTS == 18u + OC_MOD_TAIL && OC_MOD_AREA == 18u && seen == 0x3FFFFu && oc_mod_flash(0) == 0xC8000u && oc_mod_flash(1) == 0xCE000u && oc_mod_flash(2) == 0xCC000u &&
             oc_mod_flash(17) == 0xC2000u && oc_mod_flash(11) == 0xD3000u && oc_mod_flash(12) == 0xC7000u);
         chk("... the published starts keep their XIP addresses: start 0 at 0x020C4000, start 1 at 0x020CA000, start 2 at 0x020C8000; the lowest (-6) at 0x020BE000, the highest (11) at 0x020CF000",
             oc_mod_link(0) == 0x020C4000u && oc_mod_link(1) == 0x020CA000u && oc_mod_link(2) == 0x020C8000u && oc_mod_link(17) == 0x020BE000u && oc_mod_link(11) == 0x020CF000u);
