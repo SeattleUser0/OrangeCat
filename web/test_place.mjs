@@ -11,10 +11,12 @@ import { join } from "node:path";
 import { PLACE } from "./fm1place.js";
 const { ENG_GEO, OC_STARTS, OC_FX_ENGINE, emptyState, plan, simulate } = PLACE;
 
+// (option A) PLACE_TAIL=4: the same against a loader built with the tail region (22 starts, two places)
+const TAIL = process.env.PLACE_TAIL === "4" ? 4 : 0, NST = 18 + TAIL;
 let oracle = process.env.PLAN_ORACLE || "";
 if (!oracle || !existsSync(oracle)) {                                  // built here from the loader's own source (tests/plan_oracle.c includes firmware/src/oc_module.c)
   oracle = join(mkdtempSync(join(tmpdir(), "oc-place-")), "plan_oracle");
-  const b = spawnSync(process.env.CC || "cc", ["-O1", "-w", "-Ibuild/gen", "-Ifirmware/src", "-DOC_MODULE_WINS=1", "-DMELODEE_MACRO_PICK=1", "tests/plan_oracle.c", "-lm", "-o", oracle], { encoding: "utf8" });
+  const b = spawnSync(process.env.CC || "cc", ["-O1", "-w", "-Ibuild/gen", "-Ifirmware/src", "-DOC_MODULE_WINS=1", "-DMELODEE_MACRO_PICK=1", ...(TAIL ? ["-DOC_MOD_TAIL=4u"] : []), "tests/plan_oracle.c", "-lm", "-o", oracle], { encoding: "utf8" });
   if (b.status !== 0) { console.log("place: the oracle did not build\n" + b.stderr); process.exit(1); }
 }
 if (OC_STARTS !== 18 || !ENG_GEO || !ENG_GEO[14] || OC_FX_ENGINE !== 0xFFFF) { console.log("place: the library's constants are missing"); process.exit(1); }
@@ -32,8 +34,8 @@ const QUERIES = () => {
 const cases = [];
 const add = (s) => cases.push(s);
 const randState = (dense) => {
-  const s = emptyState(rnd(3) !== 0);
-  for (let i = 0; i < OC_STARTS; i++) {
+  const s = emptyState(rnd(3) !== 0, TAIL);
+  for (let i = 0; i < NST; i++) {
     const r = rnd(10);
     if (r < (dense ? 2 : 6)) continue;                                   // empty
     const st = r < 9 ? 7 : pick([1, 2, 3, 4, 5, 6, 8]);
@@ -47,22 +49,22 @@ const randState = (dense) => {
 for (let k = 0; k < 6000; k++) add(randState(k % 3 === 0));
 // edges
 for (const low of [true, false]) {
-  add(emptyState(low));
-  const full = emptyState(low);
-  for (let i = 0; i < OC_STARTS; i++) full.starts[i] = { state: 7, kind: 1, mid: 0x2000 + i, engine: OC_FX_ENGINE, length: 0x1000 };
+  add(emptyState(low, TAIL));
+  const full = emptyState(low, TAIL);
+  for (let i = 0; i < NST; i++) full.starts[i] = { state: 7, kind: 1, mid: 0x2000 + i, engine: OC_FX_ENGINE, length: 0x1000 };
   full.nfxmod = 8; add(full);                                                // every start held by a one sector module of another id
-  for (let leave = 0; leave < OC_STARTS; leave++) {                          // one start left empty
+  for (let leave = 0; leave < NST; leave++) {                          // one start left empty
     const f = JSON.parse(JSON.stringify(full)); f.starts[leave] = { state: 0, kind: 0, mid: 0, engine: 0, length: 0 }; f.nfxmod = 7; add(f);
     const g = JSON.parse(JSON.stringify(f)); g.nfxmod = 8; add(g);
   }
   for (const eng of [[14], [7], [19], [14, 7], [14, 7, 0x1001], [14, 7, 0x1001, 0x1002]]) {   // the page's own sets, alone and together, installed by the planner
-    let s = emptyState(low);
+    let s = emptyState(low, TAIL);
     for (const e of eng) { const m = e > 100 ? { mid: e, sectors: 3 } : { engine: e }; const c = plan(s, m); if (c < 0) break; s = PLACE.apply(s, m, c); add(s); }
   }
 }
 // the states the page's install sequences reach: random sets in the page's order, every prefix
 for (let k = 0; k < 600; k++) {
-  let s = emptyState(rnd(4) !== 0);
+  let s = emptyState(rnd(4) !== 0, TAIL);
   const mods = [];
   if (rnd(2)) mods.push({ engine: 14 }); if (rnd(2)) mods.push({ engine: 7 }); if (rnd(3)) mods.push({ mid: 0x1001, sectors: 3 }); if (rnd(4) === 0) mods.push({ mid: 0x1002, sectors: 1 + rnd(2) });
   mods.push({ mid: 0x4D08, sectors: 1 + rnd(14) });
@@ -86,10 +88,10 @@ if (spread < 8) { console.log("place: the answers do not vary (" + spread + " di
 console.log("place: " + cases.length + " unit states x " + q.length + " modules = " + n + " plans, " + bad + " disagree");
 // the sequence model (simulate) must agree with itself on the prefix states above; and the review's case: SHAPES 0, WHEEL 1, DUB, then a 5 sector pick
 {
-  const s = emptyState(true);
+  const s = emptyState(true, TAIL);
   const r = simulate(s, [{ engine: 14 }, { engine: 7 }, { mid: 0x1001, sectors: 3 }, { mid: 0x4D08, sectors: 5 }]);
-  const ok = !r.ok && r.failAt === 3;     // review defect 1: "5 left" by subtraction, but no 5 sector run exists in the page's order
-  console.log("place: review case (SHAPES, WHEEL, DUB TAPE, a 5 sector pick in the page's order) " + (ok ? "refused as the loader refuses it ok" : "FAIL: " + JSON.stringify(r.steps)));
+  const ok = TAIL ? r.ok && r.steps[2].start === 18 : !r.ok && r.failAt === 3;   // (with the tail: DUB TAPE goes there and the 5 sector pick has its run)     // review defect 1: "5 left" by subtraction, but no 5 sector run exists in the page's order
+  console.log("place: review case (SHAPES, WHEEL, DUB TAPE, a 5 sector pick in the page's order) " + (ok ? (TAIL ? "placed: DUB TAPE in the tail ok" : "refused as the loader refuses it ok") : "FAIL: " + JSON.stringify(r.steps)));
   if (!ok) bad++;
   const r2 = simulate(s, [{ engine: 14 }, { mid: 0x4D08, sectors: 9 }]);
   console.log("place: SHAPES alone then a 9 sector pick: " + (r2.ok ? "places at start " + r2.steps[1].start : "refused (the default pick has no run)"));
