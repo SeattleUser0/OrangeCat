@@ -109,7 +109,7 @@ def elf_of(name):
 def firmware_geometry():
     """oc_module.c: the starts (sector index of each start number) and each engine's (sectors, start bits)"""
     t = (ROOT / "firmware/src/oc_module.c").read_text()
-    sect = [int(x.rstrip("u")) for x in re.search(r"oc_mod_sect\[OC_MOD_STARTS\] = \{([^}]*)\}", t).group(1).replace(" ", "").split(",")]
+    sect = [int(x.rstrip("u")) for x in re.search(r"oc_mod_sect\[OC_MOD_STARTS\] = \{([^}]*)\}", t).group(1).split("#if")[0].replace(" ", "").replace("\n", "").split(",") if x]   # (option A) the area's eighteen; the tail's four follow under #if OC_MOD_TAIL
     core = (ROOT / "firmware/src/core.h").read_text()
     num = {m.group(1): int(m.group(2)) for m in re.finditer(r"#define (ENGI_\w+) (\d+)u", core)}
     geo = {}
