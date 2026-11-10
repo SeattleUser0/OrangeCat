@@ -156,7 +156,7 @@ def ocm_images(raw, area_lo=0xC8000):   # area_lo is the numbering base (FL_MODU
     start, length, crc, off = struct.unpack_from("<IIII", b, tab)
     nrel, roff, rcrc, m = struct.unpack_from("<IIII", b, tab + 16)
     at = tab + 32 + 8 * m
-    if start != OCM_RELOCATABLE or not 1 <= m <= 18 or nrel > RELOC_MAX or len(b) < at + 4 or zlib.crc32(b[:at]) != struct.unpack_from("<I", b, at)[0]:
+    if start != OCM_RELOCATABLE or not 1 <= m <= 22 or nrel > RELOC_MAX or len(b) < at + 4 or zlib.crc32(b[:at]) != struct.unpack_from("<I", b, at)[0]:
         raise ValueError("header")
     img, lst = b[off:off + length], b[roff:roff + 4 * nrel]
     if len(img) != length or zlib.crc32(img) != crc or len(lst) != 4 * nrel or zlib.crc32(lst) != rcrc:

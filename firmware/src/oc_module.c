@@ -167,7 +167,11 @@ typedef struct { uint8_t engine, sectors; uint32_t starts; } oc_mod_geo_t;
 #define OC_MOD_GEO_QUAL const                           /* (0.13.5) a host test defines it empty to change the geometries for one case (tests/card_install_test.c) */
 #endif
 static OC_MOD_GEO_QUAL oc_mod_geo_t oc_mod_geo[] = { { ENGI_SHAPES, 6u, 0x03u }, { ENGI_PROPHET, 8u, 0x05u },
+#if OC_MOD_TAIL
+                                                     { ENGI_WHEEL, 1u, 0x3FFFFu },  /* (option A, FLASH_MAP_R3.md 10.4) WHEEL re-cut: one sector (2,928 B), any start of the area. Its package carries 18 variants (the .ocm limit), so not the tail's starts */
+#else
                                                      { ENGI_WHEEL, 4u, 0x03u },     /* (0.14.0) WHEEL: 4 sectors at sector 0 or 6: beside SHAPES (0) or the Prophet (4) */
+#endif
 #if OC_CANDIDATES
                                                      { ENGI_SEM, 4u, 0x03u }, { ENGI_HADES, 4u, 0x03u },   /* (0.14.0) the candidates of a measurement build */
                                                      { ENGI_FMBELL, 4u, 0x03u }, { ENGI_SUPERSAW, 4u, 0x03u }, { ENGI_DDDD, 4u, 0x03u },    /* (0.14.1) op1r's synths: WHEEL's geometry */
@@ -794,6 +798,32 @@ static uint32_t oc_mod_reach(uint32_t j)
     uint32_t n = g ? g->sectors : oc_mod_nsec(oc_mod.length[j]);
     return n ? n : 1u;
 }
+#if OC_MOD_TAIL
+/* (option A, FLASH_MAP_R3.md 10.5) the placement rule of a build with the tail region. Room is not enough: the default pick of models needs 9 sectors in ONE run beside
+ * SHAPES, so where a module lands matters. Of the candidates that stand beside everything (the planner's first two passes) the planner takes the one that leaves the
+ * LONGEST free run on the unit, then the one that leaves the FEWEST free runs, then the LOWEST sector (the tail's are the lowest, then the area upward from 0xC2000). A sector is free when no usable module's reach covers
+ * it and it may be used (the low six only once they are the area's); a run lies in one place. web/fm1place.js is the same rule (web/test_place.mjs holds them equal). */
+static uint32_t oc_plan_bit(int32_t sec)
+{
+    int p = oc_sec_place(sec);
+    return p == 0 ? 1u << sec : p == 1 ? 1u << (OC_MOD_AREA + (uint32_t)(sec - OC_MOD_TAIL_S0)) : 0u;
+}
+static uint32_t oc_plan_score(uint32_t c, uint32_t n)
+{
+    uint32_t occ = OC_MOD_LOW_OK() ? 0u : (1u << OC_MOD_BASE_SECTOR) - 1u, j, q, run = 0, longest = 0, runs = 0;
+    for (j = 0; j < OC_MOD_STARTS; j++)
+        if (oc_mod_usable(j))
+            for (q = 0; q < oc_mod_reach(j); q++) occ |= oc_plan_bit(OC_MOD_START_SECTOR(j) + (int32_t)q);
+    for (q = 0; q < n; q++) occ |= oc_plan_bit(OC_MOD_START_SECTOR(c) + (int32_t)q);
+    for (q = 0; q < OC_MOD_AREA + OC_MOD_TAIL; q++) {
+        if (q == OC_MOD_AREA) run = 0;                             /* a run does not cross from the area into the tail */
+        if (occ >> q & 1u) { run = 0; continue; }
+        if (!run++) runs++;
+        if (run > longest) longest = run;
+    }
+    return longest << 8 | (255u - runs);
+}
+#endif
 static int oc_mod_blocker(uint32_t engine, uint32_t c)                       /* the start that blocks an install at c, or -1 */
 {
     uint32_t j, ns = oc_mod_geo_of(engine)->sectors;
@@ -833,10 +863,22 @@ static int oc_mod_plan(uint32_t engine)
     uint32_t c;
     if (!eng_module_slot(engine) || !oc_mod_geo_of(engine))
         return -1;
+#if OC_MOD_TAIL
+    {                                                              /* beside, by the placement rule (oc_plan_score): an empty start first, then one that holds junk */
+        uint32_t pass, sc, bs = 0, ns = oc_mod_geo_of(engine)->sectors;
+        int best = -1;
+        for (pass = 0; pass < 2u && best < 0; pass++)
+            for (c = 0; c < OC_MOD_STARTS; c++)
+                if (oc_mod_allowed(engine, c) && oc_mod_blocker(engine, c) < 0 && !oc_mod_own_overlap(engine, c) && (pass ? !oc_mod_usable(c) : oc_mod.state[c] == MD_EMPTY)
+                    && ((sc = oc_plan_score(c, ns)) > bs || (sc == bs && best >= 0 && OC_MOD_START_SECTOR(c) < OC_MOD_START_SECTOR(best)))) { bs = sc; best = (int)c; }
+        if (best >= 0) return best;
+    }
+#else
     for (c = 0; c < OC_MOD_STARTS; c++)
         if (oc_mod_allowed(engine, c) && oc_mod_blocker(engine, c) < 0 && !oc_mod_own_overlap(engine, c) && oc_mod.state[c] == MD_EMPTY) return (int)c;
     for (c = 0; c < OC_MOD_STARTS; c++)
         if (oc_mod_allowed(engine, c) && oc_mod_blocker(engine, c) < 0 && !oc_mod_own_overlap(engine, c) && !oc_mod_usable(c)) return (int)c;
+#endif
     for (c = 0; c < OC_MOD_STARTS; c++)
         if (oc_mod_allowed(engine, c) && oc_mod_has(c, engine)) return (int)c;          /* in place, where the old module stands */
     for (c = 0; c < OC_MOD_STARTS; c++)
@@ -1181,10 +1223,23 @@ static int oc_fxmod_plan(uint32_t mid, uint32_t sectors)
     uint32_t c, k;
     uint32_t max = oc_id_max_sectors(mid);
     if (!mid || !oc_fx_room(mid)) return -1;
+#if OC_MOD_TAIL
+    {                                                              /* beside, by the placement rule (oc_plan_score) */
+        uint32_t pass, sc, bs = 0;
+        int best = -1;
+        for (pass = 0; pass < 2u && best < 0; pass++)
+            for (k = 0; k < OC_MOD_STARTS && (c = OC_FX_ORDER(k), 1); k++)
+                if (oc_fx_allowed_max(sectors, c, max) && oc_fx_blocker(mid, sectors, c) < 0 && !oc_fx_own_overlap(mid, sectors, c)
+                    && (pass ? !oc_mod_usable(c) : oc_mod.state[c] == MD_EMPTY)
+                    && ((sc = oc_plan_score(c, sectors)) > bs || (sc == bs && best >= 0 && OC_MOD_START_SECTOR(c) < OC_MOD_START_SECTOR(best)))) { bs = sc; best = (int)c; }
+        if (best >= 0) return best;
+    }
+#else
     for (k = 0; k < OC_MOD_STARTS && (c = OC_FX_ORDER(k), 1); k++)
         if (oc_fx_allowed_max(sectors, c, max) && oc_fx_blocker(mid, sectors, c) < 0 && !oc_fx_own_overlap(mid, sectors, c) && oc_mod.state[c] == MD_EMPTY) return (int)c;
     for (k = 0; k < OC_MOD_STARTS && (c = OC_FX_ORDER(k), 1); k++)
         if (oc_fx_allowed_max(sectors, c, max) && oc_fx_blocker(mid, sectors, c) < 0 && !oc_fx_own_overlap(mid, sectors, c) && !oc_mod_usable(c)) return (int)c;
+#endif
     for (k = 0; k < OC_MOD_STARTS && (c = OC_FX_ORDER(k), 1); k++)
         if (oc_fx_allowed_max(sectors, c, max) && oc_fx_has(c, mid)) return (int)c;              /* in place, where the old module stands */
     for (k = 0; k < OC_MOD_STARTS && (c = OC_FX_ORDER(k), 1); k++)

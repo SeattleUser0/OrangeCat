@@ -195,7 +195,7 @@ function ocmParse(bytes) {
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), ver = dv.getUint16(4, true);
   if (dv.getUint32(0, true) !== OCM_MAGIC || (ver !== 1 && ver !== 2)) return fail("modWrongFile");
   const n = dv.getUint16(6, true), tab = 56, m = ver === 2 && bytes.length >= tab + 32 ? dv.getUint32(tab + 28, true) : 0, hcrcAt = ver === 2 ? tab + 32 + 8 * m : tab + 16 * n;
-  if (n < 1 || n > 18 || (ver === 2 && (n !== 1 || m < 1 || m > 18)) || hcrcAt + 4 > bytes.length || crc32(bytes.subarray(0, hcrcAt)) !== dv.getUint32(hcrcAt, true)) return fail("modWrongFile");
+  if (n < 1 || n > 18 || (ver === 2 && (n !== 1 || m < 1 || m > 22)) || hcrcAt + 4 > bytes.length || crc32(bytes.subarray(0, hcrcAt)) !== dv.getUint32(hcrcAt, true)) return fail("modWrongFile");
   let name = ""; for (let i = 28; i < 44 && bytes[i]; i++) name += String.fromCharCode(bytes[i]);
   const o = { ok: true, iface: dv.getUint32(8, true), apiAddr: dv.getUint32(12, true), engine: dv.getUint32(16, true), stateSize: dv.getUint32(20, true), packHash: dv.getUint32(24, true),
               name, apiVersion: dv.getUint32(44, true), apiSize: dv.getUint32(48, true), sectors: dv.getUint32(52, true), variants: [], format: ver };
@@ -364,7 +364,7 @@ function fxCheck(ocm, info, fx) {
     return { ok: false, key: "modWrongFw" };
   if (fx.abi !== undefined && ocm.fxAbi && ocm.fxAbi !== fx.abi) return { ok: false, key: "modWrongFw" };   /* (round 18) FX_INFO's abi, when the unit sends it: a module of another host calling convention is refused before it is streamed */
   const tbl = info.sectorOf || OCM_SECTOR;
-  if (fx.plan == null || !(fx.plan < tbl.length) || (fx.plan >= 12 && !fx.lowOk)) {   /* a usable module in the way is named, never erased by an install */
+  if (fx.plan == null || !(fx.plan < tbl.length) || (tbl[fx.plan] < 0 && tbl[fx.plan] >= -6 && !fx.lowOk)) {   /* a usable module in the way is named, never erased by an install */
     const b = fx.blocker, s = b != null && info.starts ? info.starts[b] : null;
     return s ? { ok: false, key: "modBlocked", engine: s.engine, start: b } : { ok: false, key: "modNoFree" };
   }
@@ -381,7 +381,7 @@ function ocmCheck(ocm, info) {
   if (ocm.iface !== info.iface || ocm.apiAddr !== info.apiAddr || ocm.apiVersion > info.apiVersion || ocm.apiSize > info.apiSize || ocm.packHash !== info.packHash)
     return { ok: false, key: "modWrongFw" };
   const tbl = info.sectorOf || OCM_SECTOR;
-  if (!(info.plan < tbl.length) || (info.plan >= 12 && !info.lowOk)) {   /* starts 12..17 (sectors -1..-6) only when the unit says the low sectors are usable */                               /* (0.12.1) 127: no start can take it. A usable module of another engine in the way is named, never erased by an install */
+  if (!(info.plan < tbl.length) || (tbl[info.plan] < 0 && tbl[info.plan] >= -6 && !info.lowOk)) {   /* starts 12..17 (sectors -1..-6) only when the unit says the low sectors are usable */                               /* (0.12.1) 127: no start can take it. A usable module of another engine in the way is named, never erased by an install */
     const b = info.blocker, s = b != null && info.starts ? info.starts[b] : null;
     return s ? { ok: false, key: "modBlocked", engine: s.engine, start: b } : { ok: false, key: "modNoFree" };
   }

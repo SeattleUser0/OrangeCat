@@ -95,5 +95,24 @@ console.log("place: " + cases.length + " unit states x " + q.length + " modules 
   if (!ok) bad++;
   const r2 = simulate(s, [{ engine: 14 }, { mid: 0x4D08, sectors: 9 }]);
   console.log("place: SHAPES alone then a 9 sector pick: " + (r2.ok ? "places at start " + r2.steps[1].start : "refused (the default pick has no run)"));
+  if (TAIL) {
+    // (option A, FLASH_MAP_R3.md 10.5) the goal: SHAPES, the default pick (14 models, 9 sectors), WHEEL re-cut, a 2 sector effect module, DUB TAPE (3) and a 1 sector reverb mode:
+    // 22 sectors of 22, in the order SHAPES, the models, then the small modules. The placement rule (the longest run left) is what makes it fit
+    const goal = [{ engine: 14 }, { mid: 0x4D08, sectors: 9 }, { engine: 7 }, { mid: 0x1002, sectors: 2 }, { mid: 0x1001, sectors: 3 }, { mid: 0x1003, sectors: 1 }];
+    const g = simulate(emptyState(true, TAIL), goal), used = g.ok ? g.final.starts.reduce((a, x, i) => a + (x.state === 7 ? (x.kind ? Math.ceil(x.length / 4096) : PLACE.ENG_GEO_TAIL[x.engine].sectors) : 0), 0) : 0;
+    const okg = g.ok && used === 22 && g.steps[0].start === 1;
+    console.log("place: the goal set on an empty unit (SHAPES, a 9 sector pick, WHEEL, 2, DUB TAPE 3, 1): " + (okg ? "all placed, 22 of 22 sectors, starts " + g.steps.map((x) => x.start).join(" ") + " ok" : "FAIL at " + g.failAt + " " + JSON.stringify(g.steps.map((x) => x.start))));
+    if (!okg) bad++;
+    // the same set in the old order (the pick last) does not fit: the page must install SHAPES, the models, then the small ones
+    const old = simulate(emptyState(true, TAIL), [goal[0], goal[2], goal[3], goal[4], goal[5], goal[1]]);
+    console.log("place: the goal set with the pick last: " + (old.ok ? "placed" : "refused at the pick (the order matters)"));
+    // a unit as the Nightly leaves it today (SHAPES at start 0, WHEEL at start 1, DUB TAPE at start 14): the pick has no run until the modules are put on again in the goal's order
+    let u = emptyState(true, TAIL);
+    u.starts[0] = { state: 7, kind: 0, mid: 0, engine: 14, length: 24160 }; u.starts[1] = { state: 7, kind: 0, mid: 0, engine: 7, length: 2928 };
+    u.starts[14] = { state: 7, kind: 1, mid: 0x1001, engine: OC_FX_ENGINE, length: 3 * 4096 }; u.nfxmod = 1;
+    const today = simulate(u, [{ mid: 0x4D08, sectors: 9 }]);
+    console.log("place: a unit as the Nightly leaves it, then the 9 sector pick: " + (today.ok ? "placed at start " + today.steps[0].start : "refused: the modules must be put on again in the goal's order (the page's rearrange)"));
+    if (today.ok) bad++;                                             // (if this ever places, the note in FLASH_MAP_R3.md 10.5 is stale)
+  }
 }
 process.exit(bad ? 1 : 0);

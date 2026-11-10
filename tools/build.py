@@ -535,7 +535,9 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts"
            # fit beside the SHAPES module (the loader's planner refuses the pair, firmware/src/oc_module.c).
            "prophet": {"src": "tools/module/prophet_mod.c", "sectors": 8, "starts": [0, 4], "name": "PROPHET"},
            # (0.14.0) WHEEL, Melodee's organ, engine 7: 4 sectors (2,920 B built), sector 0 or sector 6: beside SHAPES (at 0) or beside the Prophet (at 4)
-           "wheel": {"src": "tools/module/wheel_mod.c", "sectors": 4, "starts": [0, 6], "name": "WHEEL"},
+           # (option A, FLASH_MAP_R3.md 10.4) a build with the tail region (OC_MOD_TAIL=4) re-cuts WHEEL: one sector, a variant for every start of the area (18, the .ocm
+           # limit; none in the tail). oc_module.c's geometry row is the same under the same switch; module_spec() picks it
+           "wheel": {"src": "tools/module/wheel_mod.c", "sectors": 4, "starts": [0, 6], "name": "WHEEL", "tail": {"sectors": 1, "starts": list(range(-6, 12))}},
            # (0.14.0) the engine candidates gate (docs/orangecat/ENGINE_CANDIDATES.md; tools/engine_gate.py): built and measured, registrable only by an
            # OC_CANDIDATES build. SEM and HADES take WHEEL's geometry; the Rhodes port is linked for the whole area, which it does not fit (the gate's row)
            "sem": {"src": "tools/module/sem_mod.c", "sectors": 4, "starts": [0, 6], "name": "SEM"},
@@ -597,6 +599,19 @@ def module_cost(name):
     return cost, missing
 
 
+def tail_build():
+    """a build with the tail region (FLASH_MAP_R3.md 10): OC_MOD_TAIL set and not 0"""
+    return os.environ.get("OC_MOD_TAIL", "0").rstrip("uU") not in ("", "0")
+
+
+def module_spec(name):
+    """a module's entry of MODULES; in a build with the tail region (OC_MOD_TAIL set and not 0) its "tail" keys replace the published geometry"""
+    spec = MODULES[name]
+    if "tail" in spec and tail_build():
+        spec = {**{k: v for k, v in spec.items() if k != "tail"}, **spec["tail"]}
+    return spec
+
+
 def module_starts(sectors, spec=None):
     """the (signed) sector indices from module_base() a module may be linked for: the module's own list (MODULES "starts"; 0.12.1: SHAPES 0 and 6, the Prophet 0
     and 4), else the multiples of its size from the area's lowest sector that fit it (Release 3 step 1: an 18 sector area, so -6, -6 + size, ...; deterministic).
@@ -606,6 +621,11 @@ def module_starts(sectors, spec=None):
     first, last = (lo - base) // 0x1000, (hi - base) // 0x1000       # the area in sectors from the base: [first, last)
     if spec and "starts" in spec:
         return [i for i in spec["starts"] if first <= i and i + sectors <= last]
+    if tail_build():
+        # (option A) the placement rule (oc_module.c oc_plan_score) may name any start, and the tail region is a second place: a variant for every start whose span
+        # lies in one place (the area's sectors, then the tail's 0x8D000..0x90FFF: -59 .. -56 from the base). At most 22 (a relocatable package's limit, raised from 18)
+        t0 = (0x8D000 - base) // 0x1000
+        return [i for i in range(first, last - sectors + 1)] + [i for i in range(t0, t0 + 4 - sectors + 1)]
     return [i for i in range(first, last - sectors + 1, sectors)]
 
 
@@ -646,7 +666,7 @@ def module_reloc(name, obj, mdir, ldtext, variants, lo, cost, patch=None):
 
 
 def build_module(name):
-    spec = MODULES[name]
+    spec = module_spec(name)
     mdir = OUT / "module"
     mdir.mkdir(parents=True, exist_ok=True)
     if not (GEN / "fw_api_id.h").exists() or not (GEN / "oc_pack_tables.h").exists() or not (GEN / "melodee_tables.h").exists():

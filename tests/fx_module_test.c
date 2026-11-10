@@ -507,12 +507,14 @@ int main(void)
         /* the install by id: FX_BEGIN with the models id, 9 sectors, then the header; a replacement in place lets go of the glue's table before the erase */
         {   uint32_t r;
             clean_m();
-            len = make_models(0, 25, 9u * 0x1000u - 0x100u, 0);
             i = (uint32_t)oc_fxmod_plan(mid, 9);
+            /* (option A) with the tail region the placement rule names, on an empty unit, the lowest 9 sectors (start 17 is 0xC2000): the upper 9 stay one run. Without: start 0 */
+            ok = i == (OC_MOD_TAIL ? 17u : 0u);
+            len = make_models(i, 25, 9u * 0x1000u - 0x100u, 0);
             r = (uint32_t)oc_fxmod_begin(mid, i, len);
-            ok = r == MI_OK && i == 0u;
+            ok &= r == MI_OK;
             for (uint32_t off = FW_MOD_CODE_OFF; off < len && ok; off += 256u) ok &= oc_mod_write(off, IMG + off, len - off < 256u ? len - off : 256u) == MI_OK;
-            ok &= oc_mod_end(IMG) == MI_OK && oc_mod.state[0] == MD_OK && oc_mod.kind[0] == 4u && mc_ext_n == 25u;
+            ok &= oc_mod_end(IMG) == MI_OK && oc_mod.state[i] == MD_OK && oc_mod.kind[i] == 4u && mc_ext_n == 25u;
             chk("FX_BEGIN with the models id at the planned start, 9 sectors of code, the header last: registered, the glue has the table", ok);
             /* a replacement of 4 sectors goes beside the old one (the area has room): the old plays on until the new reads back good, then its start is erased */
             clean_m();

@@ -142,6 +142,12 @@ int main(void)
 {
     uint32_t why, i, st;
     setvbuf(stdout, NULL, _IONBF, 0);
+#if OC_MOD_TAIL
+    /* (option A) a build with the tail region has WHEEL re-cut to one sector at any start of the area. The cases below are the published package's (4 sectors, starts 0 and 1,
+     * as a unit that still carries it): they run with that geometry; the re-cut one has its own cases at the end */
+    oc_mod_geo_t recut = *oc_mod_geo_of(ENGI_WHEEL);
+    oc_mod_geo_of(ENGI_WHEEL)->sectors = 4u; oc_mod_geo_of(ENGI_WHEEL)->starts = 0x3u;
+#endif
 
     clean();
     oc_mod_boot(0);
@@ -1093,16 +1099,18 @@ int main(void)
         modeng = ENGI_SHAPES; good(0, LEN); modeng = ENGI_WHEEL; good(1, LEN); oc_mod_boot(0);
         i = (uint32_t)oc_mod_plan(ENGI_WHEEL);
         chk("planner, 18 sectors: SHAPES at 0 and WHEEL at 1: a WHEEL replacement goes BESIDE, to start 15 (sectors 0xC4000..0xC7FFF), not in place",
-            i == 15u && !oc_mod_inplace(ENGI_WHEEL, 15u) && oc_mod_inplace(ENGI_WHEEL, 1u) && oc_mod_blocker(ENGI_WHEEL, 0) == 0);
+            (i == 15u || (OC_MOD_TAIL && i == 17u)) && !oc_mod_inplace(ENGI_WHEEL, 15u) && oc_mod_inplace(ENGI_WHEEL, 1u) && oc_mod_blocker(ENGI_WHEEL, 0) == 0);
+        /* (option A: the placement rule takes the lowest four, start 17 at 0xC2000, and leaves the two above them free; the install below is still made at start 15) */
         {   /* the install itself, through begin / write / end, below the base */
             uint32_t before = erases, r;
-            modeng = ENGI_WHEEL; { fw_mod_hdr_t h = mk(15, LEN); code(9); seal(&h); memcpy(IMG, &h, sizeof h); }
-            memset(nor + 0xC2000u, 0x66, 0x2000u);                       /* the two sectors under the new module's span: not its to erase */
-            r = (uint32_t)oc_mod_begin(ENGI_WHEEL, 15, LEN);
+            uint32_t nb = i == 15u ? 0xC2000u : 0xC6000u;                /* the two free sectors beside the span (under it at start 15; above it at start 17, option A's rule) */
+            modeng = ENGI_WHEEL; { fw_mod_hdr_t h = mk(i, LEN); code(9); seal(&h); memcpy(IMG, &h, sizeof h); }
+            memset(nor + nb, 0x66, 0x2000u);                             /* not the new module's to erase */
+            r = (uint32_t)oc_mod_begin(ENGI_WHEEL, i, LEN);
             for (uint32_t o = FW_MOD_CODE_OFF; !r && o < LEN; o += 256u) r = (uint32_t)oc_mod_write(o, IMG + o, LEN - o > 256u ? 256u : LEN - o);
             r = r ? r : (uint32_t)oc_mod_end(IMG);
-            ok = r == 0 && oc_mod.state[15] == MD_OK && erases - before >= 4u && nor[0xC2000u + 5u] == 0x66u && nor[0xC3000u + 5u] == 0x66u &&
-                 memcmp(nor + oc_mod_flash(15), IMG, LEN) == 0;
+            ok = r == 0 && oc_mod.state[i] == MD_OK && erases - before >= 4u && nor[nb + 5u] == 0x66u && nor[nb + 0x1000u + 5u] == 0x66u &&
+                 memcmp(nor + oc_mod_flash(i), IMG, LEN) == 0;
             chk("... and installs there: the span's 4 sectors erased and written, the two sectors under it untouched, the module registered from 0xC4000",
                 ok && eng_mod[ENGI_WHEEL] != 0);
         }
@@ -1166,6 +1174,31 @@ int main(void)
     oc_mod_boot(0);
     chk("(the sim's flash_ok only gates the device checks; the area read is by st_read) a read still works", oc_mod.state[0] == MD_OK || oc_mod.state[0] == MD_EMPTY);
     flash_ok = 1;
+#endif
+#if OC_MOD_TAIL
+    {   /* (option A, FLASH_MAP_R3.md 10.4 and 10.5) WHEEL re-cut and the placement rule */
+        int p;
+        *oc_mod_geo_of(ENGI_WHEEL) = recut;
+        chk("option A: WHEEL's geometry is one sector at any start of the area (18 starts, none in the tail: its package carries 18 variants)", recut.sectors == 1u && recut.starts == 0x3FFFFu);
+        clean(); ocs_resv = SMP_LEGACY_MASK; oc_mod_boot(0);
+        chk("placement rule, an empty unit: SHAPES goes to start 1 (sectors 0xCE000..0xD3FFF), which leaves the twelve below as one run (start 0 would leave two runs of six)",
+            oc_mod_plan(ENGI_SHAPES) == 1);
+        modeng = ENGI_SHAPES; good(1, LEN); oc_mod_boot(0);
+        p = oc_mod_plan(ENGI_WHEEL);
+        chk("... WHEEL beside it: one sector at the lowest sector of the area (start 17, 0xC2000), the eleven above it left as one run", p == 17 && !oc_mod_inplace(ENGI_WHEEL, 17u));
+        {
+            uint32_t before = erases;
+            int r = pcm_install(ENGI_WHEEL, 17, LEN, 201);
+            chk("... and installs there: one sector erased, registered, SHAPES untouched", r == 0 && erases - before == 1u && eng_mod[ENGI_WHEEL] == oc_mod_hdr_ptr(17) && eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(1));
+        }
+        chk("... a module of another engine may now start in the sectors the published WHEEL held for itself (start 16: 0xC3000), WHEEL's reach is its one sector",
+            oc_mod_blocker(ENGI_SHAPES, 0) < 0 && oc_mod_reach(17) == 1u);
+        clean(); ocs_resv = 0; oc_mod_boot(0);
+        chk("placement rule with the six not yet the area's: SHAPES at start 0 as every unit has it (the two starts tie; the lowest sector)", oc_mod_plan(ENGI_SHAPES) == 0);
+        clean(); ocs_resv = SMP_LEGACY_MASK; modeng = ENGI_WHEEL; good(1, LEN); modeng = ENGI_SHAPES; good(0, LEN); oc_mod_boot(0);
+        chk("a unit as the Nightly leaves it (SHAPES at start 0, the published WHEEL at start 1): both registered; WHEEL holds one sector now", eng_mod[ENGI_SHAPES] == oc_mod_hdr_ptr(0) && eng_mod[ENGI_WHEEL] == oc_mod_hdr_ptr(1) && oc_mod_reach(1) == 1u);
+        modeng = ENGI_SHAPES; clean(); ocs_resv = 0;
+    }
 #endif
     printf(bad ? "module loader: FAILED\n" : "module loader: all passed\n");
     return bad != 0;

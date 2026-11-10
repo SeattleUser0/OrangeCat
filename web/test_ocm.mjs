@@ -145,10 +145,12 @@ json.dump(out, sys.stdout)`], { cwd: ROOT, input: JSON.stringify(cases), maxBuff
   assert.equal(OCM.check(p, info(18)).key, "modNoFree", "a plan past the table");
   assert.equal(OCM.check(p, { ...info(17), lowOk: false }).key, "modNoFree", "starts 12..17 are not offered while the low sectors are not usable");
   assert.ok(OCM.check(p, info(0, [11, ...SECT.slice(1)])).ok, "the unit's own table (start 0 at sector 11) decides which variant");
-  // the cap: 18 starts read, 19 refused
+  // the cap: 18 starts read (every start of the area)
   const all = SECT.slice().sort((a, b) => a - b);
   const q18 = OCM.parse(build(all)); assert.ok(q18.ok && q18.variants.length === 18, "18 starts: " + JSON.stringify(q18.key));
-  assert.equal(OCM.parse(build([...all, 12])).key, "modWrongFile", "19 starts refused");
+  // (option A, FLASH_MAP_R3.md 10) a tail build's package also lists the tail region's starts (-59 .. -56): 22 at most
+  const q22 = OCM.parse(build([-59, -58, -57, -56, ...all])); assert.ok(q22.ok && q22.variants.length === 22, "22 starts (the area's and the tail's): " + JSON.stringify(q22.key));
+  assert.equal(OCM.parse(build([-59, -58, -57, -56, ...all, 12])).key, "modWrongFile", "23 starts refused");
   // a published-style package (starts 0 and 6, 0 and 4) reads and checks as before
   const o = OCM.parse(build([0, 6]));
   assert.ok(o.ok && o.variants.map((v) => v.start).join() === "0,6" && link(o.variants[1]) === LINK0 + 6 * 4096);

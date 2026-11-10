@@ -14,6 +14,8 @@ const OC_TAIL = 4, OC_TAIL_S0 = -59 + 6;
 const OC_STARTS = 18, OC_AREA = 18, OC_BASE = 6, OC_FX_TABLE = 8, OC_FX_MAX = 8;
 const OC_FX_ENGINE = 0xFFFF;
 const ENG_GEO = { 14: { sectors: 6, starts: 0x03 }, 19: { sectors: 8, starts: 0x05 }, 7: { sectors: 4, starts: 0x03 } };   // SHAPES, the Prophet, WHEEL (oc_mod_geo)
+const ENG_GEO_TAIL = { ...ENG_GEO, 7: { sectors: 1, starts: 0x3FFFF } };     // (option A) a unit with the tail region: WHEEL re-cut to one sector, any start of the area
+const geoOf = (s, engine) => (s.starts.length > OC_STARTS ? ENG_GEO_TAIL : ENG_GEO)[engine];
 const MD = { EMPTY: 0, CRASHED: 5, NOSLOT: 6, OK: 7 };
 const sec = (i) => OC_SECT[i] + OC_BASE;
 const nsec = (len) => Math.floor((len + 0xFFF) / 0x1000);
@@ -25,21 +27,48 @@ const low = (v) => v >= 0 && v < OC_BASE;
 const startOk = (s, i) => place(s, sec(i)) >= 0 && (!low(sec(i)) || !!s.lowOk);
 const fxOrder = (s, k) => { const t = nst(s) - OC_STARTS; return k < t ? OC_STARTS + k : k - t; };
 const overlap = (i, ni, j, nj) => sec(i) < sec(j) + nj && sec(j) < sec(i) + ni;
-const reach = (s, j) => { const g = ENG_GEO[s.starts[j].engine]; const n = g ? g.sectors : nsec(s.starts[j].length); return n || 1; };
+const reach = (s, j) => { const g = geoOf(s, s.starts[j].engine); const n = g ? g.sectors : nsec(s.starts[j].length); return n || 1; };
 const has = (s, i, engine) => usable(s, i) && s.starts[i].engine === engine;
 const fxHas = (s, i, mid) => usable(s, i) && !!s.starts[i].kind && s.starts[i].mid === mid;
 const idMax = (mid) => ((mid & ~0xFF) >>> 0) === 0x4D00 ? OC_AREA : OC_FX_MAX;
 
 function planEngine(s, engine) {
-  const g = ENG_GEO[engine];
+  const g = geoOf(s, engine);
   if (!g) return -1;
   const allowed = (c) => c < nst(s) && ((g.starts >> c) & 1) && spanOk(s, c, g.sectors) && startOk(s, c);
   const blocker = (c) => { for (let j = 0; j < nst(s); j++) if (usable(s, j) && s.starts[j].engine !== engine && overlap(c, g.sectors, j, reach(s, j))) return j; return -1; };
   const own = (c) => { for (let j = 0; j < nst(s); j++) if (has(s, j, engine) && overlap(c, g.sectors, j, reach(s, j))) return true; return false; };
+  if (nst(s) > OC_STARTS) { const c = besideBest(s, g.sectors, (k) => k, (c) => allowed(c) && blocker(c) < 0 && !own(c)); if (c >= 0) return c; }
+  else {
   for (let c = 0; c < nst(s); c++) if (allowed(c) && blocker(c) < 0 && !own(c) && s.starts[c].state === MD.EMPTY) return c;
   for (let c = 0; c < nst(s); c++) if (allowed(c) && blocker(c) < 0 && !own(c) && !usable(s, c)) return c;
+  }
   for (let c = 0; c < nst(s); c++) if (allowed(c) && has(s, c, engine)) return c;
   for (let c = 0; c < nst(s); c++) if (allowed(c) && blocker(c) < 0) return c;
+  return -1;
+}
+// (option A) the placement rule of a unit with the tail region (oc_module.c oc_plan_score): of the candidates that stand beside everything, the one that leaves the longest
+// free run, then the fewest free runs, then the lowest sector (the tail's first, then the area upward)
+function score(s, c, n) {
+  const bit = (v) => { const p = place(s, v); return p === 0 ? 1 << v : p === 1 ? 1 << (OC_AREA + v - OC_TAIL_S0) : 0; };
+  let occ = s.lowOk ? 0 : (1 << OC_BASE) - 1, run = 0, longest = 0, runs = 0;
+  for (let j = 0; j < nst(s); j++) if (usable(s, j)) for (let q = 0; q < reach(s, j); q++) occ |= bit(sec(j) + q);
+  for (let q = 0; q < n; q++) occ |= bit(sec(c) + q);
+  for (let q = 0; q < OC_AREA + OC_TAIL; q++) {
+    if (q === OC_AREA) run = 0;
+    if (occ >> q & 1) { run = 0; continue; }
+    if (!run++) runs++;
+    if (run > longest) longest = run;
+  }
+  return longest << 8 | (255 - runs);
+}
+// the planner's first two passes on a unit with the tail: order(k) is the start tried k-th, ok(c) the beside test
+function besideBest(s, n, order, ok) {
+  for (let pass = 0; pass < 2; pass++) {
+    let best = -1, bs = 0;
+    for (let k = 0; k < nst(s); k++) { const c = order(k); if (ok(c) && (pass ? !usable(s, c) : s.starts[c].state === MD.EMPTY)) { const sc = score(s, c, n); if (sc > bs || (sc === bs && best >= 0 && sec(c) < sec(best))) { bs = sc; best = c; } } }
+    if (best >= 0) return best;
+  }
   return -1;
 }
 function planFx(s, mid, sectors) {
@@ -49,8 +78,11 @@ function planFx(s, mid, sectors) {
   const allowed = (c) => c < nst(s) && sectors >= 1 && sectors <= max && spanOk(s, c, sectors) && startOk(s, c);
   const blocker = (c) => { for (let j = 0; j < nst(s); j++) if (usable(s, j) && !(s.starts[j].kind && s.starts[j].mid === mid) && overlap(c, sectors, j, reach(s, j))) return j; return -1; };
   const own = (c) => { for (let j = 0; j < nst(s); j++) if (fxHas(s, j, mid) && overlap(c, sectors, j, reach(s, j))) return true; return false; };
+  if (nst(s) > OC_STARTS) { const c = besideBest(s, sectors, (k) => fxOrder(s, k), (c) => allowed(c) && blocker(c) < 0 && !own(c)); if (c >= 0) return c; }
+  else {
   for (let k = 0; k < nst(s); k++) { const c = fxOrder(s, k); if (allowed(c) && blocker(c) < 0 && !own(c) && s.starts[c].state === MD.EMPTY) return c; }
   for (let k = 0; k < nst(s); k++) { const c = fxOrder(s, k); if (allowed(c) && blocker(c) < 0 && !own(c) && !usable(s, c)) return c; }
+  }
   for (let k = 0; k < nst(s); k++) { const c = fxOrder(s, k); if (allowed(c) && fxHas(s, c, mid)) return c; }
   for (let k = 0; k < nst(s); k++) { const c = fxOrder(s, k); if (allowed(c) && blocker(c) < 0) return c; }
   return -1;
@@ -61,11 +93,11 @@ const countFx = (s) => new Set(s.starts.filter((x, i) => x.state === MD.OK && x.
 
 // a module of the set: {engine} (SHAPES 14, WHEEL 7, the Prophet 19) or {mid, sectors} (an effect module, the models module 0x4D08). -> the start the loader's planner names, or -1
 const plan = (s, m) => m.engine != null ? planEngine(s, m.engine) : planFx(s, m.mid, m.sectors);
-const sectorsOf = (m) => m.engine != null ? ENG_GEO[m.engine].sectors : m.sectors;
+const sectorsOf = (s, m) => m.engine != null ? geoOf(s, m.engine).sectors : m.sectors;
 // the state after the module is written at start c: its span is its own (anything that overlapped it, a module of the same identity placed beside or in place, junk, is gone), the
 // older module of the same identity is erased once the new one reads back good
 function apply(s, m, c) {
-  const t = cloneState(s), n = sectorsOf(m);
+  const t = cloneState(s), n = sectorsOf(s, m);
   const same = (x) => m.engine != null ? x.state !== MD.EMPTY && !x.kind && x.engine === m.engine : x.state !== MD.EMPTY && x.kind && x.mid === m.mid;
   for (let j = 0; j < nst(s); j++) {
     const x = t.starts[j];
@@ -114,5 +146,5 @@ function whyNot(s, mods, r) {
   const run = m.engine == null ? biggestRun(t, m.mid) : 0;
   return m.engine == null ? name + " needs " + m.sectors + " sectors in one run; the biggest run the unit's loader can use is " + run + "." : name + " has no start the unit's loader allows.";
 }
-return { plan, planEngine, planFx, apply, simulate, fromUnit, emptyState, cloneState, biggestRun, whyNot, OC_SECT, OC_STARTS, OC_AREA, OC_BASE, OC_TAIL, OC_FX_ENGINE, ENG_GEO };
+return { plan, planEngine, planFx, apply, simulate, fromUnit, emptyState, cloneState, biggestRun, whyNot, OC_SECT, OC_STARTS, OC_AREA, OC_BASE, OC_TAIL, OC_FX_ENGINE, ENG_GEO, ENG_GEO_TAIL };
 })();
