@@ -1,3 +1,20 @@
+# Orange Cat Nightly v0.16.0-e49499 (Round 22): what changed for you since 2e1056
+
+Written November 10, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. **I have not installed this Nightly on the test unit: the FM-1 left USB at 15:19, before it was published.** Everything below marked "host" is tested on the PC only.
+
+1. **"After an install all four tracks read MACRO preset 0": found and fixed (host).** On 2e1056 a module install under a track that was on that module's engine crashed the unit; it restarted into the boot project (four MACRO preset 0 tracks when none is saved). To try: put a track on WHEEL, install again from the page with WHEEL ticked; the tracks should stay as they were. If they reset, tell me.
+2. **Controls guide** (every key, knob and combo, following this Nightly): https://seattleuser0.github.io/OrangeCat/webapp/nightly-app/controls.html
+3. **Web app** (the Nightly's is at https://seattleuser0.github.io/OrangeCat/webapp/nightly-app/ ; the installer page's "controls" link goes to `../app/controls.html`, Standard's folder, which has no guide yet: a dead link until fixed): a Pages tab (the unit's own pages), the Steps tab edits ACC, SLIDE, chance and drum hits, GRID, MOTION, and DRUM-X's kit and lanes in the Sounds tab. To try: open the app with the unit connected and change a step's SLIDE.
+4. **The editor link now reaches** BOOT, the DRUM channel, the WEIGHTS, SLIDE TIME and the HOME macros (macros only while MENU > HOME PAGE = PICTURE; in TRACKS the write is refused).
+5. **Track 4 graying out:** not reproduced. Only two things gray a row: MUTE and a FROZEN phrase. A mute reaches a track from MIXER's knob 4 (it mutes the selected track), from the black keys in the GLO SET layer, and from a scene recall; while playing the last two wait for the next launch point, so the row grays later than the press. Next time, please note: which page, whether the row said MUTE or FROZEN, and whether a scene, LAUNCH or MIXER's knob 4 came before it.
+6. **PRESETS jumping or skipping:** not measured (it needs the unit). A test image that logs the encoder's raw steps is built. I need the FM-1 on USB and one action from you: turn PRESETS one click to the right, slowly, and say what the screen did.
+7. **Track OFF:** measured on 2e1056. An idle track costs no measurable CPU; it costs memory (about 11 KB a MACRO or SHAPES track, 1 KB a DRUM-X track). The design (automatic release, and an explicit OFF) is in BUILD.md 7.31; not built.
+8. **Model picker and the tail region (option A):** not in this Nightly. The loader, the placement rule and the WHEEL re-cut are built on branch picker-r4 behind a switch that is off; the bench gate (does the boot stub's window survive a reset) and the power cuts wait for the unit. One decision is yours: the app body cap is 392 B short at my central estimate (FLASH_MAP_R3.md 10.2).
+9. **Image:** 557,688 B, body 553,880 B of 573,440: 19,560 B free, 11,368 B above the 8 KB reserve.
+10. **Tested:** the full SAN=1 suite (sanitizer) green on 5385cb04, 6,583 s; e49499c1 adds BUILD.md text only. Independent review of the crash fix: nothing blocking, one note kept in BUILD.md 7.31.
+
+---
+
 # Orange Cat Nightly v0.16.0-2e1056 (Round 21): what changed for you since 02bf7a
 
 Written November 5, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged.
