@@ -14,12 +14,20 @@ existing suite is removed or changed in what it tests; every new thing is opt-in
 3. **Before a flash or a Nightly**: the full suite under the sanitizers, `SAN=1 tests/run_tests.sh`, through the shared lock
    (below). It is the only run that writes the CI marker `build/orangecat-tests-passed.txt`.
 
-On this NUC every suite goes through the shared lock and scope, never outside it:
+On this NUC everything heavy runs inside the capped slice `suites.slice` (`~/.config/systemd/user/suites.slice`: MemoryHigh=8G,
+MemoryMax=10G for all scopes in it together; since 2026-11-10, after the NUC ran out of memory on Nov 8). **Every session starts
+a suite with `tools/suite_lock.sh`, nothing else.** Up to two full suites may run at once (since 2026-11-10 evening, with /tmp on
+disk): the script tries `flock -n /tmp/oc-suite.lock.1`, then `flock -n /tmp/oc-suite.lock.2`, and only waits (on `.1`) when both
+are taken; then it runs the command in the slice at `nice -n 19`. The old single lock `/tmp/oc-suite.lock` is no longer taken; a
+suite still queued on it is restarted through the script. A build or a single test goes through the slice at `nice -n 19` with no
+lock (`--build`), and so does the build half of a suite script. At most 3 jobs a suite (`PARALLEL=3`). A suite or build that does
+not start is a failure: read its log, never assume it is waiting.
 
 ```
-flock /tmp/oc-suite.lock systemd-run --user --scope -p MemoryMax=12G -- \
-    env PARALLEL=4 JIELI_TOOLCHAIN=~/fm1-toolchain/jieli/toolchain AC79_SDK=~/fm1-toolchain/fw-AC79_AIoT_SDK \
-    PATH=~/fm1-toolchain/venv/bin:$PATH sh tests/run_tests.sh [--fast] [--changed REF]
+tools/suite_lock.sh env SAN=1 PARALLEL=3 JIELI_TOOLCHAIN=~/fm1-toolchain/jieli/toolchain \
+    AC79_SDK=~/fm1-toolchain/fw-AC79_AIoT_SDK PATH=~/fm1-toolchain/venv/bin:$PATH sh tests/run_tests.sh [--fast] [--changed REF]
+
+tools/suite_lock.sh --build <build or single test>
 ```
 
 `~/.profile` exports `FM1_TOOLS`, `JIELI_TOOLCHAIN` and `AC79_SDK` for the layout of BUILDING.md's "Building on a Linux PC", and
