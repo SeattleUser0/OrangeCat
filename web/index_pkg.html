@@ -230,7 +230,7 @@ const TEXT = {
     modWrongFile: "モジュールのファイルではありません。", modWrongFw: "このモジュールはこのファームウェア用ではありません。", modNoVariant: "本体の空き場所に合うイメージがありません。",
     modNoFree: "モジュールを入れる空きがありません。", modBlocked: "エンジン{name}のモジュールがスタート{n}に入っています。先に消してください。", modTail: "このモジュールにはアップデートで消されるセクターがあります。入れていません。", modHdrBad: "このモジュールの内部ヘッダが正しくありません。", modDamaged: "このモジュールのファイルは壊れています。", modStop: "先に再生を止めてください",
     modRestart: "本体を再起動してもう一度お試しください。", modUnreadable: "書き込みましたが正しく読み戻せません。もう一度入れてください。", modFail: "モジュールを入れられませんでした",
-    modDeclined: "モジュールは入れませんでした。", modInPlaceConfirm: "ほかに空きがないため、今入っているモジュールを先に消してから書き込みます。書き込み中に電源が切れると、モジュールは無くなります（入れ直せます）。続けますか？",
+    modDeclined: "モジュールは入れませんでした。", rearrangeConfirm: "いまFM-1に入っているモジュールの並びのままでは、チェックしたセットが入りません。{names} をいったんFM-1から消し、入る順番で入れ直します。1分ほどかかり、終わるまでFM-1はこれらのエンジンやエフェクトなしで鳴ります。途中で止まっても、もう一度インストールを押せば残りを入れ直します。モジュールを並べ替えますか？", rearrangeWorking: "モジュールを並べ替えています", modRearrangeLost: "モジュールの並べ替えの途中でUSBの接続が切れました。いくつかのモジュールはFM-1から消えたままですが、壊れたものはありません。挿し直してもう一度インストールを押すと、残りを入れ直します。", modRearrangeDeclined: "並べ替えをしなかったので、何も書き込んでいません。FM-1は元のままです。", modRearrangeLeft: "まだ入れ直していません。もう一度インストールを押してください。", rearrangeStopped: "モジュールの並べ替えが途中で止まりました。まだ戻っていないモジュールはこのリリースに入っています。もう一度インストールを押すと残りを入れ直します。", rearrangeDone: "モジュールをいったん消し、入る順番で入れ直しました。", modInPlaceConfirm: "ほかに空きがないため、今入っているモジュールを先に消してから書き込みます。書き込み中に電源が切れると、モジュールは無くなります（入れ直せます）。続けますか？",
     license: "GPL-3.0、無保証。ソース:",
   },
   en: {
@@ -324,7 +324,7 @@ const TEXT = {
     modWrongFile: "This is not a module file.", modWrongFw: "This module is not for this firmware.", modNoVariant: "This module file has no image for the free place in the unit.",
     modNoFree: "No place is free for the module.", modBlocked: "ENGINE {name} INSTALLED AT START {n}: REMOVE IT FIRST", modTail: "A sector of this module would be erased by a firmware update, so it was not installed.", modHdrBad: "This module's own header does not match the file or the unit.", modDamaged: "This module file is damaged.", modStop: "Stop playback first",
     modRestart: "Restart the unit and try again.", modUnreadable: "The module was written but does not read back correctly. Install it again.", modFail: "The module could not be installed",
-    modDeclined: "The module was not installed.", modInPlaceConfirm: "No other place is free, so the module that is in the unit is erased first. If the power is cut during the write there will be no module (install it again). Continue?",
+    modDeclined: "The module was not installed.", rearrangeConfirm: "The set you ticked does not fit beside the modules as they sit in the FM-1 now. The page can take {names} off the FM-1 and install them again in an order that fits. It takes about a minute, and until it is done the FM-1 plays without those engines and effects. If it is interrupted, press Install again and it finishes the job. Rearrange the modules?", rearrangeWorking: "Rearranging the modules", modRearrangeLost: "The USB connection was lost while the modules were being rearranged. Some of them are off the FM-1 now; nothing is damaged. Replug it and press Install again: the page puts the rest back.", modRearrangeDeclined: "Not rearranged, so nothing was written: the unit is as it was.", modRearrangeLeft: "Not put back yet: press Install again.", rearrangeStopped: "The rearrangement stopped part way. The modules that are not back yet are in this release: press Install again to put them back.", rearrangeDone: "The modules were taken off and installed again in an order that fits.", modInPlaceConfirm: "No other place is free, so the module that is in the unit is erased first. If the power is cut during the write there will be no module (install it again). Continue?",
     license: "GPL-3.0, no warranty. Source:",
   },
 };
@@ -398,15 +398,18 @@ function modelsPlaces(area) {
 }
 /* (review of the picker) the modules of this install in the order Install writes them (engine modules, the effect modules, the models last), as the loader's planner
  * takes them (web/fm1place.js, held equal to the C planner by web/test_place.mjs). A module the unit already holds is not rewritten here (the run decides that with the
- * files in hand, fm1oc.js placementOf); the models module is always written. */
-function placeMods(pickSectors) {
+ * files in hand, fm1oc.js placementOf); the models module is always written. (round 23) On a unit that reports the tail region the planner takes them in the goal's
+ * order instead (SHAPES, the models, then the small modules: PLACE.arrange / PLACE.goalOrder, as fm1oc.js runSet installs them there). */
+function placeMods(pickSectors, locked = false) {   /* locked (round 23, the unit with the tail region): a box counts while the page is locked for an Install too (its box is disabled then, which is not "not offered") */
   const engNum = (u) => /orangecat-wheel-/.test(u) ? 7 : /orangecat-prophet-/.test(u) ? 19 : 14;
-  const eng = $("stage-prophet").checked && !$("stage-prophet").disabled ? ocmOf("prophet") : $("stage-mod").checked && !$("stage-mod").disabled ? ocmOf("shapes") : [];
-  const fx = $("stage-fx").checked && !$("stage-fx").disabled ? fxOf().filter((x) => x.kind !== 4) : [];
+  const on = (id) => $(id).checked && (locked && writing ? true : !$(id).disabled);
+  const eng = on("stage-prophet") ? ocmOf("prophet") : on("stage-mod") ? ocmOf("shapes") : [];
+  const fx = on("stage-fx") ? fxOf().filter((x) => x.kind !== 4) : [];
   const out = [...eng.map((u) => ({engine: engNum(u), name: {7: "WHEEL", 19: "PROPHET", 14: "SHAPES"}[engNum(u)]})), ...fx.map((x) => ({mid: x.module_id, sectors: x.sectors || 1, name: x.name || "0x" + x.module_id.toString(16)}))];
   if (pickSectors > 0) out.push({mid: 0x4D00 | (master.manifest.engine & 0xFF), sectors: pickSectors, name: "MACRO models"});
   return out;
 }
+const modelsPackPlace = () => { const tail = !!(master && (master.manifest.places || []).some((x) => x.name === "tail")); return tail && (unitState && unitState.mod ? (unitState.mod.starts || []).length > PLACE.OC_STARTS : true) ? "both" : null; };
 const unitHolds = (st, m) => st.starts.some((x) => (x.state === 7 || x.state === 5 || x.state === 6) && (m.engine != null ? !x.kind && x.engine === m.engine : x.kind && x.mid === m.mid));
 const modelsOk = () => modelsLoading ? !$("stage-models").checked : !$("stage-models").checked || $("stage-models").disabled || !master || (!!modelsRoom && modelsRoom.ok);
 function modelsMeter() {                              /* the line under the list: the room, what the other modules take, what this pick needs; Install waits while it does not fit */
@@ -418,7 +421,21 @@ function modelsMeter() {                              /* the line under the list
   let extra = "";
   if (items.length && !bad.length) {
     if (!st) { if (modelsRoom.ok) extra = " " + t("unitUnread"); }
-    else if (Array.isArray(places)) { /* a unit with a tail region (FLASH_MAP_R3.md option A): the planner of that region is the loader's of the option A build; until it is in the page the count above is the meter */ }
+    else if (Array.isArray(places)) { /* (not reached: a unit that was read counts no places here; its tail is seen by its 21 starts, below) */ }
+    else if (PLACE.hasTail(st)) {
+      /* (round 23, FLASH_MAP_R3.md 10.5) a unit that reports the tail region: the meter is the planner's answer, not a count. The set in the goal's order (SHAPES, the models,
+       * then the small modules) on the unit as it stands; if that has no place, the same with the set's own modules taken off and put on again (Install asks first); a module
+       * that is not of the ticked set is never taken off: it is named when it is in the way. */
+      const mods = placeMods(modelsRoom.need, true).map((m, k, a) => ({...m, current: k !== a.length - 1 && unitHolds(st, m)})), a = PLACE.arrange(st, mods);
+      const names = items.map((id) => (master.manifest.items.find((it) => it.id === id) || {name: "?"}).name);
+      const placed = (g) => g.steps.map((x) => x.mod.name + " " + PLACE.sectorsOf(st, x.mod) + " (" + (PLACE.placeName(st, x.start) === "tail" ? "tail region" : "module area") + ")").join(", ");
+      modelsRoom.ok = a.how === "asis" || a.how === "rearrange";
+      modelsRoom.text = "Room: 18 sectors in the module area and " + PLACE.OC_TAIL + " in the tail region. This pick (" + names.join(", ") + ") needs " + modelsRoom.need + " in one run. " +
+        (a.how === "asis" ? "The unit's loader can place it: " + placed(a.plan) + "."
+          : a.how === "rearrange" ? "It fits once " + a.remove.map((m) => m.name).join(", ") + " are taken off the unit and installed again in an order that fits (" + placed(a.plan) + "): Install asks first."
+          : a.how === "blocked" ? a.blockers.map((b) => blockedOne((b.kind === 4 ? b.mid & 0xFF : b.kind ? 127 : b.engine) + ":" + b.start + (b.kind && b.kind !== 4 ? ":" + b.mid : ""))).join(" ")
+          : PLACE.whyNot(st, a.plan.mods, a.plan) + " " + (unitState.mod.lowOk ? "" : "(The six low sectors are not usable on this unit yet.) ") + "Leave a model or a wave bank out.");
+    }
     else {
       const mods = placeMods(modelsRoom.need).filter((m, k, a) => k === a.length - 1 || !unitHolds(st, m)), r = PLACE.simulate(st, mods);
       modelsRoom.ok = r.ok;
@@ -605,12 +622,14 @@ const getFile = async (url) => {
 };
 // the summary: one line a stage
 /* (0.12.1) "ENGINE X INSTALLED AT START N: REMOVE IT FIRST": detail is "engine:start" (fm1oc.js installModule); only a module engine can be in the way */
-const blockedText = (detail) => { const [e, s] = String(detail || "").split(":"); return t("modBlocked").replace("{name}", {14: "SHAPES", 19: "PROPHET", 8: "MACRO MODELS", 127: "EFFECT"}[+e] || "#" + e).replace("{n}", s); };   /* (Release 3 step 4) 127: a start of no engine, an effect module; (the model picker) 8: a start of MACRO's models */
+const blockedOne = (detail) => { const [e, s, id] = String(detail || "").split(":"); return t("modBlocked").replace("{name}", id ? ({1: "DUB TAPE"}[+id] || "EFFECT 0x" + (+id).toString(16).toUpperCase()) : {14: "SHAPES", 19: "PROPHET", 7: "WHEEL", 8: "MACRO MODELS", 127: "EFFECT"}[+e] || "#" + e).replace("{n}", s); };
+const blockedText = (detail) => String(detail || "").split(",").map(blockedOne).join(" ");   /* (round 23) a unit with the tail region: every module in the way that is not of the ticked set, "engine:start" or "127:start:module id" (an effect module by its name), comma separated */   /* (Release 3 step 4) 127: a start of no engine, an effect module; (the model picker) 8: a start of MACRO's models */
 const sumWord = (v) => typeof v === "string" ? t({installed: "sInstalled", current: "sCurrent", off: "sOff", nofile: "sNofile", oldfw: "sOldfw", nounit: "sNounit"}[v]) : v.error === "modBlocked" ? blockedText(v.detail) : v.error === "modNoPlace" ? (v.detail ? v.detail + " " : "") + t("modNoPlace") : (TEXT[lang][v.error] || v.error);
 function summaryText(sum) {
   const lines = [t("sumFw") + ": " + sumWord(sum.firmware), t("sumPack") + ": " + sumWord(sum.pack)];
   (sum.module.length ? sum.module : ["off"]).forEach((m) => lines.push(t("sumMod") + ": " + sumWord(m)));
   if (sum.rolledBack && sum.rolledBack.length) lines.push(t("rolledBack"));
+  if (sum.rearrange) lines.push(t({done: "rearrangeDone", declined: "modRearrangeDeclined", stopped: "rearrangeStopped"}[sum.rearrange]));   /* (round 23) the rearrange: done, not wanted, or stopped part way (Install again finishes it) */
   return lines;
 }
 
@@ -681,7 +700,9 @@ $("go").addEventListener("click", async () => {
     if (stages.pack) files.pack = await getFile(o.pak);
     if (stages.module) files.modules = await Promise.all(modules.map(getFile));
     if (modelsOn) {                       /* (the model picker) the pick packed from the master: a format 2 module package, as the build's own (web/test_pick.mjs) */
-      const pk = PICK.pack(master, pickedItems(), 0, null, modelsRoom && modelsRoom.place === "tail" ? "tail" : null);
+      /* (round 23) the starts the package carries: a unit read with 18 starts gets the area's, as always; a unit that reports the tail region, or one not read yet whose build has
+       * one, gets the area's and (a pick of 3 sectors or fewer) the tail's too, so whichever start the unit's planner names can be served */
+      const pk = PICK.pack(master, pickedItems(), 0, null, modelsPackPlace());
       if (pk.error) throw new Error(pk.error);
       files.modules.push(pk.ocm); want.push({kind: 4, module_id: 0x4D00 | (master.manifest.engine & 0xFF)});
       log(`models: ${pickedItems().length} picked, ${pk.ocm.length} B, ${pk.sectors} sectors`);
@@ -695,6 +716,7 @@ $("go").addEventListener("click", async () => {
       say: (k) => sayK(k),
       progress: (x) => { $("bar").value = x * 100; },
       confirmInPlace: () => confirm(t("modInPlaceConfirm")),
+      confirmRearrange: (names) => confirm(t("rearrangeConfirm").replace("{names}", names.join(", "))),   /* (round 23) asked before the set's own modules are taken off a unit with the tail region and put on again in the goal's order */
     });
     const lines = summaryText(sum);
     if (sum.fx) showUnit({fx: sum.fx});

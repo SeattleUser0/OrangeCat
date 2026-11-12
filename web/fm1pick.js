@@ -103,6 +103,9 @@ const pickPlaceOf = (manifest, place) => {   // [first, last) of a place the mod
   return pl ? [pl.first, pl.last] : null;
 };
 const pickStartsFor = (manifest, sectors, area, place) => {   // the starts (signed sectors from 0xC8000, Release 3 step 1) whose span lies inside the place
+  // (round 23, FLASH_MAP_R3.md 10.5) "both": the area's starts, then the tail's when the master names a tail and the pick is small enough for it (3 sectors or fewer), so a
+  // package serves whichever start the unit's planner names; a larger pick's list is the area's alone, byte for byte the package without a place
+  if (place === "both") return [...pickStartsFor(manifest, sectors, area, null), ...(pickPlaceOf(manifest, "tail") ? pickStartsFor(manifest, sectors, null, "tail") : [])];
   const r = pickPlaceOf(manifest, place); if (!r) return [];
   const first = r[0], last = area && !place ? first + area : r[1], grid = !place || place === "area" ? manifest.starts : null, out = [];
   if (grid) return grid.filter((s) => s >= first && s + sectors <= last);
@@ -161,7 +164,7 @@ function pickPack(master, items, cost = 0, area = null, place = null) {
   dv.setUint32(52, pkCrc32(img.subarray(0x100)), true);
   dv.setUint32(56, pkCrc32(img.subarray(0, 56)), true);
   const sectors = pickSectors(img.length), starts = pickStartsFor(manifest, sectors, area, place);
-  if (!starts.length) { const r = pickPlaceOf(manifest, place) || [0, 0]; return { error: sectors + " sectors fit no start of the " + (place || "area") + "'s " + (area || r[1] - r[0]) }; }
+  if (!starts.length) { const pl = place === "both" ? null : place, r = pickPlaceOf(manifest, pl) || [0, 0]; return { error: sectors + " sectors fit no start of the " + (pl || "area") + "'s " + (area || r[1] - r[0]) }; }
   const h = manifest.hdr, n = starts.length, lst = new Uint8Array(4 * list.length), ldv = new DataView(lst.buffer);
   list.forEach((w, k) => ldv.setUint32(4 * k, w, true));
   const off = (56 + 32 + 8 * n + 4 + 3) & ~3, head = new Uint8Array(off), hd = new DataView(head.buffer);

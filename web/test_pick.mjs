@@ -133,3 +133,55 @@ console.log("test_pick: all passed");
   assert.ok(pk.ocm, "the default pick packs for the area");
   console.log("test_pick: the second place: " + def.text);
 }
+
+// 6. (round 23, FLASH_MAP_R3.md 10.5 item 3: a pick in the tail) the place "both": the area's starts, then the tail's when the pick is small enough for the tail (3 sectors
+//    or fewer), so the package serves whichever start the unit's planner names; a larger pick's package is the area's, byte for byte; the Python packer makes the same bytes;
+//    and the page's own reader (fm1oc.js) serves the tail's start from it
+{
+  const { OCM } = await import("./fm1oc.js");
+  const { PLACE } = await import("./fm1place.js");
+  const tail = manifest.places.find((x) => x.name === "tail"), T0 = tail.first, TN = tail.last - tail.first, area = (n) => manifest.starts.filter((s) => s + n <= manifest.area_last);
+  assert.ok(T0 === PLACE.OC_TAIL_REL && TN === PLACE.OC_TAIL, "the master's tail is the planner's (" + T0 + ", " + TN + " sectors)");
+  for (let n = 1; n <= 5; n++) {
+    const want = [...area(n), ...Array.from({ length: Math.max(0, TN - n + 1) }, (_, k) => T0 + k)];
+    assert.deepEqual(PICK.startsFor(manifest, n, null, "both"), want, "a " + n + " sector pick for both places");
+    assert.ok(want.length <= 21, "at most 21 starts in a package");
+  }
+  const sets = [["fm"], ["vavcf", "pd"], ["vavcf", "pd", "terran", "strmch"], ["vavcf", "pd", "terran", "strmch", "chip"]].map((k) => PICK.items(manifest, k));
+  sets.push(PICK.default(manifest));
+  const py = spawnSync("python3", ["-c", `
+import json, sys, base64
+sys.path.insert(0, "tools")
+import pick_module
+master = open(sys.argv[1], "rb").read()
+out = []
+for items in json.load(sys.stdin):
+    ocm, sectors, starts = pick_module.pack(master, items, 0, None, "both")
+    out.append([base64.b64encode(ocm).decode(), sectors, starts])
+json.dump(out, sys.stdout)`, "build/" + masters[0]], { cwd: ROOT, input: JSON.stringify(sets), maxBuffer: 1 << 28 });
+  assert.equal(py.status, 0, py.stderr.toString());
+  const theirs = JSON.parse(py.stdout.toString()), seen = [];
+  sets.forEach((items, k) => {
+    const got = PICK.pack(master, items, 0, null, "both"), plain = PICK.pack(master, items, 0);
+    assert.ok(got.ocm, "pick " + items + ": " + got.error);
+    assert.deepEqual(got.ocm, Uint8Array.from(Buffer.from(theirs[k][0], "base64")), "pick " + items + " for both places is the Python packer's byte for byte");
+    assert.deepEqual([got.sectors, got.starts], [theirs[k][1], theirs[k][2]]);
+    const inTail = got.starts.filter((s) => s < manifest.area_first);
+    assert.equal(inTail.length, Math.max(0, TN - got.sectors + 1), "the tail's starts of a " + got.sectors + " sector pick");
+    assert.deepEqual(got.starts.slice(0, plain.starts.length), plain.starts, "the area's starts first, as the package without a place");
+    if (got.sectors > TN) assert.deepEqual(got.ocm, plain.ocm, "a pick too large for the tail: the area's package byte for byte");
+    seen.push(got.sectors + ":" + inTail.length);
+    // the page's reader takes the package (every start's image relocated and proved by its CRC), and serves the start the unit's planner names: on an empty unit with
+    // the tail a pick of 3 sectors or fewer goes to the tail's first sector (start 18), a larger one to the bottom of the area (start 17)
+    const ocm = OCM.parse(got.ocm);
+    assert.ok(ocm.ok && ocm.kind === 4 && ocm.variants.length === got.starts.length, "the page reads it: " + ocm.key);
+    const plan = PLACE.planFx(PLACE.emptyState(true, PLACE.OC_TAIL), ocm.moduleId, ocm.fxSectors), h = manifest.hdr;
+    assert.equal(plan, got.sectors <= TN ? 18 : 17, "the planner's start for a " + got.sectors + " sector pick on an empty unit with the tail");
+    const info = { iface: h.iface, apiAddr: h.api_addr, apiVersion: h.api_version, apiSize: h.api_size, packHash: h.pack_hash, sectorOf: PLACE.OC_SECT, starts: [] };
+    const chk = OCM.fxCheck(ocm, info, { plan, blocker: null, lowOk: true });
+    assert.ok(chk.ok && chk.variant.start === PLACE.OC_SECT[plan], "the package has the image for that start: " + chk.key);
+    if (got.sectors <= TN) assert.equal(OCM.fxCheck(OCM.parse(plain.ocm), info, { plan, blocker: null, lowOk: true }).key, "modNoVariant", "... which the area's package could not serve");
+  });
+  assert.match(PICK.pack(master, manifest.items.map((it) => it.id), 0, null, "both").error, /fit no start of the area's/);
+  console.log("test_pick: both places: " + sets.length + " picks (sectors:tail starts " + seen.join(", ") + ") are the Python packer's byte for byte, read by the page and served at the planner's start");
+}

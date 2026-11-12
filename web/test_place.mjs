@@ -153,4 +153,43 @@ console.log("place: " + cases.length + " unit states x " + q.length + " modules 
     if (today.ok) bad++;                                             // (if this ever places, the note in FLASH_MAP_R3.md 10.5 is stale)
   }
 }
+// (round 23, FLASH_MAP_R3.md 10.5: the page's half of the rule) the goal's order and the rearrange (PLACE.goalOrder, PLACE.arrange: what fm1oc.js runSet and the page's meter do)
+{
+  const S = { engine: 14, name: "SHAPES" }, P = { mid: 0x4D08, sectors: 9, name: "MACRO models" }, W = { engine: 7, name: "WHEEL" }, F = { mid: 0x1002, sectors: 2, name: "FX" }, D = { mid: 0x1001, sectors: 3, name: "DUB TAPE" }, R = { mid: 0x1003, sectors: 1, name: "REVERB" };
+  const page = [W, S, F, D, P];                                         // the page's file order: WHEEL, SHAPES, the effect modules, the pick last
+  const say = (what, ok, more = "") => { console.log("place: " + what + ": " + (ok ? "ok" : "FAIL") + (more ? " " + more : "")); if (!ok) bad++; };
+  const nightly = () => {
+    const u = emptyState(true, TAIL);
+    u.starts[0] = { state: 7, kind: 0, mid: 0, engine: 14, length: 24160 }; u.starts[1] = { state: 7, kind: 0, mid: 0, engine: 7, length: 2928 };
+    u.starts[14] = { state: 7, kind: 1, mid: 0x1001, engine: OC_FX_ENGINE, length: 3 * 4096 }; u.nfxmod = 1;
+    return u;
+  };
+  const st = (a) => a.plan.steps.map((x) => x.start).join(" ");
+  if (!TAIL) {
+    // a unit with 18 starts: the page's order as it always was, and never a rearrange or a named blocker, whatever the unit holds
+    const o = PLACE.goalOrder(emptyState(true, 0), page), a = PLACE.arrange(nightly(), [{ ...W, current: true }, { ...S, current: true }, { ...D, current: true }, P]);
+    say("a unit with 18 starts keeps the page's order and is never rearranged (" + a.how + ")", o.join() === "0,1,2,3,4" && a.how === "none" && !a.remove && !a.blockers && a.order.join() === "0,1,2,3");
+  } else {
+    const o = PLACE.goalOrder(emptyState(true, TAIL), page);
+    say("the goal's order of the page's set (WHEEL, SHAPES, FX, DUB TAPE, the pick) is SHAPES, the pick, WHEEL, FX, DUB TAPE", o.join() === "1,4,0,2,3");
+    const e = PLACE.arrange(emptyState(true, TAIL), page);
+    say("an empty unit takes the set as it stands, in the goal's order (starts " + st(e) + ")", e.how === "asis" && st(e) === "1 17 5 2 18");
+    // the Nightly's unit: SHAPES and DUB TAPE current, the published WHEEL to be replaced: no run for the pick; with the set's own modules off and on again, all five place
+    const a = PLACE.arrange(nightly(), [W, { ...S, current: true }, F, { ...D, current: true }, P]);
+    say("the Nightly's unit: the set fits after a rearrange (take off " + (a.remove || []).map((m) => m.name).join(", ") + "; then starts " + st(a) + ")",
+      a.how === "rearrange" && a.remove.map((m) => m.name).join() === "SHAPES,WHEEL,DUB TAPE" && st(a) === "1 17 5 2 18" && a.plan.ok);
+    // only the pick is of the set: SHAPES (start 0) and DUB TAPE (start 14) are in the way and are named; WHEEL may stay
+    const b = PLACE.arrange(nightly(), [P]);
+    say("the Nightly's unit, the pick alone: blocked by the modules at starts " + (b.blockers || []).map((x) => x.start).join(", ") + ", which are not of the set", b.how === "blocked" && b.blockers.map((x) => x.start).join() === "0,14" && !b.remove);
+    // the limits, on record. The full goal set is one sector short on any unit, so a rearrange cannot help; and a unit whose six low sectors are not the area's yet
+    // (12 + 3 sectors) has no place for SHAPES beside the 9 sector pick
+    const full = PLACE.arrange(nightly(), [W, S, F, D, R, P]);
+    say("the Nightly's unit, the full goal set (22 sectors on 21): no place even after a rearrange", full.how === "none");
+    const lo = nightly(); lo.lowOk = false; lo.starts[14] = { state: 0, kind: 0, mid: 0, engine: 0, length: 0 }; lo.nfxmod = 0;
+    const l = PLACE.arrange(lo, [W, S, P]);
+    say("a unit whose low six sectors are not usable: SHAPES, WHEEL and the 9 sector pick have no place (12 usable sectors in the area), rearranged or not", l.how === "none");
+    const l2 = PLACE.arrange(lo, [W, S, { mid: 0x4D08, sectors: 5, name: "MACRO models" }]);
+    say("... the same unit takes a 5 sector pick (" + l2.how + ")", l2.how === "asis" || l2.how === "rearrange");
+  }
+}
 process.exit(bad ? 1 : 0);

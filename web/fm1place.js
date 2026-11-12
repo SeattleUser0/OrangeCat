@@ -147,5 +147,46 @@ function whyNot(s, mods, r) {
   const run = m.engine == null ? biggestRun(t, m.mid) : 0;
   return m.engine == null ? name + " needs " + m.sectors + " sectors in one run; the biggest run the unit's loader can use is " + run + "." : name + " has no start the unit's loader allows.";
 }
-return { plan, planEngine, planFx, apply, simulate, fromUnit, emptyState, cloneState, biggestRun, whyNot, OC_SECT, OC_STARTS, OC_AREA, OC_BASE, OC_TAIL, OC_TAIL_REL, OC_FX_ENGINE, ENG_GEO, ENG_GEO_TAIL };
+// (option A, FLASH_MAP_R3.md 10.5: the page's half of the rule) The goal's order on a unit with the tail region: the engines with fixed starts first (SHAPES, the Prophet),
+// then the models pick, then the small modules (WHEEL re-cut, the effect modules), each group in the page's own order. -> the indices of mods in that order; a unit without
+// the tail (18 starts) keeps the page's order as it always was.
+const hasTail = (s) => nst(s) > OC_STARTS;
+const rank = (m) => m.engine != null ? (m.engine === 7 ? 2 : 0) : idMax(m.mid) === OC_AREA ? 1 : 2;
+function goalOrder(s, mods) {
+  const idx = mods.map((_, i) => i);
+  return hasTail(s) ? idx.sort((a, b) => rank(mods[a]) - rank(mods[b]) || a - b) : idx;
+}
+const placeName = (s, c) => place(s, sec(c)) === 1 ? "tail" : "area";
+// (the same) How the set goes on the unit. mods: the set in the page's order, {engine} or {mid, sectors}, with `current` on a module the unit already holds as this file
+// (it is not written again when the unit stays as it stands). ->
+//   {how: "asis", order, plan}        the set (less the current ones) fits on the unit as it stands, in the order
+//   {how: "rearrange", order, plan, remove}   (a unit with the tail only) it does not fit as the unit stands, but it does when the set's own modules that the unit holds
+//                                     (remove: those of mods, in the order) are taken off and every module of the set is put on again in the goal's order
+//   {how: "blocked", order, plan, blockers}   (the same) it would fit only without modules that are not of the set: blockers [{start, engine, kind, mid}], which the page names
+//                                     and never removes (found by putting each of them back in turn: the ones the set cannot stand beside)
+//   {how: "none", order, plan}        no place: plan is the failed plan of the unit as it stands (whyNot's input)
+// plan is simulate()'s answer for the modules in `mods` of it (plan.mods: the modules simulated, in order).
+function arrange(s, mods) {
+  const order = goalOrder(s, mods), all = order.map((i) => mods[i]), todo = all.filter((m) => !m.current);
+  const run = (t, list) => ({ ...simulate(t, list), mods: list });
+  const asis = run(s, todo);
+  if (asis.ok) return { how: "asis", order, plan: asis };
+  if (!hasTail(s)) return { how: "none", order, plan: asis };
+  const same = (x, m) => m.engine != null ? !x.kind && x.engine === m.engine : !!x.kind && x.mid === m.mid;
+  const own = (j) => usable(s, j) && all.some((m) => same(s.starts[j], m));
+  const foreign = s.starts.map((_, j) => j).filter((j) => usable(s, j) && !own(j));
+  const cleared = (keep) => {                          // the unit without the set's own modules, and without the foreign ones that are not in keep
+    const t = cloneState(s), gone = new Set();
+    for (let j = 0; j < nst(s); j++) if (own(j) || (usable(s, j) && !keep.has(j))) { if (s.starts[j].kind) gone.add(s.starts[j].mid); t.starts[j] = { state: 0, kind: 0, mid: 0, engine: 0, length: 0 }; }
+    t.nfxmod = Math.max(0, s.nfxmod - gone.size);
+    return t;
+  };
+  const re = run(cleared(new Set(foreign)), all);
+  if (re.ok) return { how: "rearrange", order, plan: re, remove: all.filter((m) => s.starts.some((x, j) => usable(s, j) && same(x, m))) };
+  if (!foreign.length || !simulate(cleared(new Set()), all).ok) return { how: "none", order, plan: asis };
+  const keep = new Set();
+  for (const j of foreign) { keep.add(j); if (!simulate(cleared(keep), all).ok) keep.delete(j); }
+  return { how: "blocked", order, plan: asis, blockers: foreign.filter((j) => !keep.has(j)).map((j) => ({ start: j, engine: s.starts[j].engine, kind: s.starts[j].kind, mid: s.starts[j].mid })) };
+}
+return { plan, planEngine, planFx, apply, simulate, fromUnit, emptyState, cloneState, biggestRun, whyNot, goalOrder, arrange, hasTail, placeName, sectorsOf, OC_SECT, OC_STARTS, OC_AREA, OC_BASE, OC_TAIL, OC_TAIL_REL, OC_FX_ENGINE, ENG_GEO, ENG_GEO_TAIL };
 })();

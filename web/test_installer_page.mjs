@@ -40,7 +40,7 @@ const STANDARD = {version: "0.15.0", product: "FM-1_900", pkg: {dual: "standard.
 const META = {...STANDARD, releases: [STANDARD], nightly: NIGHTLY};
 
 function boot(storage, unit = {model: "FM-1", text: "FM-1_710010300"}, meta = META) {
-  const elements = new Map(), pending = [], installs = [], runs = [], unitReads = {n: 0, data: null};
+  const elements = new Map(), pending = [], installs = [], runs = [], confirms = [], unitReads = {n: 0, data: null};
   const element = (id) => {
     if (!elements.has(id)) elements.set(id, {checked: id === "build-dual" || id === "stage-fw" || id === "stage-pack" || id === "stage-mod", disabled: false, hidden: false,
       textContent: "", listeners: {}, options: [], value: "", dataset: {},
@@ -54,7 +54,7 @@ function boot(storage, unit = {model: "FM-1", text: "FM-1_710010300"}, meta = ME
     document: {documentElement: {}, querySelectorAll: () => [], getElementById: element, createElement: () => element("_o")},
     window: {addEventListener() {}},
     localStorage: storage,
-    confirm: () => true,
+    confirm: (m) => { confirms.push(m); return unitReads.answer !== false; },
     fetch: (url) => new Promise((resolve) => pending.push({url, resolve})),
     productOf: () => "FM-1_900", logicalImage: (b) => String.fromCharCode(...b), MELODEE_LOADER, STOCK_LOADER,
     Updater: class {
@@ -65,6 +65,10 @@ function boot(storage, unit = {model: "FM-1", text: "FM-1_710010300"}, meta = ME
     runSet: async (ctx) => {                              // the page's one run: the firmware first, then the pack and the module (the set logic is fm1oc.js runSet, tested in test_installer_set.mjs)
       runs.push({stages: ctx.stages, pack: ctx.files.pack && String.fromCharCode(...ctx.files.pack), modules: ctx.files.modules.map((m) => String.fromCharCode(...m)), want: ctx.files.want});
       if (ctx.stages.firmware) await ctx.runFirmware(() => {});
+      if (unitReads.rearrange) {                          // (round 23) the set logic asks before a rearrange: here the page's question is what is under test
+        const yes = await ctx.confirmRearrange(unitReads.rearrange);
+        return {firmware: "off", pack: "off", module: ctx.files.modules.map(() => (yes ? "installed" : {error: "modRearrangeDeclined"})), rearrange: yes ? "done" : "declined"};
+      }
       return {firmware: ctx.stages.firmware ? "installed" : "off", pack: ctx.stages.pack ? "installed" : "off", module: ctx.files.modules.map(() => "installed")};
     },
     OcLink: class { close() {} },
@@ -75,7 +79,7 @@ function boot(storage, unit = {model: "FM-1", text: "FM-1_710010300"}, meta = ME
   const script = template.match(/<script type="module">([\s\S]*?)<\/script>/)[1].replace("/*LIB*/", "").replace("/*META*/{}", JSON.stringify(meta));
   vm.runInContext(script, context);
   const tick = () => new Promise((r) => setImmediate(r));
-  return {element, pending, installs, runs, tick, context, unitReads};
+  return {element, pending, installs, runs, tick, context, unitReads, confirms};
 }
 const answer = async (page, url) => {            // the fetch for url answers with the url's bytes
   const i = page.pending.findIndex((p) => p.url.startsWith(url)); assert.ok(i >= 0, "a fetch of " + url + " in " + page.pending.map((p) => p.url));
@@ -196,11 +200,15 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
             { id: 25, key: "wav0", name: "WAVE BANK A", regions: ["tbl_wav0"] }],
     hdr: { iface: 1, api_addr: 2, api_version: 3, api_size: 4, pack_hash: 5 } };
   new DataView(img0.buffer).setUint32(0, 0x444F4D4F, true);
-  const js = new TextEncoder().encode(JSON.stringify(manifest)), jl = (js.length + 3) & ~3, body = new Uint8Array(jl + img0.length);
-  body.set(js, 0); body.set(img0, jl);
-  const masterBytes = new Uint8Array(24 + body.length), mdv = new DataView(masterBytes.buffer);
-  mdv.setUint32(0, 0x4D50434F, true); mdv.setUint32(4, 1, true); mdv.setUint32(8, jl, true); mdv.setUint32(12, img0.length, true); mdv.setUint32(16, 0, true); mdv.setUint32(20, PICK.crc32(body), true);
-  masterBytes.set(body, 24);
+  const masterOf = (manifest) => {
+    const js = new TextEncoder().encode(JSON.stringify(manifest)), jl = (js.length + 3) & ~3, body = new Uint8Array(jl + img0.length);
+    body.set(js, 0); body.set(img0, jl);
+    const out = new Uint8Array(24 + body.length), mdv = new DataView(out.buffer);
+    mdv.setUint32(0, 0x4D50434F, true); mdv.setUint32(4, 1, true); mdv.setUint32(8, jl, true); mdv.setUint32(12, img0.length, true); mdv.setUint32(16, 0, true); mdv.setUint32(20, PICK.crc32(body), true);
+    out.set(body, 24);
+    return out;
+  };
+  const masterBytes = masterOf(manifest);
   assert.ok(PICK.parseMaster(masterBytes), "the made master parses");
   const WITH = {...STANDARD, ocp: "orangecat-plaits-0.15.0.ocp", ocm: [...STANDARD.ocm, {url: "orangecat-dub-0.15.0.ocm", kind: 1, module_id: 1, name: "DUB TAPE", sectors: 3}]};
   const storage = store(), page = boot(storage, {model: "FM-1", text: "FM-1_710010300"}, {...WITH, releases: [WITH]});
@@ -239,17 +247,17 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
   { const i = again.pending.findIndex((p) => p.url.startsWith("orangecat-plaits-")); const [p] = again.pending.splice(i, 1); p.resolve({ok: true, arrayBuffer: async () => masterBytes.buffer}); await again.tick(); await again.tick(); }
   assert.ok(again.element("mdl-1").checked && !again.element("mdl-3").checked, "the next visit opens on the remembered pick");
   {   // (the review of the picker) the room is placed the way the unit's loader places it, from the unit as it is read; Install reads the unit again each time
-    const unitOf = (mods) => {                     // mods: [[start, engine, state, length, fx?{id, sectors}]] -> what listUnit answers
-      const starts = Array.from({length: 18}, () => ({state: 0, why: 0, engine: 0, length: 0})), effects = [], engines = [];
+    const unitOf = (mods, nstarts = 18) => {       // mods: [[start, engine, state, length, fx?{id, sectors}]] -> what listUnit answers (nstarts 21: a unit with the tail region)
+      const starts = Array.from({length: nstarts}, () => ({state: 0, why: 0, engine: 0, length: 0})), effects = [], engines = [];
       for (const [st, eng, state, len, fx] of mods) { starts[st] = {state, why: 0, engine: fx ? 127 : eng, length: len}; if (fx) effects.push({id: fx.id, kind: 1, version: [1, 0, 0], count: 1, state, why: 0, start: st, sectors: fx.sectors, resident: false, uses: 0}); else engines.push({num: eng, src: 2, state, start: st}); }
-      return {mod: {nstarts: 18, sectors: 18, lowOk: true, starts}, engines: {engines}, fx: {effects}};
+      return {mod: {nstarts, sectors: 18, lowOk: true, starts}, engines: {engines}, fx: {effects}};
     };
-    const fresh = async (unit) => {
+    const fresh = async (unit, {fx = false, bytes = masterBytes} = {}) => {
       const pg = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...WITH, releases: [WITH]});
       await answer(pg, "standard.fwsc");
-      const i = pg.pending.findIndex((q) => q.url.startsWith("orangecat-plaits-")); const [q] = pg.pending.splice(i, 1); q.resolve({ok: true, arrayBuffer: async () => masterBytes.buffer}); await pg.tick(); await pg.tick();
+      const i = pg.pending.findIndex((q) => q.url.startsWith("orangecat-plaits-")); const [q] = pg.pending.splice(i, 1); q.resolve({ok: true, arrayBuffer: async () => bytes.buffer}); await pg.tick(); await pg.tick();
       pg.element("stage-models").checked = true; pg.element("stage-models").listeners.change();
-      pg.element("stage-fx").checked = false; pg.element("stage-fx").listeners.change();
+      pg.element("stage-fx").checked = fx; pg.element("stage-fx").listeners.change();
       pg.element("mdl-3").checked = false; pg.element("mdl-3").listeners.change();            // WAVSHP and FM: 3 sectors
       pg.unitReads.data = unit;
       return pg;
@@ -273,6 +281,53 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
     const lo = await fresh(lowOff);
     lo.element("go").listeners.click(); await lo.tick(); await lo.tick();
     assert.ok(/low sectors are not usable/.test(lo.element("models-room").textContent) && lo.runs.length === 0, "SHAPES 6 and WHEEL 4 leave 2 of the 12 usable sectors: the 3 sector pick is refused, with the reason: " + lo.element("models-room").textContent);
+    // (round 23, FLASH_MAP_R3.md 10.5) a unit that reports the tail region (21 starts): the meter is the planner's answer in the goal's order (SHAPES, the models, then the
+      // small modules); a set that fits only after its own modules are taken off and put on again says so and Install asks; a module of another set in the way is named
+    for (const k of ["rearrangeConfirm", "rearrangeWorking", "modRearrangeLost", "modRearrangeDeclined", "modRearrangeLeft", "rearrangeStopped", "rearrangeDone"])
+      assert.equal((template.match(new RegExp("\\b" + k + ":", "g")) || []).length, 2, k + " in ja and en");
+    const tailMaster = masterOf({...manifest, places: [{name: "area", first: -6, last: 12}, {name: "tail", first: -58, last: -55}]});
+    const startsOf = (packed) => { const b = Uint8Array.from(packed, (c) => c.charCodeAt(0)), dv = new DataView(b.buffer); return Array.from({length: dv.getUint32(84, true)}, (_, k) => dv.getInt32(88 + 8 * k, true)); };
+    const press = async (pg, fx) => { const c = pg.element("go").listeners.click(); await pg.tick(); await pg.tick(); if (pg.pending.length) { await answer(pg, WITH.pak); await answer(pg, WITH.ocm[0]); if (fx) await answer(pg, "orangecat-dub-0.15.0.ocm"); } await c; };
+    // an empty unit with the tail: SHAPES first (start 1, the area), then the 3 sector pick, which the rule sends to the tail; the package carries the tail's start
+    const empty = await fresh(unitOf([], 21), {bytes: tailMaster});
+    await press(empty);
+    assert.match(empty.element("models-room").textContent, /^Room: 18 sectors in the module area and 3 in the tail region\. This pick \(WAVSHP, FM\) needs 3 in one run\. The unit's loader can place it: SHAPES 6 \(module area\), MACRO models 3 \(tail region\)\.$/, empty.element("models-room").textContent);
+    assert.equal(empty.runs.length, 1, "written");
+    assert.deepEqual(startsOf(empty.runs[0].modules[1]), [...Array.from({length: 16}, (_, i) => i - 6), -58], "the pick's package for a unit with the tail: the area's starts and the tail's");
+    assert.ok(!empty.confirms.length, "nothing to ask");
+    // the same pick for a unit that reports 18 starts is the area's package, as it always was
+    const u18 = await fresh(unitOf([[0, 14, 7, 24160]]), {bytes: tailMaster});
+    await press(u18);
+    assert.deepEqual(startsOf(u18.runs[0].modules[1]), Array.from({length: 16}, (_, i) => i - 6), "a unit with 18 starts: no tail start in the package");
+    // SHAPES at start 0, DUB TAPE (the effects box: of the set) at sector 7, another module in the tail, the low six not usable: the pick has no run of 3 as the unit
+    // stands (1 and 2 are free); with SHAPES and DUB TAPE taken off and put on again in order it has. The meter says so, Install asks, the answer is the user's
+    const tfrag = () => { const x = unitOf([[0, 14, 7, 24160], [7, 0, 7, 12288, {id: 1, sectors: 3}], [18, 0, 7, 12288, {id: 0x1234, sectors: 3}]], 21); x.mod.lowOk = false; return x; };
+    assert.equal(PLACE.simulate(PLACE.fromUnit(tfrag()), [{mid: 0x4D08, sectors: 3}]).ok, false, "the planner: no place as the unit stands");
+    const re = await fresh(tfrag(), {fx: true, bytes: tailMaster});
+    re.unitReads.rearrange = ["SHAPES", "DUB TAPE"];
+    await press(re, true);
+    assert.match(re.element("models-room").textContent, /needs 3 in one run\. It fits once SHAPES, DUB TAPE are taken off the unit and installed again in an order that fits \(SHAPES 6 \(module area\), MACRO models 3 \(module area\), DUB TAPE 3 \(module area\)\): Install asks first\.$/, re.element("models-room").textContent);
+    assert.equal(re.runs.length, 1, "Install goes on to the question");
+    assert.equal(re.confirms.length, 1);
+    assert.equal(re.confirms[0], "The set you ticked does not fit beside the modules as they sit in the FM-1 now. The page can take SHAPES, DUB TAPE off the FM-1 and install them again in an order that fits. " +
+      "It takes about a minute, and until it is done the FM-1 plays without those engines and effects. If it is interrupted, press Install again and it finishes the job. Rearrange the modules?");
+    assert.match(re.element("status").textContent, /The modules were taken off and installed again in an order that fits\.$/, re.element("status").textContent);
+    const no = await fresh(tfrag(), {fx: true, bytes: tailMaster});
+    no.unitReads.rearrange = ["SHAPES", "DUB TAPE"]; no.unitReads.answer = false;
+    await press(no, true);
+    assert.match(no.element("status").textContent, /Not rearranged, so nothing was written: the unit is as it was\.$/, no.element("status").textContent);
+    // the effects box unticked: the two effect modules are not of the set; the pick would fit without the one in the tail, which is named (the first that the set cannot
+    // stand beside, the others kept); nothing is written. The same with DUB TAPE in the tail: named by its name
+    const blk0 = await fresh(tfrag(), {bytes: tailMaster});
+    await press(blk0);
+    assert.match(blk0.element("models-room").textContent, /needs 3 in one run\. ENGINE EFFECT 0x1234 INSTALLED AT START 18: REMOVE IT FIRST Install waits until the models fit\.$/, blk0.element("models-room").textContent);
+    assert.equal(blk0.runs.length, 0);
+    const swapped = unitOf([[0, 14, 7, 24160], [7, 0, 7, 12288, {id: 0x1234, sectors: 3}], [18, 0, 7, 12288, {id: 1, sectors: 3}]], 21); swapped.mod.lowOk = false;
+    const blk = await fresh(swapped, {bytes: tailMaster});
+    await press(blk);
+    assert.match(blk.element("models-room").textContent, /needs 3 in one run\. ENGINE DUB TAPE INSTALLED AT START 18: REMOVE IT FIRST Install waits until the models fit\.$/, blk.element("models-room").textContent);
+    assert.equal(blk.runs.length, 0, "a module that is not of the set is in the way: nothing is written");
+    assert.ok(!blk.confirms.length, "and nothing is asked");
   }
   const plain = boot(store());
   await answer(plain, "standard.fwsc");

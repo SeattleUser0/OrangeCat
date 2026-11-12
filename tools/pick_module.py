@@ -7,7 +7,8 @@ each a region of the image, with the relocation list and a manifest), without a 
 installer page; web/test_pick.mjs and tests/module_pick_test.py prove that both make, for a pick, the bytes tools/build.py --module plaits --pick
 makes with the real linker. The firmware keeps VA; a pick may carry it too (the firmware prefers its own), the page does not offer it.
 
-  tools/pick_module.py MASTER.ocp OUT.ocm [--place=tail] ITEM [ITEM ...]      (--place: the tail region instead of the module area)  ITEM: a model's key (wavshp, 6opa, wavtbl ...), a wave bank (wav0 ..) or an item id
+  tools/pick_module.py MASTER.ocp OUT.ocm [--place=tail|both] ITEM [ITEM ...]      (--place: tail, the tail region instead of the module area; both, the area's starts and,
+                                                                               for a pick of 3 sectors or fewer, the tail's too: what the page packs for a unit with the tail)  ITEM: a model's key (wavshp, 6opa, wavtbl ...), a wave bank (wav0 ..) or an item id
   tools/pick_module.py MASTER.ocp --list                       the items, their regions and sizes
 
 The master package:
@@ -224,6 +225,9 @@ def place_of(manifest, place=None):
 def starts_for(manifest, sectors, area=None, place=None):
     """the starts (signed sectors from the numbering origin, Release 3 step 1: -6 .. 11) the pick fits at: its span inside the place [first, last) (default
     the module area); area: sectors to pretend the area has from its first sector, for the byte proof of a pick too large for the real one"""
+    if place == "both":                                # (round 23, FLASH_MAP_R3.md 10.5) the area's starts, then the tail's when the master names a tail and the pick fits it
+        tail = any(pl["name"] == "tail" for pl in manifest.get("places", []))
+        return starts_for(manifest, sectors, area) + (starts_for(manifest, sectors, None, "tail") if tail else [])
     first, last = place_of(manifest, place)
     if area and (not place or place == "area"):
         last = first + area
@@ -245,8 +249,9 @@ def pack(master, items, cost=0, area=None, place=None):
     sectors = (len(img) + 0xFFF) // 0x1000
     starts = starts_for(manifest, sectors, area, place)
     if not starts:
-        first, last = place_of(manifest, place)
-        raise ValueError(f"{sectors} sectors fit no start of the {place or 'area'}'s {area or last - first}")
+        pl = None if place == "both" else place
+        first, last = place_of(manifest, pl)
+        raise ValueError(f"{sectors} sectors fit no start of the {pl or 'area'}'s {area or last - first}")
     h = manifest["hdr"]
     variants = []
     for s in starts:
