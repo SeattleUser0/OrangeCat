@@ -1382,6 +1382,8 @@ static int fx_protocol(void)
                  (host_wire[10] | host_wire[11] << 7 | host_wire[12] << 14 | (uint32_t)host_wire[13] << 21 | (uint64_t)host_wire[14] << 28) == (uint32_t)FX_ABI_ID);   /* (round 18) the abi follows the four words */
     bad += check("FX_INFO: (Release 3 step 8a) a sixth word follows, the send host's FX2_ABI_ID (kind 2: the reverb's modes), which is not FX_ABI_ID",
                  (host_wire[15] | host_wire[16] << 7 | host_wire[17] << 14 | (uint32_t)host_wire[18] << 21 | (uint64_t)host_wire[19] << 28) == (uint32_t)FX2_ABI_ID && FX2_ABI_ID != FX_ABI_ID);
+    bad += check("FX_INFO: (Release 3 step 8b) a seventh word follows, the master host's FX3_ABI_ID (kind 3: the FX layer's ring effects), which is neither of the other two",
+                 (host_wire[20] | host_wire[21] << 7 | host_wire[22] << 14 | (uint32_t)host_wire[23] << 21 | (uint64_t)host_wire[24] << 28) == (uint32_t)FX3_ABI_ID && FX3_ABI_ID != FX_ABI_ID && FX3_ABI_ID != FX2_ABI_ID);
     a[6] = 9; request(ED_EXT, a, 7);
     bad += check("FX_INFO with 9 sectors, and with a short payload: no reply", host_wire_n == 0 && (request(ED_EXT, a, 4), host_wire_n == 0));
     link = oc_mod_link(0);
