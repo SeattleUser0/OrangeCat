@@ -297,6 +297,11 @@ fx_dub_module_job() {                             # (Release 3 step 6) DUB TAPE 
     CC="$CC" BS="$BS" limited sh tests/fx_dub_module.sh "$OUT/fx_dub_module" || fail "tests/fx_dub_module.sh"
     CC="$CC" BS="$BS" limited sh tests/fx_dub_module.sh --mutate "$OUT/fx_dub_module" || fail "tests/fx_dub_module.sh --mutate"
 }
+fx_reverb_module_job() {                          # (Release 3 step 8a) SPRING, SHIMMER and RESO as one module (kind 2) beside the resident copy: the pinned resident render, the module's against it, the mutation check
+    echo "== the reverb modes as an effect module (Release 3 step 8a): the resident modes against the printout pinned before the cut, the module's render through the host against the resident's, every output sample, MELODEE_FX_DEFER 0 and 1, and the mutation check"
+    CC="$CC" BS="$BS" limited sh tests/fx_reverb_module.sh "$OUT/fx_reverb_module" || fail "tests/fx_reverb_module.sh"
+    [ -f tests/fx_reverb_mutants.sh ] && { CC="$CC" BS="$BS" limited sh tests/fx_reverb_module.sh --mutate "$OUT/fx_reverb_module" || fail "tests/fx_reverb_module.sh --mutate"; }
+}
 oc_scene_job() {                                  # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1b) HOME's scenes
     echo "== new interface 1b: the pack with and without its scene trailer (tools/gen_pack.py --scenes)"
     python3 tools/gen_pack.py --pak "$OUT/oc_scene_without.pak" --header "$OUT/oc_scene_without.h" &&
@@ -579,6 +584,7 @@ sound && t "DUB TAPE's kernel (Release 2): the repeats at TIME, each darker; FEE
 sound && dub_t "DUB TAPE as the per-track insert (Release 2): OFF takes no memory, the echo where TIME says, DUB FULL, LEN and SPRP changes, the rate stages, a project load, a yield, four tracks, the old lanes dropped" dub_insert_test -O1 $FW
 sound && job fx_insert_job
 sound && job fx_dub_module_job
+sound && job fx_reverb_module_job
 core && t "the internal user sample slot (Orange Cat 0.6.0): the claim, the edges, power cuts, kept from the store" smp_slot_test -O1 $FW
 core && t "the asset pack (Orange Cat 0.8.0): boot check, install, a write cut at every program, bad CRC / hash / length / tail, the library's banks, erase, the engines silent without it" oc_pack_test -O1 $FW
 # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1b) OC_HOME_PIC=1: the install path takes the pack with HOME's scene trailer
