@@ -748,7 +748,10 @@ static void project_capture(project_t *p)
     memcpy(p->drum,drum_patch,sizeof drum_patch);
     p->fm6_fn_ok = 1;
     p->motion = motion;
-    for (i = 0; i < RECORD_MAX; i++) p->recording[i] = recording_snapshot(i);
+    for (i = 0; i < RECORD_MAX; i++) {                  /* (Round 24 review) an event the check refuses is left out: one of them made proj_ok and proj_pack refuse the WHOLE project at the next load */
+        p->recording[i] = recording_snapshot(i);
+        if (!recording_valid(&p->recording[i])) memset(&p->recording[i], 0, sizeof p->recording[i]);
+    }
     p->motion.rsv[0] = 1;                     /* full container supplies the bank tags */
     motion_unguard(f);
     memcpy(p->name, proj_name, str_len(proj_name));

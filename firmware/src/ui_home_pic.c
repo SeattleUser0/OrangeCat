@@ -150,7 +150,7 @@ static void hp_sound_line(int pack_missing)
     } else if (pack_missing) {
         xe = cv_text(32, ty_y(12, TY_TX), TY_TX, "PACK MISSING", T_REC);
     } else if (hp_dub()) {                              /* (dub-perf) the page's name, and what the keys do not do */
-        xe = cv_text(32, ty_y(12, TY_LB), TY_LB, "BLACK: RECORDED", T_MID);     /* (the view's help line: the four keys with no lane record as flagged control notes, PROJECT_FORMAT_R3.md 8.2b) */
+        xe = cv_text(32, ty_y(12, TY_LB), TY_LB, OC_CTL_REC ? "BLACK: RECORDED" : "BLACK: NOT RECORDED", T_MID);     /* (the view's help line: the four keys with no lane record as flagged control notes, PROJECT_FORMAT_R3.md 8.2b; (Round 24) it said RECORDED with the switch off too) */
     } else {
         int32_t room = 236 - (mute ? mw + 8 : pos[0] ? text_w(TY_LB, pos) + 8 : 0) - 32;   /* (muted: MUTE where the preset's place is) */
         cv_free_text(32, ty_y(12, TY_TX), TY_TX, name, T_TEXT, T_BG, room);

@@ -177,7 +177,7 @@ static void note_rebuild_all(void)
 {
     for(uint32_t i=0;i<NSTEP;i++)if(TSEL->step[i].flags&SF_RECORDED)step_delete(TSEL,i);
     for(uint32_t i=recording_head[recording_owner(TSEL)];i<RECORD_MAX;i=recording_next[i]){
-        if((recording[i].step&63u)>=step_pattern_len(TSEL))continue;
+        if((recording[i].step&63u)>=step_pattern_len(TSEL)||recording_ctl(&recording[i]))continue;   /* (Round 24) a control note owns no cell: none is made for it */
         uint32_t view=recording_view(TSEL,&recording[i]);TSEL->step[view].time=ST_NOTE;TSEL->step[view].flags|=SF_RECORDED;
     }
     for(uint32_t i=0;i<NSTEP;i++)if(TSEL->step[i].flags&SF_RECORDED)notes_rebuild(TSEL,i);
@@ -189,7 +189,7 @@ static void note_manual_length(int32_t delta,uint32_t quantum)
     uint32_t at=notes_manual_start(TSEL);if(at>=NSTEP){ui_message("SELECT A NOTE");return;}
     fm1_irq_off();if(!note_transaction_begin()){fm1_irq_on();return;}
     if(!note_convert(at)){note_transaction.valid=0;fm1_irq_on();return;}
-    for(uint32_t i=recording_head[recording_owner(TSEL)];i<RECORD_MAX;i=recording_next[i])if((recording[i].step&63u)==at){
+    for(uint32_t i=recording_head[recording_owner(TSEL)];i<RECORD_MAX;i=recording_next[i])if((recording[i].step&63u)==at&&!recording_ctl(&recording[i])){   /* (Round 24) the step's notes, never a control note on it */
         uint32_t duration=recording[i].duration*(1u<<(recording[i].owner>>5));
         note_duration(&recording[i],(uint32_t)clamp(note_snap((int32_t)duration,delta,quantum),(int32_t)quantum,128*RECORD_UNIT));
     }
@@ -206,7 +206,7 @@ static void notes_bulk_delete(void)
     uint64_t touched=0;
     for(uint32_t i=recording_head[recording_owner(TSEL)];i<RECORD_MAX;){
         uint32_t next=recording_next[i];
-        if(bulk_note_has(i)){touched|=(uint64_t)1u<<recording_view(TSEL,&recording[i]);recording_remove(TSEL,i);}
+        if(bulk_note_has(i)&&!recording_ctl(&recording[i])){touched|=(uint64_t)1u<<recording_view(TSEL,&recording[i]);recording_remove(TSEL,i);}   /* (Round 24) the note tools never change a control note */
         i=next;
     }
     if(bulk.on==1u)for(uint32_t s=0;s<step_pattern_len(TSEL);s++)

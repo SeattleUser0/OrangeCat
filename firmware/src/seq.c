@@ -569,21 +569,31 @@ static void jam_loop(void)
  * A note recorded into another step ends the hold before (the step model ties the
  * notes of one step only). */
 static void rec_finish(track_t *t);
+/* the step a note recorded now rounds to (the closest swung onset, the last-to-first transition too); *next: it is the step about to be entered (or step 0 at the start).
+ * (Round 24) one copy for rec_note and the control notes (dub_keys.h dubk_ctl_rec), which round as notes do and write no step */
+static uint32_t rec_round(const track_t *t, uint32_t *next)
+{
+    uint32_t len = t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u;
+    uint32_t idx;
+    *next = t->seq_pos == 0x7FFFFFFFu;              /* Start and the note in one block: step 0 fires after it */
+    idx = *next ? 0u : t->seq_idx % len;
+    if (!*next &&
+        t->seq_pos >= step_samples(t, seq_div_samples((uint32_t)t->p[P_SDIV]), idx) / 2u) {
+        idx = (idx + 1u) % len;
+        *next = 1;
+    }
+    return idx;
+}
 static void rec_note(track_t *t, uint32_t note, uint32_t vel)
 {
     if (seq_erase_active(t)) return;
     uint32_t len = t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u, k;
-    uint32_t next = t->seq_pos == 0x7FFFFFFFu;      /* Start and the note in one block: step 0 fires after it */
-    uint32_t idx = next ? 0u : t->seq_idx % len;
-    step_t *s;
+    uint32_t next;
     /* Every recording source rounds to the closest swung onset, including
      * the last-to-first transition. Guard the upcoming live note from
      * being retriggered when that step is entered. */
-    if (!next &&
-        t->seq_pos >= step_samples(t, seq_div_samples((uint32_t)t->p[P_SDIV]), idx) / 2u) {
-        idx = (idx + 1u) % len;
-        next = 1;
-    }
+    uint32_t idx = rec_round(t, &next);
+    step_t *s;
     if (t->rh_n && t->rh_start != idx)
         rec_finish(t);
     s = &t->step[idx];
@@ -778,9 +788,11 @@ static void rec_set(track_t *t, uint32_t on)
 /* A sustained input crossing punch-in starts at zero without retriggering its
  * live voice. Keep its velocity even when the jam capture ring has wrapped.
  * Drum hits are edges; an earlier hit must not become a new hit at punch-in. */
+static void dubk_ctl_held(track_t *t);              /* (dub_keys.h) */
 static void rec_begin_held(track_t *t)
 {
     uint32_t tr = trk_index(t);
+    dubk_ctl_held(t);                               /* (Round 24) HOLD, DIVE or RISE held across the punch-in: recorded from here, as a held note is */
     if (t->p[P_AMODE]) {
         if (t->arp_note) rec_note(t, t->arp_note, 100);
         return;
@@ -1097,7 +1109,7 @@ static void recording_quantize(track_t *t)
 {
     if (!t->p[P_RECQ]) return;
     uint32_t owner = recording_owner(t), q = (uint32_t)t->p[P_RECQ], period = seq_div_samples((uint32_t)t->p[P_SDIV]);
-    uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), blocked = 0;
+    uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), blocked = 0, moved = 0;
     recording_sync(t, period);
     /* Playback always caches captured onsets. Only punch-out prepares the
      * quantized targets; no alternate grid enters the playback cursor. */
@@ -1121,10 +1133,17 @@ static void recording_quantize(track_t *t)
         /* Restore the ordinary stored-timing cache even if a preflight blocked
          * the pass. Once committed, QNT cannot alter this take's playback. */
         recording_due[i] = recording_raw_on(t, &recording[i], period);
-        if (!q || blocked || !recording_active(t, i)) continue;
+        uint32_t ctl = recording_ctl(&recording[i]);    /* (Round 24) a control note quantizes as a note does (8.2b) and owns no cell: none is written. (review) A take whose notes are refused (a manual note in the way) is not quantized in part: its control notes stay too */
+        if (!q || blocked || !recording_plays(t, i)) continue;
         recorded_note_t target; recording_quant_position(t, period, &recording[i], at, len, &target);
         if (target.on == recording[i].on && target.step == recording[i].step) continue;
         uint32_t source = recording_view(t, &recording[i]), view = recording_view(t, &target);
+        if (ctl) {
+            recording[i] = target;
+            recording_due[i] = recording_raw_on(t, &recording[i], period);
+            moved = 1;
+            continue;
+        }
         if (!(t->step[view].flags & SF_RECORDED)) {
             t->step[view].probability = t->step[source].probability;
             t->step[view].flags = (t->step[source].flags & SF_SLIDE) | SF_RECORDED;
@@ -1136,8 +1155,8 @@ static void recording_quantize(track_t *t)
         recording_pitch_add(i);
         recording_due[i] = recording_raw_on(t, &recording[i], period);
     }
-    if (touched) {
-        seq_erase_rebuild(t, touched);
+    if (touched) seq_erase_rebuild(t, touched);
+    if (touched || moved) {
         recording_generation++;
         recording_schedule[trk_index(t)].period = 0;
         recording_schedule[trk_index(t)].ordered_period = 0;
@@ -1855,6 +1874,7 @@ static void events_block(uint32_t n)
                         for(uint32_t tr=0;tr<NTRK;tr++)if(rec_on(&trk[tr]) && !trk[tr].p[P_AMODE])
                           for(uint32_t i=0;i<cin_n[tr];i++) { uint32_t note=cin_note[tr][i];
                             if(live_held[tr][note>>5]&(1u<<(note&31u)))rec_note(&trk[tr],note,cin_vel[tr][i]); }
+                        for(uint32_t tr=0;tr<NTRK;tr++)dubk_ctl_held(&trk[tr]);   /* (Round 24) a gate key held through the count-in: recorded from the start */
                         if(!click_wanted())click_req=2; }
                 }
             }

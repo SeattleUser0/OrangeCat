@@ -172,9 +172,10 @@
                                    * the explicit OFF will call; tests/track_release_test.c keeps them exercised with =1 on the host. No firmware is built with 1. */
 #endif
 #ifndef OC_CTL_REC
-#define OC_CTL_REC 0              /* (Round 23, Session A's review of r3-format2, UI_BUILD.md) 1: KICK, HOLD, DIVE and RISE (the DUB keys, MIDI CC 18 to 21) RECORD as control
-                                   * notes while the track records. 0 (the default): they sound and are not recorded, as before; stored control notes still play.
-                                   * Off until the recording path stops going through rec_note's step-grid writes (it wiped a mono step, set a drum step's accent). */
+#define OC_CTL_REC 1              /* (Round 23, Session A's review of r3-format2, UI_BUILD.md) 1 (the default since Round 24): KICK, HOLD, DIVE and RISE (the DUB keys, MIDI
+                                   * CC 18 to 21) RECORD as control notes while a DUB track records. 0: they sound and are not recorded; stored control notes still play.
+                                   * (Round 24, Session A: UI_BUILD.md "Session A, Round 24") on: the recording path no longer goes through rec_note (a control note owns
+                                   * no step cell: recording.c, dub_keys.h); Session A's findings are closed there, each with a check in tests/ctl_rec_test.c. */
 #endif
 #ifndef OC_PJ4
 #define OC_PJ4 0                  /* (Release 3 step 7, branch r3-format, docs/orangecat/PROJECT_FORMAT_R3.md) 1: link the project format core (oc_pj4.c); step 1 is host only, nothing calls it, so 1 only measures it */
@@ -605,6 +606,8 @@ typedef struct { uint16_t on, duration; uint8_t note, vel, owner, step; int8_t p
 _Static_assert(sizeof(recorded_note_t) == 10u, "timed note layout");
 #define RN_CTL 2u                               /* (Release 3 step 7, PROJECT_FORMAT_R3.md 8.2b) bit 1 of recorded_note_t.length: a control note (KICK, HOLD, DIVE, RISE: notes 124 to 127); bit 0 is the held length */
 #define RN_CTL_FIRST 124u
+#define RN_CTL_MAX 128u                         /* (Round 24) the control notes one bank records: an eighth of the store (a 40-hit dub pass is 40). A key hammered, or a controller sending CC 18 to 21
+                                                 * edges at MIDI rate (32 a block), filled all 1,024 notes of the unit in 43 ms; past the bound the key sounds and is not recorded (RECORDING FULL) */
 /* Sound offsets: semitones, decay and voice character; zero preserves the factory kit. */
 typedef struct { int8_t c[16][4]; } drum_patch_t;
 static drum_patch_t drum_patch[NTRK];

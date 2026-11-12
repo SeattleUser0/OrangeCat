@@ -322,6 +322,9 @@ static void midi_control(uint32_t ch, uint32_t cc, uint32_t value)
     case 121:                                      /* Reset All Controllers, keep bend sensitivity */
         c->bend = 0;
         c->wheel = 0;
+        for (i = 0; i < NTRK; i++)                     /* (Round 24) a control note still being recorded is closed with its trigger (no edge follows a reset: it stayed open until recording stopped) */
+            for (uint32_t w = 0; w < 4u; w++)
+                if (dub_trig[i % 4u][2u + w] >= 64u) dubk_ctl_rec(&trk[i], w, 0);
         memset(dub_trig, 0, sizeof dub_trig);          /* (round 13) DUB's THRW, CUT, KICK are RAM triggers: a controller that went away with CUT held must not leave the echo muted */
         c->rpn_msb = c->rpn_lsb = 127;
         midi_expression_channel(ch);

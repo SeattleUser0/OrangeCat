@@ -24,6 +24,9 @@ static int pattern_used(uint32_t k, uint32_t b)
     for (i = 0; i < NSTEP; i++)
         if (step_on(&p.step[i]) || (p.step[i].flags & SF_RECORDED))
             return 1;
+    for (i = recording_head[(k % NTRK) * NPAT + b % NPAT]; i < RECORD_MAX; i = recording_next[i])   /* (Round 24) a control note owns no step: a pattern that holds only those holds something (a copy onto it asks, a delete has something to delete) */
+        if (recording_ctl(&recording[i]))
+            return 1;
     return 0;
 }
 /* pattern b of track k holds nothing at all: no note, no hit, no motion (Copy to there asks nothing) */
