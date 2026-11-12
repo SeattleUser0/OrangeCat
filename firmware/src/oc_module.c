@@ -399,15 +399,18 @@ static int oc_mod_reg(uint32_t i, const fw_mod_hdr_t *h, const engine_t *engine)
 {
     int rc;
     if (oc_mod_live) fm1_irq_off();
-    rc = eng_register_hot(h, engine, (const eng_hot_t *)(uintptr_t)oc_mod.hot[i], oc_mod.nhot[i]);   /* (0.13.7) the hot set as oc_mod_check found it */
     /* (0.16.0) the PC guard's window reaches the module BEFORE interrupts come back: a track already on this engine (an install under it) has the next audio
      * interrupt call the module's block hook at once (voice.c track_render_audio: every block, voices or not; WHEEL's wheel_block), and oc_mod_boot writes the
      * window only at its end, after the later starts are read again (milliseconds). Found on the unit: WHEEL installed under a track on engine 7 took the CPU
-     * exception there. Only ever widened here; oc_mod_window at oc_mod_boot's end sets it from what is registered, as before. At power-on the guard is not armed. */
-    if (rc == EM_OK && fm1_guard_code_end < oc_mod_link(i) + oc_mod.length[i] - 1u) {
+     * exception there. (Round 23) widened BEFORE the table's entry is stored, so no reader of the table can ever be ahead of the window, whatever runs on the
+     * other core: traced, CPU1 runs engine code only inside a job the audio interrupt submits and joins (audio.c drains the last one before it returns), so
+     * with interrupts off here none was out; the order no longer depends on that. A registration that fails leaves the window wider until oc_mod_boot's end
+     * (oc_mod_window sets it from what is registered, as before): wider is harmless, the bytes are a checked module's. At power-on the guard is not armed. */
+    if (fm1_guard_code_end < oc_mod_link(i) + oc_mod.length[i] - 1u) {
         fm1_guard_code_end = oc_mod_link(i) + oc_mod.length[i] - 1u;
         fm1_guard_pc_window();
     }
+    rc = eng_register_hot(h, engine, (const eng_hot_t *)(uintptr_t)oc_mod.hot[i], oc_mod.nhot[i]);   /* (0.13.7) the hot set as oc_mod_check found it */
     if (oc_mod_live) fm1_irq_on();
     return rc;
 }
