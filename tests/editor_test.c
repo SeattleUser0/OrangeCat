@@ -1380,6 +1380,17 @@ static int fx_protocol(void)
     bad += check("FX_INFO (130): empty area, 3 sectors: plan start 0, not in place, no blocker (127), the six low sectors usable",
                  host_wire[4] == 0 && host_wire[5] == 2 && host_wire[6] == 0 && host_wire[7] == 0 && host_wire[8] == 127 && host_wire[9] == 1 &&
                  (host_wire[10] | host_wire[11] << 7 | host_wire[12] << 14 | (uint32_t)host_wire[13] << 21 | (uint64_t)host_wire[14] << 28) == (uint32_t)FX_ABI_ID);   /* (round 18) the abi follows the four words */
+    /* (round 24) the abi word is the one a module of that id carries: PL_MDL_ABI_ID for a models module's id (FW_MODELS_ID: the loader's fw_models_check compares it), FX_ABI_ID for
+     * any other id. Answering FX_ABI_ID for every id, the page refused every models pick (found on the unit, round 23) */
+    {   uint32_t ids[4] = { FW_MODELS_ID(ENGI_MACRO), FW_MODELS_ID(0u), 0x4E08u, 0x80004D08u }, want[4] = { PL_MDL_ABI_ID, PL_MDL_ABI_ID, FX_ABI_ID, FX_ABI_ID }, q, z = 1;
+        for (q = 0; q < 4u; q++) {
+            a[0] = 2; fx_id(a + 1, ids[q]); a[6] = 3; request(ED_EXT, a, 7);
+            z &= host_wire_n != 0 && host_wire[5] == 2 &&
+                 (uint32_t)(host_wire[10] | host_wire[11] << 7 | host_wire[12] << 14 | (uint32_t)host_wire[13] << 21 | (uint64_t)host_wire[14] << 28) == want[q];
+        }
+        bad += check("FX_INFO's abi: PL_MDL_ABI_ID for a models module's id (0x4D00 + engine), FX_ABI_ID for an effect module's id; the two differ", z && PL_MDL_ABI_ID != FX_ABI_ID);
+        a[0] = 2; fx_id(a + 1, id); a[6] = 3;
+    }
     a[6] = 9; request(ED_EXT, a, 7);
     bad += check("FX_INFO with 9 sectors, and with a short payload: no reply", host_wire_n == 0 && (request(ED_EXT, a, 4), host_wire_n == 0));
     link = oc_mod_link(0);
