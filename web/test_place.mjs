@@ -192,4 +192,13 @@ console.log("place: " + cases.length + " unit states x " + q.length + " modules 
     say("... the same unit takes a 5 sector pick (" + l2.how + ")", l2.how === "asis" || l2.how === "rearrange");
   }
 }
+{ /* (Round 23 review) a tail unit for the page is exactly its own 21 starts: any other count above 18, or another table, is planned as the area alone and never rearranged */
+  const st = (n) => Array.from({ length: n }, () => ({ state: 0, engine: 127, length: 0 }));
+  const chk = (ok, what) => { if (!ok) { bad++; console.log("FAIL " + what); } };
+  chk(PLACE.isTailUnit({ starts: st(21) }) && PLACE.isTailUnit({ starts: st(21), sectorOf: PLACE.OC_SECT.slice() }), "21 starts, with or without the unit's own table: a tail unit");
+  chk(!PLACE.isTailUnit({ starts: st(18) }) && !PLACE.isTailUnit({ starts: st(22) }) && !PLACE.isTailUnit({ starts: st(19) }), "18, 19 and 22 starts are not");
+  chk(!PLACE.isTailUnit({ starts: st(21), sectorOf: PLACE.OC_SECT.map((v, i) => (i === 18 ? -59 : v)) }), "21 starts with another table (a tail at -59) is not");
+  chk(PLACE.fromUnit({ mod: { starts: st(22), lowOk: true } }).starts.length === 18, "a unit reporting 22 starts is planned as the 18 of the area");
+  console.log("place: the tail unit test (21 starts and the page's own table)");
+}
 process.exit(bad ? 1 : 0);

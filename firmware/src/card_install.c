@@ -194,7 +194,7 @@ static void fb_ck_msg(int ck)
 }
 static int fb_mod_file(const char *p, uint32_t size, int armed, uint32_t q, int dry, uint32_t *engine_out)
 {
-    uint8_t buf[256], sc[256];                        /* (0.14.1) sc: fb_rel_seal's scratch (buf keeps the package's header) */
+    uint8_t buf[56u + 32u + 8u * 24u + 4u], sc[256];  /* (0.14.1) sc: fb_rel_seal's scratch (buf keeps the package's header; round 23: 21 starts are 260 B, the 256 refused them as "Not a module") */
     FIL *f = &uf_pf;
     UINT got;
     uint32_t n, tab = 56u, hc, engine, start, off = 0, len = 0, o, ver, m = 0, po = 0;

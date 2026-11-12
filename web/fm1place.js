@@ -128,9 +128,15 @@ function biggestRun(s, mid = 0x4D08) {
 }
 // a unit state from what the page reads (fm1oc.js probeUnit/listUnit): mod {starts[{state, engine, length}], lowOk, sectorOf}, fx {effects[{id, kind, state, start, sectors, resident}]}.
 // null when the unit has not been read (no MOD_INFO): the meter then says so and Install reads the unit first.
+// (Round 23 review) a unit with THIS page's tail region: exactly the 21 starts of OC_SECT, and the unit's own table (when MOD_INFO carries it) equal to it. Any other count
+// above 18 (a hand build with another tail) is NOT a tail unit for the page: it is planned as the area alone, the old way, and nothing is ever taken off it.
+function isTailUnit(mod) {
+  if (!mod || !mod.starts || mod.starts.length !== OC_SECT.length) return false;
+  return !mod.sectorOf || (mod.sectorOf.length === OC_SECT.length && mod.sectorOf.every((v, i) => v === OC_SECT[i]));
+}
 function fromUnit(unit) {
   if (!unit || !unit.mod || !unit.mod.starts) return null;
-  const tail = unit.mod.starts.length > OC_STARTS ? 1 : 0;                  // (option A) a unit with the tail region reports 21 starts
+  const tail = isTailUnit(unit.mod) ? 1 : 0;                                // (option A) a unit with the tail region reports 21 starts, and (when it sends its table) the page's own sectors
   const s = emptyState(!!unit.mod.lowOk, tail), fx = unit.fx && unit.fx.effects ? unit.fx.effects : [];
   unit.mod.starts.slice(0, s.starts.length).forEach((x, i) => { s.starts[i] = { state: x.state, kind: 0, mid: 0, engine: x.engine === 127 ? OC_FX_ENGINE : x.engine, length: x.length || 0 }; });
   for (const e of fx) {
@@ -188,5 +194,5 @@ function arrange(s, mods) {
   for (const j of foreign) { keep.add(j); if (!simulate(cleared(keep), all).ok) keep.delete(j); }
   return { how: "blocked", order, plan: asis, blockers: foreign.filter((j) => !keep.has(j)).map((j) => ({ start: j, engine: s.starts[j].engine, kind: s.starts[j].kind, mid: s.starts[j].mid })) };
 }
-return { plan, planEngine, planFx, apply, simulate, fromUnit, emptyState, cloneState, biggestRun, whyNot, goalOrder, arrange, hasTail, placeName, sectorsOf, OC_SECT, OC_STARTS, OC_AREA, OC_BASE, OC_TAIL, OC_TAIL_REL, OC_FX_ENGINE, ENG_GEO, ENG_GEO_TAIL };
+return { plan, planEngine, planFx, apply, simulate, fromUnit, emptyState, cloneState, biggestRun, whyNot, goalOrder, arrange, hasTail, isTailUnit, placeName, sectorsOf, OC_SECT, OC_STARTS, OC_AREA, OC_BASE, OC_TAIL, OC_TAIL_REL, OC_FX_ENGINE, ENG_GEO, ENG_GEO_TAIL };
 })();

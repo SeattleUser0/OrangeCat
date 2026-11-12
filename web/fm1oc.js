@@ -679,7 +679,7 @@ export async function runSet(ctx) {
     }
     if (stages.module) {
       if (!probe.mod) { sum.module = mods.map(() => "oldfw"); return sum; }
-      const tailUnit = probe.mod.starts.length > PLACE.OC_STARTS;   // (round 23) a unit that reports the tail region (21 starts); a unit with 18 goes the way it always did
+      const tailUnit = PLACE.isTailUnit(probe.mod);   // (round 23) a unit that reports the tail region (21 starts); a unit with 18 goes the way it always did
       let order = mods.map((_, i) => i);
       if (!tailUnit) {
       const pf = ctx.preflight === false ? null : placementOf(probe, mods.map((b) => ocmParse(b)));

@@ -409,7 +409,14 @@ function placeMods(pickSectors, locked = false) {   /* locked (round 23, the uni
   if (pickSectors > 0) out.push({mid: 0x4D00 | (master.manifest.engine & 0xFF), sectors: pickSectors, name: "MACRO models"});
   return out;
 }
-const modelsPackPlace = () => { const tail = !!(master && (master.manifest.places || []).some((x) => x.name === "tail")); return tail && (unitState && unitState.mod ? (unitState.mod.starts || []).length > PLACE.OC_STARTS : true) ? "both" : null; };
+const modelsPackPlace = () => {   /* "both": the pick's package carries the tail's starts too (a pick of 3 sectors or fewer). For a unit with the tail, an unread unit, and (review, round 23) a unit about
+   * to GET the tail: the firmware stage ticked, since the unit is read before the firmware goes on and the planner afterwards may name a tail start. Not for an 18-start unit that keeps its
+   * firmware: its loader takes at most 18 starts in a package. */
+  const tail = !!(master && (master.manifest.places || []).some((x) => x.name === "tail"));
+  if (!tail) return null;
+  if (!(unitState && unitState.mod)) return "both";
+  return PLACE.isTailUnit(unitState.mod) || ($("stage-fw").checked && !$("stage-fw").disabled) ? "both" : null;
+};
 const unitHolds = (st, m) => st.starts.some((x) => (x.state === 7 || x.state === 5 || x.state === 6) && (m.engine != null ? !x.kind && x.engine === m.engine : x.kind && x.mid === m.mid));
 const modelsOk = () => modelsLoading ? !$("stage-models").checked : !$("stage-models").checked || $("stage-models").disabled || !master || (!!modelsRoom && modelsRoom.ok);
 function modelsMeter() {                              /* the line under the list: the room, what the other modules take, what this pick needs; Install waits while it does not fit */
