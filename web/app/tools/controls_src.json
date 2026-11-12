@@ -1,6 +1,6 @@
 {
   "title": "Orange Cat controls",
-  "nightly": { "build": "2e1056", "commit": "52a41894", "date": "November 5, 2026" },
+  "nightly": { "build": "5f894f", "commit": "5f894f97", "date": "November 12, 2026" },
   "intro": [
     "What every knob, button and key does on the unit, page by page. It describes the Nightly build: the new interface with HOME's pictures, the four knobs and the EDIT sheets, with the FX order SENDS first and the track's own effects last.",
     "Names are the ones on the screen and the panel: KNOB 1 to KNOB 4, SELECT, PRESETS, ALGORITHM, EDIT, HOME, SEQ, GLO, FX, ARP, SCL, ENV, LFO, REC, PLAY, SAVE, OCT- and OCT+. The 27 keys run from F3 to G5. Keys are named by note: F3, F#3, C4.",
@@ -1204,6 +1204,28 @@
         "DUB TAPE is an effect module. With it installed, every track with ECHO above 0 runs it; without it such a track plays dry and the DUB pages say MODULE MISSING. Installing or removing it takes effect at once.",
         "The FX button's pages are the same with or without it: an effect module adds, hides or renames no page on the unit. The modules are listed in the Effects table of the installer and the web app."
       ]
+    },
+    {
+      "id": "models",
+      "title": "MACRO's models: the picker on the installer page",
+      "text": [
+        "MACRO has 25 models. VA is built into the firmware and is always there. The other 24 come as one module, MACRO models, that you put together on the installer page: the box \"MACRO models\" lists them (with their wave banks), you tick the ones you want, and Install writes the module with the rest of the set. Your last pick is remembered by the browser. A model you leave out frees room for the other modules.",
+        "The line under the list is the room meter. It says how many sectors the module area (18) and the tail region (3) hold, what the other modules take, and what the pick needs in one run. Install does not start until the pick fits; when it does not, leave a model or a wave bank out.",
+        "- On the unit, MACRO's MODL knob (KNOB 1 on TRACKS, the MODEL row of the Sound sheet) steps over a model that is not installed.",
+        "- A sound or a project that names a model that is not installed loads and keeps every setting. MODL shows MISSG, the track plays VA with those settings, and the screen says MODULE MISSING. Install the model and the track plays it again.",
+        "- Installing the pick does not change a sound: a model plays as it did when it was built in."
+      ]
+    },
+    {
+      "id": "rearrange",
+      "title": "Modules that do not fit: the page asks first",
+      "text": [
+        "The modules sit in the module area and the tail region in the order they were installed. When the set you ticked (a bigger pick of models, say) does not fit beside the modules as they sit now, the installer page works out an order that does. It never moves anything without asking: the page says which modules it would take off the FM-1 and install again, and Install waits for your answer.",
+        "- Yes: the page takes those modules off and installs them again in the order that fits. It takes about a minute. Until it is done the FM-1 plays without those engines and effects (their tracks say MODULE MISSING).",
+        "- No: nothing is written for the modules and the unit is as it was; the room meter keeps saying what is in the way.",
+        "- If the cable is pulled or the page is closed part way, nothing is damaged. Some modules are off the FM-1 until you plug it in again and press Install: the page puts the rest back.",
+        "A module of a set you did not tick is never taken off; the page names it when it is in the way."
+      ]
     }
   ],
   "menu": {
@@ -1244,6 +1266,8 @@
     "The DUB page has more than the old three triggers: CC 16 to 21 are THROW, CUT, KICK, HOLD, DIVE and RISE.",
     "The FX order is SENDS, the shared pages, then the track's DIST, AUTO PAN, DUB SETUP, DUB, DUB 2.",
     "SEQ held is not only a jump to CHAIN: with it held the keys are the pattern keys and SELECT switches the pattern bank.",
-    "HOME + OCT- and HOME + OCT+ (copy and paste) are not in this build."
+    "HOME + OCT- and HOME + OCT+ (copy and paste) are not in this build.",
+    "MACRO's models other than VA are a module you pick on the installer page. A model that is not installed shows MISSG and plays VA; MODL steps over it.",
+    "The installer page can ask to rearrange the modules before a set that does not fit; older notes know only \"too many\"."
   ]
 }
