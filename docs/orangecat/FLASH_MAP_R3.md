@@ -218,3 +218,17 @@ Checked and fine: the stub's CRC covers only `len` bytes (stale or longer/shorte
 
 **Where this leaves option A (2026-11-10):** the loader half (10.3) is built and host-tested (ldr_test; power-cut test), but must not ship alone and the firmware half (window, start table, planner, page) is **not built**: blocker 1 needs the unit, and blocker 2 is a rewrite of oc_module.c's span arithmetic to absolute sectors with its tests, to be done with the review's change list above.
 
+**Blocker 1, the bench gate: measured, passed (Round 23, November 11, 2026). Decision: the window moves to the tail's first sector (FL_TAIL_LO, 0x8E000) in builds with the tail.** Image: picker-r4 94ea444a with OC_SFC_PROBE=1 on the test unit; `~/fm1-hw/r23/gate.sh WIN KIND`; the boot sample is SFCENC_CON and the marker's 32 bytes through XIP as the app finds them before it sets its own window.
+
+| before the restart | restart | SFCENC_CON at boot | marker through XIP |
+|---|---|---|---|
+| (the loader's own restart after an install) | core reset | 0x01: window off | CRBM, decrypted |
+| window as the app sets it (0x93000) | core reset | 0x01 | CRBM |
+| window as the app sets it | watchdog (13 to 14 s) | 0x01 | CRBM |
+| window as the app sets it | core reset + the stub's test request | 0x03: on | CRBM |
+| **window from the tail** | core reset | 0x01 | CRBM |
+| **window from the tail** | watchdog | 0x01 | CRBM |
+| **window from the tail** | core reset + the stub's test request | 0x03 | CRBM |
+
+The unit booted every time. **The window does not survive a core reset or a watchdog reset**: the stub reads its marker with the window off. The 0x03 on the test-request path is the stub's own `shw_plain_window` (stub.c: from 0x93000, to check the staged loader), not the app's value surviving; the marker (0x91FE0) is below it. SFCENC_UNENC_L reads back 0 in every case (it does not read back), so the proof is the control bit and the marker's bytes. **Not measured: a power-on** (nothing here can cut the unit's power; a power-on clears more than a reset does, not less) and a CPU exception's restart as its own kind (it ends in the watchdog or a core reset, both measured).
+
