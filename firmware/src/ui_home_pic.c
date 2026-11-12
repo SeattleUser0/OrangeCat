@@ -122,7 +122,8 @@ static void hp_sound_line(int pack_missing)
     val[0] = 0;                                         /* (ui-fix: with no knob turning the value is empty, not whatever the
                                                          * stack held: the signature hashed it, and ASan caught str_len reading on) */
     label = hot >= 0 ? hp_knob_text((uint32_t)hot & 3u, val) : 0;
-    uint32_t sig;
+    uint32_t sig, mute = t->p[P_MUTE] != 0;             /* (round 24) the track muted: the line says MUTE at its right (red, as MIXER's), the numeral grey as its row on TRACKS */
+    int32_t xe = 236, mw = text_w(TY_LB, "MUTE");
     sound_name(t, name);
     pos[0] = 0;
     if (!label && user_of(t) == USER_NONE && !t->user_native && e->npresets) {   /* a factory preset: its place in the list */
@@ -133,28 +134,31 @@ static void hp_sound_line(int pack_missing)
     sig = hp_hash(2166136261u, name, str_len(name));
     sig = hp_hash(sig, pos, str_len(pos));
     sig = hp_hash(sig, val, str_len(val)) + (uint32_t)(hot + 2) * 7919u + song.sel * 131u + ux.gen * 977u +
-          (uint32_t)pack_missing * 31u + (label ? 1u : 0u) + (hp_dub() ? 0x2D0Bu : 0u);
+          (uint32_t)pack_missing * 31u + (label ? 1u : 0u) + (hp_dub() ? 0x2D0Bu : 0u) + (mute ? 0x4D55u : 0u);
     if (!ui.force && sig == hp.sig_sound)
         return;
     hp.sig_sound = sig;
     cv_begin(240, HP_SOUND_H, T_BG);
-    cv_rrect(4, 2, 20, 20, 5, T_TRK(song.sel), T_BG);
+    cv_rrect(4, 2, 20, 20, 5, mute ? T_DIM : T_TRK(song.sel), T_BG);
     {
         char d[2] = {(char)('1' + song.sel % NTRK), 0};
-        cv_text_c(14, ty_y(12, TY_TX), TY_TX, d, T_INK, T_TRK(song.sel));
+        cv_text_c(14, ty_y(12, TY_TX), TY_TX, d, T_INK, mute ? T_DIM : T_TRK(song.sel));
     }
     if (label) {                                        /* a knob turning: its name in its color, its value */
         int32_t x = cv_text(32, ty_y(12, TY_TX), TY_TX, label, T_COZY((uint32_t)hot));
-        cv_text(x + 12, ty_y(12, TY_TX), TY_TX, val, T_TEXT);
+        xe = cv_text(x + 12, ty_y(12, TY_TX), TY_TX, val, T_TEXT);
     } else if (pack_missing) {
-        cv_text(32, ty_y(12, TY_TX), TY_TX, "PACK MISSING", T_REC);
+        xe = cv_text(32, ty_y(12, TY_TX), TY_TX, "PACK MISSING", T_REC);
     } else if (hp_dub()) {                              /* (dub-perf) the page's name, and what the keys do not do */
-        cv_text(32, ty_y(12, TY_LB), TY_LB, "BLACK: RECORDED", T_MID);     /* (the view's help line: the four keys with no lane record as flagged control notes, PROJECT_FORMAT_R3.md 8.2b) */
+        xe = cv_text(32, ty_y(12, TY_LB), TY_LB, "BLACK: RECORDED", T_MID);     /* (the view's help line: the four keys with no lane record as flagged control notes, PROJECT_FORMAT_R3.md 8.2b) */
     } else {
-        int32_t room = 236 - (pos[0] ? text_w(TY_LB, pos) + 8 : 0) - 32;
+        int32_t room = 236 - (mute ? mw + 8 : pos[0] ? text_w(TY_LB, pos) + 8 : 0) - 32;   /* (muted: MUTE where the preset's place is) */
         cv_free_text(32, ty_y(12, TY_TX), TY_TX, name, T_TEXT, T_BG, room);
-        if (pos[0]) cv_text_r(236, ty_y(12, TY_LB), TY_LB, pos, T_MID, T_BG);
+        if (pos[0] && !mute) cv_text_r(236, ty_y(12, TY_LB), TY_LB, pos, T_MID, T_BG);
+        xe = 32 + room;
     }
+    if (mute && xe + 8 <= 236 - mw)                     /* (a knob's long name and value: no room, the grey numeral alone) */
+        cv_text_r(236, ty_y(12, TY_LB), TY_LB, "MUTE", T_REC, T_BG);
     cv_blit(0, HP_SOUND_Y);
 }
 
