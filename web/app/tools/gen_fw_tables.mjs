@@ -24,10 +24,10 @@ export const OUT = join(HERE, "..", "lib", "fw_tables.js");
 export function modFromSource() {
   const src = readFileSync(join(HERE, "..", "..", "..", "firmware", "src", "oc_module.c"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
   const num = (name) => +new RegExp(`#define ${name}\\s+(\\d+)u`).exec(src)[1];
-  const sect = /oc_mod_sect\[OC_MOD_STARTS\]\s*=\s*\{([^}]*)\}/.exec(src)[1].split(",").map((x) => +x.trim());
-  const geoText = /oc_mod_geo\[\]\s*=\s*\{([\s\S]*?)\n\s*\};/.exec(src)[1].replace(/#if[\s\S]*?#endif/g, "");
+  const sect = /oc_mod_sect\[OC_MOD_STARTS\]\s*=\s*\{([^}]*)\}/.exec(src)[1].split("#if")[0].split(",").map((x) => x.trim()).filter(Boolean).map(Number);   /* (round 23) the area's starts: the tail region's three (OC_MOD_TAIL, FLASH_MAP_R3.md 10) follow under #if and are not in this table (the app's mock is a unit with 18 starts) */
+  const geoText = /oc_mod_geo\[\]\s*=\s*\{([\s\S]*?)\n\s*\};/.exec(src)[1].replace(/#if OC_MOD_TAIL[\s\S]*?#else([\s\S]*?)#endif/g, "$1").replace(/#if[\s\S]*?#endif/g, "");   /* (round 23) the geometry without the tail region (WHEEL's published 4 sectors): the mock is a unit with 18 starts */
   const geo = [...geoText.matchAll(/\{\s*ENGI_([A-Z0-9]+),\s*(\d+)u,\s*(0x[0-9A-Fa-f]+)u\s*\}/g)].map((m) => ({ engine: m[1], sectors: +m[2], starts: parseInt(m[3], 16) }));
-  return { starts: num("OC_MOD_STARTS"), area: num("OC_MOD_AREA"), sect, geo };
+  return { starts: num("OC_MOD_AREA_STARTS"), area: num("OC_MOD_AREA"), sect, geo };
 }
 export function tablesText(json) {
   json = { ...json, mod: { ...json.mod, ...modFromSource() } };

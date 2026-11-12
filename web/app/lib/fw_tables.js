@@ -3790,7 +3790,7 @@ export const FW = {
      "label": "MODL",
      "fmt": 8,
      "min": 0,
-     "max": 14,
+     "max": 24,
      "def": 0,
      "unit": "",
      "names": [
@@ -3808,7 +3808,17 @@ export const FW = {
       "KICK",
       "SNARE",
       "HI-HAT",
-      "HARP"
+      "HARP",
+      "VA-VCF",
+      "PD",
+      "6OP A",
+      "6OP B",
+      "6OP C",
+      "TERRAN",
+      "STRMCH",
+      "CHIP",
+      "WAVTBL",
+      "SPEECH"
      ]
     },
     {

@@ -2,7 +2,7 @@
 
 # Orange Cat controls
 
-For the Nightly v0.16.0-2e1056 and later (firmware commit 52a41894, November 5, 2026). Made from the firmware's tables db5ec7c8: when they change, this page is made again.
+For the Nightly v0.16.0-2e1056 and later (firmware commit 52a41894, November 5, 2026). Made from the firmware's tables ea3fb820: when they change, this page is made again.
 
 What every knob, button and key does on the unit, page by page. It describes the Nightly build: the new interface with HOME's pictures, the four knobs and the EDIT sheets, with the FX order SENDS first and the track's own effects last.
 
@@ -434,7 +434,7 @@ The EDIT button opens the sheets (see "EDIT: the sheets"). Pages here are rows o
 
 #### EDIT 1
 
-- MACRO: KNOB 1 MODL (VA to HARP (15 values)), KNOB 2 HARM (0 to 100 %), KNOB 3 TIMB (0 to 100 %), KNOB 4 MRPH (0 to 100 %).
+- MACRO: KNOB 1 MODL (VA to SPEECH (25 values)), KNOB 2 HARM (0 to 100 %), KNOB 3 TIMB (0 to 100 %), KNOB 4 MRPH (0 to 100 %).
 - DRUM-X: KNOB 1 MRPH (0 to 100 %), KNOB 2 TUNE (0 to 100 %), KNOB 3 TONE (0 to 100 %), KNOB 4 DECY (0 to 100 %).
 
 - A knob with a long name list (MODL) opens a picker card. Other engines (modules) have their own labels and show only for that engine.

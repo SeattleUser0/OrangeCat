@@ -25,6 +25,7 @@ import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+os.environ.pop("OC_MOD_TAIL", None)   # (round 23) the build set exports the tail switch (tools/orangecat_engines.sh); every case here names its own state, "no switch" first
 sys.path.insert(0, str(ROOT / "tools"))
 import build  # noqa: E402
 import ocflash  # noqa: E402

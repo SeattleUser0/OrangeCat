@@ -98,8 +98,8 @@ ok(wordsOk("DUB SETUP", "TIM L", { fmt: E.F.DUBTF, min: 0 }, false), "editor DUB
      `editor module geometry == oc_mod_geo (${Object.entries(geo).map(([e, g]) => `${e}: ${g.sectors} sectors, starts ${g.starts}`).join("; ")})`);
   const smp = readFileSync(new URL("../firmware/src/smp_slot.c", import.meta.url), "utf8");
   ok(+smp.match(/#define SMP_SLOT_MAX (\d+)u/)[1] === +html.match(/SMP\.MAX_DATA = (\d+);/)[1], "editor sample limit == smp_slot.c SMP_SLOT_MAX (the Release 3 slot of 16 sectors)");
-  const sect = om.match(/oc_mod_sect\[OC_MOD_STARTS\] = \{([^}]*)\}/)[1].split(",").map(Number), esect = JSON.parse(html.match(/const OCM_SECTOR = (\[[^\]]*\])/)[1]);
-  ok(JSON.stringify(sect) === JSON.stringify(esect), "editor module start sectors == oc_mod_sect (18 starts)");
+  const sect = om.match(/oc_mod_sect\[OC_MOD_STARTS\] = \{([^}]*)\}/)[1].split("#if")[0].split(",").map((x) => x.trim()).filter(Boolean).map(Number), esect = JSON.parse(html.match(/const OCM_SECTOR = (\[[^\]]*\])/)[1]);
+  ok(JSON.stringify(sect) === JSON.stringify(esect), "editor module start sectors == oc_mod_sect (the area's 18 starts; the tail region's follow under #if)");
 }
 console.log(failed ? `editor layout FAILED (${failed})` : "editor layout passed");
 process.exit(failed ? 1 : 0);
