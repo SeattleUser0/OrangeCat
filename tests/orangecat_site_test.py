@@ -290,5 +290,80 @@ class Manifest(unittest.TestCase):
             self.assertEqual((m["pack_hash"], m["pack_len"], m["iface"], m["api_addr"]), (0x657ED950, 40232, 0x6865AF16, 0x02001100))
 
 
+class ControlsLink(unittest.TestCase):
+    """(0.16.1) the Controls link of the installer page and the editors follows the published layout: the guide is webapp/app/controls.html (Standard) and
+    webapp/nightly-app/controls.html (Nightly), and ../app/controls.html was a 404 after a Nightly publish (Standard's published app had no guide yet).
+    Every link of those pages is followed from the page's own place in the site, as the browser does."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.r = Path(self.temp.name)
+        self.site = self.r / "site"
+        self.fw = package(self.r / "orangecat-0.6.2-abc1234.fwsc")
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def stable(self, with_guide=True):
+        import orangecat_site
+        orangecat_site.main(self.fw, "0.6.2", self.site)
+        if not with_guide:                                  # a Standard app published before the guide existed
+            (self.site / "webapp/app/controls.html").unlink()
+            listed = [f for f in json.loads((self.site / "webapp/app/files.json").read_text()) if f != "controls.html"]
+            (self.site / "webapp/app/files.json").write_text(json.dumps(listed))
+
+    def nightly(self):
+        import orangecat_site
+        dev = package(self.r / "melodee-dev.fwsc", product="FM-1_900")
+        orangecat_site.nightly(self.site, dev, "r3", "5f894f97" + "0" * 32, "2026-11-12T00:00:00Z", "v0.16.0-5f894f")
+
+    def controls_links(self, rel):
+        page = self.site / rel
+        text = page.read_text(encoding="utf-8")
+        block = re.search(r"<!--ctl-->(.*?)<!--/ctl-->", text, re.S)
+        self.assertIsNotNone(block, rel)
+        return [(href, (page.parent / href).resolve()) for href in re.findall(r'href="([^"]+)"', block[1])]
+
+    def assertLinksResolve(self, rel, want):
+        got = self.controls_links(rel)
+        self.assertEqual([h for h, _ in got], want, rel)
+        for href, target in got:
+            self.assertTrue(target.is_file(), f"{rel}: {href} is a 404")
+
+    def test_standard_alone(self):
+        self.stable()
+        for rel in ("webapp/installer/index.html", "webapp/editor/index.html"):
+            self.assertLinksResolve(rel, ["../app/controls.html"])
+
+    def test_nightly_over_a_standard_without_the_guide(self):
+        """the case that failed: the Nightly's guide is the only one on the site"""
+        self.stable(with_guide=False)
+        self.nightly()
+        self.assertFalse((self.site / "webapp/app/controls.html").exists())
+        for rel in ("webapp/installer/index.html", "webapp/nightly-editor/index.html"):
+            self.assertLinksResolve(rel, ["../nightly-app/controls.html"])
+
+    def test_nightly_over_a_standard_with_the_guide(self):
+        self.stable()
+        std_editor = (self.site / "webapp/editor/index.html").read_bytes()
+        self.nightly()
+        for rel in ("webapp/installer/index.html", "webapp/nightly-editor/index.html"):
+            self.assertLinksResolve(rel, ["../app/controls.html", "../nightly-app/controls.html"])
+        self.assertEqual((self.site / "webapp/editor/index.html").read_bytes(), std_editor)      # Standard's editor is not touched
+
+    def test_publishing_again_changes_nothing(self):
+        self.stable(with_guide=False)
+        self.nightly()
+        first = (self.site / "webapp/installer/index.html").read_bytes()
+        self.nightly()
+        self.assertEqual((self.site / "webapp/installer/index.html").read_bytes(), first)
+
+    def test_no_guide_no_link(self):
+        import orangecat_site
+        self.stable(with_guide=False)
+        orangecat_site.link_controls(self.site, ("webapp/installer/index.html",))
+        self.assertEqual(self.controls_links("webapp/installer/index.html"), [])
+
+
 if __name__ == "__main__":
     unittest.main()

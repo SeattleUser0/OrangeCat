@@ -34,7 +34,9 @@ Revisions:
   0.11.2: --pak, --ocm and --manifest: the pack and the modules of the build beside the firmware; the installer page offers them.
   0.14.2: the web app (web/app) at webapp/app/ beside the installer and the editor; a Nightly publish puts the branch's app at
           webapp/nightly-app/ (Standard's app is left as it is, as the editor is).
+  0.16.1: the pages' Controls link follows the published layout (link_controls): ../app/controls.html was a 404 after a Nightly publish.
 """
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -74,6 +76,36 @@ def copy_app(dest):
     return files
 
 
+CTL = re.compile(r"<!--ctl-->.*?<!--/ctl-->", re.S)
+
+
+def link_controls(site, pages):
+    """(0.16.1) the pages' "Controls" link (between <!--ctl--> and <!--/ctl--> in web/index_pkg.html and web/editor.html) follows the published layout: the guide is
+    webapp/app/controls.html (Standard) and webapp/nightly-app/controls.html (Nightly), each only once that channel's app has been published with it. Both there: both
+    links; one: that one, named plain; none: no link (it was a 404 on a Nightly publish: the page pointed at Standard's guide, which Standard does not have yet).
+    pages: the pages (relative to the site) to rewrite; run after the app(s) are in the site; safe to run again"""
+    site = Path(site)
+    std = (site / "webapp/app/controls.html").is_file()
+    nig = (site / "webapp/nightly-app/controls.html").is_file()
+    if std and nig:
+        links = '<a href="../app/controls.html">Controls</a>\n      <a href="../nightly-app/controls.html">Controls (Nightly)</a>'
+    elif std:
+        links = '<a href="../app/controls.html">Controls</a>'
+    elif nig:
+        links = '<a href="../nightly-app/controls.html">Controls</a>'
+    else:
+        links = ""
+    for rel in pages:
+        f = site / rel
+        if not f.is_file():
+            continue
+        text = f.read_text(encoding="utf-8")
+        new, n = CTL.subn(lambda m: "<!--ctl-->" + links + "<!--/ctl-->", text)
+        if n != 1:
+            raise SystemExit(f"{rel}: the Controls link marker (<!--ctl-->) must occur once, found {n}")
+        f.write_text(new, encoding="utf-8")
+
+
 def main(pkg, version, out, pak=None, ocms=(), manifest=None, ocp=None):
     out = Path(out)
     make_site.main(pkg, version, out, installer_only=True, pak=pak, ocms=ocms, manifest=manifest, ocp=ocp)   # installer, package, set, licences (checks them)
@@ -84,6 +116,7 @@ def main(pkg, version, out, pak=None, ocms=(), manifest=None, ocp=None):
         if (WEB / f).exists():
             shutil.copy(WEB / f, ed / f)
     copy_app(out / "webapp" / "app")                     # (0.14.2) the web app beside them
+    link_controls(out, ("webapp/installer/index.html", "webapp/editor/index.html", "webapp/nightly-editor/index.html"))   # (0.16.1) only the guides that are there
     (out / "index.html").write_text(
         '<!doctype html><meta charset="utf-8"><title>Orange Cat</title>'
         '<meta http-equiv="refresh" content="0; url=webapp/installer/">'
@@ -97,6 +130,7 @@ def nightly(out, package, branch, commit, built_at, fw_version, pak=None, ocms=(
     import publish_nightly
     publish_nightly.publish(Path(out), package, fw_version, commit, built_at, pak=pak, ocms=ocms, manifest=manifest, branch=branch, ocp=ocp)
     copy_app(Path(out) / "webapp" / "nightly-app")       # (0.14.2) the branch's app beside Standard's (webapp/app/ is mirrored, not rebuilt)
+    link_controls(out, ("webapp/installer/index.html", "webapp/nightly-editor/index.html"))   # (0.16.1) Standard's editor is not touched
     print(f"site: {out}: Nightly {branch} {commit[:7]} {fw_version}")
 
 
