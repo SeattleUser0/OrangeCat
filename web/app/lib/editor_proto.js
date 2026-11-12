@@ -2969,7 +2969,7 @@ function fxCheck(ocm, info, fx) {
   if (!ocm.kind || !ocm.moduleId) return { ok: false, key: "modWrongFile" };
   if (ocm.iface !== info.iface || ocm.apiAddr !== info.apiAddr || ocm.apiVersion > info.apiVersion || ocm.apiSize > info.apiSize || ocm.packHash !== info.packHash)
     return { ok: false, key: "modWrongFw" };
-  if (fx.abi !== undefined && ocm.fxAbi && ocm.fxAbi !== fx.abi) return { ok: false, key: "modWrongFw" };   /* (round 18) FX_INFO's abi, when the unit sends it: a module of another host calling convention is refused before it is streamed */
+  if (ocm.kind !== 4 && fx.abi !== undefined && ocm.fxAbi && ocm.fxAbi !== fx.abi) return { ok: false, key: "modWrongFw" };   /* (round 18) FX_INFO's abi, when the unit sends it: a module of another host calling convention is refused before it is streamed */   /* (round 23, found on the unit) not a models module (kind 4): its block carries PL_MDL_ABI_ID and FX_INFO answers the effect host's FX_ABI_ID for every id, so every pick was refused here; the unit's loader compares a models module's own (fw_models_check) */
   const tbl = info.sectorOf || OCM_SECTOR;
   if (fx.plan == null || !(fx.plan < tbl.length) || (tbl[fx.plan] < 0 && tbl[fx.plan] >= -6 && !fx.lowOk)) {   /* a usable module in the way is named, never erased by an install */
     const b = fx.blocker, s = b != null && info.starts ? info.starts[b] : null;

@@ -384,7 +384,8 @@ function modelsList() {                               /* one box a model, VA loc
   });
 }
 function modelsOthers() {                             /* the modules beside the pick: the ticked module stages of this build (an engine module's geometry, an effect module's sectors), and the unit's when read */
-  const geo = (u) => /orangecat-wheel-/.test(u) ? {name: "WHEEL", sectors: 4, only: "area"} : /orangecat-prophet-/.test(u) ? {name: "PROPHET", sectors: 8, only: "area"} : {name: "SHAPES", sectors: 6, only: "area"};   /* (an engine module's geometry is the module area's) */
+  const tailBuild = !!(master && master.manifest.places && master.manifest.places.some((x) => x.name === "tail"));   /* (round 23, found on the unit) a build with the tail region ships WHEEL re-cut to one sector (fm1place.js ENG_GEO_TAIL); counted as 4, the default pick read "1 too many" and Install stayed locked */
+  const geo = (u) => /orangecat-wheel-/.test(u) ? {name: "WHEEL", sectors: tailBuild ? 1 : 4, only: "area"} : /orangecat-prophet-/.test(u) ? {name: "PROPHET", sectors: 8, only: "area"} : {name: "SHAPES", sectors: 6, only: "area"};   /* (an engine module's geometry is the module area's) */
   const eng = $("stage-prophet").checked && !$("stage-prophet").disabled ? ocmOf("prophet") : $("stage-mod").checked && !$("stage-mod").disabled ? ocmOf("shapes") : [];
   const fx = $("stage-fx").checked && !$("stage-fx").disabled ? fxOf().filter((x) => x.kind !== 4).map((x) => ({name: x.name || "0x" + x.module_id.toString(16), sectors: x.sectors || 1})) : [];
   return PICK.others([...eng.map(geo), ...fx], unitState);

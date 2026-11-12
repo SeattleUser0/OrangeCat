@@ -47,8 +47,8 @@ async function main() {
   await m.ready;
   const link = new OcLink(m.input, m.output);
   try {
-    if (what === "info") {
-      console.log(JSON.stringify(await probeUnit(link), null, 1));
+    if (what === "info" || what === "list") {            // list: with the effect modules (the page's listUnit, what it reads before an Install)
+      console.log(JSON.stringify(await probeUnit(link, what === "list" ? { fx: true } : undefined), null, 1));
     } else if (what === "module") {
       const ocm = OCM.parse(new Uint8Array(readFileSync(file)));
       let last = -1;
