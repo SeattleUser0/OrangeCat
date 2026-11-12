@@ -677,6 +677,8 @@ if core; then
     t "resident/cache undo: validated eight levels and bounded fallback" ui_resident_cache:ui_test -DMELODEE_RAM_AUDIO=1 -DMELODEE_CACHE_RAM=1 $FW
     t "resident audio: expanded voice budget and CPU1 fallback" ram_voice_budget_test -O2 $FW
     t "the cost caps (0.15.0): MODAL, FM6 and the Prophet voices at once while engaged by the halves' cost" voice_cap_test -O2 $FW
+    t "the voice budget by track (round 23): one track alone reaches its engine's cap or the units, four busy tracks as before, released tracks change nothing" voice_share_test -O2 $FW
+    t "the automatic release (round 23): a track with nothing to play gives its engine state back; never under a voice, notes, a staged pattern, arming, the selection; the retakes, a failed one, the arena's bytes, the same samples" track_release_test -O1 $FW
     t "audio: calibrated reservations, release tails and overlapping hits" audio_admission_test -O2 $FW
     t "USB audio: four isolated track stems through the real mixer" usb_audio_tracks_test -O2 $FW
     t "boot stub: CRCs, rescue keys, damaged staging and retry fallback" boot_stub_test -O2
