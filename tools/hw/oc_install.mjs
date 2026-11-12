@@ -7,6 +7,7 @@
 //
 //   node tools/hw/oc_install.mjs info
 //   node tools/hw/oc_install.mjs module FILE.ocm        install a module (the start the unit names; in place only if no other start is free)
+//   node tools/hw/oc_install.mjs fx FILE.ocm            (round 23) install an effect module (the page's installFx)
 //   node tools/hw/oc_install.mjs pack FILE.pak          install the asset pack (the unit refuses another build's)
 //   node tools/hw/oc_install.mjs erase-pack             erase the pack (PACK MISSING until it is installed again)
 //   node tools/hw/oc_install.mjs remove ENGINE          (0.13.8) remove one engine's module (MOD_REMOVE ENGINE; 127, the whole area, is refused here)
@@ -21,7 +22,7 @@ import { readFileSync, writeFileSync, existsSync } from "fs";
 import { spawn } from "child_process";
 import { createInterface } from "readline";
 import { fileURLToPath } from "url";
-import { OcLink, OCM, ocReq, OC_CMD, probeUnit, installPack, installModule, parsePackInfo, parseModInfo } from "../../web/fm1oc.js";
+import { OcLink, OCM, ocReq, OC_CMD, probeUnit, installPack, installModule, installFx, parsePackInfo, parseModInfo, parseFxInfo } from "../../web/fm1oc.js";
 import { captureBackup, readBackup } from "../../web/fm1backup.js";
 
 // Web MIDI's input and output, over the bridge's pipe
@@ -54,6 +55,13 @@ async function main() {
       await installModule(link, ocm, (f) => { const p = Math.floor(f * 10); if (p !== last) { last = p; process.stdout.write(`module ${p * 10}%\r`); } }, { confirmInPlace: () => { console.log("in place: no other start is free, the old module is erased first (the page asks the user here; this tool says yes)"); return true; } });
       console.log(`\nmodule installed: engine ${ocm.engine}`);
       console.log(JSON.stringify((await probeUnit(link)).engines?.engines?.[ocm.engine] ?? null));
+    } else if (what === "fx") {
+      // (round 23) an effect module's file (DUB TAPE, kind 1..3) through the page's installFx: the start is the one the unit names (the tail region first on a unit that has it)
+      const ocm = OCM.parse(new Uint8Array(readFileSync(file)));
+      let last = -1;
+      await installFx(link, ocm, (f) => { const p = Math.floor(f * 10); if (p !== last) { last = p; process.stdout.write(`module ${p * 10}%\r`); } }, { confirmInPlace: () => { console.log("in place: the old module of this id is erased first"); return true; } });
+      const fa = await link.ask(ocReq.fxInfo(ocm.moduleId, ocm.fxSectors), { timeout: 600, retries: 1 });
+      console.log(`\neffect module installed: id ${ocm.moduleId}`); console.log(JSON.stringify(fa && parseFxInfo(fa)));
     } else if (what === "pack") {
       const bytes = new Uint8Array(readFileSync(file));
       const info = parsePackInfo(await link.ask(ocReq.packInfo(), { timeout: 1000, retries: 1 }));
@@ -89,7 +97,7 @@ async function main() {
       console.log("last reply", JSON.stringify(r), "after", steps.length, "requests");
       console.log(JSON.stringify(parsePackInfo(await link.ask(ocReq.packInfo(), { timeout: 1000, retries: 1 }))));
     } else {
-      console.log("usage: oc_install.mjs info | module FILE.ocm | pack FILE.pak | erase-pack | remove ENGINE | backup FILE.json | pack-unchecked FILE");
+      console.log("usage: oc_install.mjs info | module FILE.ocm | fx FILE.ocm | pack FILE.pak | erase-pack | remove ENGINE | backup FILE.json | pack-unchecked FILE");
       process.exitCode = 2;
     }
   } finally {
