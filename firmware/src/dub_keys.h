@@ -19,15 +19,33 @@ static void dubk_rec(track_t *t, uint32_t id, int32_t v)
 {
     if (rec_on(t) && t == TSEL) (void)motion_capture(t, id, (int16_t)v);
 }
-/* (8.2b) a control key of a recording track is a timed note on its reserved number (124 + which), flagged: opened at the press, closed at the release */
+/* (Round 24) a DUB track: DUB TAPE is on for it (ECHO above 0, dub_on's rule and the DUB page's), by the patch's own value where motion moves ECHO (a recorded CUT is ECHO 0
+ * for its steps). On any other track the keys and CC 18 to 21 do nothing the kernel hears, and nothing is recorded (Session A's finding 2) */
+static int dubk_track(const track_t *t)
+{
+    return t->p[P_DUB_ECHO] > 0 || motion_base_value(t, P_DUB_ECHO) > 0;
+}
+/* (8.2b) a control key of a recording track is a timed note on its reserved number (124 + which), flagged: opened at the press, closed at the release.
+ * (Round 24, Session A's findings 1, 2 and 4) It is recorded by recording_note_x alone, rounded to its step as a note is (rec_round): NO STEP IS WRITTEN (rec_note wrote the
+ * grid as for a played note), no hold is tied (rec_hold never sees it), and only on a DUB track that is selected and recording, not frozen, not being erased. The release
+ * closes the note whatever is selected or armed by then (it was skipped when the selection had changed, and the note stayed open until recording stopped); it closes only the
+ * control note, never an ordinary note of the same number. In the audio interrupt (keyboard_block, midi_event), as rec_note is */
 static void dubk_ctl_rec(track_t *t, uint32_t which, int down)
 {
-    if (!OC_CTL_REC || !rec_on(t) || t != TSEL) return;
-    if (down) {
-        recording_last = RECORD_MAX;
-        rec_note(t, RN_CTL_FIRST + which, 127u);
-        if (recording_last < RECORD_MAX) recording[recording_last].length = RN_CTL;
-    } else rec_release(t, RN_CTL_FIRST + which);
+    uint32_t note = RN_CTL_FIRST + (which & 3u), next;
+    if (!OC_CTL_REC) return;
+    if (!down) { recording_release_x(t, note, 1u); return; }
+    if (!rec_on(t) || t != TSEL || !dubk_track(t)) return;
+    if (seq_erase_active(t) || ((seq_frz_lock >> trk_index(t)) & 1u)) return;
+    (void)recording_note_x(t, note, 127u, rec_round(t, &next), 1u);
+}
+/* (Round 24) recording begins with a gate key down (the punch-in at the pattern's start, the end of the count-in): HOLD, DIVE and RISE are recorded from here, as a held note
+ * is (rec_begin_held); KICK is a strike, its edge is past. The live trigger says what is down (the keys and CC 16 to 21 write it) */
+static void dubk_ctl_held(track_t *t)
+{
+    uint32_t w;
+    for (w = 1; w < 4u; w++)
+        if (dub_trig[trk_index(t) % 4u][2u + w] >= 64u) dubk_ctl_rec(t, w, 1);
 }
 static void dub_key(uint32_t k, uint32_t tr, int down)
 {

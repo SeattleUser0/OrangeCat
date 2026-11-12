@@ -6,6 +6,8 @@
  *  3. a flagged note never reaches an engine; an ordinary note on the same number always does (and the control note does not end it)
  *  4. MIDI CC 18 to 21 edges record the same; a track that is not recording records nothing, and the keys still sound live
  *  5. a note edit (pitch) never moves a control note into a pitch
+ * (Round 24) OC_CTL_REC is 1 by default; the track is made a DUB track (ECHO above 0), the only kind that records them. The findings of Session A's review and the
+ * side effects of the switch are in tests/ctl_rec_test.c.
  * Run by tests/run_tests.sh. */
 #define RECORDING_NO_MAIN 1
 #include "recording_test.c"
@@ -17,7 +19,7 @@ static int ctl_keys(void)
     for (uint32_t w = 0; w < 4; w++) {
         char what[160];
         raw_begin(); track_t *t = &trk[0];
-        t->p[P_QUANT] = Q_OFF;
+        t->p[P_QUANT] = Q_OFF; t->p[P_DUB_ECHO] = 100;   /* (Round 24) a DUB track: only one records control notes */
         seq_advance(606); dub_key(key[w], 0, 1);
         bad += check("the live trigger is down while the key is", dub_trig[0][2 + w] == 127);
         seq_advance(1200); dub_key(key[w], 0, 0); seq_stop();
@@ -42,7 +44,7 @@ static int ctl_stop(void)
 {
     int bad = 0;
     raw_begin(); track_t *t = &trk[0];
-    t->p[P_QUANT] = Q_OFF;
+    t->p[P_QUANT] = Q_OFF; t->p[P_DUB_ECHO] = 100;   /* (Round 24) a DUB track: only one records control notes */
     seq_advance(606); dub_key(10, 0, 1); seq_advance(2400); dub_key(10, 0, 0); seq_stop();
     raw_replay(); seq_advance(606 + 100);
     bad += check("HOLD sounding in the replay", dub_rec[0][1] == 1);
@@ -55,7 +57,7 @@ static int ctl_mix(void)
 {
     int bad = 0;
     raw_begin(); track_t *t = &trk[0];
-    t->p[P_QUANT] = Q_OFF;
+    t->p[P_QUANT] = Q_OFF; t->p[P_DUB_ECHO] = 100;   /* (Round 24) a DUB track: only one records control notes */
     seq_advance(606); input_on(t, 125, 100); seq_advance(300);
     dub_key(10, 0, 1); seq_advance(600); dub_key(10, 0, 0); seq_advance(300); input_off(t, 125); seq_stop();
     uint32_t n_ctl = 0, n_ord = 0;
@@ -71,7 +73,7 @@ static int ctl_cc(void)
 {
     int bad = 0;
     raw_begin(); track_t *t = &trk[0];
-    t->p[P_QUANT] = Q_OFF;
+    t->p[P_QUANT] = Q_OFF; t->p[P_DUB_ECHO] = 100;   /* (Round 24) a DUB track: only one records control notes */
     seq_advance(606); midi_parameter(t, 18, 127); seq_advance(900); midi_parameter(t, 18, 0); seq_stop();
     bad += check("MIDI CC 18 (KICK) down and up while recording makes a flagged note 124", recording[0].note == 124 && recording[0].length == RN_CTL && recording[0].duration >= 900);
     midi_parameter(t, 18, 127); midi_parameter(t, 18, 100);
@@ -83,7 +85,7 @@ static int ctl_idle(void)
 {
     int bad = 0;
     raw_begin(); track_t *t = &trk[0];
-    song.rec = 0;
+    song.rec = 0; t->p[P_DUB_ECHO] = 100;
     memset(recording, 0, sizeof recording[0] * 4);
     seq_advance(606); dub_key(8, 0, 1); seq_advance(300); dub_key(8, 0, 0); midi_parameter(t, 19, 127); midi_parameter(t, 19, 0);
     bad += check("a track that is not recording records no control note", !recording[0].vel);

@@ -65,10 +65,10 @@ static void seq_erase_pass(track_t *t, uint32_t step, int entered)
     uint64_t touched = 0;
     for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX;) {
         uint32_t next = recording_next[i];
-        if (recording_active(t, i) && ((recording[i].step & 63u) == step ||
+        if (recording_plays(t, i) && ((recording[i].step & 63u) == step ||
             (starting && (recording_sounding(i) || (recording_flags[i] & 1u))))) {
             recording_undo_capture(t);
-            touched |= (uint64_t)1u << recording_view(t, &recording[i]);
+            if (!recording_ctl(&recording[i])) touched |= (uint64_t)1u << recording_view(t, &recording[i]);   /* (Round 24) the erase takes a control note too; it owns no cell, so none is rebuilt for it */
             recording_remove(t, i);
         }
         i = next;

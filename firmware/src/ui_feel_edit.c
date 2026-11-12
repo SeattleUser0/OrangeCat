@@ -171,7 +171,7 @@ static int tracker_chord_length(uint32_t at, uint32_t col, int32_t steps)
     if (!note_transaction_begin()) { fm1_irq_on(); return 1; }
     if (!note_convert(at)) { note_transaction.valid = 0; fm1_irq_on(); return 1; }
     for (i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
-        if ((recording[i].step & 63u) == at && recording[i].note == pitch) {
+        if ((recording[i].step & 63u) == at && recording[i].note == pitch && !recording_ctl(&recording[i])) {   /* (Round 24) the converted note, never a control note of its number */
             note_duration(&recording[i], want * RECORD_UNIT);
             break;
         }

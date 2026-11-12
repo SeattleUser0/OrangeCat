@@ -94,6 +94,7 @@ static inline int dub_spd_st(int32_t v) { return (dub_f_clamp(v, 0, 127) - DUB_S
 /* the performance triggers CC 16 .. 21 write (THRW, CUT, KICK; dub-perf: HOLD, DIVE, RISE), per track, RAM only */
 static uint8_t dub_trig[4][6];                         /* [track][THRW CUT KICK HOLD DIVE RISE]: CC 16 .. 21 (dub-perf: the last three are the performance view's) */
 static uint8_t dub_rec[4][4];                           /* (Release 3 step 7, PROJECT_FORMAT_R3.md 8.2b) [track][KICK HOLD DIVE RISE]: the recorded half, set by the timed-note player for a control note while it sounds; the kernel reads live OR recorded (fx_insert.c) */
+static uint8_t dub_struck[4];                           /* (Round 24) [track] bit KICK HOLD DIVE RISE: a control note began since the block's last read (recording.c recording_hit sets it, fx_insert.c fx_ins_start takes and clears it once a block, the stop and the reset clear it): a strike whose gate ends inside its own block is still handed to the kernel for that block. In the audio interrupt only, as dub_rec */
 /* a track of the layout from before -> today's, in place (the ids 45 .. 47, 104 .. 107 and 111 .. 113; everything else is the caller's). DUB_R12.md section 7.
  * `old` names: LEN OFF 32K 8K 16K 24K 48K 64K; PTRN SLAP SINGLE SKANK TRIPLE GALLOP SPREAD; SPRP OFF LOOP WET; SPACE: below 64 the delay time
  * (14 synced divisions), from 64 the spring's mix. The old heads' times in beats are those of jfx_dub.c's old dub_ptrn (first head, second head). */

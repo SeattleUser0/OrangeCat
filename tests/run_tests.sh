@@ -715,7 +715,7 @@ if core && [ $TABLES = 1 ]; then
     t "MIDI recording: raw events, quantization at take end, independent releases, banks and capacity" recording_test \
         -O1 $FW
     t "The pattern pool and the control-note flag (Release 3 step 7): a flagged note makes a version 3 pattern, a version 2 pattern holding one is refused" pool_ctl_test -O1 $FW
-    t "Control-note recording and playback (Release 3 step 7, 8.2b): the DUB keys and MIDI CC 18 to 21 record flagged notes, the player drives dub_rec, nothing reaches an engine" ctl_play_test -O1 -DOC_CTL_REC=1 $FW
+    t "Control-note recording and playback (Release 3 step 7, 8.2b): the DUB keys and MIDI CC 18 to 21 record flagged notes, the player drives dub_rec, nothing reaches an engine" ctl_play_test -O1 $FW
     t "Control notes 124 to 127 (KICK, HOLD, DIVE, RISE) through every note-range path: recorder, replay, save and load, MIDI in, octave, transpose, scale layouts" control_notes_test -O1 $FW
     t "Restoring an event over a slot in use keeps the track's chain a chain (a hang failed the suite for 98 min), with its own alarm" restore_chain_test -O1 $FW
     t "Recording scheduler: reference-state parity, cache invalidation and live lists" recording_scheduler_test -O1 $FW
@@ -903,6 +903,13 @@ if sound && [ $TABLES = 1 ]; then
     # (dub-perf) DUB TAPE's performance view: the keys, the triggers CC 19 .. 21, what records, CUT = ECHO 0 and the other triggers = their knobs through the module's kernel, the page, its draw budget
     dub_t "DUB TAPE performance view (dub-perf): the octave of keys, CC 19 .. 21, the SEND and ECHO lanes, CUT recorded as ECHO 0 plays as the trigger, the page and its budget; sanitizers" \
         dub_perf_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    # (Round 24, Session C) control-note RECORDING on (OC_CTL_REC 1 is the default): Session A's findings of Round 23 (the step grid untouched, a DUB track only, no editor shows or changes one, the
+    #   release after a selection change, the strike inside a block, the bound), undo, erase, copy, double, the pool, a project, the note tools, record quantize, punch-in, count-in and latch;
+    #   and the switch off: nothing recorded, stored control notes play
+    dub_t "Control-note recording on (Round 24): a control note writes no step and owns no cell; Session A's findings 1 to 5 each with its check; undo, erase, copy, pool, project, note tools, quantize, punch-in, count-in, latch, the bound; sanitizers" \
+        ctl_rec_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    dub_t "Control-note recording switched off (OC_CTL_REC=0 still builds): the keys and CC 18 to 21 record nothing, a stored control note plays and reaches no engine; sanitizers" \
+        ctl_rec_off:ctl_rec_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 -DOC_CTL_REC=0 $FW -Itests
     t "regression with the new interface built in (OC_HOME_PIC=1): every golden render unchanged, the macros at 0" regress_pic:regress -O2 $FW -DOC_HOME_PIC=1 -- \
         "$OUT/regress_pic" tests/golden.txt tests/cpu_baseline.txt
     mkdir -p build/shapes_demo

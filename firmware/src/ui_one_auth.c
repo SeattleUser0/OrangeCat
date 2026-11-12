@@ -44,7 +44,7 @@ static void start_convert_edit(int32_t steps)
     if (!note_transaction_begin()) { fm1_irq_on(); return; }
     if (!note_convert(at)) { note_transaction.valid = 0; fm1_irq_on(); return; }   /* (RECORDING FULL said; the step stays manual) */
     for (i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
-        if ((recording[i].step & 63u) == at && recording[i].note == pitch) break;
+        if ((recording[i].step & 63u) == at && recording[i].note == pitch && !recording_ctl(&recording[i])) break;   /* (Round 24) the converted note, never a control note of its number */
     r = i < RECORD_MAX ? recording_snapshot(i) : (recorded_note_t){0};
     view0 = recording_view(t, &r);
     note_onset(&r, steps * (int32_t)(RECORD_UNIT / 16u), len, 0);
@@ -159,7 +159,7 @@ static void events_drop_view(track_t *t, uint32_t view)
     fm1_irq_off();
     for (i = recording_head[recording_owner(t)]; i < RECORD_MAX;) {
         uint32_t next = recording_next[i];
-        if (recording[i].vel && recording_view(t, &recording[i]) == view) recording_remove(t, i);
+        if (recording[i].vel && !recording_ctl(&recording[i]) && recording_view(t, &recording[i]) == view) recording_remove(t, i);   /* (Round 24) the cell's events: a control note is not the cell's */
         i = next;
     }
     fm1_irq_on();

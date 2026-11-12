@@ -50,7 +50,6 @@ static uint16_t recording_next[RECORD_MAX];
 static uint32_t recording_due[RECORD_MAX];
 static uint16_t recording_refs[NTRK][128] __attribute__((section(".pool")));
 static uint16_t recording_cref[NTRK][4] __attribute__((section(".pool")));   /* (Release 3 step 7, 8.2b) the control notes sounding, by KICK HOLD DIVE RISE: their own counts, never the engine's */
-static uint16_t recording_last = RECORD_MAX;   /* the event recording_note made last (a control note flags it) */
 static struct { uint32_t period, key, ordered_period, ordered_key; uint16_t cursor; } recording_schedule[NTRK];
 /* (Orange Cat 0.13.0) step properties on recorded steps. recording_roll: the steps of the track whose chance and condition were rolled this pass of the loop
  * (seen) and the ones that failed (skip). recording_nudge_sum: the track's nudges as the schedule was last ordered with them.
@@ -216,7 +215,7 @@ static void recording_queue_remove(uint32_t i)
     if (!recording_sounding(i)) return;
     uint32_t tr = (recording[i].owner & 31u) / NPAT, pos = recording_heap_pos[i];
     uint32_t view = pos >> 10, at = pos & 1023u;
-    if (!--recording_watch[tr][view]) recording_watch_bits[tr][view >> 5] &= ~(1u << (view & 31u));
+    if (!(recording[i].length & RN_CTL) && !--recording_watch[tr][view]) recording_watch_bits[tr][view >> 5] &= ~(1u << (view & 31u));   /* (Round 24) a control note owns no cell: none is watched for it */
     recording_message[i] = 0;
     uint32_t last = --recording_heap_count[tr];
     if (last < 32u) {                           /* (most queues: their own row only) */
@@ -239,13 +238,18 @@ static int recording_queue_add(track_t *t, uint32_t i, uint32_t remaining)
     /* An edit can change a sounding event's overview. Remove/reinsert also
      * cancels its old deadline rather than leaving a stale release behind. */
     if (was) recording_queue_remove(i);
+#ifdef RECORDING_QUEUE_FULL_HOOK                    /* (Round 24) host tests only: the store refusing a release (its bound rules that out on the unit; the callers' accounting is tested all the same) */
+    if (RECORDING_QUEUE_FULL_HOOK(tr, i)) return 0;
+#endif
     if (!recording_heap_room(tr)) return 0;
     uint32_t view = recording_view(t, &recording[i]);
     recording_run[i].left = recording_clock[tr] + remaining;
     recording_message[i] = recording[i].note | 128u;
     recording_heap_pos[i] = (uint16_t)(view << 10);
-    recording_watch[tr][view]++;
-    recording_watch_bits[tr][view >> 5] |= 1u << (view & 31u);
+    if (!(recording[i].length & RN_CTL)) {              /* (Round 24) a control note owns no cell: its release is not tied to one (recording_queue_remove, _refresh and the reindex agree) */
+        recording_watch[tr][view]++;
+        recording_watch_bits[tr][view >> 5] |= 1u << (view & 31u);
+    }
     uint32_t at = recording_heap_count[tr]++;
     recording_heap_fix(tr, at, i);
     return 1;
@@ -314,20 +318,35 @@ static uint32_t recording_view(const track_t *t, const recorded_note_t *r)
     (void)t;
     return r->step & 128u ? 0u : (r->step & 63u) + ((r->step & 64u) != 0u);
 }
+/* (Round 24, control-note recording: UI_BUILD.md "Session C, Round 24") A control note (KICK, HOLD, DIVE, RISE: the flag RN_CTL) OWNS NO STEP CELL. It is a timed event of its
+ * bank and nothing else: recording it writes no step (Session A's finding 1: through rec_note it wiped a mono step, replaced a chord's fourth note, reset velocity and chance,
+ * tied over manual steps, set a drum step's accent), it needs no NOTE cell flagged SF_RECORDED to exist or to play, it takes no chance, condition, ratchet, flam, nudge or accent
+ * from the step under it, and it never appears in a cell's note list or the pitch index. So there are two tests:
+ *   recording_plays   the player's and the erase's: the event is in the track's bank and inside LEN, and (an ordinary note only) its cell is a recorded NOTE cell
+ *   recording_active  the editors' (NOTES, the tracker, GRID, the pads, the note tools, the clip, the overview rebuilds): the same, and never a control note. The labeled control
+ *                     rows of PROJECT_FORMAT_R3.md 8.2b are not built, so no editor shows, picks, auditions or changes one; it goes with the take's undo, the erase (EDIT held
+ *                     while recording), a clear, a pattern copy or double, and the phrase or project it is saved in. */
+static int recording_ctl(const recorded_note_t *r) { return (r->length & RN_CTL) != 0; }
 static int recording_present(const recorded_note_t *r)
 {
     uint32_t owner = r->owner & 31u, k = owner / NPAT, bank = owner % NPAT;
     uint32_t view = recording_view(&trk[k], r);
     if (view >= NSTEP) return 0;
+    if (recording_ctl(r)) return 1;
     step_t step = pattern_step(k, bank, view);
     return step.time == ST_NOTE && (step.flags & SF_RECORDED);
 }
-static int recording_active(const track_t *t, uint32_t i)
+static int recording_plays(const track_t *t, uint32_t i)
 {
     const recorded_note_t *r = &recording[i];
     if (!r->vel || (r->owner & 31u) != recording_owner(t) || (r->step & 63u) >= (uint32_t)t->p[P_SLEN]) return 0;
+    if (recording_ctl(r)) return 1;
     uint32_t view = recording_view(t, r);
     return t->step[view].time == ST_NOTE && (t->step[view].flags & SF_RECORDED);
+}
+static int recording_active(const track_t *t, uint32_t i)
+{
+    return !recording_ctl(&recording[i]) && recording_plays(t, i);
 }
 #ifndef MELODEE_RECORD_INDEX
 #define MELODEE_RECORD_INDEX 1
@@ -353,7 +372,7 @@ static void recording_pitch_remove(uint32_t i)
 static void recording_pitch_add(uint32_t i)
 {
     const recorded_note_t *r=&recording[i];uint32_t tr=(r->owner&31u)/NPAT,view=recording_view(&trk[tr],r);
-    if(r->vel && view<NSTEP && (r->step&63u)<(uint32_t)trk[tr].p[P_SLEN] &&
+    if(r->vel && !recording_ctl(r) && view<NSTEP && (r->step&63u)<(uint32_t)trk[tr].p[P_SLEN] &&   /* (Round 24) never a control note: a step note 124 to 127 in the same cell is not its duplicate */
        (r->owner&31u)==recording_owner(&trk[tr]) && recording_pitch_key[tr]==recording_pitch_current(&trk[tr]))
         recording_pitch[tr][view][r->note>>5]|=1u<<(r->note&31u);
 }
@@ -366,7 +385,7 @@ static void recording_pitch_prepare(track_t *t)
     for(uint32_t v=0;v<NSTEP;v++)if(((v<32u?a:b)>>(v&31u))&1u)memset(recording_pitch[tr][v],0,sizeof recording_pitch[tr][v]);
     for(uint32_t i=recording_head[recording_owner(t)];i<RECORD_MAX;i=recording_next[i]){
         const recorded_note_t *r=&recording[i];uint32_t view=recording_view(t,r);
-        if(r->vel && (r->step&63u)<(uint32_t)t->p[P_SLEN] && view<NSTEP && (((view<32u?a:b)>>(view&31u))&1u))
+        if(r->vel && !recording_ctl(r) && (r->step&63u)<(uint32_t)t->p[P_SLEN] && view<NSTEP && (((view<32u?a:b)>>(view&31u))&1u))
             recording_pitch[tr][view][r->note>>5]|=1u<<(r->note&31u);
     }
     recording_pitch_key[tr]=(uint16_t)key;recording_pitch_dirty[tr][0]=recording_pitch_dirty[tr][1]=0;
@@ -423,7 +442,8 @@ static void recording_end(track_t *t, uint32_t i)
         recording_queue_remove(i);
 #endif
         recording_run[i].left = 0;
-        if (recording_cref[tr][w] && !--recording_cref[tr][w]) dub_rec[tr & 3u][w] = 0;
+        if (recording_cref[tr][w]) recording_cref[tr][w]--;
+        if (!recording_cref[tr][w]) dub_rec[tr & 3u][w] = 0;
         return;
     }
     uint32_t note = recording[i].note;
@@ -443,12 +463,13 @@ static void recording_queue_refresh(track_t *t)
     /* A sparse edit may invalidate a buried node; scanning stable slot IDs
      * avoids visiting an entry twice or skipping one as the heap moves. */
     for (uint32_t i = 0; i < RECORD_MAX; i++)
-        if (recording_sounding(i) && (recording[i].owner & 31u) / NPAT == tr && !recording_active(t, i)) recording_end(t, i);
+        if (recording_sounding(i) && (recording[i].owner & 31u) / NPAT == tr && !recording_plays(t, i)) recording_end(t, i);
     memset(recording_watch[tr], 0, sizeof recording_watch[tr]);
     memset(recording_watch_bits[tr], 0, sizeof recording_watch_bits[tr]);
     for (uint32_t at = 0; at < recording_heap_count[tr]; at++) {
         uint32_t i = RQ(tr, at), view = recording_view(t, &recording[i]);
         recording_heap_pos[i] = (uint16_t)((view << 10) | at);
+        if (recording_ctl(&recording[i])) continue;     /* (Round 24) no cell is watched for a control note */
         recording_watch[tr][view]++;
         recording_watch_bits[tr][view >> 5] |= 1u << (view & 31u);
     }
@@ -490,8 +511,10 @@ static void recording_reindex(void)
 #if MELODEE_RECORD_QUEUE
             uint32_t tr = owner / NPAT, view = recording_view(&trk[owner / NPAT], &recording[i]);
             recording_heap_pos[i] = (uint16_t)(view << 10);
-            recording_watch[tr][view]++;
-            recording_watch_bits[tr][view >> 5] |= 1u << (view & 31u);
+            if (!recording_ctl(&recording[i])) {
+                recording_watch[tr][view]++;
+                recording_watch_bits[tr][view >> 5] |= 1u << (view & 31u);
+            }
             recording_heap_room(tr);    /* (never full: the store was reset above, each slot is visited once) */
             uint32_t at = recording_heap_count[tr]++;
             recording_heap_fix(tr, at, i);
@@ -588,6 +611,7 @@ static void recording_stop(track_t *t)
         recording_end(t, i);
         recording_flags[i] &= (uint8_t)~clear;
     }
+    dub_struck[trk_index(t) & 3u] = 0;                  /* (Round 24) the stop releases the recorded half at once: a strike of this very block is not handed to the kernel after it */
 #if MELODEE_RECORD_CURSOR
     uint32_t tr = trk_index(t);
     for (uint32_t i = recording_live_head[tr]; i < RECORD_MAX; i = recording_live_next[i]) recording_flags[i] &= (uint8_t)~2u;
@@ -643,7 +667,7 @@ static uint32_t recording_on(const track_t *t, const recorded_note_t *r, uint32_
 {
     uint32_t at = recording_raw_on(t, r, period);
     const step_t *s = &t->step[recording_view(t, r) % NSTEP];
-    if (!s->nudge || s->time != ST_NOTE || !(s->flags & SF_RECORDED)) return at;
+    if (recording_ctl(r) || !s->nudge || s->time != ST_NOTE || !(s->flags & SF_RECORDED)) return at;   /* (Round 24) a control note owns no cell: the nudge of the step under it is not its */
     int32_t moved = (int32_t)at + (int32_t)s->nudge * (int32_t)(step_samples(t, period, r->step & 63u) / 64u);
     uint32_t loop = recording_loop(t, period);
     return moved < 0 ? 0u : (uint32_t)moved >= loop ? loop - 1u : (uint32_t)moved;
@@ -741,13 +765,15 @@ static uint32_t recording_play_on(const track_t *t, uint32_t i, uint32_t period)
 #if MELODEE_CAPTURE_FAST
 static void recording_remove(track_t *t, uint32_t i);
 #endif
-static int recording_note(track_t *t, uint32_t note, uint32_t vel, uint32_t step)
+/* (Round 24) ctl 1: a control note (dub_keys.h dubk_ctl_rec): flagged before it is linked (the pitch index never holds it), no step cell written or flagged, and it is another
+ * event than an ordinary note of the same number: neither seals the other's live hold nor takes the other's slot at the same step and time (Session A's findings 1 and 5) */
+static int recording_note_x(track_t *t, uint32_t note, uint32_t vel, uint32_t step, uint32_t ctl)
 {
 #if MELODEE_CAPTURE_FAST
     uint32_t owner = recording_owner(t), period = seq_div_samples((uint32_t)t->p[P_SDIV]);
     uint32_t actual = t->seq_pos >= 0x7FFFFFFFu ? 0u : t->seq_idx;
     uint32_t span = step_samples(t, period, actual), pos = t->seq_pos >= 0x7FFFFFFFu ? 0u : t->seq_pos;
-    uint32_t on = (uint32_t)(((uint64_t)pos * RECORD_UNIT + span / 2u) / span), free = RECORD_MAX;
+    uint32_t on = (uint32_t)(((uint64_t)pos * RECORD_UNIT + span / 2u) / span), free = RECORD_MAX, nctl = 0;
     if (on > 65535u) on = 65535u;
     /* Every event of this owner, and only those, is on its bank list. One
      * walk retires overwritten overview cells (as recording_prune does, in
@@ -757,14 +783,18 @@ static int recording_note(track_t *t, uint32_t note, uint32_t vel, uint32_t step
         uint32_t next = recording_next[i];
         recorded_note_t *r = &recording[i];
         uint32_t view = recording_view(t, r);
-        if (view >= NSTEP || t->step[view].time != ST_NOTE || !(t->step[view].flags & SF_RECORDED)) {
+        if (view >= NSTEP || (!recording_ctl(r) && (t->step[view].time != ST_NOTE || !(t->step[view].flags & SF_RECORDED)))) {
             recording_remove(t, i);
-        } else if (r->note == note) {
-            if (recording_flags[i] & 1u) recording_finish(i);
-            if ((r->step & 63u) == actual && r->on == on && (free == RECORD_MAX || i > free)) free = i;
+        } else {
+            nctl += (uint32_t)recording_ctl(r);
+            if (r->note == note && (uint32_t)recording_ctl(r) == ctl) {
+                if (recording_flags[i] & 1u) recording_finish(i);
+                if ((r->step & 63u) == actual && r->on == on && (free == RECORD_MAX || i > free)) free = i;
+            }
         }
         i = next;
     }
+    if (ctl && free == RECORD_MAX && nctl >= RN_CTL_MAX) { recording_full = 1; return 0; }   /* (Round 24) the bound of a bank's control notes (core.h) */
     /* Otherwise the lowest empty or retired slot. This owner's remaining
      * events were just found present, so they can never qualify. */
     for (uint32_t i = 0; free == RECORD_MAX && i < RECORD_MAX; i++) {
@@ -780,17 +810,20 @@ static int recording_note(track_t *t, uint32_t note, uint32_t vel, uint32_t step
     uint32_t owner = recording_owner(t), period = seq_div_samples((uint32_t)t->p[P_SDIV]);
     uint32_t actual = t->seq_pos >= 0x7FFFFFFFu ? 0u : t->seq_idx;
     uint32_t span = step_samples(t, period, actual), pos = t->seq_pos >= 0x7FFFFFFFu ? 0u : t->seq_pos;
-    uint32_t on = (uint32_t)(((uint64_t)pos * RECORD_UNIT + span / 2u) / span), free = RECORD_MAX;
+    uint32_t on = (uint32_t)(((uint64_t)pos * RECORD_UNIT + span / 2u) / span), free = RECORD_MAX, nctl = 0, hit = 0;
     if (on > 65535u) on = 65535u;
     for (uint32_t i = 0; i < RECORD_MAX; i++) {
         recorded_note_t *r = &recording[i];
-        if ((r->owner & 31u) == owner && (recording_flags[i] & 1u) && r->note == note) recording_finish(i);
+        uint32_t same = r->note == note && (uint32_t)recording_ctl(r) == ctl;
+        nctl += r->vel && (r->owner & 31u) == owner && recording_ctl(r);
+        if ((r->owner & 31u) == owner && (recording_flags[i] & 1u) && same) recording_finish(i);
         /* Repeated passes replace the same pitch at the same captured time.
          * Distinct hits in one step remain separate events. */
         uint32_t same_time = r->on == on;
-        if (r->vel && (r->owner & 31u) == owner && r->note == note && (r->step & 63u) == actual && same_time) free = i;
+        if (r->vel && (r->owner & 31u) == owner && same && (r->step & 63u) == actual && same_time) { free = i; hit = 1; }
         else if (free == RECORD_MAX && (!r->vel || (!recording_present(r) && !recording_sounding(i) && !(recording_flags[i] & 1u)))) free = i;
     }
+    if (ctl && !hit && nctl >= RN_CTL_MAX) { recording_full = 1; return 0; }   /* (Round 24) the bound of a bank's control notes (core.h) */
 #endif
     if (free == RECORD_MAX) { recording_full = 1; return 0; }
     recording_undo_capture(t);
@@ -798,16 +831,17 @@ static int recording_note(track_t *t, uint32_t note, uint32_t vel, uint32_t step
     recording_unlink(free);
     recorded_note_t *r = &recording[free];
     *r = (recorded_note_t){(uint16_t)on, 1, (uint8_t)note, (uint8_t)vel, (uint8_t)owner, (uint8_t)(actual | (step != actual ? 64u : 0u) | (step == 0u && actual ? 128u : 0u))};
+    if (ctl) r->length = RN_CTL;
     recording_insert(t, free);
-    recording_last = (uint16_t)free;
     memset(&recording_run[free], 0, sizeof recording_run[free]);
     recording_flags[free] = 13;
     recording_live_add(free);
-    t->step[step].flags |= SF_RECORDED;
+    if (!ctl) t->step[step].flags |= SF_RECORDED;
     recording_tracks |= (uint8_t)(1u << trk_index(t));
     recording_generation++;
     return 1;
 }
+static int recording_note(track_t *t, uint32_t note, uint32_t vel, uint32_t step) { return recording_note_x(t, note, vel, step, 0u); }
 
 /* The UI calls these with audio interrupts paused. Remove only this event,
  * ending its reference-counted voice; history keeps its original bytes. */
@@ -872,7 +906,7 @@ static void recording_reconcile_owner(uint32_t owner)
     for (i = recording_head[owner]; i < RECORD_MAX;) {   /* the events: present, or gone */
         uint32_t next = recording_next[i];
         if (!recording_present(&recording[i])) recording_remove(t, i);
-        else seen |= (uint64_t)1 << (recording_view(t, &recording[i]) % NSTEP);
+        else if (!recording_ctl(&recording[i])) seen |= (uint64_t)1 << (recording_view(t, &recording[i]) % NSTEP);   /* (Round 24) a control note is present without a cell and keeps none flagged */
         i = next;
     }
     if (bank == t->pattern) {                           /* the cells: flagged with no event, a manual cell or nothing */
@@ -967,12 +1001,13 @@ static int recording_double(track_t *t, uint32_t bank, uint32_t len, int apply)
         }
     return 0;
 }
-static void recording_release(track_t *t, uint32_t note)
+static void recording_release_x(track_t *t, uint32_t note, uint32_t ctl)   /* (Round 24) ctl: the control note's key, never an ordinary note of its number (and the reverse) */
 {
     for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
-        if (recording[i].note == note && (recording_flags[i] & 1u))
+        if (recording[i].note == note && (uint32_t)recording_ctl(&recording[i]) == ctl && (recording_flags[i] & 1u))
             recording_finish(i);
 }
+static void recording_release(track_t *t, uint32_t note) { recording_release_x(t, note, 0u); }
 /* (Orange Cat 0.13.0) the chance and the trig condition of a recorded step, rolled once for the step on each pass of its loop, whichever of its notes is
  * due first: 1 = the step plays this pass */
 static int recording_roll_ok(track_t *t, uint32_t view)
@@ -1031,12 +1066,20 @@ static void recording_hit(track_t *t, uint32_t i, uint32_t vel, uint32_t gate, u
 #ifdef RECORDING_HIT_HOOK                           /* (Orange Cat 0.13.0) host tests only: the hits a recorded step plays */
     RECORDING_HIT_HOOK(t, i, vel, gate, late);
 #endif
-    if (r->length & RN_CTL) {                           /* (8.2b) a control note: the DUB side's recorded half, for the gate (a strike's is the shortest, one block at least) */
+    if (r->length & RN_CTL) {                           /* (8.2b) a control note: the DUB side's recorded half, for the gate. (Round 24) dub_struck hands every strike to the block's read
+                                                         * (fx_insert.c fx_ins_start) even when its gate ends inside the block: the gate's floor is one sample, and the sequencer's
+                                                         * later part of the same block (a step boundary, a MIDI clock batch) released it before the kernel was handed it */
         uint32_t ctr = trk_index(t), w = (r->note - RN_CTL_FIRST) & 3u, cwas = recording_sounding(i), crem = gate > late ? gate - late : 0u;
         if (!crem) crem = 1u;
+        dub_struck[ctr & 3u] |= (uint8_t)(1u << w);
 #if MELODEE_RECORD_QUEUE
-        if (!recording_queue_add(t, i, crem)) crem = 0;
-        if (!crem) { recording_queue_remove(i); recording_run[i].left = 0; return; }
+        if (!recording_queue_add(t, i, crem)) {         /* (the store's bound rules it out) no release could be kept, so the event does not sound: a retrigger was counted and is taken off
+                                                         * again (it left the count one high and the trigger down until the next reindex) */
+            recording_run[i].left = 0;
+            if (cwas && recording_cref[ctr][w]) recording_cref[ctr][w]--;
+            if (!recording_cref[ctr][w]) dub_rec[ctr & 3u][w] = 0;
+            return;
+        }
 #else
         recording_run[i].left = crem;
 #endif
@@ -1073,6 +1116,7 @@ static void recording_shape(const track_t *t, uint32_t i, uint32_t period, uint3
     const step_t *s = &t->step[recording_view(t, r) % NSTEP];
     uint32_t g = (uint32_t)(((uint64_t)r->duration << (r->owner >> 5)) * period / RECORD_UNIT);
     if (!g) g = 1;
+    if (recording_ctl(r)) { *vel = r->vel; *gate = g; *hits = 1u; *part = 0; *grace = 0; return; }   /* (Round 24) a control note owns no cell: no accent, ratchet or flam of the step under it */
     *vel = (s->flags & SF_ACCENT) ? 127u : r->vel > 110u ? 127u : r->vel;   /* (the owner's rule: a note keeps its own accent from its own velocity; the step flag is a deliberate step accent, never derived from the velocities) */
     *hits = step_ratchet(s); *grace = (s->flags & SF_FLAM) != 0u; *part = 0;
     if (*hits > 1u) {                                 /* RATCH: the gate of a part, as a manual step's, at most the note's own */
@@ -1125,7 +1169,7 @@ static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t lat
     if ((recording_flags[i] & 1u) || (((seq_hush | seq_frz_quiet) >> trk_index(t)) & 1u)) return;   /* (an edit waiting:
                                                          * seq.c; Orange Cat 0.5.6: a frozen phrase's take plays) */
     uint32_t view = recording_view(t, r) % NSTEP, tr = trk_index(t);
-    if (!recording_roll_ok(t, view)) return;
+    if (!recording_ctl(r) && !recording_roll_ok(t, view)) return;   /* (Round 24) a control note: no chance or condition of the step under it (and it does not roll the step for the notes) */
     uint32_t vel, gate, hits, part, grace;
     recording_shape(t, i, period, &vel, &gate, &hits, &part, &grace);
     uint32_t first = gate;
@@ -1160,7 +1204,7 @@ static void recording_rep_tick(track_t *t, uint32_t n)
         uint32_t e = recording_rep_ev[tr][k];
         if (!e) continue;
         uint32_t i = e - 1u, left = (recording_flags[i] & RECORDING_RF_LEFT_MASK) >> RECORDING_RF_LEFT_SHIFT;
-        if (!(recording_flags[i] & RECORDING_RF_REP) || !left || !recording[i].vel || !recording_active(t, i)) left = 0;
+        if (!(recording_flags[i] & RECORDING_RF_REP) || !left || !recording[i].vel || !recording_plays(t, i)) left = 0;
         else {
             uint32_t vel, gate, hits, part, grace;
             recording_shape(t, i, period, &vel, &gate, &hits, &part, &grace);
@@ -1191,14 +1235,14 @@ static void recording_zero(track_t *t)
     uint32_t i = recording_head[recording_owner(t)];
     while (i < RECORD_MAX && recording_due[i] <= phase) {
         uint32_t next = recording_next[i];
-        if (recording_active(t, i)) recording_fire(t, i, period, phase - recording_due[i]);
+        if (recording_plays(t, i)) recording_fire(t, i, period, phase - recording_due[i]);
         i = next;
     }
     recording_schedule[trk_index(t)].cursor = (uint16_t)i;
 #else
     for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) {
         recording_flags[i] &= (uint8_t)~4u;
-        if (recording_active(t, i)) {
+        if (recording_plays(t, i)) {
             uint32_t on = recording_play_on(t, i, period);
             if (on <= phase) recording_fire(t, i, period, phase - on);
         }
@@ -1263,7 +1307,7 @@ static void recording_tick(track_t *t, uint32_t n)
         if (recording_flags[i] & 1u) recording_run[i].held = (uint32_t)clamp((int32_t)(recording_run[i].held + elapsed), 0, 8388607);
 #if !MELODEE_RECORD_QUEUE
         if (recording_run[i].left) {
-            if (!recording_active(t, i) || recording_run[i].left <= n) recording_end(t, i);
+            if (!recording_plays(t, i) || recording_run[i].left <= n) recording_end(t, i);
             else recording_run[i].left -= n;
         }
 #endif
@@ -1275,7 +1319,7 @@ static void recording_tick(track_t *t, uint32_t n)
     uint32_t i = recording_schedule[tr].cursor;
     while (i < RECORD_MAX && recording_due[i] <= b) {
         uint32_t next = recording_next[i];
-        if (recording_due[i] > a && recording_active(t, i)) recording_fire(t, i, period, b - recording_due[i]);
+        if (recording_due[i] > a && recording_plays(t, i)) recording_fire(t, i, period, b - recording_due[i]);
         i = next;
     }
     recording_schedule[tr].cursor = (uint16_t)i;
@@ -1283,7 +1327,7 @@ static void recording_tick(track_t *t, uint32_t n)
     for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) {
         if ((recording_flags[i] & 1u)) recording_run[i].held = (uint32_t)clamp((int32_t)(recording_run[i].held + elapsed), 0, 8388607);
         if (recording_run[i].left) {
-            if (!recording_active(t, i) || recording_run[i].left <= n) {
+            if (!recording_plays(t, i) || recording_run[i].left <= n) {
                 recording_end(t, i);
             } else recording_run[i].left -= n;
         }
@@ -1291,7 +1335,7 @@ static void recording_tick(track_t *t, uint32_t n)
             uint32_t on = recording_play_on(t, i, period);
             /* Most retained events are nowhere near this block. Avoid
              * looking up their STEP ownership until their onset is due. */
-            if (on > a && on <= b && recording_active(t, i)) recording_fire(t, i, period, b - on);
+            if (on > a && on <= b && recording_plays(t, i)) recording_fire(t, i, period, b - on);
         }
     }
 #endif
