@@ -40,3 +40,4 @@ export OC_MGRID=1   # (melodic-grid) SEQ > GRID, the melodic step grid; waits fo
 export OC_PROJECT_PAGE=1  # (ui-fix2 3, branch ui-fix2) the plain project page: SAVE opens it, the slot in use marked, LOAD warns of unsaved changes
 export OC_SLIDE_TIME=1  # (ui-fix2 4, branch ui-fix2) SLIDE TIME per track; waits for Session A's on-unit sequencer test before a merge
 export OC_START_NUDGE=0  # (ui-fix2 5, branch ui-fix2) OFF in round 13: it was Session C's way round the 'NO EDIT MEMORY' of START on a typed note; round 12 fixed the cause (BUILD 7.23) and the owner asked that START move a note freely within the loop (nudge stops at half a step). Code and tests stay (the switch builds).
+export OC_MOD_TAIL=3   # (Round 23, option A on: FLASH_MAP_R3.md 10; the bench gate passed) the tail region: 3 sectors at 0x8E000, 21 starts, the window from the tail, WHEEL re-cut to one sector

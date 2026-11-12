@@ -348,14 +348,18 @@ json.dump(out, sys.stdout)`], { cwd: ROOT, input: JSON.stringify(cases), maxBuff
       const o = OCM.parse(new Uint8Array(readFileSync(f)));
       assert.ok(o.ok, "the DUB package parses: " + o.key);
       assert.equal(o.kind, 1); assert.equal(o.moduleId, 1); assert.equal(o.fxVersion, 0x00010000); assert.equal(o.fxCount, 1); assert.equal(o.fxSectors, 3);
-      assert.deepEqual(o.variants.map((v) => v.start), [-6, -3, 0, 3, 6, 9]);
+      { /* the default build: the grid; a build with the tail region (OC_MOD_TAIL=3, the build set since Round 23): every start of the area a 3 sector module fits at, and the tail's one (-58) */
+        const got = o.variants.map((v) => v.start), area = Array.from({ length: 16 }, (_, i) => i - 6);
+        assert.ok(JSON.stringify(got) === JSON.stringify([-6, -3, 0, 3, 6, 9]) || JSON.stringify(got) === JSON.stringify([...area, -58]) , "the DUB package's starts are the grid's or the tail build's: " + got);
+      }
       const unit = { iface: o.iface, apiAddr: o.apiAddr, apiVersion: o.apiVersion, apiSize: o.apiSize, packHash: o.packHash, sectorOf: SECT, starts: SECT.map(() => ({ state: 0, why: 0, engine: 127 })), lowOk: true };
       for (const [plan, sec] of [[0, 0], [5, 3], [1, 6], [9, 9], [17, -6], [14, -3]]) {
         const c = OCM.fxCheck(o, unit, { plan, inPlace: false, blocker: null, lowOk: true });
         assert.ok(c.ok && c.variant.start === sec, `sector ${sec} takes DUB (plan ${plan}): ${JSON.stringify(c.key)}`);
       }
-      assert.equal(OCM.fxCheck(o, unit, { plan: 3, inPlace: false, blocker: null, lowOk: true }).key, "modNoVariant", "sector 1 is not a start of the 3 sector grid");
-      console.log("ocm: the real DUB TAPE package (build/dub-" + ver + ".ocm): kind 1, module id 1, 3 sectors, six starts, taken by the installer page's check");
+      if (o.variants.length === 6) assert.equal(OCM.fxCheck(o, unit, { plan: 3, inPlace: false, blocker: null, lowOk: true }).key, "modNoVariant", "sector 1 is not a start of the 3 sector grid");
+      else { const c = OCM.fxCheck(o, unit, { plan: 3, inPlace: false, blocker: null, lowOk: true }); assert.ok(c.ok && c.variant.start === 1, "the tail build's package has every start of the area: sector 1 takes DUB"); }
+      console.log("ocm: the real DUB TAPE package (build/dub-" + ver + ".ocm): kind 1, module id 1, 3 sectors, " + o.variants.length + " starts, taken by the installer page's check");
     } else console.log("ocm: (no build/dub-" + ver + ".ocm: the real DUB package check skipped)");
   }
   // 6. (Release 3, the model picker) a MODELS module (kind 4, firmware/src/fw_models.h): the engine word engine | 4 << 8, the block at engine_ptr (magic "OMDL", size 160, version 1,

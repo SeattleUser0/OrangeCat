@@ -293,6 +293,8 @@ def app_flags():
         v = os.environ.get(flag)    # unset: the default in firmware/src/melodee.c
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")
+    if tail_build():    # (Round 23) the tail region is a count, not 0/1: the loop above never passed it, so a "tail build" cut the packages for a tail the firmware did not have
+        flags.append(f"-DOC_MOD_TAIL={TAIL_SECTORS}u")
     if os.environ.get("P5_OVERSAMPLE") in ("1", "2"):
         flags.append("-DP5_OVERSAMPLE=" + os.environ["P5_OVERSAMPLE"])
     builtin = os.environ.get("OC_PACK_BUILTIN", "0") == "1"      # (Orange Cat 0.13.6) the A/B build: the tables in the image, no pack (oc_pack.h)
