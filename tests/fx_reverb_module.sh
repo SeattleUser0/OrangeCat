@@ -38,12 +38,15 @@ if [ "$MODE" = check ]; then
     if ! cmp -s "$OUT/rvp.txt" tests/fx_reverb_golden.txt; then
         echo "fx_reverb_module: the resident modes' render differs from the pinned printout (tests/fx_reverb_golden.txt):"; diff "$OUT/rvp.txt" tests/fx_reverb_golden.txt | head -30; exit 1
     fi
-    echo "fx_reverb_module: the resident modes' render equals the pinned printout (22 scenarios, MELODEE_FX_DEFER 0 and 1)"
+    echo "fx_reverb_module: the resident modes' render equals the pinned printout (24 scenarios, MELODEE_FX_DEFER 0 and 1)"
     [ -f tests/fx_reverb_module_test.c ] || exit 0
     for d in 0 1; do
         build "$ROOT" ok $d || { echo "fx_reverb_module: compile (MELODEE_FX_DEFER=$d)"; exit 1; }
         "$OUT/rvm_ok_d$d" || { echo "fx_reverb_module: FAILED (MELODEE_FX_DEFER=$d)"; exit 1; }
     done
+    # the image of the Nightly after this one (OC_REV_RESIDENT=0: no resident copy of the three modes): without the module they are not run, with it the render is the pinned one
+    $CC $FLAGS -DMELODEE_FX_DEFER=1 -DOC_REV_RESIDENT=0 -c -o "$OUT/rvm_test_nores.o" tests/fx_reverb_module_test.c && $CC -o "$OUT/rvm_nores" "$OUT/rvm_test_nores.o" "$OUT/rvm_ok_tu_d1.o" -lm || { echo "fx_reverb_module: compile (OC_REV_RESIDENT=0)"; exit 1; }
+    "$OUT/rvm_nores" || { echo "fx_reverb_module: FAILED (OC_REV_RESIDENT=0)"; exit 1; }
     exit 0
 fi
 
@@ -57,6 +60,7 @@ mutant() {   # mutant 'sed script' what
     grep -q 'rev_kern_mut.h' "$OUT/rvm_mdir/tools/module/reverb_mod.c" || { echo "fx_reverb_module: the module does not include rev_kern.h"; exit 2; }
     cp "$OUT/rvm_mdir/firmware/src/rev_kern_mut.h" "$OUT/rvm_mdir/before"
     sed -i "$1" "$OUT/rvm_mdir/firmware/src/rev_kern_mut.h"
+    sed -i "$1" "$OUT/rvm_mdir/tools/module/reverb_mod.c"      # (a mutation of a descriptor word may need the module's own assert out of the way; the kernel mutations match nothing there)
     cmp -s "$OUT/rvm_mdir/before" "$OUT/rvm_mdir/firmware/src/rev_kern_mut.h" && { echo "fx_reverb_module: mutation $n ($2) did not apply"; exit 2; }
     build "$OUT/rvm_mdir" mut 1 || { echo "fx_reverb_module: mutant $n does not compile"; exit 2; }
     if (cd "$ROOT" && RVM_STOPFIRST=1 "$OUT/rvm_mut_d1" > "$OUT/rvm_mut.out" 2>&1); then
