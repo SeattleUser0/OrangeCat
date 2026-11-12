@@ -1,3 +1,20 @@
+# Orange Cat Nightly v0.16.0-5f894f (Round 23): what changed for you since e49499
+
+Written November 12, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. **This Nightly is on the test unit, installed from the live page.**
+
+1. **The track reset after a module install is fixed on the unit** (3 of 3 WHEEL installs under a WHEEL track kept the tracks; before, 4 of 4 restarted).
+2. **Model picker and the tail region (option A) are in.** Body cap 0x89000, tail 3 sectors, as you decided (FLASH_MAP_R3.md 10.2). The page now offers the MACRO models; DUB TAPE goes to the tail. On your unit the page will ask once to rearrange ("The set you ticked does not fit beside the modules as they sit in the FM-1 now..."): say yes; it takes the modules off and puts them back (the test unit ended SHAPES 1, WHEEL 5, models 17, DUB TAPE 18). A second question about erasing a module in its place is also a yes. To try: install, then play MACRO presets; then untick a model or two on the page and install again.
+3. **Track 4 graying, a likely cause found:** ARP held + C#4 while playing mutes Track 4 at the next launch point and it stays muted; GLO held + C#4 mutes it at once. C#4 is also DUB's KICK key, so a KICK with ARP or GLO still down does it. MIXER's knob 4 mutes the selected track. Unmute all: GLO held + C4. Does that match what you saw?
+4. **PRESETS jumping:** still open. The log is armed and saw nothing at rest; I need you to turn PRESETS one slow click to the right and say what the screen did.
+5. **Bench power cuts:** 11 of 11 interrupted updates resumed with the tail's module intact. They were restarts mid-update, not real power loss; the boot window gate passed for resets, power-on is not measured.
+6. **Track OFF:** the automatic release is built and switched off. It frees about 33 KB of four idle MACRO tracks, but that memory goes to the effects and selecting the track makes them give it back audibly. **Your decision:** when a released track is selected, does the track wait or do the effects yield? The rising cap is not built: a lone track already gets the engine's own cap today (BUILD.md 7.32). The explicit OFF waits for Session C's TRKS section.
+7. **Recording DUB's KICK / HOLD / DIVE / RISE keys is off** (a review finding; they sound, they are not recorded).
+8. **Your decision:** the full set (SHAPES, models, WHEEL, DUB TAPE, REVERB, FX) is one sector more than the unit has; it fits with one of the two effect modules.
+9. **Controls guide:** https://seattleuser0.github.io/OrangeCat/webapp/nightly-app/controls.html (the installer page's own "controls" link is still dead; Session D's fix was not on origin).
+10. **Image:** 525,904 B, body 522,096 B of the 0x89000 cap: 39,056 B free. **Tested:** full SAN=1 suite green on b156e9d0 (269 jobs); the Nightly adds text only. My slip: the first Nightly run failed in the site step (nothing was published); two page faults showed only on the unit and are fixed.
+
+---
+
 # Orange Cat Nightly v0.16.0-e49499 (Round 22): what changed for you since 2e1056
 
 Written November 10, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. **I have not installed this Nightly on the test unit: the FM-1 left USB at 15:19, before it was published.** Everything below marked "host" is tested on the PC only.
