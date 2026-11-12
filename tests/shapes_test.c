@@ -14,7 +14,7 @@
 #include <time.h>
 
 static int bad;
-static void audio_resources_reset(void) { memset(resource, 0, sizeof resource); }
+static void audio_resources_reset(void) { for (uint32_t k = 0; k < NPART; k++) resource_release(RES_ENGINE0 + k); }   /* (the parts only: the whole table forgot the hot sets' blocks, which the next part took: tests/plaits_test.c fresh) */
 static void check(const char *what, int ok)
 {
     printf("shapes: %-86s %s\n", what, ok ? "ok" : "FAIL");

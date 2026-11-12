@@ -110,21 +110,58 @@ static uint32_t host_pc_hi, host_pc_sets;                       /* what the devi
 static void fm1_guard_pc_window(void) { host_pc_hi = fm1_guard_pc_hi(fm1_guard_code_end, OC_HOST_ETEXT); host_pc_sets++; }
 #endif
 /* FL_XIP(off): the XIP address of flash offset off (hal/fm1_flash.h on the device; tests/hostsim.c for a host build) */
-#define OC_MOD_STARTS 18u                                      /* (Release 3 step 1) the places a module can start: every sector of the 18 (0.12.1: three, sector 0, 6 and 4 of 0xC8000) */
+/* (Release 3 option A, FLASH_MAP_R3.md 10 and its review 10.9) the modules have two PLACES: the area (18 sectors, 0xC2000..0xD3FFF) and the tail region (OC_MOD_TAIL
+ * sectors ending at 0x90FFF, the freed end of the app area). OC_MOD_TAIL is 0 until the stub window's bench gate allows the region: then the build sets 3 (0x8E000..0x90FFF). A start, a span and an
+ * erase are always inside ONE place; a sector is the signed number from the area's first sector (0 = 0xC2000; the tail's are -52 .. -50), never an unsigned index. */
+#define OC_MOD_AREA_STARTS 18u
+#define OC_MOD_STARTS (OC_MOD_AREA_STARTS + OC_MOD_TAIL)       /* (Release 3 step 1) the places a module can start: every sector of the 18 (0.12.1: three, sector 0, 6 and 4 of 0xC8000) */
 #define OC_MOD_AREA 18u                                        /* sectors in the area, 0xC2000..0xD3FFF (ST_MODULE_LO); 0.12.1: 12 from 0xC8000 */
 #define OC_MOD_BASE_SECTOR 6u                                  /* the area sector of 0xC8000, where the published packages' start numbering begins */
 /* start number -> sector from 0xC8000, signed: the numbering a package carries (its start field) and the page shows. The published packages' starts 0, 1, 2 are the sectors 0, 6 and 4
  * from there; 3.. the other sectors of 0xC8000..0xD3FFF (1, 2, 3, 5, 7 .. 11); 12..17 the six below it, numbered downward (-1 .. -6). The area itself starts at 0xC2000, six
  * sectors lower: OC_MOD_START_SECTOR is the sector in the area (0 = 0xC2000), OC_MOD_START_REL the signed one. */
-static const int8_t oc_mod_sect[OC_MOD_STARTS] = { 0, 6, 4, 1, 2, 3, 5, 7, 8, 9, 10, 11, -1, -2, -3, -4, -5, -6 };
+#define OC_MOD_TAIL_REL (-58)                                  /* the tail region's first sector from 0xC8000: flash 0x8E000; starts 18.. are its sectors upward */
+_Static_assert(OC_MOD_TAIL == 0u || OC_MOD_TAIL == 3u, "the tail region is 0x8E000..0x90FFF (3 sectors) or absent");
+_Static_assert(sizeof oc_modguard.unclean == OC_MOD_STARTS, "the guard record has a count for every start");
+static const int8_t oc_mod_sect[OC_MOD_STARTS] = { 0, 6, 4, 1, 2, 3, 5, 7, 8, 9, 10, 11, -1, -2, -3, -4, -5, -6,
+#if OC_MOD_TAIL
+                                                   OC_MOD_TAIL_REL, OC_MOD_TAIL_REL + 1, OC_MOD_TAIL_REL + 2,
+#endif
+                                                 };
 #define OC_MOD_START_REL(i) ((int32_t)oc_mod_sect[i])
-#define OC_MOD_START_SECTOR(i) ((uint32_t)(OC_MOD_START_REL(i) + (int32_t)OC_MOD_BASE_SECTOR))
+#define OC_MOD_START_SECTOR(i) ((int32_t)(OC_MOD_START_REL(i) + (int32_t)OC_MOD_BASE_SECTOR))   /* signed: the area's are 0..17, the tail's -52..-50 */
+#define OC_MOD_TAIL_S0 ((int32_t)OC_MOD_TAIL_REL + (int32_t)OC_MOD_BASE_SECTOR)
+/* the place a sector is in: 0 the area, 1 the tail, -1 neither (the pack, the stores, the app: never a module's) */
+static int oc_sec_place(int32_t sec)
+{
+    if (sec >= 0 && sec < (int32_t)OC_MOD_AREA) return 0;
+    if (OC_MOD_TAIL && sec >= OC_MOD_TAIL_S0 && sec < OC_MOD_TAIL_S0 + (int32_t)OC_MOD_TAIL) return 1;
+    return -1;
+}
+/* n sectors from sec lie in one place, wholly */
+static int oc_span_ok(int32_t sec, uint32_t n)
+{
+    return n >= 1u && n <= OC_MOD_AREA && oc_sec_place(sec) >= 0 && oc_sec_place(sec + (int32_t)n - 1) == oc_sec_place(sec);
+}
+/* the sectors from sec to the end of its place (0: no place) */
+static uint32_t oc_sec_room(int32_t sec)
+{
+    int p = oc_sec_place(sec);
+    return p == 0 ? (uint32_t)((int32_t)OC_MOD_AREA - sec) : p == 1 ? (uint32_t)(OC_MOD_TAIL_S0 + (int32_t)OC_MOD_TAIL - sec) : 0u;
+}
+static uint32_t oc_sec_flash(int32_t sec) { return (uint32_t)((int32_t)ST_MODULE_LO + sec * 0x1000); }
+_Static_assert((int32_t)ST_MODULE_LO + OC_MOD_TAIL_S0 * 0x1000 == 0x8E000 && (int32_t)ST_MODULE_LO + (OC_MOD_TAIL_S0 + 3) * 0x1000 == 0x91000,
+               "the tail region is flash 0x8E000..0x90FFF: it ends at the marker's sector (hal/fm1_flash.h FL_TAIL_LO / FL_TAIL_HI, the loader's LDR_BODY_END)");
+#ifdef FL_TAIL_LO                                              /* the firmware build includes hal/fm1_flash.h first: the two must agree */
+_Static_assert((int32_t)ST_MODULE_LO + OC_MOD_TAIL_S0 * 0x1000 == (int32_t)FL_TAIL_LO, "the tail region starts at FL_TAIL_LO");
+#endif
 /* the six sectors below 0xC8000 are the module area's only once the first boot has moved the record store out of them (smp_slot.c smp_claim; FLASH_MAP_R3.md 4B):
  * until then they may hold a live record part, so no start there is allowed, read, planned or erased */
 #ifndef OC_MOD_LOW_OK
 #define OC_MOD_LOW_OK() smp_modules_low()
 #endif
-static int oc_mod_start_ok(uint32_t i) { return OC_MOD_START_SECTOR(i) >= OC_MOD_BASE_SECTOR || OC_MOD_LOW_OK(); }
+static int oc_mod_low(int32_t sec) { return sec >= 0 && sec < (int32_t)OC_MOD_BASE_SECTOR; }     /* one of the six below 0xC8000 */
+static int oc_mod_start_ok(uint32_t i) { return oc_sec_place(OC_MOD_START_SECTOR(i)) >= 0 && (!oc_mod_low(OC_MOD_START_SECTOR(i)) || OC_MOD_LOW_OK()); }
 #define OC_MOD_MAXLEN (8u * 0x1000u)                           /* the most any module may be (the Prophet's 8 sectors); oc_mod_geo has each engine's own */
 /* (0.12.1) What a module of each engine looks like: how many sectors its image may take and which starts it may be linked for (a bit a start number).
  * SHAPES: 6 sectors, starts 0 and 1 (sectors 0 and 6). The Prophet: 8 sectors, starts 0 and 2 (sectors 0 and 4). Spans of different engines overlap, so
@@ -134,7 +171,11 @@ typedef struct { uint8_t engine, sectors; uint32_t starts; } oc_mod_geo_t;
 #define OC_MOD_GEO_QUAL const                           /* (0.13.5) a host test defines it empty to change the geometries for one case (tests/card_install_test.c) */
 #endif
 static OC_MOD_GEO_QUAL oc_mod_geo_t oc_mod_geo[] = { { ENGI_SHAPES, 6u, 0x03u }, { ENGI_PROPHET, 8u, 0x05u },
+#if OC_MOD_TAIL
+                                                     { ENGI_WHEEL, 1u, 0x3FFFFu },  /* (option A, FLASH_MAP_R3.md 10.4) WHEEL re-cut: one sector (2,928 B), any start of the area. Its package carries 18 variants (the .ocm limit), so not the tail's starts */
+#else
                                                      { ENGI_WHEEL, 4u, 0x03u },     /* (0.14.0) WHEEL: 4 sectors at sector 0 or 6: beside SHAPES (0) or the Prophet (4) */
+#endif
 #if OC_CANDIDATES
                                                      { ENGI_SEM, 4u, 0x03u }, { ENGI_HADES, 4u, 0x03u },   /* (0.14.0) the candidates of a measurement build */
                                                      { ENGI_FMBELL, 4u, 0x03u }, { ENGI_SUPERSAW, 4u, 0x03u }, { ENGI_DDDD, 4u, 0x03u },    /* (0.14.1) op1r's synths: WHEEL's geometry */
@@ -151,7 +192,7 @@ static OC_MOD_GEO_QUAL oc_mod_geo_t *oc_mod_geo_of(uint32_t engine)
 static int oc_mod_allowed(uint32_t engine, uint32_t i)      /* may a module of this engine start at start i */
 {
     const oc_mod_geo_t *g = oc_mod_geo_of(engine);
-    return g && i < OC_MOD_STARTS && ((g->starts >> i) & 1u) && OC_MOD_START_SECTOR(i) + g->sectors <= OC_MOD_AREA && oc_mod_start_ok(i);
+    return g && i < OC_MOD_STARTS && ((g->starts >> i) & 1u) && oc_span_ok(OC_MOD_START_SECTOR(i), g->sectors) && oc_mod_start_ok(i);
 }
 static int oc_mod_fits(uint32_t engine, uint32_t i, uint32_t len)
 {
@@ -161,16 +202,25 @@ static uint32_t oc_mod_nsec(uint32_t len) { return (len + 0xFFFu) / 0x1000u; }
 /* do the sectors [sect(i), +ni) and [sect(j), +nj) share a sector */
 static int oc_mod_overlap(uint32_t i, uint32_t ni, uint32_t j, uint32_t nj)
 {
-    return OC_MOD_START_SECTOR(i) < OC_MOD_START_SECTOR(j) + nj && OC_MOD_START_SECTOR(j) < OC_MOD_START_SECTOR(i) + ni;
+    return OC_MOD_START_SECTOR(i) < OC_MOD_START_SECTOR(j) + (int32_t)nj && OC_MOD_START_SECTOR(j) < OC_MOD_START_SECTOR(i) + (int32_t)ni;
 }
 #define OC_MOD_STATE_MAX 16384u                                /* a sanity limit on state_size (bytes of arena per part) */
 enum { MD_EMPTY, MD_TORN, MD_REFUSED, MD_BAD_HDR, MD_BAD_CRC, MD_CRASHED, MD_NOSLOT, MD_OK,
        MD_BAD_TAIL };                                          /* oc_mod.state[i]; MD_BAD_TAIL (0.10.1) is last so the numbers the web page knows stay */
 
 #include "fw_fx.h"                                            /* (Release 3 step 4) the effect module's descriptor (kind 1..3) */
+#include "fw_models.h"                                        /* (Release 3, the model picker) the MODELS module's block (kind 4: sound models for an engine, fw_models.h) */
 #define OC_FX_ENGINE 0xFFFFu                                   /* oc_mod.engine[i] of an effect module: no engine number, never equal to a track's engine or a table index */
 #define OC_FX_TABLE 8u                                         /* the Effects table: modules (banks) registered, keyed by module id */
 #define OC_FX_MAX_SECTORS 8u                                   /* the most sectors an effect module may take */
+/* (Release 3, the model picker) a kind 4 module goes by the module id FW_MODELS_ID(engine) through the id-keyed install path (oc_fxmod_*: the Effects table, FX_INFO,
+ * FX_BEGIN, FX_REMOVE); its span may be the whole area (a pick of many models), an effect module's at most OC_FX_MAX_SECTORS */
+#ifndef OC_MOD_XIP_PTR
+#define OC_MOD_XIP_PTR(a) ((const void *)(uintptr_t)(a))      /* a module's address as a pointer: the device's XIP window; a host test maps it into its NOR */
+#endif
+static uint32_t oc_id_max_sectors(uint32_t mid) { return FW_MODELS_ID_P(mid) ? OC_MOD_AREA : OC_FX_MAX_SECTORS; }
+static uint32_t oc_kind_max_sectors(uint32_t kind) { return kind == FW_MOD_KIND_MODELS ? OC_MOD_AREA : OC_FX_MAX_SECTORS; }
+static void oc_mod_park_voices(uint32_t engine);
 typedef struct { uint32_t module_id, version; uint8_t start, kind, nfx, state, why; } oc_fx_t;   /* one registered effect module */
 static int oc_fx_find(uint32_t module_id);
 static struct {
@@ -194,7 +244,7 @@ static struct {
  * registry if one holds anything that looks like a module (a header magic); a unit with nothing there does no work */
 static void oc_mod_low_rescan(void);
 /* the XIP address a start runs at; the header there (device) or in the test's copy of the flash */
-static uint32_t oc_mod_flash(uint32_t i) { return ST_MODULE_LO + OC_MOD_START_SECTOR(i) * 0x1000u; }
+static uint32_t oc_mod_flash(uint32_t i) { return oc_sec_flash(OC_MOD_START_SECTOR(i)); }
 static uint32_t oc_mod_link(uint32_t i) { return FL_XIP(oc_mod_flash(i)); }
 #ifndef OC_MOD_HOST_XIP
 static const fw_mod_hdr_t *oc_mod_hdr_ptr(uint32_t i) { return (const fw_mod_hdr_t *)(uintptr_t)oc_mod_link(i); }   /* registered by address: the header is read in place */
@@ -332,6 +382,25 @@ static int oc_fx_desc_check(uint32_t i, const fw_mod_hdr_t *h, uint32_t *id, uin
     uint32_t base = oc_mod_flash(i);
     return oc_fx_desc_check_rd(oc_rd_flash, &base, oc_mod_link(i), h, id, version, n);
 }
+/* (Release 3, the model picker) the models block at engine_ptr (fw_models_check), then the header's state_size against what the models need and what the engine's
+ * block holds (eng_models_max); 0 good: *id the module id (FW_MODELS_ID of the engine), *n the models present */
+static int oc_models_check_rd(oc_rd_t rd, void *rctx, uint32_t link, const fw_mod_hdr_t *h, uint32_t *id, uint8_t *n)
+{
+    oc_mod_rdctx_t c;
+    uint32_t e = FW_MOD_ENGINE(h), cnt = 0, need = 0, have = 0;
+    c.rd = rd; c.ctx = rctx; c.link = link;
+    if (!eng_models_max(e)) return 1;
+    if (fw_models_check(oc_mod_rd, &c, h->engine_ptr, link + FW_MOD_CODE_OFF, link + h->length, e, PL_MDL_ABI_ID, &cnt, &need, &have)) return 1;
+    if (h->state_size < need || h->state_size > eng_models_max(e)) return 1;
+    if (id) *id = FW_MODELS_ID(e);
+    if (n) *n = (uint8_t)have;
+    return 0;
+}
+static int oc_models_check(uint32_t i, const fw_mod_hdr_t *h, uint32_t *id, uint8_t *n)
+{
+    uint32_t base = oc_mod_flash(i);
+    return oc_models_check_rd(oc_rd_flash, &base, oc_mod_link(i), h, id, n);
+}
 /* the header at start i read from the flash (st_read), its checks, then the code's CRC and the sector tails: the state */
 static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
 {
@@ -352,9 +421,9 @@ static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
         return MD_REFUSED;
     }
     len = h->length;
-    if (FW_MOD_KIND(h) != FW_MOD_KIND_ENGINE) {                 /* (Release 3 step 4) an effect module: no engine slot, no geometry row; its span is its length */
-        if (h->link_addr != link || len <= FW_MOD_CODE_OFF || (len & 3u) || oc_mod_nsec(len) > OC_FX_MAX_SECTORS ||
-            OC_MOD_START_SECTOR(i) + oc_mod_nsec(len) > OC_MOD_AREA || h->engine_ptr < link + FW_MOD_CODE_OFF || h->engine_ptr >= link + len ||
+    if (FW_MOD_KIND(h) != FW_MOD_KIND_ENGINE) {                 /* (Release 3 step 4) an effect module: no engine slot, no geometry row; its span is its length (a models module's up to the area) */
+        if (h->link_addr != link || len <= FW_MOD_CODE_OFF || (len & 3u) || oc_mod_nsec(len) > oc_kind_max_sectors(FW_MOD_KIND(h)) ||
+            !oc_span_ok(OC_MOD_START_SECTOR(i), oc_mod_nsec(len)) || h->engine_ptr < link + FW_MOD_CODE_OFF || h->engine_ptr >= link + len ||
             (h->engine_ptr & 3u) || h->state_size > OC_MOD_STATE_MAX || h->pack_hash != OC_PACK_HASH)
             return MD_BAD_HDR;
     } else
@@ -372,7 +441,10 @@ static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
     }
     if (~crc != h->crc)
         return MD_BAD_CRC;
-    if (FW_MOD_KIND(h) != FW_MOD_KIND_ENGINE) {                 /* (Release 3 step 4) the descriptor, every pointer in the image */
+    if (FW_MOD_KIND(h) == FW_MOD_KIND_MODELS) {                  /* (Release 3, the model picker) the models block, every descriptor in the image; the state size */
+        if (oc_models_check(i, h, &oc_mod.mid[i], &oc_mod.nfx[i]))
+            return MD_BAD_HDR;
+    } else if (FW_MOD_KIND(h) != FW_MOD_KIND_ENGINE) {          /* (Release 3 step 4) the descriptor, every pointer in the image */
         if (oc_fx_desc_check(i, h, &oc_mod.mid[i], 0, &oc_mod.nfx[i]))
             return MD_BAD_HDR;
     } else {
@@ -455,11 +527,44 @@ static int oc_mod_erase_start(uint32_t i);
 static int oc_mod_erase_loser(uint32_t i);
 static void oc_fxmod_kernel_reg(uint32_t i);
 static void oc_fxmod_note_use(uint32_t mid);
+static uint32_t oc_models_count(uint32_t i)             /* (the model picker) the length of the models table at start i (fw_models.h n), read from the flash */
+{
+    fw_mod_hdr_t h;
+    uint32_t n = 0;
+    if (st_read(oc_mod_flash(i), &h, sizeof h) || st_read(oc_mod_flash(i) + (h.engine_ptr - oc_mod_link(i)) + 16u, &n, sizeof n)) return 0;
+    return n;
+}
+/* (the model picker) every MODELS module out of its engine's glue and that engine's voices parked: before the area is read again (oc_mod_reload) and before
+ * any erase that touches such a module's sectors (oc_models_guard), so nothing calls into flash that is about to change. engine 0xFFFF: all of them */
+static void oc_models_park(uint32_t engine)
+{
+    uint32_t e;
+    for (e = 0; e < NENGINES; e++) {
+        if (!eng_models_max(e) || (engine != 0xFFFFu && e != engine)) continue;
+        if (oc_mod_live) fm1_irq_off();
+        eng_models_clear(e);
+        if (oc_mod_live) fm1_irq_on();
+        oc_mod_park_voices(e);
+    }
+}
+static void oc_mod_reload(void);
+static uint32_t oc_models_guard(int32_t first, uint32_t n)       /* the MODELS modules taken out of their engine (their count) */
+{
+    uint32_t i, parked = 0;
+    for (i = 0; i < OC_MOD_STARTS; i++) {
+        if (oc_mod.state[i] != MD_OK || oc_mod.kind[i] != FW_MOD_KIND_MODELS) continue;
+        {   int32_t s0 = OC_MOD_START_SECTOR(i), n0 = (int32_t)oc_mod_nsec(oc_mod.length[i]);
+            if (first < s0 + n0 && s0 < first + (int32_t)n) { oc_mod_live = 1; oc_models_park(oc_mod.mid[i] & 0xFFu); oc_mod_live = 0; parked++; }
+        }
+    }
+    return parked;
+}
 #if MELODEE_DUB && OC_FX_MODK
 static uint32_t oc_fxk_start;                                   /* (round 18) the start of the module whose kernel the insert host holds (valid while fx_modk_ok) */
 #endif
 static void oc_mod_boot(uint32_t crashed)
 {
+    uint32_t models_at = 0;                                     /* starts of MODELS modules to hand to their engine after the window */
     uint32_t i, e, loser = 0;
     oc_mod_guard_init();
 #if MELODEE_DUB && OC_FX_MODK
@@ -511,6 +616,7 @@ static void oc_mod_boot(uint32_t crashed)
             oc_mod.fx[oc_mod.nfxmod].module_id = oc_mod.mid[i]; oc_mod.fx[oc_mod.nfxmod].version = oc_mod.version[i];
             oc_mod.fx[oc_mod.nfxmod].start = (uint8_t)i; oc_mod.fx[oc_mod.nfxmod].kind = oc_mod.kind[i]; oc_mod.fx[oc_mod.nfxmod].nfx = oc_mod.nfx[i];
             oc_mod.fx[oc_mod.nfxmod].state = MD_OK; oc_mod.fx[oc_mod.nfxmod].why = 0;
+            if (oc_mod.kind[i] == FW_MOD_KIND_MODELS) models_at |= 1u << i;   /* (the model picker) the engine's glue reads the module's tables from here on, registered after the PC window below (review of the picker: the DUB kernel is, for the same reason) */
             oc_mod.nfxmod++;
             continue;
         }
@@ -533,6 +639,19 @@ static void oc_mod_boot(uint32_t crashed)
     }
 #endif
     oc_mod_window();                                            /* (0.10.1) a running session too: the window follows the registered modules (0.11.1: the one helper) */
+    {   uint32_t mi;                                              /* (the model picker) the MODELS modules, now that the window covers their code */
+        for (mi = 0; mi < OC_MOD_STARTS; mi++) {
+            if (!((models_at >> mi) & 1u)) continue;
+            {   const fw_mod_hdr_t *mh = oc_mod_hdr_ptr(mi);
+                int fxi = oc_fx_find(oc_mod.mid[mi]), rc;
+                if (oc_mod_live) fm1_irq_off();
+                rc = eng_models_set(FW_MOD_ENGINE(mh), (const void *const *)OC_MOD_XIP_PTR(mh->engine_ptr + FW_MODELS_AT), oc_models_count(mi),
+                                    (const void *const *)OC_MOD_XIP_PTR(mh->engine_ptr + FW_MODELS_BANKS_AT));
+                if (oc_mod_live) fm1_irq_on();
+                if (rc != EM_OK) { oc_mod.state[mi] = MD_NOSLOT; oc_mod.why[mi] = (uint8_t)-rc; if (fxi >= 0) oc_mod.fx[fxi].state = MD_NOSLOT; }
+            }
+        }
+    }
 #if MELODEE_DUB && OC_FX_MODK
     {   int fi = oc_fx_find(FX_MODK_ID);                        /* AFTER the window: the kernel's first call may come from the next audio interrupt, into code above the old window's end */
         if (!fx_modk_ok && fi >= 0) oc_fxmod_kernel_reg(oc_mod.fx[fi].start);
@@ -552,7 +671,7 @@ static void oc_mod_low_rescan(void)
     uint32_t i, magic;
     if (!OC_MOD_LOW_OK()) return;
     for (i = 0; i < OC_MOD_STARTS; i++)
-        if (OC_MOD_START_SECTOR(i) < OC_MOD_BASE_SECTOR && !st_read(oc_mod_flash(i), &magic, sizeof magic) && magic == FW_MOD_MAGIC) { oc_mod_boot(0); return; }
+        if (oc_mod_low(OC_MOD_START_SECTOR(i)) && !st_read(oc_mod_flash(i), &magic, sizeof magic) && magic == FW_MOD_MAGIC) { oc_mod_boot(0); return; }
 }
 /* (0.10.1) The boot: once at power-on and after every reset (project.c persist_boot), the session's accounting first, then oc_mod_boot.
  * `run` says whether the last session ended in an orderly reset (reset_intended clears it). If it did not, the session died (the watchdog, a CPU
@@ -590,17 +709,18 @@ static void oc_mod_ban_notice(void)
         if (!(oc_modguard.notice & (1u << i)))
             continue;
         oc_modguard.notice &= ~(1u << i);
-        ui_say("MODULE BANNED ", oc_mod.kind[i] ? "EFFECT" : oc_mod.engine[i] == ENGI_SHAPES ? "SHAPES" : oc_mod.engine[i] == ENGI_PROPHET ? "PROPHET" : "ENGINE");
+        ui_say("MODULE BANNED ", oc_mod.kind[i] == FW_MOD_KIND_MODELS ? "MODELS" : oc_mod.kind[i] ? "EFFECT" : oc_mod.engine[i] == ENGI_SHAPES ? "SHAPES" : oc_mod.engine[i] == ENGI_PROPHET ? "PROPHET" : "ENGINE");
         return;
     }
 }
 /* (0.11.1) set the use bit of the registered module that supplies `engine`. The project load calls it for every track as it gives the track its engine
  * (project_restore_runtime), so a death before the main loop's first pass (oc_mod_note_use) is still attributed to the module. */
-static void oc_mod_note_engine(uint32_t engine)
+static void oc_mod_note_engine(uint32_t engine, uint32_t model)    /* model: the track's P_E0 (MACRO's model id; 0 = VA, built in) */
 {
     uint32_t i;
     for (i = 0; i < OC_MOD_STARTS; i++)
-        if (oc_mod.state[i] == MD_OK && oc_mod.engine[i] == engine && engine < NENGINES && eng_mod[engine] == oc_mod_hdr_ptr(i))
+        if (oc_mod.state[i] == MD_OK && ((oc_mod.engine[i] == engine && engine < NENGINES && eng_mod[engine] == oc_mod_hdr_ptr(i)) ||
+                                         (oc_mod.kind[i] == FW_MOD_KIND_MODELS && oc_mod.mid[i] == FW_MODELS_ID(engine) && model != 0)))   /* (the model picker) a MACRO track on a model other than the built-in VA plays the module's (review: a VA track does not mark it, so an unrelated crash cannot ban the module) */
             oc_modguard.inuse |= 1u << i;
 }
 /* main loop, all session (0.10.1; the first 30 s before): set the use bit of every registered module a track is playing */
@@ -611,7 +731,7 @@ static void oc_mod_note_use(void)
         if (oc_mod.state[i] != MD_OK)
             continue;
         for (t = 0; t < NTRK; t++)
-            if (trk[t].engine == oc_mod.engine[i])
+            if (trk[t].engine == oc_mod.engine[i] || (oc_mod.kind[i] == FW_MOD_KIND_MODELS && trk[t].engine == (oc_mod.mid[i] & 0xFFu) && eng_track_ext(&trk[t])))
                 oc_modguard.inuse |= 1u << i;
     }
 }
@@ -685,6 +805,32 @@ static uint32_t oc_mod_reach(uint32_t j)
     uint32_t n = g ? g->sectors : oc_mod_nsec(oc_mod.length[j]);
     return n ? n : 1u;
 }
+#if OC_MOD_TAIL
+/* (option A, FLASH_MAP_R3.md 10.5) the placement rule of a build with the tail region. Room is not enough: the default pick of models needs 9 sectors in ONE run beside
+ * SHAPES, so where a module lands matters. Of the candidates that stand beside everything (the planner's first two passes) the planner takes the one that leaves the
+ * LONGEST free run on the unit, then the one that leaves the FEWEST free runs, then the LOWEST sector (the tail's are the lowest, then the area upward from 0xC2000). A sector is free when no usable module's reach covers
+ * it and it may be used (the low six only once they are the area's); a run lies in one place. web/fm1place.js is the same rule (web/test_place.mjs holds them equal). */
+static uint32_t oc_plan_bit(int32_t sec)
+{
+    int p = oc_sec_place(sec);
+    return p == 0 ? 1u << sec : p == 1 ? 1u << (OC_MOD_AREA + (uint32_t)(sec - OC_MOD_TAIL_S0)) : 0u;
+}
+static uint32_t oc_plan_score(uint32_t c, uint32_t n)
+{
+    uint32_t occ = OC_MOD_LOW_OK() ? 0u : (1u << OC_MOD_BASE_SECTOR) - 1u, j, q, run = 0, longest = 0, runs = 0;
+    for (j = 0; j < OC_MOD_STARTS; j++)
+        if (oc_mod_usable(j))
+            for (q = 0; q < oc_mod_reach(j); q++) occ |= oc_plan_bit(OC_MOD_START_SECTOR(j) + (int32_t)q);
+    for (q = 0; q < n; q++) occ |= oc_plan_bit(OC_MOD_START_SECTOR(c) + (int32_t)q);
+    for (q = 0; q < OC_MOD_AREA + OC_MOD_TAIL; q++) {
+        if (q == OC_MOD_AREA) run = 0;                             /* a run does not cross from the area into the tail */
+        if (occ >> q & 1u) { run = 0; continue; }
+        if (!run++) runs++;
+        if (run > longest) longest = run;
+    }
+    return longest << 8 | (255u - runs);
+}
+#endif
 static int oc_mod_blocker(uint32_t engine, uint32_t c)                       /* the start that blocks an install at c, or -1 */
 {
     uint32_t j, ns = oc_mod_geo_of(engine)->sectors;
@@ -724,10 +870,22 @@ static int oc_mod_plan(uint32_t engine)
     uint32_t c;
     if (!eng_module_slot(engine) || !oc_mod_geo_of(engine))
         return -1;
+#if OC_MOD_TAIL
+    {                                                              /* beside, by the placement rule (oc_plan_score): an empty start first, then one that holds junk */
+        uint32_t pass, sc, bs = 0, ns = oc_mod_geo_of(engine)->sectors;
+        int best = -1;
+        for (pass = 0; pass < 2u && best < 0; pass++)
+            for (c = 0; c < OC_MOD_STARTS; c++)
+                if (oc_mod_allowed(engine, c) && oc_mod_blocker(engine, c) < 0 && !oc_mod_own_overlap(engine, c) && (pass ? !oc_mod_usable(c) : oc_mod.state[c] == MD_EMPTY)
+                    && ((sc = oc_plan_score(c, ns)) > bs || (sc == bs && best >= 0 && OC_MOD_START_SECTOR(c) < OC_MOD_START_SECTOR(best)))) { bs = sc; best = (int)c; }
+        if (best >= 0) return best;
+    }
+#else
     for (c = 0; c < OC_MOD_STARTS; c++)
         if (oc_mod_allowed(engine, c) && oc_mod_blocker(engine, c) < 0 && !oc_mod_own_overlap(engine, c) && oc_mod.state[c] == MD_EMPTY) return (int)c;
     for (c = 0; c < OC_MOD_STARTS; c++)
         if (oc_mod_allowed(engine, c) && oc_mod_blocker(engine, c) < 0 && !oc_mod_own_overlap(engine, c) && !oc_mod_usable(c)) return (int)c;
+#endif
     for (c = 0; c < OC_MOD_STARTS; c++)
         if (oc_mod_allowed(engine, c) && oc_mod_has(c, engine)) return (int)c;          /* in place, where the old module stands */
     for (c = 0; c < OC_MOD_STARTS; c++)
@@ -776,13 +934,14 @@ static void oc_mod_reload(void)
             oc_mod_unreg(e);
         oc_mod_park_voices(e);
     }
+    oc_models_park(0xFFFFu);                                     /* (the model picker) the MODELS modules out of their engines' glue, those tracks' voices parked */
     oc_mod_boot(0);
     oc_mod_live = 0;
 }
 /* (Release 3 step 6, round 18) the insert host holds pointers into the registered DUB module's flash (fx_modk): before ANY erase of that module's sectors (a removal, an in-place reinstall,
  * a loser's erase, a clear of the area) the host lets go of it, so nothing calls into the flash that is about to change; its tracks play dry until a module registers
  * and take the new module's kernel at the registration that ends the install (oc_mod_boot -> oc_fxmod_kernel_reg) */
-static void oc_fxmod_kernel_guard(uint32_t first, uint32_t n)
+static void oc_fxmod_kernel_guard(int32_t first, uint32_t n)
 {
 #if MELODEE_DUB && OC_FX_MODK
     uint32_t i;
@@ -790,8 +949,8 @@ static void oc_fxmod_kernel_guard(uint32_t first, uint32_t n)
     if (!fx_modk_ok) return;
     for (i = 0; i < OC_MOD_STARTS; i++)
         if (oc_mod.state[i] == MD_OK && oc_mod.kind[i] && oc_mod.mid[i] == FX_MODK_ID) {
-            uint32_t s0 = OC_MOD_START_SECTOR(i), n0 = oc_mod_nsec(oc_mod.length[i]);
-            hit = first < s0 + n0 && s0 < first + n;
+            int32_t s0 = OC_MOD_START_SECTOR(i), n0 = (int32_t)oc_mod_nsec(oc_mod.length[i]);
+            hit = first < s0 + n0 && s0 < first + (int32_t)n;
             break;
         }
     if (!hit) return;
@@ -803,15 +962,19 @@ static void oc_fxmod_kernel_guard(uint32_t first, uint32_t n)
 #endif
 }
 /* sectors of the area erased in order from `first` (the header sector first), the watchdog fed between. 0 or the flash's error */
-static int oc_mod_erase_span(uint32_t first, uint32_t n)
+static int oc_mod_erase_span(int32_t first, uint32_t n)
 {
     uint32_t s;
+    uint32_t parked;
+    if (!n) return 0;
+    if (!oc_span_ok(first, n)) return -1;                       /* (option A, review 10.9 blocker 2) a span outside a place or across a place's end: refused, nothing erased (never clipped, never a silent 0) */
     oc_fxmod_kernel_guard(first, n);
-    for (s = 0; s < n && first + s < OC_MOD_AREA; s++) {
+    parked = oc_models_guard(first, n);                         /* (the model picker) a MODELS module in the span: out of its engine first */
+    for (s = 0; s < n; s++) {
         int rc;
-        if (first + s < OC_MOD_BASE_SECTOR && !OC_MOD_LOW_OK()) return -1;   /* (Release 3) never a sector that may hold a live record part: refused, not skipped */
+        if (oc_mod_low(first + (int32_t)s) && !OC_MOD_LOW_OK()) { if (parked) oc_mod_reload(); return -1; }   /* (Release 3) never a sector that may hold a live record part: refused, not skipped */
         SMP_FEED();
-        if ((rc = st_erase(ST_MODULE_LO + (first + s) * 0x1000u)) != 0) return rc;
+        if ((rc = st_erase(oc_sec_flash(first + (int32_t)s))) != 0) { if (parked) oc_mod_reload(); return rc; }   /* (review of the picker) the models were taken out of MACRO: read the area again, so a module that is still good is registered again (a failed erase left MACRO on VA until the next boot) */
     }
     return 0;
 }
@@ -822,7 +985,7 @@ static int oc_mod_erase_start(uint32_t i)
 {
     uint32_t n = oc_mod_usable(i) && oc_mod.kind[i] ? oc_mod_nsec(oc_mod.length[i]) : oc_mod_usable(i) && oc_mod_geo_of(oc_mod.engine[i]) ? oc_mod_geo_of(oc_mod.engine[i])->sectors : 1u;
     int rc;
-    if (n > OC_MOD_AREA - OC_MOD_START_SECTOR(i)) n = OC_MOD_AREA - OC_MOD_START_SECTOR(i);
+    if (n > oc_sec_room(OC_MOD_START_SECTOR(i))) n = oc_sec_room(OC_MOD_START_SECTOR(i));        /* to the end of its place */
     if ((rc = oc_mod_erase_span(OC_MOD_START_SECTOR(i), n)) != 0) return rc;
     oc_mod_unban(i);
     oc_mod.state[i] = MD_EMPTY;
@@ -835,14 +998,14 @@ static int oc_mod_erase_loser(uint32_t i)
 {
     uint32_t n = oc_mod.kind[i] ? oc_mod_nsec(oc_mod.length[i]) : oc_mod_geo_of(oc_mod.engine[i]) ? oc_mod_geo_of(oc_mod.engine[i])->sectors : 1u, q, j;
     int rc;
-    for (q = 0; q < n && OC_MOD_START_SECTOR(i) + q < OC_MOD_AREA; q++) {
-        uint32_t sec = OC_MOD_START_SECTOR(i) + q;
+    for (q = 0; q < n && q < oc_sec_room(OC_MOD_START_SECTOR(i)); q++) {
+        int32_t sec = OC_MOD_START_SECTOR(i) + (int32_t)q;
         int keep = 0;
         for (j = 0; j < OC_MOD_STARTS; j++) {
             const oc_mod_geo_t *g = oc_mod.state[j] == MD_OK && j != i && !oc_mod.kind[j] ? oc_mod_geo_of(oc_mod.engine[j]) : 0;
-            if (g && sec >= OC_MOD_START_SECTOR(j) && sec < OC_MOD_START_SECTOR(j) + g->sectors)
+            if (g && sec >= OC_MOD_START_SECTOR(j) && sec < OC_MOD_START_SECTOR(j) + (int32_t)g->sectors)
                 keep = 1;
-            if (oc_mod.state[j] == MD_OK && j != i && oc_mod.kind[j] && sec >= OC_MOD_START_SECTOR(j) && sec < OC_MOD_START_SECTOR(j) + oc_mod_nsec(oc_mod.length[j]))
+            if (oc_mod.state[j] == MD_OK && j != i && oc_mod.kind[j] && sec >= OC_MOD_START_SECTOR(j) && sec < OC_MOD_START_SECTOR(j) + (int32_t)oc_mod_nsec(oc_mod.length[j]))
                 keep = 1;
         }
         if (keep)
@@ -1003,7 +1166,8 @@ static int oc_mod_remove(uint32_t engine)
     if (engine == 127u) { for (i = 0; i < NENGINES; i++) if (eng_mod[i]) oc_mod_park(i); }
     else oc_mod_park(engine);
     if (engine == 127u) {                                /* (0.12.1) the whole area, sector by sector: whatever the starts hold or do not */
-        rc = oc_mod_erase_span(OC_MOD_LOW_OK() ? 0u : OC_MOD_BASE_SECTOR, OC_MOD_AREA);
+        rc = OC_MOD_LOW_OK() ? oc_mod_erase_span(0, OC_MOD_AREA) : oc_mod_erase_span((int32_t)OC_MOD_BASE_SECTOR, OC_MOD_AREA - OC_MOD_BASE_SECTOR);
+        if (OC_MOD_TAIL && !rc) rc = oc_mod_erase_span(OC_MOD_TAIL_S0, OC_MOD_TAIL);   /* (option A) and the tail region */
         for (i = 0; i < OC_MOD_STARTS; i++) { oc_mod_unban(i); oc_mod.state[i] = MD_EMPTY; }
     } else {
         for (i = 0; i < OC_MOD_STARTS && !rc; i++)
@@ -1029,10 +1193,11 @@ static int oc_fx_has(uint32_t i, uint32_t mid)          /* start i holds a usabl
     return oc_mod_usable(i) && oc_mod.kind[i] && oc_mod.mid[i] == mid;
 }
 static uint32_t oc_fx_reach(uint32_t j) { uint32_t n = oc_mod_reach(j); return n; }
-static int oc_fx_allowed(uint32_t sectors, uint32_t c)
+static int oc_fx_allowed_max(uint32_t sectors, uint32_t c, uint32_t max)
 {
-    return c < OC_MOD_STARTS && sectors >= 1u && sectors <= OC_FX_MAX_SECTORS && OC_MOD_START_SECTOR(c) + sectors <= OC_MOD_AREA && oc_mod_start_ok(c);
+    return c < OC_MOD_STARTS && sectors >= 1u && sectors <= max && oc_span_ok(OC_MOD_START_SECTOR(c), sectors) && oc_mod_start_ok(c);
 }
+static int oc_fx_allowed(uint32_t sectors, uint32_t c) { return oc_fx_allowed_max(sectors, c, OC_FX_MAX_SECTORS); }
 static int oc_fx_blocker(uint32_t mid, uint32_t sectors, uint32_t c)
 {
     uint32_t j;
@@ -1057,18 +1222,35 @@ static int oc_fx_room(uint32_t mid)
         if (oc_mod_usable(i) && oc_mod.kind[i] && oc_mod.mid[i] == mid) return 1;     /* a replacement of an id the table holds (or will hold) */
     return oc_mod.nfxmod < OC_FX_TABLE;                                            /* a new id needs a free entry */
 }
+/* (option A) the order an effect or models module tries the starts in: the tail region's first (a module that fits there leaves the area its long runs: the default pick of
+ * models needs 9 sectors in one piece), then the area's by start number as before. With no tail it is the start number */
+#define OC_FX_ORDER(k) ((k) < OC_MOD_TAIL ? OC_MOD_AREA_STARTS + (k) : (k) - OC_MOD_TAIL)
 static int oc_fxmod_plan(uint32_t mid, uint32_t sectors)
 {
-    uint32_t c;
+    uint32_t c, k;
+    uint32_t max = oc_id_max_sectors(mid);
     if (!mid || !oc_fx_room(mid)) return -1;
-    for (c = 0; c < OC_MOD_STARTS; c++)
-        if (oc_fx_allowed(sectors, c) && oc_fx_blocker(mid, sectors, c) < 0 && !oc_fx_own_overlap(mid, sectors, c) && oc_mod.state[c] == MD_EMPTY) return (int)c;
-    for (c = 0; c < OC_MOD_STARTS; c++)
-        if (oc_fx_allowed(sectors, c) && oc_fx_blocker(mid, sectors, c) < 0 && !oc_fx_own_overlap(mid, sectors, c) && !oc_mod_usable(c)) return (int)c;
-    for (c = 0; c < OC_MOD_STARTS; c++)
-        if (oc_fx_allowed(sectors, c) && oc_fx_has(c, mid)) return (int)c;              /* in place, where the old module stands */
-    for (c = 0; c < OC_MOD_STARTS; c++)
-        if (oc_fx_allowed(sectors, c) && oc_fx_blocker(mid, sectors, c) < 0) return (int)c;   /* in place, over a module of the same id that overlaps the span */
+#if OC_MOD_TAIL
+    {                                                              /* beside, by the placement rule (oc_plan_score) */
+        uint32_t pass, sc, bs = 0;
+        int best = -1;
+        for (pass = 0; pass < 2u && best < 0; pass++)
+            for (k = 0; k < OC_MOD_STARTS && (c = OC_FX_ORDER(k), 1); k++)
+                if (oc_fx_allowed_max(sectors, c, max) && oc_fx_blocker(mid, sectors, c) < 0 && !oc_fx_own_overlap(mid, sectors, c)
+                    && (pass ? !oc_mod_usable(c) : oc_mod.state[c] == MD_EMPTY)
+                    && ((sc = oc_plan_score(c, sectors)) > bs || (sc == bs && best >= 0 && OC_MOD_START_SECTOR(c) < OC_MOD_START_SECTOR(best)))) { bs = sc; best = (int)c; }
+        if (best >= 0) return best;
+    }
+#else
+    for (k = 0; k < OC_MOD_STARTS && (c = OC_FX_ORDER(k), 1); k++)
+        if (oc_fx_allowed_max(sectors, c, max) && oc_fx_blocker(mid, sectors, c) < 0 && !oc_fx_own_overlap(mid, sectors, c) && oc_mod.state[c] == MD_EMPTY) return (int)c;
+    for (k = 0; k < OC_MOD_STARTS && (c = OC_FX_ORDER(k), 1); k++)
+        if (oc_fx_allowed_max(sectors, c, max) && oc_fx_blocker(mid, sectors, c) < 0 && !oc_fx_own_overlap(mid, sectors, c) && !oc_mod_usable(c)) return (int)c;
+#endif
+    for (k = 0; k < OC_MOD_STARTS && (c = OC_FX_ORDER(k), 1); k++)
+        if (oc_fx_allowed_max(sectors, c, max) && oc_fx_has(c, mid)) return (int)c;              /* in place, where the old module stands */
+    for (k = 0; k < OC_MOD_STARTS && (c = OC_FX_ORDER(k), 1); k++)
+        if (oc_fx_allowed_max(sectors, c, max) && oc_fx_blocker(mid, sectors, c) < 0) return (int)c;   /* in place, over a module of the same id that overlaps the span */
     return -1;
 }
 static int oc_fxmod_inplace(uint32_t mid, uint32_t sectors, uint32_t start)
@@ -1081,7 +1263,7 @@ static int oc_fxmod_blocked_by(uint32_t mid, uint32_t sectors)
     uint32_t c;
     int b = -1;
     for (c = 0; c < OC_MOD_STARTS; c++) {
-        if (!oc_fx_allowed(sectors, c)) continue;
+        if (!oc_fx_allowed_max(sectors, c, oc_id_max_sectors(mid))) continue;
         if (oc_fx_blocker(mid, sectors, c) < 0) return -1;
         if (b < 0) b = oc_fx_blocker(mid, sectors, c);
     }
@@ -1144,7 +1326,7 @@ static int oc_fxmod_begin(uint32_t mid, uint32_t start, uint32_t len)
     uint32_t i, ns = oc_mod_nsec(len);
     mw.writing = 0;
     mw.fx = 0;
-    if (!mid || start >= OC_MOD_STARTS || len <= FW_MOD_CODE_OFF || (len & 3u) || ns > OC_FX_MAX_SECTORS || !oc_fx_allowed(ns, start))
+    if (!mid || start >= OC_MOD_STARTS || len <= FW_MOD_CODE_OFF || (len & 3u) || ns > oc_id_max_sectors(mid) || !oc_fx_allowed_max(ns, start, oc_id_max_sectors(mid)))
         return MI_REFUSED;
     if (lg_incomplete)
         return MI_PAIRS;
@@ -1193,7 +1375,10 @@ static int oc_fxmod_end(const void *page256)
         return MI_TAIL;
     {   /* the descriptor, on the code as written (the header page is not in the flash yet: the code part is, the descriptor lies in it) and its id must be the one asked for */
         uint32_t id = 0, base = oc_mod_flash(mw.start);
-        if (oc_fx_desc_check_rd(oc_rd_flash, &base, oc_mod_link(mw.start), h, &id, 0, 0) || id != mw.mid)
+        if (FW_MOD_KIND(h) == FW_MOD_KIND_MODELS ? oc_models_check_rd(oc_rd_flash, &base, oc_mod_link(mw.start), h, &id, 0)
+                                                  : oc_fx_desc_check_rd(oc_rd_flash, &base, oc_mod_link(mw.start), h, &id, 0, 0))
+            return MI_REFUSED;
+        if (id != mw.mid)
             return MI_REFUSED;
     }
     if ((rc = st_prog(oc_mod_flash(mw.start), pg, sizeof pg)) != 0)       /* the commit, last */
@@ -1241,12 +1426,15 @@ static int oc_fxmod_image_check(oc_rd_t rd, void *ctx, uint32_t start, uint32_t 
 {
     _Alignas(4) uint8_t pg[256];
     uint8_t buf[256];
-    uint32_t crc = 0xFFFFFFFFu, off, id = 0, ns = oc_mod_nsec(len);
+    uint32_t crc = 0xFFFFFFFFu, off, id = 0, ns = oc_mod_nsec(len), kind;
     int t;
-    if (start >= OC_MOD_STARTS || len <= FW_MOD_CODE_OFF || (len & 3u) || ns > OC_FX_MAX_SECTORS || !oc_fx_allowed(ns, start))
+    if (start >= OC_MOD_STARTS || len <= FW_MOD_CODE_OFF || (len & 3u) || ns > OC_MOD_AREA || !oc_fx_allowed_max(ns, start, OC_MOD_AREA))
         return MC_HDR;
     if (rd(ctx, 0, pg, sizeof pg))
         return MC_READ;
+    kind = ((const fw_mod_hdr_t *)pg)->engine >> 8;
+    if (ns > oc_kind_max_sectors(kind))                         /* (the model picker) a models module may take the area, an effect module 8 sectors */
+        return MC_HDR;
     for (off = FW_MOD_CODE_OFF; off < len; off += sizeof buf) {
         uint32_t n = len - off > sizeof buf ? sizeof buf : len - off;
         if (rd(ctx, off, buf, n))
@@ -1258,7 +1446,8 @@ static int oc_fxmod_image_check(oc_rd_t rd, void *ctx, uint32_t start, uint32_t 
         return MC_HDR;
     if (((const fw_mod_hdr_t *)pg)->crc != ~crc)
         return MC_CRC;
-    if (oc_fx_desc_check_rd(rd, ctx, oc_mod_link(start), (const fw_mod_hdr_t *)pg, &id, 0, 0) || !id || (*mid && id != *mid))
+    if ((kind == FW_MOD_KIND_MODELS ? oc_models_check_rd(rd, ctx, oc_mod_link(start), (const fw_mod_hdr_t *)pg, &id, 0)
+                                    : oc_fx_desc_check_rd(rd, ctx, oc_mod_link(start), (const fw_mod_hdr_t *)pg, &id, 0, 0)) || !id || (*mid && id != *mid))
         return MC_HDR;
     *mid = id;
     t = oc_rule_tails(rd, ctx, len, ns);

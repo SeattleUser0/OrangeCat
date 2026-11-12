@@ -7,3 +7,6 @@ the DUB row equal to `DUBK_MODULE_ID` in `firmware/src/dub_kern.h`.
 | id | name | source |
 |---|---|---|
 | 1 | DUB TAPE | `DUBK_MODULE_ID` (`firmware/src/dub_kern.h`), module `orangecat-dub-*.ocm` |
+| 19720 | MACRO MODELS | 0x4D08 = 0x4D00 + engine 8 (`FW_MODELS_ID`, `firmware/src/fw_models.h`): MACRO's sound models, kind 4, the installer page's picker (`tools/module/plaits_mod.c`) |
+
+The models of engine `e` take 0x4D00 + e. The resident effects (DIST, CHORUS, AUTO PAN, ROOM, the DELAY core, the master chain) get ids when they are registered as resident rows (FX_MODULES_PLAN.md section 3); none yet.

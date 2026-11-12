@@ -26,9 +26,9 @@
  *   b. sector 0x4000 (the directory and the stub), only if it differs from the
  *      flash: the one window without a working stub. It is the same bytes in
  *      every build with the same stub, so normally nothing is written here;
- *   c. the body, 0x5000..0x90FFF and 0x92000..0x92FFF;
+ *   c. the body, 0x5000 .. its length (at most 0x89000), and 0x92000..0x92FFF; never the tail region 0x8E000..0x90FFF (option A);
  *   d. the marker's sector last (its last page holds the marker).
- * A package without the marker is written in address order, as before.
+ * A package without the marker is refused (-17) before any erase: the old address order wrote the tail region too.
  * Power loss during 3 (the SPL does not start the loader from the flash copy
  * of the record on a cold boot: BOOT-SAFETY.md): the stub finds no marker and
  * hands over to the staged loader, or to the ROM's USB boot.
@@ -45,6 +45,14 @@
 #define LDR_STUB_SEC 0x4000u                    /* the directory and the boot stub */
 #define LDR_MARK_SEC 0x91000u                   /* stub_core.h STUB_MARK_SEC, STUB_MARK_OFF */
 #define LDR_MARK_OFF 0x91FE0u
+/* (Release 3, FLASH_MAP_R3.md 10: option A) the app body ends at 0x8E000: 0x8E000..0x90FFF is the TAIL REGION (3 sectors; 4 from 0x8D000 until round 23
+ * gave the firmware one more sector), a second module region the installer owns.
+ * This loader writes the body (0x5000 .. its length, never past LDR_BODY_END), the stub's sector, the last app sector (0x92000, the SDK's cfg_tool) and the
+ * marker's sector, and NEVER the tail: a firmware update leaves the tail's modules as they are. The body's longest length is LDR_BODY_MAX, 0x89000 */
+#define LDR_BODY_LO 0x5000u
+#define LDR_BODY_END 0x8E000u
+#define LDR_BODY_MAX (LDR_BODY_END - LDR_BODY_LO)
+#define LDR_LAST_SEC 0x92000u
 
 static int ldr_fread(uint32_t off, void *p, uint32_t n);
 static int ldr_erase(uint32_t off);
@@ -109,7 +117,7 @@ static uint32_t ldr_crc32(const uint8_t *p, uint32_t n)
 }
 
 /* does the package carry the stub's commit marker? (the 512 bytes that hold it, decrypted in place) */
-static int ldr_pkg_marker(uint32_t fl_off, uint8_t *b, uint32_t key, uint32_t stub)
+static int ldr_pkg_marker(uint32_t fl_off, uint8_t *b, uint32_t key, uint32_t stub, uint32_t *body_len)
 {
     const uint8_t *m = b + (LDR_MARK_OFF & 0x1FFu);
     if (ota_read(fl_off + (LDR_MARK_OFF & ~0x1FFu), b, 512))
@@ -120,7 +128,14 @@ static int ldr_pkg_marker(uint32_t fl_off, uint8_t *b, uint32_t key, uint32_t st
                 len && !(len & 3u) && len <= 0x8C000u && ota_rd32(m + 16) == ldr_crc32(m, 16);
     /* A damaged marker must not silently select the legacy write order for
      * an image whose entry is the recovery stub. Reject before any erase. */
-    return stub && !valid ? -15 : valid;
+    if (stub && !valid)
+        return -15;
+    if (!valid)
+        return -17;                                      /* no marker: the legacy order wrote the whole area, the tail too: refused, nothing erased */
+    if (len > LDR_BODY_MAX)
+        return -16;                                      /* a body that would run into the tail region: refused before any erase */
+    *body_len = len;
+    return 1;
 }
 
 /* the marker's sector erased, once, before the first write elsewhere: from here to the marker's own write the
@@ -177,7 +192,7 @@ static int ldr_sector(uint32_t fl_off, uint32_t s, uint8_t *sec, uint8_t *cur, u
 static int ldr_session(void)
 {
     static uint8_t hdr[0x400], sec[0x1000], cur[0x1000];
-    uint32_t i, fl_off, fl_size, ota_off, ota_len, key, s, done = 0, open = 0, stub;
+    uint32_t i, fl_off, fl_size, ota_off, ota_len, key, s, done = 0, open = 0, stub, body_len = 0, body_end, total;
     int rc, mark;
     /* 1. UFW header + entry list (ota.c) */
     if ((rc = ota_ufw(hdr, &fl_off, &fl_size, &ota_off, &ota_len)) != 0)
@@ -194,21 +209,24 @@ static int ldr_session(void)
         return -6;                                       /* package for another chip key */
     stub = (uint32_t)ota_memeq(sec + 0x128u, (const uint8_t *)"CRSTUB", 6);
     /* 3. app area, sector by sector: the stub's sector first (it is the lowest), the marker's last */
-    if ((mark = ldr_pkg_marker(fl_off, sec, key, stub)) < 0)
+    if ((mark = ldr_pkg_marker(fl_off, sec, key, stub, &body_len)) < 0)
         return mark;
+    body_end = LDR_BODY_LO + ((body_len + 0xFFFu) & ~0xFFFu);   /* the body's last sector ends here (<= LDR_BODY_END) */
+    total = (1u + ((body_end - LDR_BODY_LO) >> 12) + 1u + 1u) << 12;   /* the stub's sector, the body, 0x92000, the marker's */
     for (s = LDR_APP_LO; s < LDR_APP_HI; s += 0x1000u) {
-        if (mark && s == LDR_MARK_SEC)
+        if (s == LDR_MARK_SEC)
             continue;
-        if ((rc = ldr_sector(fl_off, s, sec, cur, (uint32_t)mark, &open)) != 0)
+        if (s >= body_end && s != LDR_LAST_SEC)
+            continue;                                    /* the padding below the tail and the TAIL: not this loader's */
+        if ((rc = ldr_sector(fl_off, s, sec, cur, 1u, &open)) != 0)
             return rc;
         done += 0x1000u;
-        ldr_progress(done, LDR_APP_HI - LDR_APP_LO);
+        ldr_progress(done, total);
     }
-    if (mark) {                                          /* the commit: every other sector is written and verified */
-        if ((rc = ldr_sector(fl_off, LDR_MARK_SEC, sec, cur, 1u, &open)) != 0)
-            return rc;
-        ldr_progress(LDR_APP_HI - LDR_APP_LO, LDR_APP_HI - LDR_APP_LO);
-    }
+    /* the commit: every other sector is written and verified */
+    if ((rc = ldr_sector(fl_off, LDR_MARK_SEC, sec, cur, 1u, &open)) != 0)
+        return rc;
+    ldr_progress(total, total);
     /* 4. finish: the host confirms, the record goes, the SPL boots the app */
     for (i = 0; i < 4u; i++)
         if (!ota_read(0xF0000000u, sec, 8))

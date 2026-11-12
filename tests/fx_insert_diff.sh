@@ -18,7 +18,7 @@ mkdir -p "$OUT" || exit 2
 [ -n "$CC" ] || CC="cc -O1 -ffp-contract=off -Wall -Wno-unused-function $BS"
 ROOT=$(pwd)
 case $OUT in /*) ;; *) OUT=$ROOT/$OUT ;; esac
-FLAGS="-w -I$ROOT/build/gen -Ifirmware/src"
+FLAGS="-w -I$ROOT/build/gen -Ifirmware/src -DPL_UNITS_OLD=1"   # (picker-r3) the scenarios run MACRO presets: the pinned printout is the old tree's, made with the units before the recalibration (pl_models.h PL_UNITS_OLD); the DUB comparison is not about them
 fail=0
 lines() { grep -E '^[A-Z0-9]+ blocks |^R2 combinations ' "$1"; }
 

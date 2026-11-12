@@ -74,9 +74,9 @@ def copy_app(dest):
     return files
 
 
-def main(pkg, version, out, pak=None, ocms=(), manifest=None):
+def main(pkg, version, out, pak=None, ocms=(), manifest=None, ocp=None):
     out = Path(out)
-    make_site.main(pkg, version, out, installer_only=True, pak=pak, ocms=ocms, manifest=manifest)   # installer, package, set, licences (checks them)
+    make_site.main(pkg, version, out, installer_only=True, pak=pak, ocms=ocms, manifest=manifest, ocp=ocp)   # installer, package, set, licences (checks them)
     ed = out / "webapp" / "editor"
     ed.mkdir(parents=True, exist_ok=True)
     shutil.copy(WEB / "editor.html", ed / "index.html")
@@ -92,10 +92,10 @@ def main(pkg, version, out, pak=None, ocms=(), manifest=None):
     print(f"site: {out}: installer, app, editor, {version}")
 
 
-def nightly(out, package, branch, commit, built_at, fw_version, pak=None, ocms=(), manifest=None):
+def nightly(out, package, branch, commit, built_at, fw_version, pak=None, ocms=(), manifest=None, ocp=None):
     """(0.13.6) publish_nightly.publish on a mirror of the stable site: the editor and the manual are not written (installer_only)"""
     import publish_nightly
-    publish_nightly.publish(Path(out), package, fw_version, commit, built_at, pak=pak, ocms=ocms, manifest=manifest, branch=branch)
+    publish_nightly.publish(Path(out), package, fw_version, commit, built_at, pak=pak, ocms=ocms, manifest=manifest, branch=branch, ocp=ocp)
     copy_app(Path(out) / "webapp" / "nightly-app")       # (0.14.2) the branch's app beside Standard's (webapp/app/ is mirrored, not rebuilt)
     print(f"site: {out}: Nightly {branch} {commit[:7]} {fw_version}")
 
@@ -106,12 +106,12 @@ if __name__ == "__main__":
         ap = argparse.ArgumentParser(prog="orangecat_site.py nightly")
         ap.add_argument("out"); ap.add_argument("--package", required=True); ap.add_argument("--branch", required=True)
         ap.add_argument("--commit", required=True); ap.add_argument("--built-at", required=True); ap.add_argument("--fw-version", required=True)
-        ap.add_argument("--pak"); ap.add_argument("--manifest"); ap.add_argument("--ocm", action="append", default=[])
+        ap.add_argument("--pak"); ap.add_argument("--manifest"); ap.add_argument("--ocm", action="append", default=[]); ap.add_argument("--ocp")
         a = ap.parse_args(sys.argv[2:])
-        nightly(a.out, a.package, a.branch, a.commit, a.built_at, a.fw_version, a.pak, a.ocm, a.manifest)
+        nightly(a.out, a.package, a.branch, a.commit, a.built_at, a.fw_version, a.pak, a.ocm, a.manifest, a.ocp)
         sys.exit(0)
     ap = argparse.ArgumentParser(usage=__doc__)
     ap.add_argument("package"); ap.add_argument("version"); ap.add_argument("out")
-    ap.add_argument("--pak"); ap.add_argument("--manifest"); ap.add_argument("--ocm", action="append", default=[])
+    ap.add_argument("--pak"); ap.add_argument("--manifest"); ap.add_argument("--ocm", action="append", default=[]); ap.add_argument("--ocp")
     a = ap.parse_args()
-    main(a.package, a.version, a.out, a.pak, a.ocm, a.manifest)
+    main(a.package, a.version, a.out, a.pak, a.ocm, a.manifest, a.ocp)

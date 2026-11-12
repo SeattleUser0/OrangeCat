@@ -1068,7 +1068,7 @@ static int project_restore_runtime(const project_t *input)
         uint32_t e = s->engine % NENGINES;
         t->eng_req = (uint8_t)e;
 #if OC_MODULES && (MELODEE_FLASH || defined(OC_PACK_HOST))
-        oc_mod_note_engine(e);                          /* (0.11.1) the module's use is marked now, before audio renders it (the main loop's pass comes later) */
+        oc_mod_note_engine(e, (uint32_t)(uint16_t)s->p[P_E0]);                          /* (0.11.1) the module's use is marked now, before audio renders it (the main loop's pass comes later) */
 #endif
         t->mpc_octave = (int8_t)clamp(s->mpc_octave, -3, 3);
         t->user = 0; t->user_native=0;                                    /* (no user preset slot is saved) */
@@ -1615,6 +1615,9 @@ static void persist_boot(void)                    /* before settings_init / pane
     irq_restore(f);
     if (!flash_ok)
         return;
+#if OC_SFC_PROBE && defined(FM1_IRQ_TARGET)
+    fl_probe_boot_sample();                        /* (Round 22, the stub window's bench gate) what the reset left, before the window is set */
+#endif
     fl_plain_window_init();                        /* flash above 0x93000 reads as plaintext through XIP
                                                     * (user sample sets are played from there) */
     up_lg_boot();                                  /* (0.9.1) the library group first: the old pairs move in before anything touches the */

@@ -488,7 +488,7 @@ static int ed_kit_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
 
 #if OC_MODULES && (MELODEE_FLASH || defined(OC_PACK_HOST))
 /* (Release 3 step 4) the effect modules, by module id. Arguments: module id (5 x 7 bits).
- *   FX_INFO   id, sectors (1 .. 8) -> plan (the start an install of that many sectors goes to, 127 none), flags (1 the install is in place: the old module of the id is erased
+ *   FX_INFO   id, sectors (1 .. 8; a models module's id FW_MODELS_ID: 1 .. 18) -> plan (the start an install of that many sectors goes to, 127 none), flags (1 the install is in place: the old module of the id is erased
  *             first), blocker (the start whose usable module stands in the way when no start can take it, else 127), low (1 the six sectors below 0xC8000 are the module area's),
  *             abi (5 x 7 bits: the firmware's FX_ABI_ID; a firmware without it sends the four bytes above only)
  *   FX_BEGIN  id, start, length (3 x 7 bits) -> rc, then the bytes written so far (3 x 7 bits): rc as MOD_BEGIN (0 done, 1 refused, 2 flash or the transport is running,
@@ -504,8 +504,9 @@ static int ed_fx_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
     if (cmd == ED_FX_INFO) {
         uint32_t id, ns;
         int plan, blk;
-        if (na != 6u || a[5] < 1u || a[5] > 8u) return 0;
+        if (na != 6u) return 0;
         id = ed_fx_id_get(a); ns = a[5];
+        if (ns < 1u || ns > (FW_MODELS_ID_P(id) ? OC_MOD_AREA : 8u)) return 0;   /* (the model picker) a models module may take the whole area */
         plan = oc_fxmod_plan(id, ns);
         blk = plan < 0 ? oc_fxmod_blocked_by(id, ns) : -1;
         ed_b(plan < 0 ? 127u : (uint32_t)plan);
@@ -721,6 +722,32 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
          * 2 KB (5 x 7 bits each). 127: bad request, 126: an offset outside 0x93000..0xFF000. Stop the transport first. */
         uint8_t got[64];
         uint32_t ticks[4], key, off = na == 4u ? (a[1] | (uint32_t)a[2] << 7 | (uint32_t)a[3] << 14) & ~31u : 0u;
+        if (na == 4u && a[0] == 3u) {                /* (Round 22, the stub window's bench gate) what this boot found before it set the window: 3, SFCENC_CON, then
+                                                      * 32 bytes at flash 0x93000 and the 32 of the stub's marker (0x91FE0), through XIP as found (each as two bytes) */
+            ed_b(3); ed_b(fl_boot_con & 127u); ed_bk_u32(fl_boot_unenc_l);     /* (review) the window's low register as read (the header calls it write-only: it may not read back) */
+            for (uint32_t i = 0; i < 64u; i++) { ed_b(fl_boot_xip[i] & 127u); ed_b(fl_boot_xip[i] >> 7); }
+            break;
+        }
+        if (na == 4u && a[0] == 5u) {                /* (Round 22, the PRESETS knob) [5, clear, 0, 0]: 5, the ring's write count (5 x 7 bits), then its last 100 entries, oldest
+                                                      * first (5 x 7 bits each: hal/fm1_input.h fm1_enc_log); clear = 1 empties it after the reply */
+            uint32_t w = fm1_enc_log.w, n = w < 100u ? w : 100u;
+            ed_b(5); ed_bk_u32(w);
+            for (uint32_t i = 0; i < n; i++) ed_bk_u32(fm1_enc_log.e[(w - n + i) & 255u]);
+            if (a[1]) fm1_enc_log.w = 0;
+            break;
+        }
+        if (na == 4u && a[0] == 4u) {                /* .. [4, window (0 as it is, 1 from the tail region: FL_TAIL_LO), restart (0 core reset, 1 the watchdog, 2 core reset with the stub's test request), 0x5A]:
+                                                      * no reply; the unit restarts. Stop the transport first. */
+            if (a[1] > 1u || a[2] > 2u || a[3] != 0x5Au) { ed_b(127); break; }   /* (review) the last byte is 0x5A: a stray request restarts nothing */
+            if (a[2] == 1u && !(fm1_p33_read(FM1_P3_WDT_CON) & 0x10u)) { ed_b(126); break; }   /* (review) the watchdog is not armed: it would hang here */
+            fm1_irq_off();
+            fm1_core1_stop();                        /* (review) nothing of the second core in XIP while the window's register is rewritten */
+            reset_intended();                        /* (review) before the watchdog's wait too: a test restart is not a failed boot or a module's crash */
+            if (a[1]) fl_probe_window(FL_TAIL_LO);
+            if (a[2] == 1u) { for (;;) ; }           /* the watchdog ends it (never fed again) */
+            if (a[2] == 2u) fl_probe_stub_test();
+            fm1_core_reset();
+        }
         if (na != 4u || a[0] > 2u) { ed_b(127); break; }
         if (off < 0x93000u || off + 0x1000u > 0x100000u) { ed_b(126); break; }
         fm1_irq_off();
@@ -1372,7 +1399,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         for (i = 0; i < 5u; i++) ed_b(OC_PACK_HASH >> (7u * i));
         ed_b(plan < 0 ? 127u : (uint32_t)plan);
         for (i = 0; i < OC_MOD_STARTS; i++) {
-            ed_b(oc_mod.state[i]); ed_b(oc_mod.why[i]); ed_b(oc_mod.engine[i]);
+            ed_b(oc_mod.state[i]); ed_b(oc_mod.why[i]); ed_b(oc_mod.kind[i] == FW_MOD_KIND_MODELS ? (oc_mod.mid[i] & 0xFFu) : oc_mod.engine[i]);   /* (the model picker) a models start names its engine */
             ed_b(oc_mod.length[i]); ed_b(oc_mod.length[i] >> 7); ed_b(oc_mod.length[i] >> 14);
         }
         { int blk = na && plan < 0 ? oc_mod_blocked_by(a[0]) : -1; ed_b(blk < 0 ? 127u : (uint32_t)blk); }

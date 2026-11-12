@@ -93,7 +93,7 @@ def mirror(base, out, nightly=False):
     if rc:
         entries.append(json.loads(rc))
     for entry in entries:                                    # releases and the RC: the package, the pack and the modules
-        names = list(entry.get("pkg", {}).values()) + ([entry["pak"]] if entry.get("pak") else []) + [o["url"] if isinstance(o, dict) else o for o in entry.get("ocm", [])]   # (an effect module is {url, kind, module_id})
+        names = list(entry.get("pkg", {}).values()) + ([entry["pak"]] if entry.get("pak") else []) + [o["url"] if isinstance(o, dict) else o for o in entry.get("ocm", [])] + ([entry["ocp"]] if entry.get("ocp") else [])   # (an effect module is {url, kind, module_id})
         for ref in names:
             take("firmware/" + Path(ref).name, required=True)
     for entry in entries:                                    # the sets for the card of each release (optional)
@@ -121,7 +121,7 @@ def mirror(base, out, nightly=False):
         data = take("firmware/nightly.json")
         if data:
             entry = json.loads(data)
-            for ref in list(entry.get("pkg", {}).values()) + ([entry["pak"]] if entry.get("pak") else []) + [o["url"] if isinstance(o, dict) else o for o in entry.get("ocm", [])]:
+            for ref in list(entry.get("pkg", {}).values()) + ([entry["pak"]] if entry.get("pak") else []) + [o["url"] if isinstance(o, dict) else o for o in entry.get("ocm", [])] + ([entry["ocp"]] if entry.get("ocp") else []):
                 take("firmware/" + Path(ref).name, required=True)
             for name in entry.get("sets", []):
                 take("firmware/" + Path(name).name)
@@ -149,7 +149,7 @@ def mirror_nightly(base, out):
     if not data:
         return got
     entry = json.loads(data)
-    for ref in list(entry.get("pkg", {}).values()) + ([entry["pak"]] if entry.get("pak") else []) + [o["url"] if isinstance(o, dict) else o for o in entry.get("ocm", [])]:
+    for ref in list(entry.get("pkg", {}).values()) + ([entry["pak"]] if entry.get("pak") else []) + [o["url"] if isinstance(o, dict) else o for o in entry.get("ocm", [])] + ([entry["ocp"]] if entry.get("ocp") else []):
         take("firmware/" + Path(ref).name, required=True)
     for name in entry.get("sets", []):
         take("firmware/" + Path(name).name)

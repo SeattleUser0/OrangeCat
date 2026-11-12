@@ -393,11 +393,22 @@ static int32_t enum_orig(const param_desc_t *d, int32_t v)
     return d->fmt==F_ENUM && d->names && !d->names[v][0] ? 0 : v;
 }
 
-/* a knob moved an F_ENUM from `from` to v: past any alias in that direction (back to `from` at the end) */
+/* (Release 3, the model picker) whether value v of an engine's EDIT parameter is offered now: MACRO's MODL says no for a model the unit has not
+ * installed (eng_macro.c mc_offered: not built in, not in the MODELS module); every value of any other parameter is */
+static int param_offered(const param_desc_t *d, int32_t v)
+{
+#if MELODEE_MACRO
+    if (d == &ENG_MACRO.edit[0]) return mc_offered(v);
+#endif
+    (void)d; (void)v;
+    return 1;
+}
+
+/* a knob moved an F_ENUM from `from` to v: past any alias in that direction (back to `from` at the end), and (Release 3) past any value not offered (a model not installed) */
 static int32_t enum_step(const param_desc_t *d, int32_t from, int32_t v)
 {
     int32_t dir = v > from ? 1 : -1;
-    while (v != from && enum_orig(d, v) != v)
+    while (v != from && (enum_orig(d, v) != v || !param_offered(d, v)))
         v = v + dir > d->max || v + dir < d->min ? from : v + dir;
     return v;
 }
@@ -510,7 +521,9 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
             v = clamp(v, d->min, d->max);
             /* The panel's compact card fits "13-16"; editor/picker names retain the CH prefix. */
             str_cpy(val, d->names[v] + (v == 1 ? 0 : 2), 6);
-        } else
+        } else if (!param_offered(d, v))                /* (Release 3, the model picker) a model the unit has not installed: the setting is kept, shown so */
+            str_cpy(val, "MISSG", 6);
+        else
             str_cpy(val, d->names==N_ENGNAME && (MELODEE_P5 && v == ENGI_PROPHET) ? "P5" : d->names[v < d->min ? d->min : v > d->max ? d->max : v], 6);
         if (d->unit)
             *unit = d->unit;

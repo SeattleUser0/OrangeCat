@@ -1,11 +1,18 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner.
  *
- * Orange Cat 0.5.0: MACRO, engine 8 (the slot of Melodee's retired GRAIN). Fourteen sound models in one engine, each
- * shaped by three knobs (HARM, TIMBRE, MORPH), ported from the open source code of a well known Eurorack macro
- * oscillator (firmware/src/plaits/, MIT: LICENSES/MIT-Mutable.txt). The models themselves are line for line ports
- * (tests/plaits_parity checks them sample for sample against the original); this file is the glue to Melodee's
- * voices.
+ * Orange Cat 0.5.0: MACRO, engine 8 (the slot of Melodee's retired GRAIN). Sound models in one engine, each shaped by three
+ * knobs (HARM, TIMBRE, MORPH), ported from the open source code of a well known Eurorack macro oscillator (firmware/src/plaits/,
+ * MIT: LICENSES/MIT-Mutable.txt). The models themselves are line for line ports (tests/plaits_parity checks them sample for
+ * sample against the original); this file is the glue to Melodee's voices.
+ *
+ * (Release 3, the model picker: docs/candidates/model_picker.md) The glue dispatches through a table of model descriptors
+ * (plaits/pl_mdl.h, the list plaits/pl_models.h: 25 models, stable ids). Built into the firmware: VA, the fallback sound (and, on the
+ * host, every model: MELODEE_MACRO_PICK). Every other model is a unit of the MODELS module the installer page assembles from the
+ * models the user picked (tools/module/plaits/, fw_models.h): the loader hands this file the module's table (mc_ext_set, through
+ * engines.c eng_models_set) and a model whose descriptor is null, in both tables, is not installed: the MODL knob steps over it and its
+ * value reads MISSG (params.c), a track that names it keeps every setting, plays VA and the screen says MODULE MISSING (ui.c). A project
+ * stores the id in P_E0 as always; a preset's e[0] is the id.
  *
  * The edit pages:
  *   EDIT 1 MODEL: MODL (the model), HARM, TIMB (TIMBRE), MRPH (MORPH). HOME's four knobs are these too.
@@ -15,22 +22,23 @@
  *                 the screen's cells.)
  * The models: VA (two analog style oscillators), WAVSHP (waveshaper and folder), FM (two operators), GRAIN (formant
  * grains), ADDTV (additive), CHORD (four voice chords), SWARM (eight sawtooths), NOISE (filtered noise), PARTCL (dust
- * through filters and a diffuser), STRING (plucked strings), MODAL (struck resonators), KICK, SNARE, HI-HAT, and
- * (0.5.2, Orange Cat's own) HARP: STRING's string, one a voice, so its chords ring.
+ * through filters and a diffuser), STRING (plucked strings), MODAL (struck resonators), KICK, SNARE, HI-HAT, (0.5.2, Orange
+ * Cat's own) HARP: STRING's string, one a voice, so its chords ring; and (Release 3) VA-VCF, PD (phase distortion), 6OP A, B, C
+ * (six-operator FM with three DX7 banks), TERRAN (wave terrain), STRMCH (string machine), CHIP (chiptune), WAVTBL (wavetable, with
+ * the wave banks A, B, C) and SPEECH.
  *
- * Voices: four per track in POLY (and UNISON), each a model of its own (0.5.2), for chords; PARTCL and STRING, whose
- * states are 8 KB each, play one at a time (STRING's three strings ring in turn, note after note; HARP has a string
- * a voice for chords). The voices' states are the part's (mc_part_t, from the audio arena: one STRING, four HARPs
- * (11 KB, the largest) or four of the others). A note starts its voice's trigger; the key held keeps it high.
- * Pitch comes from the voice (glide, bend, TUNE, A4 and the pitch modulations: pitch16 and fine). The voice's ADSR
- * is the VCA as for every engine; for STRING, MODAL and the drums (models with their own decay) the presets hold
- * the ADSR open and let the model decay. ENV -> SHAPE and LFO -> SHAPE move TIMBRE; ENV -> FILTER and LFO -> FILTER
- * move MORPH; velocity is the models' accent.
+ * Voices: four per track in POLY (and UNISON), each a model of its own (0.5.2), for chords; a large model (the descriptor's big:
+ * PARTCL, STRING, 6OP, STRMCH, SPEECH, states of 2.6 to 8 KB) plays one at a time. The voices' states are the part's (pl_part_t, from
+ * the audio arena: the voice heads, then the states laid out by the installed model's descriptor; the block is PL_STATE_MAX, enough for
+ * the largest model). A note starts its voice's trigger; the key held keeps it high. Pitch comes from the voice (glide, bend, TUNE, A4
+ * and the pitch modulations: pitch16 and fine). The voice's ADSR is the VCA as for every engine; for STRING, MODAL and the drums
+ * (models with their own decay) the presets hold the ADSR open and let the model decay. ENV -> SHAPE and LFO -> SHAPE move TIMBRE;
+ * ENV -> FILTER and LFO -> FILTER move MORPH; velocity is the models' accent.
  *
- * Where it runs: the models (about 40 KB of code) are too big for the SRAM the audio code lives in, so the engine's
- * callbacks and everything they call stay in flash (section .text.xip_macro: tools/audio_ram.py). They render in
- * 16-frame pieces (the models' parameters glide over each piece, as the module's 12-frame blocks at 48 kHz).
- * Sample rate: 44.1 kHz. Pitch is exact; the models' own times (decays) are 8.8 % longer than on the module.
+ * Where it runs: the models are too big for the SRAM the audio code lives in, so the engine's callbacks and everything they call stay
+ * in flash (section .text.xip_macro: tools/audio_ram.py; a module's models run from the module area). They render in 16-frame pieces
+ * (the models' parameters glide over each piece, as the module's 12-frame blocks at 48 kHz). Sample rate: 44.1 kHz. Pitch is exact;
+ * the models' own times (decays) are 8.8 % longer than on the module.
  *
  * Revisions:
  * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
@@ -40,10 +48,14 @@
  *          one string a voice) with presets HARP and STRING CHORDS. Voice units by model from measured costs (MC_UNITS):
  *          0.5.2's flat 3 let a four note ORGAN DRAWBAR chord overload the unit.
  *   0.8.0: mc_render is silent while the asset pack (Plaits' tables, oc_pack.h) is not there (OC_PACK_READY).
+ *   round 18: a fresh part starts the model it names (the part's `started` byte; VA's states were never started before).
+ *   Release 3 (the model picker): the model switch is a table of descriptors; the models beyond VA come from the MODELS module; the
+ *          ten further Plaits models and their presets; the units from the unit's measured costs (pl_models.h).
  */
 #include "plaits/pl_tables.h"
 /* (Orange Cat 0.13.8) MACRO's hot set (core.h engine_t hot): the tables its models read every sample (tools/pack_hot.py), copied into the arena at boot
- * (engines.c eng_hot_take). The names below are then the copies (ENG_HOT); the waveshaper's curves through PL_WS_CURVE (pl_waveshaping.h) */
+ * (engines.c eng_hot_take). The names below are then the copies (ENG_HOT); the waveshaper's curves through PL_WS_CURVE (pl_waveshaping.h). The MODELS
+ * module reads the same copies through the services table (fw_api_t hot[ENGI_MACRO]: engines.c keeps a built-in engine's pointers there too) */
 #define MC_HOT_LIST(X) X(pl_lut_pitch_ratio_high, PL_LUT_PITCH_RATIO_HIGH_SIZE * 4u, float) X(pl_lut_pitch_ratio_low, PL_LUT_PITCH_RATIO_LOW_SIZE * 4u, float) \
     X(pl_lut_sine, PL_LUT_SINE_SIZE * 4u, float) X(pl_lut_fold, PL_LUT_FOLD_SIZE * 4u, float) X(pl_lut_fold_2, PL_LUT_FOLD_2_SIZE * 4u, float) \
     X(pl_lut_4x_downsampler_fir, PL_LUT_4X_DOWNSAMPLER_FIR_SIZE * 4u, float) X(pl_chord_waves, 15u * 132u * 2u, int16_t) \
@@ -72,135 +84,127 @@ static const void *mc_hot[MC_HOT_N] = { MC_HOT_LIST(MC_HOT_SRC) };
 #define pl_chord_waves ((const int16_t *)ENG_HOT(mc_hot, ENGI_MACRO, MCH_pl_chord_waves))
 #define PL_WS_CURVE(k) ((const int16_t *)ENG_HOT(mc_hot, ENGI_MACRO, MCH_pl_lut_ws_inverse_tan + ((k) > 4 ? 4 : (k))))
 #include "plaits/pl_dsp.h"
+#include "plaits/pl_dsp2.h"
 #include "plaits/pl_osc.h"
-#include "plaits/pl_va.h"
-#include "plaits/pl_waveshaping.h"
-#include "plaits/pl_fm.h"
-#include "plaits/pl_grain.h"
-#include "plaits/pl_additive.h"
-#include "plaits/pl_chord.h"
-#include "plaits/pl_swarm.h"
-#include "plaits/pl_noise.h"
-#include "plaits/pl_particle.h"
-#include "plaits/pl_string.h"
-#include "plaits/pl_modal.h"
-#include "plaits/pl_bassdrum.h"
-#include "plaits/pl_snare.h"
-#include "plaits/pl_hihat.h"
 
 #define MC_XIP __attribute__((section(".text.xip_macro"), noinline))
 #define MC_SUB 16u                                    /* frames per model render (<= PL_MAX_BLOCK) */
+#define MC_POLY PL_POLY                               /* (0.5.2) voices per track; a large model (pl_mdl_t big): 1 */
 
+/* Which models this firmware carries (a bit an id, 0..24; 25..27 the wave banks): on the device VA alone (MELODEE_MACRO_PICK, the CI build
+ * set: tools/orangecat_engines.sh), the rest picked on the installer page; on the host every model, so the suite's tests see MACRO whole
+ * (tests/plaits_test.c builds the device's way, with the MODELS module registered, to prove that path) */
+#ifndef MELODEE_MACRO_PICK
+#define MELODEE_MACRO_PICK 0
+#endif
+#ifndef MC_BUILTIN
+#define MC_BUILTIN (MELODEE_MACRO_PICK ? 0x1u : 0x0FFFFFFFu)
+#endif
+#define MC_HAS(id) ((MC_BUILTIN >> (id)) & 1u)
+#define PL_WANT_va MC_HAS(0)
+#define PL_WANT_wavshp MC_HAS(1)
+#define PL_WANT_fm MC_HAS(2)
+#define PL_WANT_grain MC_HAS(3)
+#define PL_WANT_addtv MC_HAS(4)
+#define PL_WANT_chord MC_HAS(5)
+#define PL_WANT_swarm MC_HAS(6)
+#define PL_WANT_noise MC_HAS(7)
+#define PL_WANT_partcl MC_HAS(8)
+#define PL_WANT_string MC_HAS(9)
+#define PL_WANT_modal MC_HAS(10)
+#define PL_WANT_kick MC_HAS(11)
+#define PL_WANT_snare MC_HAS(12)
+#define PL_WANT_hihat MC_HAS(13)
+#define PL_WANT_harp MC_HAS(14)
+#define PL_WANT_vavcf MC_HAS(15)
+#define PL_WANT_pd MC_HAS(16)
+#define PL_WANT_syx0 MC_HAS(17)
+#define PL_WANT_syx1 MC_HAS(18)
+#define PL_WANT_syx2 MC_HAS(19)
+#define PL_WANT_sixop (PL_WANT_syx0 || PL_WANT_syx1 || PL_WANT_syx2)
+#define PL_WANT_terran MC_HAS(20)
+#define PL_WANT_strmch MC_HAS(21)
+#define PL_WANT_chip MC_HAS(22)
+#define PL_WANT_wavtbl MC_HAS(23)
+#define PL_WANT_speech MC_HAS(24)
+#define MC_BANKS_BUILTIN (MC_HAS(25) || MC_HAS(26) || MC_HAS(27))
+#if PL_WANT_wavtbl || PL_WANT_terran || PL_WANT_sixop || PL_WANT_speech
+#include "plaits/pl_tables2.h"                        /* the further models' own tables, the wave and DX7 banks (plain arrays: the image's, not the pack's) */
+#endif
+#define PL_MDL_LINKAGE static
+#define PL_MDL_ATTR MC_XIP
+#include "plaits/pl_mdl.h"
+#include "plaits/pl_models.h"
+static const pl_mdl_t *const MC_BUILTIN_TAB[PL_N] = { PL_MODEL_LIST(PL_MODEL_PTR) };
+static const char *const N_MC_MODEL[PL_N] = { PL_MODEL_LIST(PL_MODEL_NAME) };
+#define MC_N PL_N
 enum { MC_VA, MC_WAVSHP, MC_FM, MC_GRAIN, MC_ADDTV, MC_CHORD, MC_SWARM, MC_NOISE, MC_PARTCL, MC_STRING, MC_MODAL,
-       MC_KICK, MC_SNARE, MC_HIHAT, MC_HARP, MC_N };   /* (0.5.2: HARP at the end, so stored sounds keep theirs) */
-static const char *const N_MC_MODEL[MC_N] = {"VA", "WAVSHP", "FM", "GRAIN", "ADDTV", "CHORD", "SWARM", "NOISE",
-                                             "PARTCL", "STRING", "MODAL", "KICK", "SNARE", "HI-HAT", "HARP"};
-/* the module's output levels per model (OUT, AUX; below 0: through a limiter at that drive) and the models that make
- * their own envelope (the low-pass gate is skipped there, as on the module) */
-static const struct { float out, aux; uint8_t enveloped; } MC_POST[MC_N] = {
-    {0.8f, 0.8f, 0}, {0.7f, 0.6f, 0}, {0.6f, 0.6f, 0}, {0.7f, 0.6f, 0}, {0.8f, 0.8f, 0}, {0.8f, 0.8f, 0},
-    {-3.0f, 1.0f, 0}, {-1.0f, -1.0f, 0}, {-2.0f, 1.0f, 0}, {-1.0f, 0.8f, 1}, {-1.0f, 0.8f, 1}, {0.8f, 0.8f, 1},
-    {0.8f, 0.8f, 1}, {0.8f, 0.8f, 1}, {-1.0f, 0.8f, 1},   /* (HARP: STRING's levels) */
-};
-
-#define MC_POLY 4u                                    /* (0.5.2) voices per track, PARTCL and STRING: 1 */
-/* (0.5.2) a voice's own: what the module keeps beside its model */
-typedef struct {
-    uint8_t rise;                                     /* a note started: the next render is a rising edge */
-    float note;                                       /* last note (the module averages two in a row) */
-    float accent;
-    float decay_env;                                  /* DECAY's envelope (1 at a note, falls) */
-    pl_svf_t lpg;
-    pl_limiter_t limit_out, limit_aux;
-} mc_vhead_t;
-typedef union {                                       /* a voice's model (all but the two large ones) */
-    pl_va_t va; pl_ws_t ws; pl_fm_t fm; pl_grain_t grain; pl_add_t add; pl_chord_t chord; pl_swarm_t swarm;
-    pl_noise_t noise; pl_modal_t modal; pl_bd_t bd; pl_sd_t sd; pl_hh_t hh;
-} mc_small_t;
-typedef struct {
-    uint8_t model;                                    /* the model whose states are in m */
-    uint8_t started;                                  /* 0 on a fresh part (the arena is zeroed, so `model` reads 0 = VA there and no model's
-                                                       * states have been started): the first render starts the model's, whichever it is */
-    mc_vhead_t h[MC_POLY];                            /* ((0.14.3) the 16-frame out and aux buffers are the voice kernel's own, on its stack:
-                                                       * one shared by the track's voices would be written by both cores) */
-    union {
-        mc_small_t small[MC_POLY];
-        pl_harp_t harp[MC_POLY];                      /* (0.5.2) HARP: a string a voice */
-        pl_particle_t particle;                       /* PARTCL and STRING: one voice */
-        pl_string_t string;
-    } m;
-} mc_part_t;
+       MC_KICK, MC_SNARE, MC_HIHAT, MC_HARP };         /* MACRO's own numbers (0.5.2: HARP at the end, so stored sounds keep theirs): voice.c's cost caps, the tests */
+#define MC_STATE_BYTES PL_STATE_MAX                   /* a part's arena block (engines.c mc_part, eng_state_size): enough for any model */
+typedef pl_part_t mc_part_t;
+typedef pl_vhead_t mc_vhead_t;
 static mc_part_t *mc_part(uint32_t part);             /* engines.c */
-static inline int mc_big(uint32_t model) { return model == MC_PARTCL || model == MC_STRING; }
+
+/* the MODELS module's tables, while one is registered (engines.c eng_models_set from the loader): n descriptor pointers by model id (null: the pick
+ * left the model out) and the wave banks present. Set and cleared with the interrupts off (oc_module.c), so a render sees one table or the other */
+static const pl_mdl_t *const *mc_ext_models;
+static uint32_t mc_ext_n;
+static const void *const *mc_ext_banks;
+static void mc_ext_set(const pl_mdl_t *const *models, uint32_t n, const void *const *banks)
+{
+    mc_ext_models = models; mc_ext_n = models ? n : 0u; mc_ext_banks = banks;
+}
+static inline int mc_banks_any(void)
+{
+    return MC_BANKS_BUILTIN || (mc_ext_banks && (mc_ext_banks[0] || mc_ext_banks[1] || mc_ext_banks[2]));
+}
+/* the model, if it is installed: its descriptor (built in, or the module's; WAVTBL: a wave bank too), else 0 */
+static inline const pl_mdl_t *mc_model(uint32_t model)
+{
+    const pl_mdl_t *d = model < PL_N ? MC_BUILTIN_TAB[model] : 0;
+    if (!d && model < mc_ext_n) d = mc_ext_models[model];
+    if (model == PL_WAVTBL && !mc_banks_any()) return 0;
+    return d;                                         /* (a module's descriptor: the loader checked its start and render are inside the module's code) */
+}
+/* the model a track plays: the one it names, or VA (always built in) when that one is not installed (the settings stay; ui.c says MODULE MISSING) */
+static inline const pl_mdl_t *mc_playing(uint32_t *model)
+{
+    const pl_mdl_t *d = mc_model(*model);
+    if (!d) { *model = PL_VA; d = mc_model(PL_VA); }
+    return d;
+}
+static inline uint32_t mc_want(const track_t *t) { return (uint32_t)clamp(t->p[P_E0], 0, MC_N - 1); }
+/* (the model picker) EDIT 1's MODL offers the installed models only: the knob steps over the others, which show as MISSG (params.c param_offered) */
+static int mc_offered(int32_t v) { return v >= 0 && mc_model((uint32_t)v) != 0; }
+static int mc_track_missing(const track_t *t) { return mc_model(mc_want(t)) == 0; }   /* the track names a model that is not installed (ui.c MODULE MISSING) */
+static int mc_track_ext(const track_t *t)             /* the track plays a model the MODELS module supplies (oc_module.c: the crash mark) */
+{
+    uint32_t model = mc_want(t);
+    return mc_model(model) != 0 && MC_BUILTIN_TAB[model] == 0;
+}
+
 static MC_XIP uint32_t mc_cap(const track_t *t)
 {
-    return mc_big((uint32_t)clamp(t->p[P_E0], 0, MC_N - 1)) ? 1u : MC_POLY;
-}
-/* voice i's model state (void: the model's own type, by s->model) */
-static inline void *mc_state(mc_part_t *s, uint32_t i)
-{
-    if (s->model == MC_PARTCL) return &s->m.particle;
-    if (s->model == MC_STRING) return &s->m.string;
-    if (s->model == MC_HARP) return &s->m.harp[i % MC_POLY];
-    return &s->m.small[i % MC_POLY];
+    uint32_t model = mc_want(t);
+    const pl_mdl_t *d = mc_playing(&model);
+    return d && d->big ? 1u : MC_POLY;
 }
 
-/* a model's states from scratch (the model changed): every voice's */
-static MC_XIP void mc_start(mc_part_t *s, uint32_t model)
+/* a model's states from scratch (the model changed, or a fresh part): every voice's */
+static MC_XIP void mc_start(mc_part_t *s, uint32_t model, const pl_mdl_t *d)
 {
-    uint32_t i, nv = mc_big(model) ? 1u : MC_POLY;
+    uint32_t i, nv = d->big ? 1u : MC_POLY;
     s->model = (uint8_t)model;
     s->started = 1;
     for (i = 0; i < nv; i++) {
-        void *m = mc_state(s, i);
         mc_vhead_t *h = &s->h[i];
-        switch (model) {
-        case MC_VA: pl_va_init(m); pl_va_reset(m); break;
-        case MC_WAVSHP: pl_ws_init(m); pl_ws_reset(m); break;
-        case MC_FM: pl_fm_init(m); pl_fm_reset(m); break;
-        case MC_GRAIN: pl_grain_init(m); pl_grain_reset(m); break;
-        case MC_ADDTV: pl_add_init(m); pl_add_reset(m); break;
-        case MC_CHORD: pl_chord_init(m); pl_chord_reset(m); break;
-        case MC_SWARM: pl_swarm_init(m); pl_swarm_reset(m); break;
-        case MC_NOISE: pl_noise_init(m); pl_noise_reset(m); break;
-        case MC_PARTCL: pl_particle_init(m); pl_particle_reset(m); break;
-        case MC_STRING: pl_string_init(m); pl_string_reset(m); break;
-        case MC_MODAL: pl_modal_init(m); pl_modal_reset(m); break;
-        case MC_KICK: pl_bd_init(m); pl_bd_reset(m); break;
-        case MC_SNARE: pl_sd_init(m); pl_sd_reset(m); break;
-        case MC_HARP: pl_harp_init(m); pl_harp_reset(m); break;
-        default: pl_hh_init(m); pl_hh_reset(m); break;
-        }
+        memset(pl_state(s, d, i), 0, pl_stride(d->state));   /* (from zero, as the arena hands a fresh part its memory: a model's init does not write every field) */
+        d->start(pl_state(s, d, i));
         pl_limiter_init(&h->limit_out);
         pl_limiter_init(&h->limit_aux);
         pl_svf_init(&h->lpg);
-        h->note = 0.0f;
+        h->note = 0.0f;                               /* (the note's rise and DECAY envelope stay: a note may have just started) */
     }
-}
-
-static MC_XIP void mc_model_render(mc_part_t *s, uint32_t vi, const pl_params_t *q, uint32_t n, float *o, float *a)
-{
-    int env = 0;
-    void *m = mc_state(s, vi);
-    switch (s->model) {
-    case MC_VA: pl_va_render(m, q, o, a, n, &env); pl_va_flush(m); break;
-    case MC_WAVSHP: pl_ws_render(m, q, o, a, n, &env); pl_ws_flush(m); break;
-    case MC_FM: pl_fm_render(m, q, o, a, n, &env); pl_fm_flush(m); break;
-    case MC_GRAIN: pl_grain_render(m, q, o, a, n, &env); pl_grain_flush(m); break;
-    case MC_ADDTV: pl_add_render(m, q, o, a, n, &env); pl_add_flush(m); break;
-    case MC_CHORD: pl_chord_render(m, q, o, a, n, &env); pl_chord_flush(m); break;
-    case MC_SWARM: pl_swarm_render(m, q, o, a, n, &env); pl_swarm_flush(m); break;
-    case MC_NOISE: pl_noise_render(m, q, o, a, n, &env); pl_noise_flush(m); break;
-    case MC_PARTCL: pl_particle_render(m, q, o, a, n, &env); pl_particle_flush(m); break;
-    case MC_STRING: pl_string_render(m, q, o, a, n, &env); pl_string_flush(m); break;
-    case MC_MODAL: pl_modal_render(m, q, o, a, n, &env); pl_modal_flush(m); break;
-    case MC_KICK: pl_bd_render(m, q, o, a, n, &env); pl_bd_flush(m); break;
-    case MC_SNARE: pl_sd_render(m, q, o, a, n, &env); pl_sd_flush(m); break;
-    case MC_HARP: pl_harp_render(m, q, o, a, n, &env); pl_harp_flush(m); break;
-    default: pl_hh_render(m, q, o, a, n, &env); pl_hh_flush(m); break;
-    }                                                 /* (the flushes: tiny decaying states to 0, pl_dsp.h pl_flush) */
-    pl_flush_svf(&s->h[vi].lpg);
-    pl_flush(&s->h[vi].decay_env);
 }
 
 static MC_XIP void mc_note_on(track_t *t, voice_t *v)
@@ -220,30 +224,27 @@ static inline float mc_amount(int32_t v)
     return a * pl_maxf(pl_fabsf(a) - 0.05f, 0.05f) * 1.05f;
 }
 
-/* (Orange Cat 0.14.3) a voice's block in two parts (audio_batch.h): mc_render, on CPU0 at the voice's turn, the control (the model's
- * switch, which starts every voice's state; the knobs and the modulation read from t->p, which is only modulated until the track's mod_end)
- * into a descriptor; mc_voice, the sample loop, from the descriptor alone: on CPU1 or CPU0 as the batch splits the block's voices, or at
- * once (no batch; the models that draw plaits' shared generator, pl_rng_state: their draws stay in voice order on CPU0, bit for bit). It
- * touches its voice's state (h[vi], the model's) and read-only tables only */
+/* (Orange Cat 0.14.3) a voice's block in two parts (audio_batch.h): mc_render, on CPU0 at the voice's turn, the control (the model, which starts
+ * every voice's state; the knobs and the modulation read from t->p, which is only modulated until the track's mod_end) into a descriptor;
+ * mc_voice, the sample loop, from the descriptor alone: on CPU1 or CPU0 as the batch splits the block's voices, or at once (no batch; the
+ * models that draw plaits' shared generator, pl_rng_state: their draws stay in voice order on CPU0, bit for bit). It touches its voice's
+ * state (h[vi], the model's) and read-only tables only */
 typedef struct {
     mc_part_t *s;
+    const pl_mdl_t *d;
     vmod_t m;
     uint32_t vi, n;
     uint8_t gate, lpg;
     float note, timbre, morph, harm, mixf, colour, tmod, decay, g_out, g_aux;
 } mc_job_t;
 _Static_assert(sizeof(mc_job_t) <= AUDIO_BATCH_BYTES, "MACRO's batch descriptor");
-static const uint8_t MC_UNITS[MC_N];
-static inline int mc_draws(uint32_t model)            /* plaits' shared generator, drawn in the render (pl_dsp.h pl_rng_word) */
-{
-    return model == MC_SWARM || model == MC_NOISE || model == MC_PARTCL || model == MC_STRING || model == MC_KICK ||
-           model == MC_SNARE || model == MC_HIHAT || model == MC_HARP;
-}
 static MC_XIP void mc_voice(const void *data, int32_t *out)
 {
     const mc_job_t *j = data;
     mc_part_t *s = j->s;
+    const pl_mdl_t *d = j->d;
     mc_vhead_t *h = &s->h[j->vi % MC_POLY];
+    void *ms = pl_state(s, d, j->vi);
     const vmod_t *m = &j->m;
     float o[MC_SUB], a[MC_SUB], note = j->note, decay = j->decay, mixf = j->mixf, colour = j->colour;
     float g_out = j->g_out, g_aux = j->g_aux;
@@ -253,6 +254,7 @@ static MC_XIP void mc_voice(const void *data, int32_t *out)
     q.accent = h->accent;
     while (done < n) {
         uint32_t k = n - done < MC_SUB ? n - done : MC_SUB;
+        int env;
         q.trigger = (h->rise ? PL_TRIGGER_RISING_EDGE : 0) | (j->gate ? PL_TRIGGER_HIGH : 0);
         h->rise = 0;
         q.note = (note + h->note) * 0.5f;             /* (voice.cc: the module averages the last two) */
@@ -262,14 +264,16 @@ static MC_XIP void mc_voice(const void *data, int32_t *out)
         PL_CONSTRAIN(q.timbre, 0.0f, 1.0f);
         q.morph = j->morph;
         PL_CONSTRAIN(q.morph, 0.0f, 1.0f);
-        mc_model_render(s, j->vi, &q, k, o, a);
+        env = d->render(ms, &q, o, a, k);             /* (the model's render, then its flushes: tiny decaying states to 0, pl_dsp.h pl_flush) */
+        pl_flush_svf(&h->lpg);
+        pl_flush(&h->decay_env);
         if (g_out < 0.0f) pl_limiter_process(&h->limit_out, -g_out, o, k);
         if (g_aux < 0.0f) pl_limiter_process(&h->limit_aux, -g_aux, a, k);
         {
             float go = g_out < 0.0f ? 1.0f : g_out, ga = g_aux < 0.0f ? 1.0f : g_aux;
             for (i = 0; i < k; i++) o[i] = o[i] * go + (a[i] * ga - o[i] * go) * mixf;
         }
-        if (j->lpg) {                                 /* (envelope.h LPGEnvelope: the ADSR as the vactrol's level) */
+        if (j->lpg && !env) {                         /* (envelope.h LPGEnvelope: the ADSR as the vactrol's level; not when the model made its own this block) */
             float e = (float)m->envq15 * (1.0f / 32767.0f), e2, e4, tail, tail2, f, bleed;
             PL_CONSTRAIN(e, 0.0f, 1.0f);
             e2 = e * e;
@@ -299,12 +303,13 @@ static MC_XIP void mc_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, c
 {
     mc_part_t *s = mc_part((uint32_t)(t - trk));
     const int16_t *p = t->p;
-    uint32_t model = (uint32_t)clamp(p[P_E0], 0, MC_N - 1), vi = (uint32_t)(v - t->v) % MC_POLY;
+    uint32_t model = mc_want(t), vi = (uint32_t)(v - t->v) % MC_POLY;
+    const pl_mdl_t *d = mc_playing(&model);
     mc_job_t j;
-    if (!s || !OC_PACK_READY()) return;               /* (Orange Cat 0.8.0: the asset pack, with Plaits' tables, is not there: silent) */
+    if (!s || !d || !OC_PACK_READY()) return;         /* (Orange Cat 0.8.0: the asset pack, with Plaits' tables, is not there: silent) */
     if (s->model != model || !s->started)
-        mc_start(s, model);
-    if (mc_big(model) && vi)                          /* (voices left from a model of four: silent to their end) */
+        mc_start(s, model, d);
+    if (d->big && vi)                                 /* (voices left from a model of four: silent to their end) */
         return;
     /* the voice's pitch as a MIDI note: 1/16 semitones, the residual (1/4096 of the frequency: 12 / (4096 ln 2)
      * semitones each), the A4 tuning (Q24 octaves) */
@@ -318,34 +323,25 @@ static MC_XIP void mc_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, c
     j.tmod = mc_amount(p[P_E7]);
     /* DECAY: 0 about 10 ms .. 127 about 6 s, as the module's (voice.cc short_decay, per 16 frames) */
     j.decay = (200.0f * (float)MC_SUB) / PL_SAMPLE_RATE * pl_semitones_to_ratio(-96.0f * (float)p[P_E6] * (1.0f / 127.0f));
-    j.g_out = MC_POST[model].out;
-    j.g_aux = MC_POST[model].aux;
-    j.lpg = (uint8_t)(p[P_E5] > 0 && !MC_POST[model].enveloped);
+    j.g_out = d->out;
+    j.g_aux = d->aux;
+    j.lpg = (uint8_t)(p[P_E5] > 0 && !d->enveloped);
     PL_CONSTRAIN(j.harm, 0.0f, 1.0f);
     if (s->h[vi].note == 0.0f) s->h[vi].note = j.note;
-    j.s = s; j.m = *m; j.vi = vi; j.n = n; j.gate = (uint8_t)(v->gate != 0);
-    if (audio_batch_active && !mc_draws(model)) {
-        audio_batch_push_cost(mc_voice, &j, sizeof j, out, n, AP_MACRO, MC_UNITS[model] * audio_batch_cost[AP_MACRO], 0);
+    j.s = s; j.d = d; j.m = *m; j.vi = vi; j.n = n; j.gate = (uint8_t)(v->gate != 0);
+    if (audio_batch_active && !d->draws) {
+        audio_batch_push_cost(mc_voice, &j, sizeof j, out, n, AP_MACRO, d->units * audio_batch_cost[AP_MACRO], 0);
         return;
     }
     mc_voice(&j, out);
 }
 
-/* the voice budget's units a voice takes (voice.c): by its model's cost, now that a track may sound four. The budget is
- * 16 units for the whole FM-1 (GLO > GLOBAL BUDGET), a CZ-1 voice 2. (0.5.3) Measured: each model's single voice on the
- * host against CZ-1 INIT TONE's, minus the idle mix (VA 1.8x, WAVSHP 2.2, FM 5.4, GRAIN 2.8, ADDTV 4.0 to 4.8, CHORD
- * 2.4 to 3.5, SWARM 2.8 to 3.7, NOISE 2.6, PARTCL 3.9, STRING 3.6, MODAL 3.6 to 4.2, KICK 2.5, SNARE 2.4, HI-HAT 2.9,
- * HARP 1.9), units 1.5 x that, rounded (the host's ratios are not the unit's: halfway between them and 0.5.2's flat
- * 3, until the unit's CPU meter says better). 0.5.2's 3 for every model let four ADDTV voices (ORGAN DRAWBAR, a four
- * note chord) run past the processor on the unit: the sound broke up. Now ADDTV takes 7: two notes at once.
- * (Orange Cat 0.14.1) From the unit's own costs (hw/LOG.md, "MACRO by model": the N = 4 runs, worst less the idle and the tracks, over
- * the voices sounding; 92 us a unit, the budget of 18): MODAL about 950 us a voice, ADDTV 860, FM 650, WAVSHP 440, SWARM 410, STRING 370,
- * the rest 180 to 320. MODAL and ADDTV take 9 (two voices on one track: MALLET was late on one track with three), the cheap models a
- * little more polyphony. Four presets' chords lose a voice by design (FOLD PLUCK, ADDITIVE PAD, MALLET, GLASS BELL: tests/golden.txt). */
-static const uint8_t MC_UNITS[MC_N] = {4, 5, 8, 4, 9, 3, 5, 2, 4, 4, 9, 3, 4, 3, 4};
+/* the voice budget's units a voice takes (voice.c): by its model's cost (pl_models.h: the rule and the unit's numbers) */
 static MC_XIP uint32_t mc_units(const track_t *t)
 {
-    return MC_UNITS[clamp(t->p[P_E0], 0, MC_N - 1)];
+    uint32_t model = mc_want(t);
+    const pl_mdl_t *d = mc_playing(&model);
+    return d ? d->units : 1u;
 }
 
 /* (0.5.5) The string presets (PLUCKED STRING, HARP, STRING CHORDS) at HARM 32: the string's non-linearity is zero
@@ -354,36 +350,58 @@ static MC_XIP uint32_t mc_units(const track_t *t)
  * rings on.
  * name, {MODEL, HARM, TIMBRE, MORPH, AUX, LPG, DECAY, T.MOD}, {A D S R}, ENV -> FILTER (MORPH), mono (0.5.2: 0, POLY,
  * for the pads, keys and bells: they play a step's four notes; 0.5.3: the CHORD presets LEG again, the model makes its
- * own four note chord from one key, and four of those would take 20 voice units) */
+ * own four note chord from one key, and four of those would take 20 voice units). (Release 3) the ten further models' presets
+ * after MACRO's 27 (macro2.md): a preset's model may be one the unit has not installed: it loads, shows MISSG and plays VA. */
 static const preset_t MC_PRESETS[] = {
-    {"VA BASS", {MC_VA, 64, 30, 70, 0, 40, 50, 20}, {0, 60, 90, 20}, 10, 1},
-    {"VA SYNC LEAD", {MC_VA, 76, 90, 40, 100, 0, 70, 0}, {0, 70, 110, 40}, 0, 1},
-    {"FOLD PLUCK", {MC_WAVSHP, 40, 40, 80, 0, 90, 40, 40}, {0, 64, 0, 50}, 0, 0},
-    {"FOLD LEAD", {MC_WAVSHP, 90, 70, 60, 40, 0, 70, 0}, {2, 70, 100, 40}, 0, 1},
-    {"FM BELL", {MC_FM, 90, 60, 30, 0, 0, 80, 30}, {0, 96, 0, 90}, 0, 0},
-    {"FM BASS", {MC_FM, 30, 70, 50, 0, 50, 45, 40}, {0, 60, 70, 20}, 0, 1},
-    {"FORMANT VOX", {MC_GRAIN, 50, 60, 64, 0, 0, 70, 0}, {20, 80, 110, 60}, 0, 1},
-    {"GRAIN SWEEP", {MC_GRAIN, 80, 90, 100, 60, 0, 90, -30}, {10, 90, 100, 70}, 0, 1},
-    {"ORGAN DRAWBAR", {MC_ADDTV, 40, 50, 20, 0, 0, 70, 0}, {2, 60, 120, 30}, 0, 0},
-    {"ADDITIVE PAD", {MC_ADDTV, 90, 64, 90, 64, 0, 100, 20}, {60, 90, 110, 90}, 0, 0},
-    {"CHORD MINOR", {MC_CHORD, 36, 40, 30, 0, 0, 70, 0}, {20, 80, 110, 70}, 0, 1},
-    {"CHORD STAB", {MC_CHORD, 70, 64, 60, 0, 80, 40, 0}, {0, 60, 0, 50}, 0, 1},
-    {"SWARM PAD", {MC_SWARM, 50, 40, 70, 0, 0, 90, 0}, {70, 90, 110, 90}, 0, 0},
-    {"NOISE WIND", {MC_NOISE, 70, 50, 90, 0, 0, 90, 0}, {80, 90, 100, 90}, 0, 1},
-    {"NOISE SWEEP", {MC_NOISE, 40, 90, 30, 64, 0, 80, -40}, {10, 80, 100, 70}, 0, 1},
-    {"DUST RAIN", {MC_PARTCL, 64, 70, 80, 0, 0, 90, 0}, {10, 90, 110, 90}, 0, 1},
-    {"PLUCKED STRING", {MC_STRING, 32, 70, 64, 0, 0, 60, 0}, {0, 127, 127, 100}, 0, 1},
-    {"LOW STRING", {MC_STRING, 40, 40, 110, 0, 0, 80, 0}, {0, 127, 127, 96}, 0, 1},
-    {"MALLET", {MC_MODAL, 50, 50, 70, 0, 0, 60, 0}, {0, 127, 127, 100}, 0, 0},
-    {"GLASS BELL", {MC_MODAL, 100, 90, 100, 0, 0, 60, 0}, {0, 127, 127, 104}, 0, 0},
-    {"KICK DEEP", {MC_KICK, 30, 40, 80, 0, 0, 50, 0}, {0, 127, 127, 96}, 0, 1},
-    {"KICK 909", {MC_KICK, 90, 64, 60, 127, 0, 50, 0}, {0, 127, 127, 96}, 0, 1},
-    {"SNARE", {MC_SNARE, 50, 64, 64, 0, 0, 50, 0}, {0, 127, 127, 90}, 0, 1},
-    {"HI-HAT", {MC_HIHAT, 64, 90, 30, 0, 0, 50, 0}, {0, 127, 127, 80}, 0, 1},
-    {"OPEN HAT", {MC_HIHAT, 64, 90, 90, 0, 0, 50, 0}, {0, 127, 127, 96}, 0, 1},
-    {"HARP", {MC_HARP, 32, 70, 100, 0, 0, 60, 0}, {0, 127, 127, 100}, 0, 0},         /* (0.5.3; 0.5.5: HARM 32, MRPH 100) */
-    {"STRING CHORDS", {MC_HARP, 32, 50, 110, 0, 0, 80, 0}, {0, 127, 127, 104}, 0, 0},
+    {"VA BASS", {0, 64, 30, 70, 0, 40, 50, 20}, {0, 60, 90, 20}, 10, 1},
+    {"VA SYNC LEAD", {0, 76, 90, 40, 100, 0, 70, 0}, {0, 70, 110, 40}, 0, 1},
+    {"FOLD PLUCK", {1, 40, 40, 80, 0, 90, 40, 40}, {0, 64, 0, 50}, 0, 0},
+    {"FOLD LEAD", {1, 90, 70, 60, 40, 0, 70, 0}, {2, 70, 100, 40}, 0, 1},
+    {"FM BELL", {2, 90, 60, 30, 0, 0, 80, 30}, {0, 96, 0, 90}, 0, 0},
+    {"FM BASS", {2, 30, 70, 50, 0, 50, 45, 40}, {0, 60, 70, 20}, 0, 1},
+    {"FORMANT VOX", {3, 50, 60, 64, 0, 0, 70, 0}, {20, 80, 110, 60}, 0, 1},
+    {"GRAIN SWEEP", {3, 80, 90, 100, 60, 0, 90, -30}, {10, 90, 100, 70}, 0, 1},
+    {"ORGAN DRAWBAR", {4, 40, 50, 20, 0, 0, 70, 0}, {2, 60, 120, 30}, 0, 0},
+    {"ADDITIVE PAD", {4, 90, 64, 90, 64, 0, 100, 20}, {60, 90, 110, 90}, 0, 0},
+    {"CHORD MINOR", {5, 36, 40, 30, 0, 0, 70, 0}, {20, 80, 110, 70}, 0, 1},
+    {"CHORD STAB", {5, 70, 64, 60, 0, 80, 40, 0}, {0, 60, 0, 50}, 0, 1},
+    {"SWARM PAD", {6, 50, 40, 70, 0, 0, 90, 0}, {70, 90, 110, 90}, 0, 0},
+    {"NOISE WIND", {7, 70, 50, 90, 0, 0, 90, 0}, {80, 90, 100, 90}, 0, 1},
+    {"NOISE SWEEP", {7, 40, 90, 30, 64, 0, 80, -40}, {10, 80, 100, 70}, 0, 1},
+    {"DUST RAIN", {8, 64, 70, 80, 0, 0, 90, 0}, {10, 90, 110, 90}, 0, 1},
+    {"PLUCKED STRING", {9, 32, 70, 64, 0, 0, 60, 0}, {0, 127, 127, 100}, 0, 1},
+    {"LOW STRING", {9, 40, 40, 110, 0, 0, 80, 0}, {0, 127, 127, 96}, 0, 1},
+    {"MALLET", {10, 50, 50, 70, 0, 0, 60, 0}, {0, 127, 127, 100}, 0, 0},
+    {"GLASS BELL", {10, 100, 90, 100, 0, 0, 60, 0}, {0, 127, 127, 104}, 0, 0},
+    {"KICK DEEP", {11, 30, 40, 80, 0, 0, 50, 0}, {0, 127, 127, 96}, 0, 1},
+    {"KICK 909", {11, 90, 64, 60, 127, 0, 50, 0}, {0, 127, 127, 96}, 0, 1},
+    {"SNARE", {12, 50, 64, 64, 0, 0, 50, 0}, {0, 127, 127, 90}, 0, 1},
+    {"HI-HAT", {13, 64, 90, 30, 0, 0, 50, 0}, {0, 127, 127, 80}, 0, 1},
+    {"OPEN HAT", {13, 64, 90, 90, 0, 0, 50, 0}, {0, 127, 127, 96}, 0, 1},
+    {"HARP", {14, 32, 70, 100, 0, 0, 60, 0}, {0, 127, 127, 100}, 0, 0},         /* (0.5.3; 0.5.5: HARM 32, MRPH 100) */
+    {"STRING CHORDS", {14, 32, 50, 110, 0, 0, 80, 0}, {0, 127, 127, 104}, 0, 0},
+    {"VCF BASS", {15, 30, 40, 50, 0, 0, 50, 20}, {0, 60, 90, 20}, 20, 1},       /* (Release 3) the further models' presets, 27 on */
+    {"VCF BRASS", {15, 50, 64, 20, 0, 0, 70, 0}, {10, 80, 110, 50}, 30, 0},   /* (picker-r3: HARM 50, TIMB 64, MRPH 20; macro2.md's 70 / 60 / 90 carried a DC offset past the regression's health limit at the low notes) */
+    {"PD KEYS", {16, 40, 60, 30, 0, 0, 60, 30}, {0, 80, 60, 50}, 0, 0},
+    {"PD RESO LEAD", {16, 90, 80, 70, 0, 0, 70, 0}, {0, 70, 110, 40}, 0, 1},
+    {"DX EPIANO", {17, 0, 64, 64, 0, 0, 64, 0}, {0, 127, 127, 60}, 0, 1},
+    {"DX BANK A 11", {17, 42, 64, 64, 0, 0, 64, 0}, {0, 127, 127, 60}, 0, 1},
+    {"DX BANK B 1", {18, 0, 64, 64, 0, 0, 64, 0}, {0, 127, 127, 60}, 0, 1},
+    {"DX BANK C 1", {19, 0, 64, 64, 0, 0, 64, 0}, {0, 127, 127, 60}, 0, 1},
+    {"TERRAIN DRONE", {20, 50, 60, 40, 0, 0, 90, 0}, {40, 90, 110, 80}, 0, 1},
+    {"TERRAIN PLUCK", {20, 90, 90, 70, 0, 90, 40, 40}, {0, 64, 0, 50}, 0, 0},
+    {"STRING ENSEMBLE", {21, 36, 64, 90, 0, 0, 90, 0}, {40, 90, 110, 90}, 0, 1},
+    {"STRING ORGAN", {21, 70, 30, 20, 0, 0, 70, 0}, {5, 80, 120, 30}, 0, 1},
+    {"CHIP ARP", {22, 36, 100, 64, 0, 0, 50, 0}, {0, 100, 100, 20}, 0, 1},
+    {"CHIP LEAD", {22, 0, 20, 90, 100, 0, 60, 0}, {0, 70, 110, 30}, 0, 1},
+    {"WAVETABLE PAD", {23, 20, 50, 70, 0, 0, 100, 20}, {60, 90, 110, 90}, 0, 0},
+    {"WAVETABLE KEYS", {23, 64, 30, 40, 0, 80, 50, 40}, {0, 70, 60, 50}, 0, 0},
+    {"WAVETABLE 8BIT", {23, 110, 64, 64, 127, 0, 60, 0}, {0, 70, 110, 40}, 0, 1},
+    {"VOWEL", {24, 10, 64, 64, 0, 0, 70, 0}, {10, 80, 110, 60}, 0, 1},
+    {"SAM VOICE", {24, 30, 64, 40, 0, 0, 70, 0}, {10, 80, 110, 60}, 0, 1},
+    {"LPC WORDS", {24, 70, 64, 30, 0, 0, 70, 0}, {0, 127, 127, 60}, 0, 1},
 };
+#define MC_PRESETS_MACRO 27u                          /* MACRO's own, 0.5.x: what golden.txt's preset/MACRO lines 0..26 are */
 
 /* MACRO's stars are favorites.c row 8 bytes 0..7: bytes 8..15 hold GLO > WEIGHTS and 16..31 the FX key map (settings_persist.c, favorites.c) */
 _Static_assert(NELEM(MC_PRESETS) <= 64u, "MACRO's favorites stay in row 8 bytes 0..7, below the WEIGHTS and FX bytes");
@@ -404,7 +422,7 @@ static const engine_t ENG_MACRO = {
     .presets = MC_PRESETS,
     .npresets = NELEM(MC_PRESETS),
     .poly = MC_POLY,
-    .cap = mc_cap,                                     /* (0.5.2) PARTCL, STRING: 1 */
+    .cap = mc_cap,                                     /* (0.5.2) the large models: 1 */
     .note_on = mc_note_on,
     .render = mc_render,
     .units = mc_units,

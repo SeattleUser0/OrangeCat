@@ -111,7 +111,7 @@ static void ota_commit(const uint8_t *parm) { (void)parm; }
 static int ldr_fread(uint32_t off, void *p, uint32_t n) { memcpy(p, nor + off, n); return 0; }
 static int ldr_erase(uint32_t off)
 {
-    if (off < 0x4000u || off >= 0xFC000u || (off & 0xFFFu)) bad_range++;
+    if (off < 0x4000u || off >= 0xFC000u || (off & 0xFFFu) || (off >= 0x8E000u && off < 0x91000u)) bad_range++;
     if (off < 0x4000u) { printf("ERASE IN THE HEAD %#x\n", off); exit(1); }
     erases++;
     memset(nor + off, 0xFF, 0x1000);
@@ -122,7 +122,7 @@ static int ldr_prog(uint32_t off, const void *p, uint32_t n)
 {
     const uint8_t *s = p;
     uint32_t i;
-    if (off < 0x4000u || off + n > 0x93000u || ((off & 0xFFu) + n) > 256u) bad_range++;
+    if (off < 0x4000u || off + n > 0x93000u || ((off & 0xFFu) + n) > 256u || (off + n > 0x8E000u && off < 0x91000u)) bad_range++;   /* (option A) never a byte of the tail region */
     for (i = 0; i < n; i++) nor[off + i] &= s[i];
     op_done(off);
     return 0;
@@ -162,6 +162,26 @@ static uint32_t flash_off(const uint8_t *lg)        /* flash.bin offset in the l
     return 0;
 }
 
+
+/* (option A, FLASH_MAP_R3.md 10) what an install writes: the stub's sector, the body (the marker's length, to the sector), 0x92000 and the marker's sector; never the
+ * tail region 0x8E000..0x90FFF (3 sectors). TAIL_B(i): the bytes the tests put in the tail before the install (stand-ins for modules), which every install must leave as they are */
+#define TAIL_LO 0x8E000u
+#define TAIL_HI 0x91000u
+#define TAIL_B(i) ((uint8_t)(0xA5u ^ ((i) * 7u) ^ ((i) >> 8)))
+static void tail_fill(uint8_t *n) { uint32_t i; for (i = 0; i < TAIL_HI - TAIL_LO; i++) n[TAIL_LO + i] = TAIL_B(i); }
+static int tail_kept(const uint8_t *n) { uint32_t i; for (i = 0; i < TAIL_HI - TAIL_LO; i++) if (n[TAIL_LO + i] != TAIL_B(i)) return 0; return 1; }
+static uint32_t pkg_body_end(const uint8_t *fl, uint32_t key)      /* fl: the package's flash.bin; key: the chip's */
+{
+    uint8_t b[512];
+    memcpy(b, fl + (LDR_MARK_OFF & ~0x1FFu), 512);
+    ldr_sfc(b, 512, (LDR_MARK_OFF & ~0x1FFu) - LDR_APP_LO, key);
+    return LDR_BODY_LO + ((ota_rd32(b + (LDR_MARK_OFF & 0x1FFu) + 8) + 0xFFFu) & ~0xFFFu);
+}
+static int area_ok(const uint8_t *n, const uint8_t *fl, uint32_t key)
+{
+    uint32_t be = pkg_body_end(fl, key);
+    return be <= TAIL_LO && !memcmp(n + LDR_APP_LO, fl + LDR_APP_LO, be - LDR_APP_LO) && !memcmp(n + LDR_MARK_SEC, fl + LDR_MARK_SEC, 0x2000) && tail_kept(n);
+}
 static int check(const char *what, int ok) { printf("%-56s %s\n", what, ok ? "ok" : "FAIL"); return ok ? 0 : 1; }
 
 /* ---- the interruption model ---- */
@@ -203,6 +223,7 @@ static uint32_t stub_says(stub_result_t *r)         /* the device's stub_decide 
 static void restore(const uint8_t *base)
 {
     memcpy(nor + LDR_APP_LO, base + LDR_APP_LO, LDR_APP_HI - LDR_APP_LO);
+    tail_fill(nor);                                     /* modules in the tail region, whatever the base held there */
     rx_full = 0;
 }
 
@@ -227,7 +248,7 @@ static int cut_case(const char *name, const uint8_t *base, int base_stub, int ba
     ops = 0; cut_at = 0; requests = 0;
     rc = ldr_session();
     n = ops; req = requests;
-    bad += rc != 0 || memcmp(nor + LDR_APP_LO, new_fl + LDR_APP_LO, LDR_APP_HI - LDR_APP_LO) != 0;
+    bad += rc != 0 || !area_ok(nor, new_fl, chip_key);
     bad += stub_says(&r) != STUB_BOOT || n > sizeof oplog / sizeof oplog[0];
     for (k = 0; k < n; k++)                                           /* the stub's sector whole from this op on */
         if (oplog[k] == LDR_STUB_SEC + 0xF00u) stub_done = k + 1u;
@@ -246,11 +267,11 @@ static int cut_case(const char *name, const uint8_t *base, int base_stub, int ba
             st = d == STUB_BOOT ? 3 : 2;
             bad += d == STUB_UBOOT;                                   /* (the staged loader is there: never) */
             if (d == STUB_BOOT)                                       /* boot: only the finished image */
-                bad += k != n || memcmp(nor + LDR_APP_LO, new_fl + LDR_APP_LO, LDR_APP_HI - LDR_APP_LO) != 0;
+                bad += k != n || !area_ok(nor, new_fl, chip_key);
         } else {
             int whole = base_whole && marker_free;                    /* the old app, but for a sector it never used */
             for (i = LDR_APP_LO; whole && i < LDR_APP_HI; i += 0x1000u)
-                whole = i == LDR_MARK_SEC || !memcmp(nor + i, base + i, 0x1000);
+                whole = i == LDR_MARK_SEC || (i >= TAIL_LO && i < TAIL_HI) || !memcmp(nor + i, base + i, 0x1000);
             st = whole ? 0 : 1;
             if (st == 1) { if (!first_u) first_u = k; last_u = k; }
             bad += stub_done && k >= stub_done;                       /* no such state once the stub is written */
@@ -258,7 +279,7 @@ static int cut_case(const char *name, const uint8_t *base, int base_stub, int ba
         cnt[st]++;
         ops = 0;
         rc = ldr_session();                                           /* resume from the cut state */
-        bad += rc != 0 || memcmp(nor + LDR_APP_LO, new_fl + LDR_APP_LO, LDR_APP_HI - LDR_APP_LO) != 0 ||
+        bad += rc != 0 || !area_ok(nor, new_fl, chip_key) ||
                memcmp(nor, head, sizeof head) != 0;
     }
     bad += cnt[1] != want_u || cnt[3] != (n ? 1u : 0u) || bad_range;
@@ -287,6 +308,7 @@ int main(int argc, char **argv)
     /* device: OLD installed, plus a valid update record at 0xE4F00 */
     memset(nor, 0xFF, sizeof nor);
     memcpy(nor, old + ofo, 0x93000);
+    tail_fill(nor);
     memcpy(head, nor, sizeof head);
     {
         uint8_t r[112] = {0};
@@ -297,7 +319,8 @@ int main(int argc, char **argv)
     rc = ldr_session();
     printf("  rc %d, %u requests, %u sector erases\n", rc, requests, erases);
     bad += check("install completes", rc == 0);
-    bad += check("app area == the new package's flash.bin", !memcmp(nor + 0x4000, logical + nfo + 0x4000, 0x93000 - 0x4000));
+    ldr_chip_key(&chip_key);
+    bad += check("the body, 0x92000 and the marker == the new package's; the tail region untouched", area_ok(nor, logical + nfo, chip_key));
     bad += check("flash head [0, 0x4000) untouched", !memcmp(nor, head, sizeof head));
     bad += check("finish asked (0xF0000000)", f0_asked >= 1);
     bad += check("update record cleared (RAM + flash)", record_cleared && nor[0xE4F06] == 0xFF);
@@ -311,6 +334,7 @@ int main(int argc, char **argv)
         uint8_t save = logical[nfo + 0x4000 + 5];
         logical[nfo + 0x4000 + 5] ^= 0x5A;           /* app area head no longer decrypts */
         memcpy(nor, old + ofo, 0x93000);
+        tail_fill(nor);
         erases = 0;
         rc = ldr_session();
         bad += check("foreign key / damaged app head refused, nothing erased", rc == -6 && erases == 0);
@@ -318,6 +342,7 @@ int main(int argc, char **argv)
     }
     /* the interruption model (see the top) */
     memcpy(nor, old + ofo, 0x93000);
+    tail_fill(nor);
     new_fl = logical + nfo;
     if (ldr_chip_key(&chip_key) || !has_marker(new_fl)) {
         printf("  (the new package has no boot stub marker: written in address order, no interruption model)\n");
@@ -358,6 +383,7 @@ int main(int argc, char **argv)
                 bad += check(".. a second arrival with the key and no boot between: UBOOT", sr.decision == STUB_UBOOT);
             }
             memcpy(nor, old + ofo, 0x93000);
+            tail_fill(nor);
         }
         printf("interruption model: a power cut after every erase and every programmed page\n");
         /* 16 = the stub sector's erase and its first 15 pages; the marker's erase before them leaves a 0.16 app

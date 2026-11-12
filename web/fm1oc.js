@@ -25,6 +25,7 @@
 //           (no extension command is sent unless the set holds an effect module). files.want[i] (optional): {kind, module_id} from the manifest, checked against the file.
 
 import { bkPack, bkCrc } from "./fm1backup.js";
+import { PLACE } from "./fm1place.js";
 
 export const OC_CMD = { PACK_INFO: 115, PACK_BEGIN: 116, PACK_WRITE: 117, PACK_END: 118, PACK_ERASE: 119,
   MOD_INFO: 120, MOD_BEGIN: 121, MOD_WRITE: 122, MOD_END: 123, MOD_REMOVE: 124, ENGINES: 125,
@@ -131,7 +132,7 @@ export function parseFxInfo(a) {
   try { o.abi = r.n5(); } catch (e) { /* a firmware that does not send its FX_ABI_ID (before round 18): not compared */ }
   return o;
 }
-export const OC_FX_KIND = ["", "insert", "send", "master"];
+export const OC_FX_KIND = ["", "insert", "send", "master", "models"];   /* (the model picker) 4: sound models for an engine (MACRO's, module id 0x4D08) */
 export function parseFxTable(a) {
   const r = extReader(a, OC_CMD.FX_TABLE), n = r.b(), o = { effects: [] };
   for (let k = 0; k < n; k++) {
@@ -194,12 +195,12 @@ function ocmParse(bytes) {
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), ver = dv.getUint16(4, true);
   if (dv.getUint32(0, true) !== OCM_MAGIC || (ver !== 1 && ver !== 2)) return fail("modWrongFile");
   const n = dv.getUint16(6, true), tab = 56, m = ver === 2 && bytes.length >= tab + 32 ? dv.getUint32(tab + 28, true) : 0, hcrcAt = ver === 2 ? tab + 32 + 8 * m : tab + 16 * n;
-  if (n < 1 || n > 18 || (ver === 2 && (n !== 1 || m < 1 || m > 18)) || hcrcAt + 4 > bytes.length || crc32(bytes.subarray(0, hcrcAt)) !== dv.getUint32(hcrcAt, true)) return fail("modWrongFile");
+  if (n < 1 || n > 18 || (ver === 2 && (n !== 1 || m < 1 || m > 21)) || hcrcAt + 4 > bytes.length || crc32(bytes.subarray(0, hcrcAt)) !== dv.getUint32(hcrcAt, true)) return fail("modWrongFile");
   let name = ""; for (let i = 28; i < 44 && bytes[i]; i++) name += String.fromCharCode(bytes[i]);
   const o = { ok: true, iface: dv.getUint32(8, true), apiAddr: dv.getUint32(12, true), engine: dv.getUint32(16, true), stateSize: dv.getUint32(20, true), packHash: dv.getUint32(24, true),
               name, apiVersion: dv.getUint32(44, true), apiSize: dv.getUint32(48, true), sectors: dv.getUint32(52, true), variants: [], format: ver };
-  o.kind = (o.engine >>> 8) & 0xFF;      /* (Release 3 step 4) the engine word: engine (bits 0..7), kind (8..15: 1 insert, 2 send, 3 master effect), bits 16..31 zero (fw_api.h fw_mod_word_ok) */
-  if (o.engine >>> 8 && (o.engine >>> 16 || o.kind > 3 || (o.engine & 0xFF))) return fail("modWrongFile");
+  o.kind = (o.engine >>> 8) & 0xFF;      /* (Release 3 step 4) the engine word: engine (bits 0..7), kind (8..15: 1 insert, 2 send, 3 master effect; (the model picker) 4 sound models for the engine in the low byte), bits 16..31 zero (fw_api.h fw_mod_word_ok) */
+  if (o.engine >>> 8 && (o.engine >>> 16 || o.kind > 4 || (o.kind <= 3 && (o.engine & 0xFF)) || (o.kind === 4 && !(o.engine & 0xFF)))) return fail("modWrongFile");
   if (ver === 2) {
     const length = dv.getUint32(tab + 4, true), off = dv.getUint32(tab + 12, true), nrel = dv.getUint32(tab + 16, true), roff = dv.getUint32(tab + 20, true);
     if (dv.getUint32(tab, true) !== OCM_RELOCATABLE || nrel > OCM_RELOC_MAX || off + length > bytes.length || roff + 4 * nrel > bytes.length || length < 0x200 || (length & 3))
@@ -234,7 +235,32 @@ const OCM_LINK0 = 0x020C4000, OCM_STATE_MAX = 16384;       /* the XIP address of
  * words 0, effect ids unique in the bank, parameter ids strictly increasing, min <= default <= max, a label NUL ended within 24 bytes inside the code. img: the image for the link
  * address `link`. {id, version, n} or null. ocmFxRead: the module id, version and sector count of every image of the file, which must agree (an effect has no geometry row: its
  * span is ceil(length / 4096), at most 8 sectors); the file is refused when they do not. */
-const OCM_FX_SECTORS = 8;
+const OCM_FX_SECTORS = 8, OCM_MODELS_SECTORS = 18;      /* (the model picker) a models module may take the whole area */
+/* (Release 3, the model picker) A MODELS module (kind 4, firmware/src/fw_models.h): the header's engine_ptr is the address of its models block inside the code, checked as the
+ * unit checks it: magic "OMDL", size 160, version 1, the engine of the header's low byte, 1..32 models, each a 0 or the address of a 24 byte descriptor inside the code (4 aligned)
+ * whose start and render words are addresses inside the code, the three bank words 0 or inside the code. The module id is FW_MODELS_ID(engine): 0x4D00 | engine (MODULE_IDS.md).
+ * {id, version (the header's word), n (the models present), abi (the block's PL_MDL_ABI_ID, which the unit compares)} or null. */
+const OCM_MODELS_ID = (engine) => (0x4D00 | (engine & 0xFF)) >>> 0;
+function ocmModelsDesc(img, link) {
+  if (img.length < 0x200 || (img.length & 3)) return null;
+  const dv = new DataView(img.buffer, img.byteOffset, img.byteLength), lo = (link + 0x100) >>> 0, hi = (link + img.length) >>> 0;
+  const inside = (a, n) => a >= lo && a <= hi && n <= hi - a, at = (a) => a - link;
+  const u32 = (a) => dv.getUint32(at(a), true), u16 = (a) => dv.getUint16(at(a), true);
+  const desc = dv.getUint32(28, true), engine = dv.getUint32(20, true) & 0xFF;
+  if (!inside(desc, 160) || (desc & 3) || u32(desc) !== 0x4C444D4F || u16(desc + 4) !== 160 || u16(desc + 6) !== 1 || u32(desc + 12) !== engine) return null;
+  const n = u32(desc + 16);
+  if (!n || n > 32) return null;
+  let present = 0;
+  for (let i = 0; i < 32; i++) {
+    const a = u32(desc + 20 + 4 * i);
+    if (i >= n) { if (a) return null; continue; }
+    if (!a) continue;
+    if (!inside(a, 24) || (a & 3) || !inside(u32(a + 16), 2) || !inside(u32(a + 20), 2) || !u32(a) || !img[at(a) + 7]) return null;
+    present++;
+  }
+  for (let i = 0; i < 3; i++) { const b = u32(desc + 148 + 4 * i); if (b && (!inside(b, 4) || (b & 1))) return null; }
+  return { id: OCM_MODELS_ID(engine), version: dv.getUint32(44, true), n: present, abi: u32(desc + 8), engine };
+}
 /* (Release 3 step 6) The caps block an entry's `pages` word points at (firmware/src/fx_kernel.h fx_caps_t, fw_fx.h fx_caps_check): 56 bytes, 4 aligned, inside the code; magic "GFXK", size 56,
  * version 1; hot and nhot 0, the padding 0, the snapshot size not 0; the call table (12 words) inside the code, every call an address inside the code; the pages pointer 0 or inside the
  * code and 4 aligned (the unit checks the descriptor itself); the legacy-slot rows 0, or 1..16 rows of 10 bytes (2 aligned) with ids strictly increasing and min <= default <= max (the unit also
@@ -293,8 +319,8 @@ function ocmFxDesc(img, link, kind) {
 function ocmFxRead(o) {
   if (!o.kind) return o;
   for (const v of o.variants) {
-    const d = ocmFxDesc(v.image, (OCM_LINK0 + v.start * 4096) >>> 0, o.kind), ns = Math.ceil(v.length / 4096);
-    if (ns > OCM_FX_SECTORS) return { ok: false, key: "modWrongFile" };
+    const link = (OCM_LINK0 + v.start * 4096) >>> 0, d = o.kind === 4 ? ocmModelsDesc(v.image, link) : ocmFxDesc(v.image, link, o.kind), ns = Math.ceil(v.length / 4096);
+    if (ns > (o.kind === 4 ? OCM_MODELS_SECTORS : OCM_FX_SECTORS)) return { ok: false, key: "modWrongFile" };
     if (!d || (o.moduleId !== undefined && (d.id !== o.moduleId || d.version !== o.fxVersion || ns !== o.fxSectors))) return { ok: false, key: "modHdrBad" };
     o.moduleId = d.id; o.fxVersion = d.version; o.fxCount = d.n; o.fxSectors = ns; o.fxAbi = d.abi;
   }
@@ -309,8 +335,8 @@ function ocmImage(ocm, v) {
       (w(24) === 0 && !ocm.kind) || w(24) > OCM_STATE_MAX || w(36) !== ocm.packHash || w(48) !== img.length || w(32) !== link ||
       w(28) < link + 0x100 || w(28) >= link + img.length || (w(28) & 3)) return "modHdrBad";
   if (crc32(img.subarray(0x100)) !== w(52)) return "modDamaged";
-  if (ocm.kind) {                                                       /* (Release 3 step 4) an effect module: at most 8 sectors, its descriptor, the id the file was read with */
-    const d = img.length > OCM_FX_SECTORS * 4096 ? null : ocmFxDesc(img, link, ocm.kind);
+  if (ocm.kind) {                                                       /* (Release 3 step 4) an effect module: at most 8 sectors, its descriptor, the id the file was read with; (the model picker) a models module: up to the area, its block */
+    const d = img.length > (ocm.kind === 4 ? OCM_MODELS_SECTORS : OCM_FX_SECTORS) * 4096 ? null : ocm.kind === 4 ? ocmModelsDesc(img, link) : ocmFxDesc(img, link, ocm.kind);
     if (!d || d.id !== ocm.moduleId) return "modHdrBad";
   }
   return "";
@@ -338,7 +364,7 @@ function fxCheck(ocm, info, fx) {
     return { ok: false, key: "modWrongFw" };
   if (fx.abi !== undefined && ocm.fxAbi && ocm.fxAbi !== fx.abi) return { ok: false, key: "modWrongFw" };   /* (round 18) FX_INFO's abi, when the unit sends it: a module of another host calling convention is refused before it is streamed */
   const tbl = info.sectorOf || OCM_SECTOR;
-  if (fx.plan == null || !(fx.plan < tbl.length) || (fx.plan >= 12 && !fx.lowOk)) {   /* a usable module in the way is named, never erased by an install */
+  if (fx.plan == null || !(fx.plan < tbl.length) || (tbl[fx.plan] < 0 && tbl[fx.plan] >= -6 && !fx.lowOk)) {   /* a usable module in the way is named, never erased by an install */
     const b = fx.blocker, s = b != null && info.starts ? info.starts[b] : null;
     return s ? { ok: false, key: "modBlocked", engine: s.engine, start: b } : { ok: false, key: "modNoFree" };
   }
@@ -355,7 +381,7 @@ function ocmCheck(ocm, info) {
   if (ocm.iface !== info.iface || ocm.apiAddr !== info.apiAddr || ocm.apiVersion > info.apiVersion || ocm.apiSize > info.apiSize || ocm.packHash !== info.packHash)
     return { ok: false, key: "modWrongFw" };
   const tbl = info.sectorOf || OCM_SECTOR;
-  if (!(info.plan < tbl.length) || (info.plan >= 12 && !info.lowOk)) {   /* starts 12..17 (sectors -1..-6) only when the unit says the low sectors are usable */                               /* (0.12.1) 127: no start can take it. A usable module of another engine in the way is named, never erased by an install */
+  if (!(info.plan < tbl.length) || (tbl[info.plan] < 0 && tbl[info.plan] >= -6 && !info.lowOk)) {   /* starts 12..17 (sectors -1..-6) only when the unit says the low sectors are usable */                               /* (0.12.1) 127: no start can take it. A usable module of another engine in the way is named, never erased by an install */
     const b = info.blocker, s = b != null && info.starts ? info.starts[b] : null;
     return s ? { ok: false, key: "modBlocked", engine: s.engine, start: b } : { ok: false, key: "modNoFree" };
   }
@@ -367,7 +393,7 @@ function ocmCheck(ocm, info) {
   return { ok: true, variant: v };
 }
 
-export const OCM = { parse: ocmParse, check: ocmCheck, tails: ocmTails, image: ocmImage, packProblem, relocate: ocmRelocate, fxCheck, fxDesc: ocmFxDesc };   // (the editor's functions, for the tests)
+export const OCM = { parse: ocmParse, check: ocmCheck, tails: ocmTails, image: ocmImage, packProblem, relocate: ocmRelocate, fxCheck, fxDesc: ocmFxDesc, modelsDesc: ocmModelsDesc, modelsId: OCM_MODELS_ID };   // (the editor's functions, for the tests)
 
 // the module's version word (fw_mod_hdr_t.version, 0x00MMmmpp) of an .ocm's first image; 0 when the file has none
 export function ocmVersion(ocm) {
@@ -510,6 +536,7 @@ export async function removeFx(link, id) {
 // (Release 3 step 4) is this effect module's file already the unit's? (the Effects table: the id, state 7 ok, the same version and sector count)
 export function fxCurrent(ocm, fx) {
   const want = versionTriple(ocm.fxVersion || 0);
+  if (ocm.kind === 4) return false;                                        /* (the model picker) a pick of models is always written: the Effects table does not say which models a models module holds */
   return !!(fx && fx.effects.some((x) => x.id === ocm.moduleId && x.state === 7 && !x.resident && x.sectors === ocm.fxSectors && x.version.every((v, i) => v === want[i])));
 }
 // is the module of this file already the registered one for its engine? (ENGINES: source a module, state 7 ok, the same version word and a size of one of the file's images)
@@ -518,6 +545,23 @@ export function moduleCurrent(ocm, engines) {
   if (!x || x.src !== 2 || x.state !== 7) return false;
   const want = versionTriple(ocmVersion(ocm));
   return x.version.every((v, i) => v === want[i]) && ocm.variants.some((v) => v.length === x.size);
+}
+
+// (the model picker review) Where the unit's loader will put each module of this set, computed with the loader's own planner (fm1place.js, tested against the C functions
+// over random and edge unit states in web/test_place.mjs) from what the unit holds now: probe is probeUnit's answer. The modules the unit already has (the same file) are not
+// written, so they are not in the plan. -> {ok, text, mods, steps} (text names the first module with no place and what the unit can still take), or null when the unit's
+// start table could not be read.
+export function placementOf(probe, ocms) {
+  const st = PLACE.fromUnit(probe);
+  if (!st) return null;
+  const mods = [];
+  for (const ocm of ocms) {
+    if (!ocm || !ocm.ok) continue;
+    if (ocm.kind) { if (fxCurrent(ocm, probe.fx)) continue; mods.push({ mid: ocm.moduleId, sectors: ocm.fxSectors, name: ocm.kind === 4 ? "MACRO models" : "effect module 0x" + ocm.moduleId.toString(16).toUpperCase() }); }
+    else { if (moduleCurrent(ocm, probe.engines)) continue; mods.push({ engine: ocm.engine, name: { 14: "SHAPES", 7: "WHEEL", 19: "PROPHET" }[ocm.engine] || "engine " + ocm.engine }); }
+  }
+  const r = PLACE.simulate(st, mods);
+  return { ok: r.ok, mods, steps: r.steps, text: r.ok ? "" : PLACE.whyNot(st, mods, r) };
 }
 
 // The set. ctx: {
@@ -572,6 +616,14 @@ export async function runSet(ctx) {
     }
     if (stages.module) {
       if (!probe.mod) { sum.module = mods.map(() => "oldfw"); return sum; }
+      const pf = ctx.preflight === false ? null : placementOf(probe, mods.map((b) => ocmParse(b)));
+      if (pf && !pf.ok) {                               // (review) no module is written when the loader would have no place for one of them: the unit stays as it is
+        log(`placement: ${pf.text}`);
+        sum.placement = pf.text;
+        sum.module = mods.map(() => ({ error: "modNoPlace", detail: pf.text }));
+        return sum;
+      }
+      const added = [];                                  // effect modules this run put on a unit that had none of that id: taken out again if a later module fails for want of room
       for (let i = 0; i < mods.length; i++) {
         const p = part(96);
         const ocm = ocmParse(mods[i]);
@@ -581,7 +633,8 @@ export async function runSet(ctx) {
         if (ocm.kind) {                                 // (Release 3 step 4) an effect module: by its module id
           if (!probe.fx) { sum.module.push("oldfw"); continue; }
           if (fxCurrent(ocm, probe.fx)) { sum.module.push("current"); p(1); continue; }
-          try { say("modWorking"); await installFx(link, ocm, p, { sleep, confirmInPlace: ctx.confirmInPlace }); sum.module.push("installed"); }
+          const existed = !!(probe.fx && probe.fx.effects.some((x) => x.id === ocm.moduleId && !x.resident));
+          try { say("modWorking"); await installFx(link, ocm, p, { sleep, confirmInPlace: ctx.confirmInPlace }); sum.module.push("installed"); if (!existed) added.push(ocm.moduleId); }
           catch (e) { if (e.code === "ocLost") throw e; sum.module.push(e.detail ? { error: e.code || "modFail", detail: e.detail } : { error: e.code || "modFail" }); }
           probe = await probeUnit(link, { fx: anyFx });
           continue;
@@ -590,6 +643,12 @@ export async function runSet(ctx) {
         try { say("modWorking"); await installModule(link, ocm, p, { sleep, confirmInPlace: ctx.confirmInPlace }); sum.module.push("installed"); }
         catch (e) { if (e.code === "ocLost") throw e; sum.module.push(e.detail ? { error: e.code || "modFail", detail: e.detail } : { error: e.code || "modFail" }); }
         probe = await probeUnit(link, { fx: anyFx });
+      }
+      const noRoom = sum.module.some((m) => m && m.error && (m.error === "modNoFree" || m.error === "modBlocked"));
+      if (noRoom && added.length) {                     // (review) a module found no place after others were put on the unit: those are taken out again, so the unit is as it was
+        sum.rolledBack = [];
+        for (const id of added.reverse()) { try { await removeFx(link, id); sum.rolledBack.push(id); } catch (e) { if (e.code === "ocLost") throw e; sum.rollbackFailed = true; } }
+        log(`rolled back: ${sum.rolledBack.map((i) => "0x" + (i >>> 0).toString(16)).join(", ")}`);
       }
     } else sum.module = mods.map(() => "off");
     if (anyFx && probe.fx) sum.fx = probe.fx;           // (Release 3 step 4) the Effects table after the run, for the page's list

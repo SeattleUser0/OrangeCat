@@ -112,6 +112,23 @@ def module_fill(img):
     return img
 
 
+def ocm_write(name, iface, api_addr, engine, state_size, pack_hash, api_version, api_size, sectors, img0, words, variants):
+    """a module package of format 2 (tools/build.py's layout: the header, one relocatable image linked at 0, its list, and per start the CRC-32
+    of the relocated image), variants [(start sector, crc)]; shared by build.py and the model picker's packer (tools/pick_module.py)"""
+    n = len(variants)
+    lst = struct.pack(f"<{len(words)}I", *words)
+    head = bytearray(struct.pack("<IHHIIIII16sIII", OCM_MAGIC, 2, 1, iface, api_addr, engine, state_size, pack_hash,
+                                 name.encode(), api_version, api_size, sectors))
+    off = (len(head) + 32 + 8 * n + 4 + 3) & ~3
+    head += struct.pack("<IIII", OCM_RELOCATABLE, len(img0), zlib.crc32(img0) & 0xFFFFFFFF, off)
+    head += struct.pack("<IIII", len(words), off + len(img0), zlib.crc32(lst) & 0xFFFFFFFF, n)
+    for start, crc in variants:
+        head += struct.pack("<iI", start, crc)              # (Release 3 step 1) a start is a signed sector from the numbering base
+    head += struct.pack("<I", zlib.crc32(bytes(head)) & 0xFFFFFFFF)
+    head += b"\0" * (off - len(head))
+    return bytes(head) + bytes(img0) + lst
+
+
 def ocm_images(raw, area_lo=0xC8000):   # area_lo is the numbering base (FL_MODULE_BASE); a start is a signed sector from it (Release 3 step 1: -6 .. 11)
     """a module package (format 1: an image a start; format 2: one relocatable image, its list and each start's CRC-32) read into
     {start sector: the image that start is given}, every CRC checked. ValueError for a package the page or the card would refuse."""
@@ -139,7 +156,7 @@ def ocm_images(raw, area_lo=0xC8000):   # area_lo is the numbering base (FL_MODU
     start, length, crc, off = struct.unpack_from("<IIII", b, tab)
     nrel, roff, rcrc, m = struct.unpack_from("<IIII", b, tab + 16)
     at = tab + 32 + 8 * m
-    if start != OCM_RELOCATABLE or not 1 <= m <= 18 or nrel > RELOC_MAX or len(b) < at + 4 or zlib.crc32(b[:at]) != struct.unpack_from("<I", b, at)[0]:
+    if start != OCM_RELOCATABLE or not 1 <= m <= 21 or nrel > RELOC_MAX or len(b) < at + 4 or zlib.crc32(b[:at]) != struct.unpack_from("<I", b, at)[0]:
         raise ValueError("header")
     img, lst = b[off:off + length], b[roff:roff + 4 * nrel]
     if len(img) != length or zlib.crc32(img) != crc or len(lst) != 4 * nrel or zlib.crc32(lst) != rcrc:

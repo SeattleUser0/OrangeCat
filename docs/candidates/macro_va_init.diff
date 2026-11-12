@@ -1,0 +1,32 @@
+diff --git a/firmware/src/eng_macro.c b/firmware/src/eng_macro.c
+index 8e4c69e5..6bc30439 100644
+--- a/firmware/src/eng_macro.c
++++ b/firmware/src/eng_macro.c
+@@ -118,7 +118,9 @@ typedef union {                                       /* a voice's model (all bu
+     pl_noise_t noise; pl_modal_t modal; pl_bd_t bd; pl_sd_t sd; pl_hh_t hh;
+ } mc_small_t;
+ typedef struct {
+-    uint8_t model;                                    /* the model whose states are in m (MC_N: none yet) */
++    uint8_t model;                                    /* the model whose states are in m */
++    uint8_t started;                                  /* 0 on a fresh part (the arena is zeroed, so `model` reads 0 = VA there and no model's
++                                                       * states have been started): the first render starts the model's, whichever it is */
+     mc_vhead_t h[MC_POLY];                            /* ((0.14.3) the 16-frame out and aux buffers are the voice kernel's own, on its stack:
+                                                        * one shared by the track's voices would be written by both cores) */
+     union {
+@@ -148,6 +150,7 @@ static MC_XIP void mc_start(mc_part_t *s, uint32_t model)
+ {
+     uint32_t i, nv = mc_big(model) ? 1u : MC_POLY;
+     s->model = (uint8_t)model;
++    s->started = 1;
+     for (i = 0; i < nv; i++) {
+         void *m = mc_state(s, i);
+         mc_vhead_t *h = &s->h[i];
+@@ -299,7 +302,7 @@ static MC_XIP void mc_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, c
+     uint32_t model = (uint32_t)clamp(p[P_E0], 0, MC_N - 1), vi = (uint32_t)(v - t->v) % MC_POLY;
+     mc_job_t j;
+     if (!s || !OC_PACK_READY()) return;               /* (Orange Cat 0.8.0: the asset pack, with Plaits' tables, is not there: silent) */
+-    if (s->model != model)
++    if (s->model != model || !s->started)
+         mc_start(s, model);
+     if (mc_big(model) && vi)                          /* (voices left from a model of four: silent to their end) */
+         return;

@@ -15,7 +15,7 @@
 #include <time.h>
 
 static int bad;
-static void audio_resources_reset(void) { memset(resource, 0, sizeof resource); }
+static void audio_resources_reset(void) { for (uint32_t k = 0; k < NPART; k++) resource_release(RES_ENGINE0 + k); }   /* (the parts only: the whole table forgot the hot sets' blocks, which the next part took: tests/plaits_test.c fresh) */
 static void check(const char *what, int ok)
 {
     printf("macro: %-86s %s\n", what, ok ? "ok" : "FAIL");
@@ -141,8 +141,8 @@ int main(int argc, char **argv)
         check("model changed every 20 blocks under a held note; a second note: one voice, no fault", n == 1 && finite);
     }
 
-    {   /* (0.5.2) a step's chord: the voices on a POLY preset, one on STRING; each voice's own pitch. (0.14.1) FOLD PLUCK (WAVSHP) takes 5 units
-         * a voice from the unit's measured costs (eng_macro.c MC_UNITS): three of the four notes fit the budget of 16, by design */
+    {   /* (0.5.2) a step's chord: the voices on a POLY preset, one on STRING; each voice's own pitch. (Release 3, the model picker) FOLD PLUCK (WAVSHP) takes
+         * 4 units a voice from the unit's measured costs (plaits/pl_models.h: 5 in 0.14.1, when three of the four notes fit the budget of 16): the four fit now */
         static const uint8_t chord[4] = {48, 52, 55, 59};
         int32_t out[2 * CTL];
         uint32_t i, b, n4 = 0, n1 = 0, pitches = 1;
@@ -164,8 +164,8 @@ int main(int argc, char **argv)
         for (i = 0; i < 4u; i++) trk_note_on(&trk[0], chord[i], 100);
         for (b = 0; b < 50; b++) mix_block(out, CTL);
         for (i = 0; i < NVOICE; i++) n1 += trk[0].v[i].active && trk[0].v[i].gate;
-        snprintf(line, sizeof line, "POLY: a four note chord plays three FOLD PLUCK voices (%u), STRING one (%u), no fault", n4, n1);
-        check(line, n4 == 3u && n1 == 1u && pitches && finite);
+        snprintf(line, sizeof line, "POLY: a four note chord plays four FOLD PLUCK voices (%u), STRING one (%u), no fault", n4, n1);
+        check(line, n4 == 4u && n1 == 1u && pitches && finite);
     }
     {   /* (0.5.3) the voice budget (16 units) holds a heavy model's chord down: ORGAN DRAWBAR (ADDTV, 9 a voice since 0.14.1) plays
          * two of four held keys, the newest (0.5.2: four, which overloaded the unit) */

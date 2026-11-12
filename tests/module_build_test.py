@@ -137,10 +137,46 @@ check("the area is the one fm1_flash.h names: 18 sectors from 0xC2000, the numbe
 check("the lowest start (-6) links at XIP 0x02000000-0x4000+0xC2000 and the highest (11) at 0xD3000",
       ocflash.xip(build.module_base() - 6 * 0x1000) == 0x020BE000 and ocflash.xip(build.module_base() + 11 * 0x1000) == 0x020CF000)
 
+# (option A, FLASH_MAP_R3.md 10; round 23: the three sector tail) a build with OC_MOD_TAIL=3: a variant for every start whose span lies in one place, the area's then
+# the tail's (flash 0x8E000..0x90FFF: -58 .. -56 from the base); 21 starts at most. The switch takes 0 or 3: the four sector tail's 4 is refused
+def with_tail(v, f):
+    old = os.environ.get("OC_MOD_TAIL")
+    os.environ["OC_MOD_TAIL"] = v
+    try:
+        return f()
+    except SystemExit as e:
+        return "refused: " + str(e)
+    finally:
+        if old is None:
+            del os.environ["OC_MOD_TAIL"]
+        else:
+            os.environ["OC_MOD_TAIL"] = old
+
+
+check("the tail region is the one fm1_flash.h names: 3 sectors from 0x8E000 (58 below the base), ending at the marker's sector 0x91000",
+      (build.TAIL_LO, build.TAIL_HI, build.TAIL_SECTORS) == (0x8E000, 0x91000, 3) and build.tail_region() == (-58, 3) and
+      (build.MODELS_TAIL_FIRST, build.MODELS_TAIL_SECTORS) == (-58, 3))
+check("no switch, and OC_MOD_TAIL=0: no tail build (the grid's starts, as above)",
+      not build.tail_build() and with_tail("0", build.tail_build) is False and with_tail("0u", lambda: build.module_starts(3)) == [-6, -3, 0, 3, 6, 9])
+check("OC_MOD_TAIL=3: a one sector module has 21 starts (the area's 18, then -58, -57, -56): the relocatable package's limit",
+      with_tail("3", lambda: build.module_starts(1)) == list(range(-6, 12)) + [-58, -57, -56])
+check("OC_MOD_TAIL=3: a 2 sector module has two tail starts (-58, -57); a 3 sector one (DUB TAPE) fills the tail: 16 in the area and -58 only; a 4 sector one has none in the tail",
+      with_tail("3u", lambda: build.module_starts(2)) == list(range(-6, 11)) + [-58, -57] and with_tail("3", lambda: build.module_starts(3)) == list(range(-6, 10)) + [-58] and
+      with_tail("3", lambda: build.module_starts(4)) == list(range(-6, 9)))
+check("OC_MOD_TAIL=3: WHEEL is re-cut to one sector at the area's 18 starts (none in the tail); without the switch it is the published 4 sectors at 0 and 6",
+      with_tail("3", lambda: (build.module_spec("wheel")["sectors"], build.module_starts(1, build.module_spec("wheel")))) == (1, list(range(-6, 12))) and
+      (build.module_spec("wheel")["sectors"], build.module_spec("wheel")["starts"]) == (4, [0, 6]))
+check("OC_MOD_TAIL=4 (the four sector tail) and any other count are refused by the build",
+      all(str(with_tail(v, build.tail_build)).startswith("refused: ") for v in ("4", "4u", "1", "22")))
+
 # (Release 3 step 6) DUB TAPE's entry: an effect module (kind 1) of 3 sectors on the area's grid, no geometry row
 check("DUB is in MODULES as a kind 1 module of 3 sectors with no list of starts: the grid -6, -3, 0, 3, 6, 9 (the multiples of 3 from the area's lowest sector)",
       build.MODULES["dub"]["kind"] == 1 and build.MODULES["dub"]["sectors"] == 3 and "starts" not in build.MODULES["dub"] and build.module_starts(3) == [-6, -3, 0, 3, 6, 9])
-check("no engine module has a kind", all("kind" not in v for k, v in build.MODULES.items() if k != "dub"))
+check("no engine module has a kind", all("kind" not in v for k, v in build.MODULES.items() if k not in ("dub", "plaits")))
+# (Release 3, the model picker) the MODELS module of MACRO: kind 4, many units (one region each), a variant for every start of the grid the pick fits at, no geometry row
+check("plaits is in MODULES as a kind 4 module of many units with no list of starts and no fixed size (the pick's)",
+      build.MODULES["plaits"]["kind"] == 4 and "units" in build.MODULES["plaits"] and "starts" not in build.MODULES["plaits"] and build.MODULES["plaits"]["sectors"] == 0 and
+      build.PLAITS_DEFAULT_PICK == ["wavshp", "fm", "grain", "addtv", "chord", "swarm", "noise", "partcl", "string", "modal", "kick", "snare", "hihat", "harp"])
 
 # a good build
 fk = Fake()

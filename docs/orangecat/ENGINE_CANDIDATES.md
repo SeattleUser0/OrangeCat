@@ -167,7 +167,7 @@ the flash map has none). The port is worth scheduling only with the first option
 |---|---|
 | Source and licence | Caravel, <https://github.com/bonszaimusic/caravel>, commit 4a1770c: firmware/src/eng_sem.c (123 lines), GPL-3.0-only, Caravel's own (copyright bonszaimusic); its two oscillators from Felucca-Engines' dsp.c (the submodule at c46e008), MIT, Copyright Leo Kuroshita (@kurogedelic), Hügelton Instruments. Copied unchanged into tools/module/caravel/; module unit tools/module/sem_mod.c |
 | Ported / left out | The engine, included as it is: two BLEP oscillators (SAW PULSE TRI PWM), the TPT state-variable filter and its STATE blend, the slow per-voice drift, its eight presets. Bridged: `osc_saw` and `osc_pulse` (Felucca's, which Orange Cat's dsp.c no longer has: felucca_osc.h); the presets' FX and PAT (Felucca's effect sends and pattern hint, fields Orange Cat's preset_t does not have: two excess initializers, dropped). **TYPE** (STATE / BP / HP): Caravel keeps it in ANALOG's per-part P_FTYPE, which Orange Cat's track does not have; since 0.14.0 it rides on the STAT control (EDIT 2): 0..127 the STATE blend (127 exact HP, which is what TYPE HP selects), 128 TYPE BP; every preset unchanged. SEM MODE's PWM and SPREAD are the track's own parameters on Orange Cat's pages |
-| Code / tables / metadata | 1,810 / 1,024 / 500 B (+ 94 B, + 256 B header page): **3,684 B** (0.14.0's TYPE on STAT: +52 B; 3,632 B before it) (the tables are the module's own copies of PITCH_OCT 768 and SVF_G 256, per block; the Prophet module reads PITCH_OCT through the services table and SEM could too) |
+| Code / tables / metadata | 1,810 / 1,024 / 500 B (+ 94 B, + 256 B header page): **3,688 B** ((macro2-candidate, the model picker) engine_t gained `offered`: +4 B; 3,684 before) (0.14.0's TYPE on STAT: +52 B; 3,632 B before it) (the tables are the module's own copies of PITCH_OCT 768 and SVF_G 256, per block; the Prophet module reads PITCH_OCT through the services table and SEM could too) |
 | .data / .bss | 0 / 0 |
 | State per voice / per track | voice_t only (s[8], ph[2]: the firmware's) / 4 B (a token: the loader refuses a state_size of 0) |
 | Voice units and cap proposed | NPOLY (8) voices, 2 units a voice (the default; Caravel's own cap is its NVOICE, 8): kept until the unit measures it |
@@ -184,7 +184,7 @@ the flash map has none). The port is worth scheduling only with the first option
 |---|---|
 | Source and licence | Caravel, commit 4a1770c: firmware/src/eng_hades.c (85 lines) and va_blocks.c (62 lines), GPL-3.0-only, Caravel's own (copyright bonszaimusic); Felucca-Engines' oscillators, MIT. Copied unchanged into tools/module/caravel/; module unit tools/module/hades_mod.c |
 | Ported / left out | The engine and va_blocks.c, included as they are: saw or pulse and two divider subs into the three-pole ladder, the bass shelf, the drive, the per-block slews (controls packed in s[2,3,6,7]); its eight presets. Bridged: Felucca's oscillators; the presets' FX and PAT dropped (as SEM). Nothing of the render left out |
-| Code / tables / metadata | 2,224 / 256 / 496 B (+ 76 B, + 256 B header page): **3,308 B** |
+| Code / tables / metadata | 2,224 / 256 / 496 B (+ 76 B, + 256 B header page): **3,312 B** ((macro2-candidate, the model picker) engine_t gained `offered`: +4 B; 3,308 before) |
 | .data / .bss | 0 / 0 |
 | State per voice / per track | voice_t only (s[8], ph[0]) / 4 B (the token) |
 | Voice units and cap proposed | NPOLY (8), 2 units a voice (the default). Its presets are mostly MONO (a bass voice) |

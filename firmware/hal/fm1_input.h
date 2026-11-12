@@ -344,6 +344,9 @@ static void fm1_input_scan(void)
     fm1__frame();
 }
 
+#if OC_SFC_PROBE
+static struct { uint32_t w; uint32_t e[256]; } fm1_enc_log;      /* (Round 22, test builds only) the encoders' raw transitions, a ring (editor command 109 mode 5) */
+#endif
 static void fm1__frame(void)
 {
     uint32_t e;
@@ -388,6 +391,14 @@ static void fm1__frame(void)
             else if (*sub < 0)
                 *sub = (int8_t)(*sub - 2);
         }
+#if OC_SFC_PROBE
+        {   /* (Round 22, test builds only: the owner's PRESETS knob) every accepted or lost transition of every encoder, as decoded: the frame (16 bits, about 1.1 ms each),
+             * the encoder (3 bits), the state before and after (2 + 2), the net transitions since the detent after this one (8, signed), bit 31: this one was a 2-state jump */
+            uint32_t jump = !((0x4182u >> idx) & 1u) && !((0x2814u >> idx) & 1u);
+            fm1_enc_log.e[fm1_enc_log.w++ & 255u] = (fm1_in.frames & 0xFFFFu) | (uint32_t)e << 16 | (uint32_t)(idx >> 2) << 19 | (uint32_t)cur << 21 |
+                                                    ((uint32_t)(uint8_t)*sub & 0xFFu) << 23 | jump << 31;
+        }
+#endif
         fm1_in.enc_prev[e] = (uint8_t)cur;
         if (*sub > 100 || *sub < -100)
             *sub = 0;                              /* (never off the detent that long) */

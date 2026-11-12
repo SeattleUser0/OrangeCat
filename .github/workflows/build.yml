@@ -35,6 +35,8 @@
 #     web/site_check.py proves them unchanged before and after the deploy). A push to main builds Standard and carries the live Nightly forward (rev 24).
 #
 # Revisions:
+#   Rev 27 (Orange Cat, Release 3, the model picker, branch picker-r3): the MODELS module of MACRO (tools/build.py --module plaits, kind 4): the master package
+#     orangecat-plaits-<ver>-<sha>.ocp and the default pick's .ocm join the packages and the Nightly (--ocp: web/make_site.py lists the master for the installer page's picker).
 #   Rev 26 (Orange Cat, Release 3 step 6, branch r18-step6): DUB TAPE's effect module (tools/build.py --module dub, kind 1) is built beside the engine modules, its .ocm joins the packages, the set manifest
 #     (orangecat-<base>.dub.set.json) and the Nightly (web/make_site.py lists it as an effect module for the installer page's effects box). The Standard site (push to main) leaves it out for now.
 #   Rev 25: the checksum files of rev 24 are written beside the site (the redirect of a subshell is the outer shell's), run 40776093236 stopped on it.
@@ -137,7 +139,9 @@ jobs:
         # six starts; build/dub-<version>.ocm. The engine candidates SEM and HADES
         # (Caravel's; registrable only by an OC_CANDIDATES firmware) are built the same way, so the unit can measure them from this run's packages
         modfail=0
-        for m in shapes prophet wheel dub sem hades fmbell supersaw dddd; do
+        # (rev 27, Release 3, the model picker: docs/candidates/model_picker.md) and the MODELS module of MACRO (--module plaits, kind 4): the master package
+        # build/plaits-<version>.ocp (every model, a region each; the installer page packs the user's pick from it) and the default pick build/plaits-<version>.ocm (MACRO's own fourteen)
+        for m in shapes prophet wheel dub plaits sem hades fmbell supersaw dddd; do
           modok=0; python3 tools/build.py --module $m > build/module-report-$m.txt 2>&1 || modok=1
           echo "::notice title=module $m::$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' build/module-report-$m.txt)"
           if [ "$modok" != 0 ]; then echo "::error title=module build failed::see the module $m notice"; modfail=1; fi
@@ -173,11 +177,15 @@ jobs:
           else cp build/melodee.pak "build/orangecat-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.pak"; fi
         fi
         # (rev 11) the module package: orangecat-shapes-<version>-<commit>.ocm; (rev 13) and the Prophet's
-        for m in shapes prophet wheel dub sem hades fmbell supersaw dddd; do
+        for m in shapes prophet wheel dub plaits sem hades fmbell supersaw dddd; do
           if [ -f build/$m-"$(tr -d '[:space:]' < VERSION)".ocm ]; then
             cp build/$m-"$(tr -d '[:space:]' < VERSION)".ocm "build/orangecat-$m-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.ocm"
           fi
         done
+        # (rev 27) the models' master package beside its default pick
+        if [ -f build/plaits-"$(tr -d '[:space:]' < VERSION)".ocp ]; then
+          cp build/plaits-"$(tr -d '[:space:]' < VERSION)".ocp "build/orangecat-plaits-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.ocp"
+        fi
         # (rev 12, Orange Cat 0.11.2) what the firmware was compiled with (pack hash and length, interface identifier): the pages job checks the pack and the
         # modules against it before the installer offers them with the firmware (tools/oc_manifest.py)
         python3 tools/oc_manifest.py "build/orangecat-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.manifest.json"
@@ -185,7 +193,7 @@ jobs:
         # the packages artifact beside the files, and the unit's file browser lists them as "Set" (Install set: the pack, then the module)
         pk=$(ls build/orangecat-*.pak | head -1); base=$(basename "$pk" .pak); fw=$(ls build/orangecat-*.fwsc | head -1)
         python3 tools/oc_manifest.py --set "build/$base.pack.set.json" --pak "$base.pak" --fwsc "$(basename "$fw")"
-        for m in shapes prophet wheel dub sem hades fmbell supersaw dddd; do
+        for m in shapes prophet wheel dub plaits sem hades fmbell supersaw dddd; do
           ocm=$(ls build/orangecat-$m-*.ocm 2>/dev/null | head -1)
           if [ -n "$ocm" ]; then python3 tools/oc_manifest.py --set "build/$base.$m.set.json" --pak "$base.pak" --fwsc "$(basename "$fw")" --ocm "$(basename "$ocm")"; fi
         done
@@ -270,7 +278,7 @@ jobs:
         run: |
           python3 tools/orangecat_site.py "$(ls pkg/build/orangecat-*.fwsc | head -1)" "$(tr -d '[:space:]' < VERSION)" site \
             --pak "$(ls pkg/build/orangecat-*.pak | head -1)" --manifest "$(ls pkg/build/orangecat-*.manifest.json | head -1)" \
-            $(for f in pkg/build/orangecat-*.ocm; do case $f in *orangecat-sem-* | *orangecat-hades-* | *orangecat-fmbell-* | *orangecat-supersaw-* | *orangecat-dddd-* | *orangecat-dub-*) ;; *) echo "--ocm $f" ;; esac; done)   # (rev 26: DUB TAPE's module is in the Nightly only) (rev 8) VERSION, X.Y.Z; (rev 12) the pack and the modules of the build, checked against the manifest
+            $(for f in pkg/build/orangecat-*.ocm; do case $f in *orangecat-sem-* | *orangecat-hades-* | *orangecat-fmbell-* | *orangecat-supersaw-* | *orangecat-dddd-* | *orangecat-dub-* | *orangecat-plaits-*) ;; *) echo "--ocm $f" ;; esac; done)   # (rev 26: DUB TAPE's module is in the Nightly only; rev 27: the models' too) (rev 8) VERSION, X.Y.Z; (rev 12) the pack and the modules of the build, checked against the manifest
       - name: The Nightly came through the Standard build unchanged (main)
         if: github.ref == 'refs/heads/main'
         run: |
@@ -300,7 +308,8 @@ jobs:
           python3 tools/orangecat_site.py nightly site --package "$(ls pkg/build/orangecat-*.fwsc | head -1)" \
             --branch "$GITHUB_REF_NAME" --commit "$GITHUB_SHA" --built-at "$built" --fw-version "$fwv" \
             --pak "$(ls pkg/build/orangecat-*.pak | head -1)" --manifest "$(ls pkg/build/orangecat-*.manifest.json | head -1)" \
-            $(for f in pkg/build/orangecat-*.ocm; do case $f in *orangecat-sem-* | *orangecat-hades-* | *orangecat-fmbell-* | *orangecat-supersaw-* | *orangecat-dddd-*) ;; *) echo "--ocm $f" ;; esac; done) > nightly-out.txt 2>&1 || rc=$?
+            $(for f in pkg/build/orangecat-*.ocm; do case $f in *orangecat-sem-* | *orangecat-hades-* | *orangecat-fmbell-* | *orangecat-supersaw-* | *orangecat-dddd-*) ;; *) echo "--ocm $f" ;; esac; done) \
+            $(ls pkg/build/orangecat-plaits-*.ocp 2>/dev/null | head -1 | sed 's/^/--ocp /') > nightly-out.txt 2>&1 || rc=$?   # (rev 27) the models' master package: the installer page's picker
           cat nightly-out.txt
           if [ "$rc" != 0 ]; then
             txt=$( { ls pkg/build; echo ----; tail -30 nightly-out.txt; } | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')

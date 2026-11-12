@@ -489,15 +489,19 @@ either. Commands past 127 are allocated from 128 up in this file: the next free 
 | 0 EXT | n (1 byte), then command 128 + n's arguments | 0, n, then command 128 + n's reply; no n, an unknown n, or a wrong length for it: no reply |
 | 128 KIT_GET | track (exactly one byte) | track, rc (0; 1 the track is not DRUM-X, or no such track: nothing more), on (0 the factory kit as it is, 1 an edited kit), then the kit's body (below, 77 bytes) |
 | 129 KIT_PUT | track, the kit's body (77 bytes; any other length: no reply) | track, rc (0 written; 1 the track is not DRUM-X; 2 a value out of range: nothing changed) |
-| 130 FX_INFO | module id (5 x 7 bits), sectors (1 .. 8) | plan (the start an install of that many sectors goes to; 127 none), flags (1 the install is in place), blocker (the start whose usable module is in the way, else 127), low (1 the six sectors below 0xC8000 are the module area's), abi (5 x 7 bits: the firmware's FX_ABI_ID, round 18; a firmware without it sends the four words only: the page then cannot compare it and the unit refuses a module of another host calling convention at 123 END) |
+| 130 FX_INFO | module id (5 x 7 bits), sectors (1 .. 8; (the model picker) 1 .. 18 for a models module's id 0x4D00 + engine) | plan (the start an install of that many sectors goes to; 127 none), flags (1 the install is in place), blocker (the start whose usable module is in the way, else 127), low (1 the six sectors below 0xC8000 are the module area's), abi (5 x 7 bits: the firmware's FX_ABI_ID, round 18; a firmware without it sends the four words only: the page then cannot compare it and the unit refuses a module of another host calling convention at 123 END) |
 | 131 FX_BEGIN | module id (5 x 7), start, length (3 x 7) | rc (as MOD_BEGIN: 0 done, 1 refused, 2 flash or the transport runs, 4, 5 no start free), then the bytes written (3 x 7). Then 122 and 123 as for an engine |
 | 132 FX_REMOVE | module id (5 x 7) | rc, then the bytes written (3 x 7): the module's sectors erased |
-| 133 FX_TABLE | none | count (<= 8), then per effect module: id (5 x 7), version (3 x 7), kind (1 insert, 2 send, 3 master), effects in the bank, state (MD_*), why, start, sectors, resident (0), uses (instances of the module's kernel running now: the insert host's count for module id 1 (DUB TAPE), 0 for any other id and while the resident kernel plays) |
+| 133 FX_TABLE | none | count (<= 8), then per effect module: id (5 x 7), version (3 x 7), kind (1 insert, 2 send, 3 master; (the model picker) 4 sound models for an engine: MACRO's models go by the id 0x4D08), effects in the bank (a models module: the models it carries), state (MD_*), why, start, sectors, resident (0), uses (instances of the module's kernel running now: the insert host's count for module id 1 (DUB TAPE), 0 for any other id and while the resident kernel plays) |
 
 (Release 3 step 4b) The installer page (web/fm1oc.js `installFx`) and the card's installer (card_install.c `fb_mod_file`) install an effect module's package (engine word of
 kind 1..3, the module id in the image's `fx_desc_t`): MOD_INFO without an engine for the firmware's numbers and the starts, 130 FX_INFO for the id and the image's sector count,
 the page's own check of the image (`fxCheck`: the inner header, the code CRC, the descriptor, the tails), 131 FX_BEGIN at the start the unit names, then 122 and 123 as for an
 engine. 133 FX_TABLE is asked only when a set holds an effect module, so an engine set's requests are unchanged. 132 FX_REMOVE is the page's Remove.
+
+(Release 3, the model picker: docs/candidates/model_picker.md) A MODELS module (engine word `engine | 4 << 8`, firmware/src/fw_models.h: the models the installer page's picker
+packed for MACRO) goes through the same four commands with the module id 0x4D00 + engine (0x4D08), a span of up to 18 sectors; MOD_INFO's per-start engine byte names the
+engine (8) for such a start, and the Effects table lists it with kind 4 and the count of models it carries.
 
 **A kit's body** (eng_drumx.c `dxk_t`, firmware/src/dxk_rec.h), each value one byte, the signed ones + 64:
 

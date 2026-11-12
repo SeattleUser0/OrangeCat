@@ -114,7 +114,7 @@ def published(out, name):
 
 
 from struct import error as struct_error
-FX_NAMES = {1: "DUB TAPE"}      # (Release 3 step 6) the effect modules Orange Cat ships, by module id (docs/orangecat/MODULE_IDS.md): the installer page names them
+FX_NAMES = {1: "DUB TAPE", 0x4D08: "MACRO MODELS"}      # (Release 3 step 6) the modules Orange Cat ships by module id (docs/orangecat/MODULE_IDS.md): the installer page names them; (the model picker) 0x4D08 the MODELS module of MACRO (kind 4)
 
 
 def fx_info(path):
@@ -128,6 +128,10 @@ def fx_info(path):
     kind = engine >> 8
     if not kind:
         return None
+    if kind == 4:                                               # (the model picker) a MODELS module: its id is FW_MODELS_ID(engine), the engine in the low byte (fw_models.h)
+        if not engine & 0xFF or ver != 2:
+            raise SystemExit(f"{path}: a models module package is format 2 with the engine word engine | 4 << 8 (got format {ver}, engine word {engine:#x})")
+        return kind, 0x4D00 | (engine & 0xFF)
     if not 1 <= kind <= 3 or engine & 0xFF or ver != 2:
         raise SystemExit(f"{path}: an effect module package is format 2 with the engine word kind << 8 (got format {ver}, engine word {engine:#x})")
     length, _, off = struct.unpack_from("<III", b, 60)
@@ -139,6 +143,30 @@ def fx_info(path):
     if not module_id:
         raise SystemExit(f"{path}: module id 0")
     return kind, module_id
+
+
+def ocm_sectors(path):
+    """(the model picker) a format 2 package's sector count (its header word 13: what the unit's planner is asked for; the installer page's room meter)"""
+    import struct
+    b = Path(path).read_bytes()
+    return struct.unpack_from("<I", b, 52)[0] if len(b) >= 56 else 0
+
+
+def ocp_check(path, manifest_path):
+    """(the model picker) the master package of the models (tools/pick_module.py master_read): its manifest names the firmware's interface, table address and pack hash"""
+    import sys
+    sys.path.insert(0, str(HERE.parent / "tools"))
+    import pick_module
+    info = json.loads(Path(manifest_path).read_text())
+    try:
+        manifest, img0, words = pick_module.master_read(Path(path).read_bytes())
+    except ValueError as e:
+        raise SystemExit(f"{path}: {e}")
+    h = manifest["hdr"]
+    if h["iface"] != info["iface"] or h["api_addr"] != info["api_addr"] or h["pack_hash"] != info["pack_hash"]:
+        raise SystemExit(f"{path}: the master's interface {h['iface']:08x} at {h['api_addr']:#x}, pack {h['pack_hash']:08x} are not the firmware's")
+    if manifest["engine"] >> 8 != 4 or len(manifest["items"]) < 25:
+        raise SystemExit(f"{path}: not the models' master (engine word {manifest['engine']:#x}, {len(manifest['items'])} items)")
 
 
 def ocm_entry(path, url, strict=True):
@@ -153,7 +181,7 @@ def ocm_entry(path, url, strict=True):
     if info is None:
         return url
     kind, mid = info
-    e = {"url": url, "kind": kind, "module_id": mid}
+    e = {"url": url, "kind": kind, "module_id": mid, "sectors": ocm_sectors(path)}   # (the model picker) sectors: the installer page's room meter counts the modules it installs
     if mid in FX_NAMES:
         e["name"] = FX_NAMES[mid]
     return e
@@ -189,6 +217,8 @@ def channel(spec, label, stem, branch):
         if spec.get("kept"):
             meta["pak"], meta["ocm"] = spec["pak"], list(spec.get("ocm", []))          # (entries as they were published: URLs, and effect modules' objects)
             meta["sets"] = list(spec.get("sets", []))
+            if spec.get("ocp"):
+                meta["ocp"] = spec["ocp"]
             return files, meta
         if not spec.get("manifest"):
             raise SystemExit(f"{label}: a pack goes with its manifest (tools/oc_manifest.py)")
@@ -203,6 +233,10 @@ def channel(spec, label, stem, branch):
             fname = f"orangecat-{m[1]}-{stem.split('-', 1)[1]}.ocm"
             files["ocm:" + m[1]] = (o, o.read_bytes(), None, fname)
             meta["ocm"].append(ocm_entry(o, "../../firmware/" + fname))
+        if spec.get("ocp"):                                         # (the model picker) the master package of MACRO's models: the installer page packs the user's pick from it
+            ocp_check(spec["ocp"], spec["manifest"])
+            files["ocp"] = (Path(spec["ocp"]), Path(spec["ocp"]).read_bytes(), None, f"{stem.replace('melodee-', 'orangecat-plaits-')}.ocp")
+            meta["ocp"] = "../../firmware/" + files["ocp"][3]
         info = json.loads(Path(spec["manifest"]).read_text())      # the set manifests for the card, one per module choice (docs/orangecat/SET_FORMAT.md)
         base = stem.replace("melodee-", "orangecat-")
         meta["sets"] = []
@@ -326,7 +360,7 @@ def publish_manual(src, dest, version=None, preserve_nightly=False):
         page.write_text(text, encoding="utf-8")
 
 
-def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=None, pak=None, ocms=(), manifest=None, keep_release=False):
+def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=None, pak=None, ocms=(), manifest=None, keep_release=False, ocp=None):
     """keep_release (0.13.6): the stable release is the one the site already publishes (firmware/release.json); its metadata, with its pack and modules, is
     passed through, so a nightly or an RC publish cannot change what Standard offers. pkg is that release's package in the site."""
     pkg, out = Path(pkg), Path(out)
@@ -345,7 +379,9 @@ def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=
     lib = strip_module((HERE / "fm1pkg.js").read_text(encoding="utf-8")) + "\n" + \
         strip_module((HERE / "fm1ota.js").read_text(encoding="utf-8")) + "\n" + \
         strip_module((HERE / "fm1backup.js").read_text(encoding="utf-8")) + "\n" + \
-        strip_module((HERE / "fm1oc.js").read_text(encoding="utf-8"))      # (0.11.2) the pack and module stages
+        strip_module((HERE / "fm1place.js").read_text(encoding="utf-8")) + "\n" + \
+        strip_module((HERE / "fm1oc.js").read_text(encoding="utf-8")) + "\n" + \
+        strip_module((HERE / "fm1pick.js").read_text(encoding="utf-8"))    # (0.11.2) the pack and module stages; (the model picker) the packer and the room meter
     v = re.sub(r'[^A-Za-z0-9.-]', '-', version)
     name = f"melodee-{v}.fwsc"
     release_meta = {"version": version, "product": product,
@@ -371,6 +407,10 @@ def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=
             fname = f"orangecat-{m[1]}-{v}.ocm"
             set_files[fname] = o
             release_meta["ocm"].append(ocm_entry(o, "../../firmware/" + fname))
+        if ocp:                                         # (the model picker) the master package of MACRO's models: the installer page packs the user's pick from it
+            ocp_check(ocp, manifest)
+            set_files[f"orangecat-plaits-{v}.ocp"] = Path(ocp)
+            release_meta["ocp"] = "../../firmware/" + f"orangecat-plaits-{v}.ocp"
     releases = release_history(out, release_meta)
     meta = json.dumps({**release_meta, "nightly": nightly_meta, "rc": rc_meta, "releases": releases})
     for mark in ("/*LIB*/", "/*META*/{}"):
@@ -384,14 +424,14 @@ def main(pkg, version, out, nightly=None, installer_only=False, rc=None, manual=
     for d in (inst, ed, fw):
         d.mkdir(parents=True, exist_ok=True)
     set_keep = set(set_files)
-    for key, entry in nightly_files.items():                # (0.13.6) the nightly's pack and modules
-        if key == "pak" or key.startswith("ocm:"):
+    for key, entry in nightly_files.items():                # (0.13.6) the nightly's pack and modules; (the model picker) its master package
+        if key == "pak" or key == "ocp" or key.startswith("ocm:"):
             set_keep.add(entry[3])
     if nightly_meta:
-        set_keep.update(Path(x).name for x in ([nightly_meta["pak"]] if nightly_meta.get("pak") else []) + [ocm_url(o) for o in nightly_meta.get("ocm", [])])
+        set_keep.update(Path(x).name for x in ([nightly_meta["pak"]] if nightly_meta.get("pak") else []) + [ocm_url(o) for o in nightly_meta.get("ocm", [])] + ([nightly_meta["ocp"]] if nightly_meta.get("ocp") else []))
     for r in releases:
-        set_keep.update(Path(x).name for x in ([r["pak"]] if r.get("pak") else []) + [ocm_url(o) for o in r.get("ocm", [])])
-    for old in list(fw.glob("orangecat-*.pak")) + list(fw.glob("orangecat-*.ocm")):
+        set_keep.update(Path(x).name for x in ([r["pak"]] if r.get("pak") else []) + [ocm_url(o) for o in r.get("ocm", [])] + ([r["ocp"]] if r.get("ocp") else []))
+    for old in list(fw.glob("orangecat-*.pak")) + list(fw.glob("orangecat-*.ocm")) + list(fw.glob("orangecat-*.ocp")):
         if old.name not in set_keep:
             old.unlink()
     for fname, src in set_files.items():

@@ -230,7 +230,7 @@ class SetSite(unittest.TestCase):
         self.build(pak=self.pak, ocms=[self.ocm, dub], manifest=self.man)
         fw = self.site / "firmware"
         rel = json.loads((fw / "release.json").read_text())
-        self.assertEqual(rel["ocm"], [{"url": "../../firmware/orangecat-dub-0.6.2.ocm", "kind": 1, "module_id": 1, "name": "DUB TAPE"},
+        self.assertEqual(rel["ocm"], [{"url": "../../firmware/orangecat-dub-0.6.2.ocm", "kind": 1, "module_id": 1, "sectors": 3, "name": "DUB TAPE"},
                                       "../../firmware/orangecat-shapes-0.6.2.ocm"])
         self.assertEqual(self.meta()["ocm"], rel["ocm"])
         self.assertTrue((fw / "orangecat-dub-0.6.2.ocm").is_file())
