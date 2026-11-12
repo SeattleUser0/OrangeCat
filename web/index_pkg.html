@@ -640,7 +640,7 @@ const getFile = async (url) => {
 };
 // the summary: one line a stage
 /* (0.12.1) "ENGINE X INSTALLED AT START N: REMOVE IT FIRST": detail is "engine:start" (fm1oc.js installModule); only a module engine can be in the way */
-const blockedOne = (detail) => { const [e, s, id] = String(detail || "").split(":"); return t("modBlocked").replace("{name}", id ? ({1: "DUB TAPE", 2: "REVERB MODES"}[+id] || "EFFECT 0x" + (+id).toString(16).toUpperCase()) : {14: "SHAPES", 19: "PROPHET", 7: "WHEEL", 8: "MACRO MODELS", 127: "EFFECT"}[+e] || "#" + e).replace("{n}", s); };
+const blockedOne = (detail) => { const [e, s, id] = String(detail || "").split(":"); return t("modBlocked").replace("{name}", id ? ({1: "DUB TAPE", 2: "REVERB MODES", 3: "FX LAYER"}[+id] || "EFFECT 0x" + (+id).toString(16).toUpperCase()) : {14: "SHAPES", 19: "PROPHET", 7: "WHEEL", 8: "MACRO MODELS", 127: "EFFECT"}[+e] || "#" + e).replace("{n}", s); };
 const blockedText = (detail) => String(detail || "").split(",").map(blockedOne).join(" ");   /* (round 23) a unit with the tail region: every module in the way that is not of the ticked set, "engine:start" or "127:start:module id" (an effect module by its name), comma separated */   /* (Release 3 step 4) 127: a start of no engine, an effect module; (the model picker) 8: a start of MACRO's models */
 const sumWord = (v) => typeof v === "string" ? t({installed: "sInstalled", current: "sCurrent", off: "sOff", nofile: "sNofile", oldfw: "sOldfw", nounit: "sNounit"}[v]) : v.error === "modBlocked" ? blockedText(v.detail) : v.error === "modNoPlace" ? (v.detail ? v.detail + " " : "") + t("modNoPlace") : (TEXT[lang][v.error] || v.error);
 function summaryText(sum) {

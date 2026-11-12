@@ -41,7 +41,7 @@ The module area is 12 sectors (0xC8000..0xD3FFF). WHEEL takes 4 and SHAPES 6, so
 | WHEEL | 4 | 2,928 B: it takes 4 for the start grid, not for its size (a 1-sector geometry is possible, see 6) |
 | DUB TAPE | 3 | the kernel and its tables about 8,500 B (the generic host stays in the image) |
 | the reverb modes (SHIMMER, RESO, CLOUD) | 1 | about 3,050 B |
-| the FX layer's buffer effects | 2 | about 4,000 B plus the 256-byte header page |
+| the FX layer's buffer effects | 2 | about 4,000 B plus the 256-byte header page (as built in Release 3 step 8b: 5,864 B with its descriptors, 2 sectors, 2,328 B spare: FX_MODULES_PLAN.md 17) |
 | the Prophet (optional) | 8 | 31,872 B (BUILD.md; ENGINE_LOADING_PLAN.md says 31,884) |
 
 A module's sectors include its 256-byte header page, so the FX layer's 4,000 B take 2 sectors. SHAPES + WHEEL + DUB + the reverb modes + the FX layer = **16 sectors**, exactly (13 with WHEEL at its real size of 1 sector, section 6); the three engines alone (SHAPES, WHEEL, the Prophet) = 18; engines and effects together = 24 (21 with WHEEL at 1). **12 is not enough; 16 holds the effects set with nothing to spare; 18 holds the effects with 2 spare (5 with WHEEL at 1), or the three engines; never everything at once.** The Prophet stays an alternative to the effects, as it is to SHAPES today, unless WHEEL is re-cut to one sector and the owner gives up the spare.
