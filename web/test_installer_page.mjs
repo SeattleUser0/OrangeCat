@@ -181,6 +181,53 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
   await answer(plain, STANDARD.pak); await answer(plain, STANDARD.ocm[0]); await c2;
   assert.equal(plain.runs[0].want, undefined, "an engine-only run is what it was: no want");
 }
+// d2. (Release 3 step 8a) an effect module the release list marks optional (the reverb modes SPRING, SHIMMER, RESO: {optional: true}, web/make_site.py FX_OPTIONAL) has its own box, which the
+//     template leaves UNTICKED (the owner's decision); DUB TAPE's box is as it was. Install sends the optional module only when its box is ticked
+{
+  assert.match(template, /<input type="checkbox" id="stage-fx-opt">/, "the optional effects box is NOT ticked by default: the reverb module is offered, not installed, unless the player ticks it");
+  assert.doesNotMatch(template, /id="stage-fx-opt"[^>]*checked/, "... no checked attribute on it");
+  assert.match(template, /<input type="checkbox" id="stage-fx" checked>/, "... and DUB TAPE's box stays ticked by default");
+  for (const k of ["stageFxOpt", "fxOptWhy", "installFxOpt"])
+    assert.equal((template.match(new RegExp("\\b" + k + ":", "g")) || []).length, 2, k + " in ja and en");
+  const REV = {url: "orangecat-reverb-0.15.0.ocm", kind: 2, module_id: 2, name: "REVERB MODES", sectors: 1, optional: true};
+  const FX = {...STANDARD, ocm: [...STANDARD.ocm, {url: "orangecat-dub-0.15.0.ocm", kind: 1, module_id: 1, name: "DUB TAPE", sectors: 3}, REV]};
+  const page = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...FX, releases: [FX]});
+  await answer(page, "standard.fwsc");
+  page.element("stage-fx").checked = true; page.element("stage-fx").listeners.change();          // (the mock's boxes start unticked: DUB's as the template has it, the optional one left as it starts)
+  assert.equal(page.element("stage-fx-opt").disabled, false, "the optional box is on when the release offers an optional effect module");
+  assert.equal(page.element("fx-names").textContent, "(DUB TAPE)", "the effects box names the modules that are not optional");
+  assert.equal(page.element("fx-opt-names").textContent, "(REVERB MODES)", "the optional box names the optional ones");
+  assert.match(page.element("install-what").textContent, /the SHAPES and WHEEL modules, the effect modules \(0\.15\.0\)$/, "unticked: Install does not name it");
+  let click = page.element("go").listeners.click();
+  await page.tick();
+  await answer(page, FX.pak); await answer(page, FX.ocm[0]); await answer(page, "orangecat-dub-0.15.0.ocm");
+  await click;
+  assert.equal(JSON.stringify(page.runs[0].modules), JSON.stringify([FX.ocm[0], "orangecat-dub-0.15.0.ocm"]), "unticked: the engine module and DUB TAPE, not the reverb module");
+  assert.equal(JSON.stringify(page.runs[0].want), JSON.stringify([null, {kind: 1, module_id: 1}]));
+  const two = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...FX, releases: [FX]});
+  await answer(two, "standard.fwsc");
+  two.element("stage-fx").checked = true; two.element("stage-fx").listeners.change();
+  two.element("stage-fx-opt").checked = true; two.element("stage-fx-opt").listeners.change();
+  assert.match(two.element("install-what").textContent, /the effect modules, the optional effect modules \(0\.15\.0\)$/, "ticked: Install names it");
+  click = two.element("go").listeners.click();
+  await two.tick();
+  await answer(two, FX.pak); await answer(two, FX.ocm[0]); await answer(two, "orangecat-dub-0.15.0.ocm"); await answer(two, REV.url);
+  await click;
+  assert.equal(JSON.stringify(two.runs[0].modules), JSON.stringify([FX.ocm[0], "orangecat-dub-0.15.0.ocm", REV.url]), "ticked: the reverb module goes in after DUB TAPE");
+  assert.equal(JSON.stringify(two.runs[0].want), JSON.stringify([null, {kind: 1, module_id: 1}, {kind: 2, module_id: 2}]), "... as what the list says it is: kind 2, module id 2");
+  const only = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...FX, releases: [FX]});
+  await answer(only, "standard.fwsc");
+  only.element("stage-fx-opt").checked = true; only.element("stage-fx-opt").listeners.change();   // DUB's box off, the optional one on
+  click = only.element("go").listeners.click();
+  await only.tick();
+  await answer(only, FX.pak); await answer(only, FX.ocm[0]); await answer(only, REV.url);
+  await click;
+  assert.equal(JSON.stringify(only.runs[0].modules), JSON.stringify([FX.ocm[0], REV.url]), "the two boxes are independent: the reverb module without DUB TAPE");
+  const none = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...STANDARD, ocm: [...STANDARD.ocm, {url: "orangecat-dub-0.15.0.ocm", kind: 1, module_id: 1, name: "DUB TAPE"}], releases: []});
+  await answer(none, "standard.fwsc");
+  assert.equal(none.element("stage-fx-opt").disabled, true, "a release with no optional effect module: the optional box is off");
+  assert.equal(none.element("fx-opt-names").textContent, "", "... and names nothing");
+}
 // e. (Release 3, the model picker) the MACRO models box: ticked by default, its texts; with a master package in the release list ("ocp") the page lists the models (VA locked),
 //    ticks MACRO's own fourteen by default, remembers the pick, meters the room against the ticked module stages, refuses Install while the pick does not fit, and sends the
 //    packed module after the others with {kind: 4, module_id: 0x4D08}; without a master the box is off
@@ -232,6 +279,22 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
   assert.match(page.element("models-room").textContent, /This pick \(WAVSHP, FM\) needs 3: it fits, 6 to spare\. The unit has not been read yet\. Install reads it first/, page.element("models-room").textContent);
   assert.equal(page.element("go").disabled, false, "... and is ready once it does");
   assert.equal(storage.m.get("oc-models"), "[1,2]", "the pick is remembered");
+  {   // (Release 3 step 8a) the room meter counts an optional effect module (the reverb modes, 1 sector) only when its own box is ticked
+    const OPT = {...WITH, ocm: [...WITH.ocm, {url: "orangecat-reverb-0.15.0.ocm", kind: 2, module_id: 2, name: "REVERB MODES", sectors: 1, optional: true}]};
+    const pg = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...OPT, releases: [OPT]});
+    await answer(pg, "standard.fwsc");
+    { const i = pg.pending.findIndex((q) => q.url.startsWith("orangecat-plaits-")); const [q] = pg.pending.splice(i, 1); q.resolve({ok: true, arrayBuffer: async () => masterBytes.buffer}); await pg.tick(); await pg.tick(); }
+    pg.element("stage-models").checked = true; pg.element("stage-models").listeners.change();
+    pg.element("stage-fx").checked = true; pg.element("stage-fx").listeners.change();
+    pg.element("mdl-3").checked = false; pg.element("mdl-3").listeners.change();
+    assert.match(pg.element("models-room").textContent, /^Room: 18 sectors; SHAPES 6, DUB TAPE 3 take 9; 9 left\. This pick \(WAVSHP, FM\) needs 3: it fits, 6 to spare\./, "the optional box unticked: the reverb module takes no room: " + pg.element("models-room").textContent);
+    pg.element("stage-fx-opt").checked = true; pg.element("stage-fx-opt").listeners.change();
+    assert.match(pg.element("models-room").textContent, /^Room: 18 sectors; SHAPES 6, DUB TAPE 3, REVERB MODES 1 take 10; 8 left\. This pick \(WAVSHP, FM\) needs 3: it fits, 5 to spare\./, "ticked: its one sector is counted: " + pg.element("models-room").textContent);
+    pg.element("stage-fx").checked = false; pg.element("stage-fx").listeners.change();
+    assert.match(pg.element("models-room").textContent, /SHAPES 6, REVERB MODES 1 take 7; 11 left/, "DUB TAPE's box off, the optional one on: " + pg.element("models-room").textContent);
+    pg.element("stage-fx-opt").checked = false; pg.element("stage-fx-opt").listeners.change();
+    assert.match(pg.element("models-room").textContent, /SHAPES 6 take 6; 12 left/, "both off");
+  }
   page.element("stage-fx").checked = false; page.element("stage-fx").listeners.change();
   assert.match(page.element("models-room").textContent, /SHAPES 6 take 6; 12 left/, "an unticked stage leaves the room");
   const click = page.element("go").listeners.click(); await page.tick();

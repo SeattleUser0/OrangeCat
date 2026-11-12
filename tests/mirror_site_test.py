@@ -3,7 +3,8 @@
 """web-r3 round 3 (Session D), audit I5 and I6.
 I6: web/mirror_site.py copies the set manifest of every module choice an entry lists (derived from the entry's own .ocm names, as
     make_site.py names the sets), so a module added to the build (WHEEL) is not dropped at the next Nightly deploy.
-I5: make_site.FX_NAMES (module id -> name) equals docs/orangecat/MODULE_IDS.md, and the DUB row equals DUBK_MODULE_ID in the firmware."""
+I5: make_site.FX_NAMES (module id -> name) equals docs/orangecat/MODULE_IDS.md, and the DUB row equals DUBK_MODULE_ID in the firmware; (Release 3 step 8a) the
+    REVERB MODES row equals FX2_MODULE_ID and is the one optional effect module."""
 import re
 import sys
 from pathlib import Path
@@ -41,6 +42,10 @@ check(ids == make_site.FX_NAMES, f"MODULE_IDS.md == make_site.FX_NAMES ({ids})")
 h = (ROOT / "firmware" / "src" / "dub_kern.h").read_text()
 m = re.search(r"#define DUBK_MODULE_ID (\d+)u", h)
 check(bool(m) and ids.get(int(m[1])) == "DUB TAPE", "the DUB row is DUBK_MODULE_ID of dub_kern.h")
+# (Release 3 step 8a) the reverb bank's row is the send host's module id, and the installer page offers it unticked
+m = re.search(r"#define FX2_MODULE_ID (\d+)u", (ROOT / "firmware" / "src" / "fx_send.h").read_text())
+check(bool(m) and ids.get(int(m[1])) == "REVERB MODES", "the REVERB MODES row is FX2_MODULE_ID of fx_send.h")
+check(bool(m) and make_site.FX_OPTIONAL == {int(m[1])}, "make_site.FX_OPTIONAL is the reverb bank alone: offered, not ticked by default (DUB TAPE is not optional)")
 # B2 I7: Orange Cat's site run is installer_only: no manual is published, and the pages that link a manual do not (nav of the installer, the editor)
 os_src = (ROOT / "tools" / "orangecat_site.py").read_text()
 check("installer_only=True" in os_src, "orangecat_site.py publishes with installer_only=True (no manual, no Melodee redirect page)")
