@@ -1042,7 +1042,6 @@ static int project_restore_runtime(const project_t *input)
     transport_req = 2;
     panic_req = (1u << NTRK) - 1u;
     fm1_irq_off();                                      /* the audio ISR must not see half a project */
-    memset(eng_keep, 0, sizeof eng_keep);               /* (round 23) the tracks a stray note kept from the automatic release: a new project, the rule again */
     seq_stop();
     jfx_clear_all();                                    /* (0.6.0) the effects from silence */
     transport_req = 0;

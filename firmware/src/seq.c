@@ -1648,9 +1648,8 @@ static void seq_advance(uint32_t n)
  * and MIDI with ROUT SEL: narrower than the design's "while a key is routed to it", and never wrong); not armed for recording; no key held, no arp
  * note, no recorded hold, no audition asked; the old SONG chain not armed or running (it switches patterns with no staging); nothing staged whose
  * steps hold a note (a staged pattern not yet read into the staging buffer counts as holding one); no step of its playing pattern holds a note, a hit
- * or a recorded view, and no recorded note is linked to it; not kept by a note that found it released (voice.c eng_keep).
- * A track that is wanted is never released, so what a project sounds like does not change: the first note after a release starts on a fresh state,
- * as the first note after the project's load does. */
+ * or a recorded view, and no recorded note is linked to it; and no note has played on its state since it was taken (voice.c eng_keep).
+ * So only a state no note has touched is ever released, and the one taken again is the same state (zeroed): no sample of a project changes. */
 static int trk_wanted(const track_t *t)
 {
     const engine_t *e = ENGINES[t->engine];

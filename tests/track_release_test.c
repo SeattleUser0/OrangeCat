@@ -4,7 +4,8 @@
  *   BYTES    four MACRO tracks, nothing to play: the three not selected give their states back after the check (a second, stopped); the arena's bytes
  *   HOLD     a track is never released with a voice active or fading, a note or a hit in its playing pattern, a staged pattern with notes (or one
  *            not read yet), armed, selected, a key held, an arp note, the old SONG chain running, an engine with a block hook (DRUM-X)
- *   TAIL     a held note keeps the state; released, the state goes only after the voice has ended
+ *   PLAYED   a state a note has played on is never released (a fresh one would not be the same state), under the voice or after it; an engine
+ *            change gives a fresh state, which may go again
  *   RETAKE   at the track's selection, at arming, when a pattern with notes is staged (before its launch: the launch's notes sound, none taken at
  *            the note), when a step is written; a staged empty pattern takes nothing
  *   NOTE     a note nothing announced (MIDI on the track's channel) sounds at once, and the track is kept from then on
@@ -57,12 +58,13 @@ static void stage_bank(uint32_t k, uint32_t b, int notes, int prepare)
     trk[k].pattern_next = (uint8_t)b;
 }
 
-#define SAME_N 6000u                                    /* 4.4 s */
+#define SAME_N 8000u                                    /* 5.8 s */
+static uint8_t same_off;
 static int32_t same[2][SAME_N][CTL * 2];
 static void same_render(uint32_t pass)
 {
     fresh();
-    if (pass) memset(eng_keep, 1, sizeof eng_keep);     /* (pass 1: no track is ever released) */
+    same_off = (uint8_t)pass;                           /* (pass 1: no track is ever released: every state marked played, before each block) */
     for (uint32_t i = 0; i < 16u; i += 4u) put(&trk[0], i, 48u + i);
     for (uint32_t i = 2; i < 16u; i += 4u) put(&trk[1], i, 60u + i);
     transport_req = 1;
@@ -71,6 +73,10 @@ static void same_render(uint32_t pass)
         if (b == 4000u) song.sel = 2;                   /* track 3 selected: a key */
         if (b == 4100u) trk_note_on(&trk[2], 72, 100);
         if (b == 4500u) trk_note_off(&trk[2], 72);
+        if (b == 4600u) song.sel = 0;                   /* track 3 has played: kept though idle and not selected; it plays again from MIDI */
+        if (b == 7200u) trk_note_on(&trk[2], 67, 100);
+        if (b == 7500u) trk_note_off(&trk[2], 67);
+        if (same_off) memset(eng_keep, 1, sizeof eng_keep);
         mix_block(same[pass][b], CTL);
     }
 }
@@ -140,17 +146,24 @@ int main(void)
         printf("track release: HOLD: %u conditions, each alone, keep the state; DRUM-X keeps its own\n", (unsigned)(sizeof what / sizeof what[0]) + 2u);
     }
 
-    /* TAIL: a note held on track 2 by a caller that is not a key (the state is held: no note take); released, the state stays until the voice has ended */
+    /* PLAYED: a note on track 2 (its state held: no take at the note): the state stays under the voice and after it has ended; an engine change (SHAPES:
+     * no block hook) clears it, and the fresh state goes after the check */
     fresh();
     trk_note_on(&trk[1], 60, 100);
     run(3u * SEC);
-    CHECK(sounding(1) && held(1) == mc && !eng_note_takes, "TAIL: a held note should keep the state");
+    CHECK(sounding(1) && held(1) == mc && !eng_note_takes && eng_keep[1], "PLAYED: a held note should keep the state");
     trk_note_off(&trk[1], 60);
     for (b = 0; b < 8u * SEC && sounding(1); b++) { run(1); if (held(1) != mc) break; }
-    CHECK(held(1) == mc, "TAIL: released under a sounding voice (block %u)", b);
-    CHECK(!sounding(1), "TAIL: the voice did not end");
+    CHECK(held(1) == mc, "PLAYED: released under a sounding voice (block %u)", b);
+    CHECK(!sounding(1), "PLAYED: the voice did not end");
+    run(3u * SEC);
+    CHECK(held(1) == mc && !eng_rel[1] && !trk_wanted(&trk[2]) && trk_wanted(&trk[1]), "PLAYED: a state a note played on is kept after the voice has ended");
+    set_engine_of(&trk[1], ENGI_SHAPES); apply_preset_to(&trk[1], 0);
+    run(8);
+    CHECK(trk[1].engine == ENGI_SHAPES && held(1) == ((eng_state_size(ENGI_SHAPES) + 3u) & ~3u) && !eng_keep[1], "PLAYED: an engine change: a fresh state, taken at the switch (%u B)", held(1));
     run(SEC + 2u);
-    CHECK(!held(1) && eng_rel[1], "TAIL: the voice ended a second ago: the state should be back");
+    CHECK(!held(1) && eng_rel[1], "PLAYED: the fresh SHAPES state, nothing to play: released");
+    printf("track release: PLAYED: a state a note played on stays (%u B); the fresh one of an engine change (SHAPES) goes\n", mc);
 
     /* RETAKE */
     fresh(); run(SEC);
@@ -186,7 +199,7 @@ int main(void)
         }
         CHECK(launched && heard, "RETAKE: the staged pattern came in and its note sounded (%u, %u)", launched, heard);
         CHECK(trk[3].pattern == 1u && !held(3), "RETAKE: track 4's empty pattern came in with no state taken");
-        CHECK(!eng_note_takes && !eng_keep[1], "RETAKE: no state was taken at a note: %u", eng_note_takes);
+        CHECK(!eng_note_takes && eng_keep[1], "RETAKE: no state was taken at a note: %u", eng_note_takes);
     }
     transport_req = 2; run(4);
     printf("track release: RETAKE: a staged pattern with a note takes the state before its launch, an empty one takes none: %u retakes, %u at a note\n", eng_retakes, eng_note_takes);
@@ -199,7 +212,7 @@ int main(void)
     CHECK(eng_note_takes == 1u && eng_keep[3] && !eng_rel[3], "NOTE: counted, and the track kept");
     trk_note_off(&trk[3], 67);
     run(10u * SEC);
-    CHECK(!sounding(3) && held(3) == mc, "NOTE: a track a stray note played keeps its state from then on");
+    CHECK(!sounding(3) && held(3) == mc, "NOTE: a track a note played keeps its state from then on");
     CHECK(!held(1) && !held(2), "NOTE: the others stay released");
 
     /* FAIL: the arena full of effects' blocks (they yield to an engine), then of a block that does not */
@@ -251,7 +264,7 @@ int main(void)
         for (b = 0; b < SAME_N; b++)
             for (uint32_t i = 0; i < CTL * 2u; i++) { int64_t x = same[0][b][i], y = same[1][b][i]; e += x < 0 ? -x : x; d += x > y ? x - y : y - x; }
         CHECK(e > 0 && d == 0, "SAME: the two renders differ: %lld of %lld", (long long)d, (long long)e);
-        printf("track release: SAME: 4.4 s of four tracks with %u releases and %u retakes, and with none: the same samples\n", rel, ret);
+        printf("track release: SAME: 5.8 s of four tracks with %u releases and %u retakes, and with none: the same samples\n", rel, ret);
     }
 
     if (bad) { printf("track release: %d FAILED\n", bad); return 1; }

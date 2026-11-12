@@ -546,11 +546,13 @@ static void xp_push(track_t *t, uint32_t note, uint32_t vel)
     t->xp_vel[i] = (uint8_t)vel;
 }
 static int eng_state_take(track_t *t);                   /* (round 10, below: the state's memory, one scan a failure) */
-/* (round 23) The automatic release (BUILD.md 7.31, "Track OFF: the design", item 1). A track in use with nothing to play gives its engine state back to
- * the arena and takes it again when it has something to play. eng_rel[k]: track k's state is released (the audio interrupt's; engine_block does not take
- * it while it stands). eng_keep[k]: a note found track k released (a note no launch, selection or arming announced: MIDI on the track's channel, a step
- * written and played within a block); the state is taken there, by the take voice_start always made, and the track is not released again until a project
- * loads: a track played from outside holds its state, as before this round. seq.c has the rule (trk_wanted) and the check (eng_idle_check). */
+/* (round 23) The automatic release (BUILD.md 7.31, "Track OFF: the design", item 1, and "Track OFF: built"). A track in use with nothing to play, whose
+ * state no note has touched since it was taken, gives its engine state back to the arena and takes it again when it has something to play. eng_rel[k]:
+ * track k's state is released (the audio interrupt's; engine_block does not take it while it stands). eng_keep[k]: a note has started on track k's state
+ * since it was taken fresh; such a state is never released (a fresh one after it would not be the same state: an oscillator's phase, a noise's sequence;
+ * tests/fx_insert_golden.txt caught it), until an engine change clears it (engine_block). So a release never changes a sample. A note that finds its
+ * track released (one no selection, arming or staged pattern announced: MIDI on the track's channel) takes the state there, by the take voice_start
+ * always made. seq.c has the rule (trk_wanted) and the check (eng_idle_check). */
 static uint8_t eng_rel[NPART], eng_keep[NPART];
 static uint32_t eng_releases, eng_release_bytes, eng_retakes, eng_note_takes;   /* counts: the host tests and the console */
 static int trk_wanted(const track_t *t);                 /* seq.c: the track has something to play, or may at once (selected, armed, staged) */
@@ -586,11 +588,11 @@ static void voice_start(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int
         v->env_out = 0;
         v->side = t->sp_alt; t->sp_alt ^= 1u;
     }                                                   /* sounding: the attack starts from the current level */
-    if (eng_rel[(uint32_t)(t - trk) % NPART]) {         /* (round 23) a note on a released track: its state taken here after all, and kept (above) */
+    if (eng_rel[(uint32_t)(t - trk) % NPART]) {         /* (round 23) a note on a released track: its state taken here after all (above) */
         eng_rel[(uint32_t)(t - trk) % NPART] = 0;
-        eng_keep[(uint32_t)(t - trk) % NPART] = 1;
         eng_note_takes++;
     }
+    eng_keep[(uint32_t)(t - trk) % NPART] = 1;          /* (the state is played on: kept from here) */
     if (!eng_state_take(t)) {                           /* (round 10) the state's memory not there (the arena full of effects: they give it back at the
                                                          * next block, jfx_lend_check): the note waits in xp_note and plays then (engine_block), not dropped */
         v->active = v->gate = 0;
@@ -825,7 +827,7 @@ static int eng_state_take(track_t *t)
 }
 /* (round 23) the track holds its state, or should (engine_block takes it). A released one: 0 until it has something to play again; then it is taken
  * at this block's start, before any note of the block: at the track's selection, at arming, when a pattern with notes is staged for it (at the latest
- * the block after the launch), when a step is written. Never by the note itself, but for the notes nothing announced (eng_keep). */
+ * the block after the launch), when a step is written. Never by the note itself, but for a note nothing announced (voice_start). */
 static int eng_held(track_t *t)
 {
     uint32_t k = (uint32_t)(t - trk) % NPART;
@@ -856,8 +858,10 @@ static void engine_block(track_t *t)
             v->stage = 0;
             v->env = v->env_out = 0;
         }
-        if (t->engine != eng_idx(t->eng_req))           /* another engine: its state as at power-on */
+        if (t->engine != eng_idx(t->eng_req)) {         /* another engine: its state as at power-on */
             eng_state_clear((uint32_t)(t - trk));
+            eng_keep[(uint32_t)(t - trk) % NPART] = 0;  /* ((round 23) fresh: it may be released until a note plays on it) */
+        }
         t->engine = eng_idx(t->eng_req);
         t->xf_on = 0;
         t->nmono = 0;
