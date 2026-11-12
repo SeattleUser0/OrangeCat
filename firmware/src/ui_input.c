@@ -755,7 +755,7 @@ static void capture_take(void)
         uint32_t cur = (now >> 8) & 0xFFFFu, pos = cur & 15u, span;
         end = (uint16_t)(cur - pos + (first <= pos ? 16u : 0u));     /* a bar's start */
         span = (uint16_t)(end - (uint16_t)(cur - last));
-        empty = seq_is_empty(t) && !notes_have_recording(t);
+        empty = seq_is_empty(t) && !notes_have_recording(t) && !recording_holds(recording_owner(t), 1);   /* (Round 24 review) control notes are content: LEN is not reset under them (the ones past the new LEN went dormant) */
         w = empty ? (span <= 16u ? 16u : span <= 32u ? 32u : 64u) : (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP);
         start = (uint16_t)(end - w);
     }

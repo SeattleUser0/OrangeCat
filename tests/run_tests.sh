@@ -903,7 +903,7 @@ if sound && [ $TABLES = 1 ]; then
     # (dub-perf) DUB TAPE's performance view: the keys, the triggers CC 19 .. 21, what records, CUT = ECHO 0 and the other triggers = their knobs through the module's kernel, the page, its draw budget
     dub_t "DUB TAPE performance view (dub-perf): the octave of keys, CC 19 .. 21, the SEND and ECHO lanes, CUT recorded as ECHO 0 plays as the trigger, the page and its budget; sanitizers" \
         dub_perf_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
-    # (Round 24, Session C) control-note RECORDING on (OC_CTL_REC 1 is the default): Session A's findings of Round 23 (the step grid untouched, a DUB track only, no editor shows or changes one, the
+    # (Round 24, Session A) control-note RECORDING on (OC_CTL_REC 1 is the default): Session A's findings of Round 23 (the step grid untouched, a DUB track only, no editor shows or changes one, the
     #   release after a selection change, the strike inside a block, the bound), undo, erase, copy, double, the pool, a project, the note tools, record quantize, punch-in, count-in and latch;
     #   and the switch off: nothing recorded, stored control notes play
     dub_t "Control-note recording on (Round 24): a control note writes no step and owns no cell; Session A's findings 1 to 5 each with its check; undo, erase, copy, pool, project, note tools, quantize, punch-in, count-in, latch, the bound; sanitizers" \

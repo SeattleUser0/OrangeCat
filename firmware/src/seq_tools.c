@@ -16,7 +16,7 @@ static int seq_tool(track_t *t, uint32_t kind)
     static step_t tmp[NSTEP];
     uint32_t k = trk_index(t), len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), i, j, f, any = 0;
     if (chain_busy()) return 2;
-    if (recording_head[recording_owner(t)] < RECORD_MAX) return 1;
+    if (recording_holds(recording_owner(t), 0)) return 1;   /* (Round 24 review) ordinary recorded notes only: a control note owns no cell, NOTES does not show it, and it stays where it is in time while the steps move */
     for (i = 0; i < len; i++) any |= step_on(&t->step[i]) || t->step[i].time == ST_TIE;
     for (i = 0; i < motion.count; i++) any |= (motion.event[i].place >> 6) == k && motion_pattern[i] == t->pattern;
     if (!any) return 3;
@@ -100,7 +100,7 @@ static void st_lane_paste(void)
     if (!lane_clip.on) { ui_message("COPY A LANE FIRST"); return; }
     if (frz_locked()) return;
     if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
-    if (recording_head[recording_owner(t)] < RECORD_MAX) { ui_message("RECORDED NOTES: USE NOTES"); return; }
+    if (recording_holds(recording_owner(t), 0)) { ui_message("RECORDED NOTES: USE NOTES"); return; }   /* (Round 24 review) as seq_tool: not for a bank whose only events are control notes */
     load_begin(t, UNDO_PAT);
     for (i = 0; i < len && i < lane_clip.len; i++) {
         uint32_t h = (uint32_t)(lane_clip.hit >> i) & 1u;

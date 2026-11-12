@@ -1132,8 +1132,8 @@ static void recording_quantize(track_t *t)
         /* Restore the ordinary stored-timing cache even if a preflight blocked
          * the pass. Once committed, QNT cannot alter this take's playback. */
         recording_due[i] = recording_raw_on(t, &recording[i], period);
-        uint32_t ctl = recording_ctl(&recording[i]);    /* (Round 24) a control note quantizes as a note does (8.2b), and owns no cell: no destination can block it, none is written */
-        if (!q || !recording_plays(t, i) || (blocked && !ctl)) continue;
+        uint32_t ctl = recording_ctl(&recording[i]);    /* (Round 24) a control note quantizes as a note does (8.2b) and owns no cell: none is written. (review) A take whose notes are refused (a manual note in the way) is not quantized in part: its control notes stay too */
+        if (!q || blocked || !recording_plays(t, i)) continue;
         recorded_note_t target; recording_quant_position(t, period, &recording[i], at, len, &target);
         if (target.on == recording[i].on && target.step == recording[i].step) continue;
         uint32_t source = recording_view(t, &recording[i]), view = recording_view(t, &target);

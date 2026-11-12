@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner. */
-/* Control-note RECORDING switched on (Round 24, Session C; UI_BUILD.md "Session C, Round 24: control-note recording on"): Session A's findings of Round 23, each with a
+/* Control-note RECORDING switched on (Round 24, Session A; UI_BUILD.md "Session A, Round 24"): Session A's findings of Round 23, each with a
  * check that fails on the Round 23 source built with -DOC_CTL_REC=1 (marked F1 .. F5), and the side effects of the switch (S..). The rule under test: a control note
  * (KICK, HOLD, DIVE, RISE: a flagged timed note 124 to 127) OWNS NO STEP CELL. Recording one writes no step; no editor shows, picks, auditions or changes one.
  *   F1   the step grid is byte for byte what it was after a pass of KICK and HOLD over manual steps: a POLY track (a chord of four, a tie, an accent, a chance), a MONO track,
@@ -20,7 +20,17 @@
  *   S4   record quantize moves a control note to the grid and writes no step
  *   S5   HOLD held across the punch-in and through the count-in is recorded from the start, KICK is not; a latched second pass adds to the first
  *   S6   the switch off (-DOC_CTL_REC=0): the keys and the CCs record nothing, a stored control note plays and reaches no engine
- * Run by tests/run_tests.sh (dub_t: the DUB module's host unit is linked), twice: the minimum switches and the shipping set. */
+ * The independent review of the first cut (R..; each of R1 to R4 fails on the commit before it, c4c6d09a):
+ *   R1   a key with the playhead past a LEN just cut (step 64, LEN 64 -> 48) stores a valid event inside LEN, an ordinary note and HOLD; the project saves and loads with it,
+ *        the packed record too; and an event the check refuses, however it came to be, is left out of a saved project instead of making it refuse to load
+ *   R2   a bank whose only events are control notes: SHIFT, REVERSE and the lane paste run (the control notes stay where they are in time), Capture does not reset LEN; a bank
+ *        with an ordinary recorded note is still refused
+ *   R3   record quantize refused for the take's notes leaves the take's control notes where they are too
+ *   R4   a cell as a Round 23 development build with OC_CTL_REC=1 left it (the step note 125, flagged, its only event the control note): the reconcile takes the number out
+ *        of the step, nothing reaches the engine, the control note stays
+ *   R5   the gaps: tracks 2 to 4 (dub_rec, dub_struck); the stop clears dub_struck; a pattern switch, the take's undo and a reindex under a sounding HOLD; a deep mixed queue;
+ *        F6 on a MONO and a drum track; the bound through a key and a same-time replacement at the bound; a cell's events dropped (the web editor's step write) under a control note
+ * Run by tests/run_tests.sh (dub_t: the DUB module's host unit is linked) with the build set, twice: the switch on (the default) and off (-DOC_CTL_REC=0). */
 #define RES_HOST_MAIN_WORDS (85760u / 4u)
 #define RES_HOST_LOW_WORDS (27740u / 4u)
 #define RES_HOST_DATA_WORDS (4216u / 4u)
@@ -591,6 +601,310 @@ static void s5_arm(void)
     chk("S5   .. and closed when the key goes up", find_ctl(0, 125) < RECORD_MAX && !(recording_flags[find_ctl(0, 125)] & 1u));
     seq_stop(); settings_countin = 0;
 }
+/* ---- the review (R1 .. R5) ---- */
+static void stored(track_t *t, uint32_t slot, uint32_t note, uint32_t step, uint32_t on, uint32_t dur, uint32_t exp, int ctl)
+{
+    recorded_note_t r = {0};
+    r.on = (uint16_t)on; r.note = (uint8_t)note; r.vel = ctl ? 127 : 100; r.owner = (uint8_t)(recording_owner(t) | (exp << 5)); r.step = (uint8_t)step;
+    r.duration = (uint16_t)dur; r.length = ctl ? RN_CTL : 0;
+    recording_restore_note(t, slot, r);
+    if (!ctl) { t->step[step].time = ST_NOTE; t->step[step].flags |= SF_RECORDED; }
+}
+static uint32_t watch_sum(void)
+{
+    uint32_t s = 0;
+    for (uint32_t k = 0; k < NTRK; k++) for (uint32_t v = 0; v < NSTEP; v++) s += recording_watch[k][v];
+    return s;
+}
+static uint32_t cref_sum(void) { uint32_t s = 0; for (uint32_t k = 0; k < NTRK; k++) for (uint32_t w = 0; w < 4; w++) s += recording_cref[k][w]; return s; }
+static uint32_t drec_sum(void) { uint32_t s = 0; for (uint32_t k = 0; k < 4; k++) for (uint32_t w = 0; w < 4; w++) s += dub_rec[k][w]; return s; }
+static uint32_t sounding_n(int ctl) { uint32_t s = 0; for (uint32_t i = 0; i < RECORD_MAX; i++) s += recording_sounding(i) && ((recording[i].length & RN_CTL) != 0) == ctl; return s; }
+static int quiet(void)
+{
+    uint32_t h = 0;
+    for (uint32_t k = 0; k < NTRK; k++) h += recording_heap_count[k];
+    return !h && !recording_heap_taken && !sounding_n(0) && !sounding_n(1) && !cref_sum() && !drec_sum() && !watch_sum();
+}
+static uint32_t struck_any(void)
+{
+#if NEW_SRC
+    return (uint32_t)(dub_struck[0] | dub_struck[1] | dub_struck[2] | dub_struck[3]);
+#else
+    return 0;
+#endif
+}
+static void r1_len(void)
+{
+    static project_t q;
+    static project_store_t st;
+    for (int v = 0; v < 2; v++) {
+        char what[220];
+        const char *kind = v ? "an ordinary note" : "HOLD";
+        track_t *t = begin(-1);
+        uint32_t i, e = RECORD_MAX, inv = 0, n = 0;
+        t->p[P_SLEN] = 64;
+        song.rec = 1u; seq_start(); song.rec_pass = 0; seq_advance(0); now = 0;
+        adv_to(at_step(t, 63) + 20u);
+        t->p[P_SLEN] = 48;                               /* LEN cut with the playhead on step 64 */
+        if (v) { input_on(t, 60, 100); adv(30); input_off(t, 60); } else { key(K_HOLD, 1); adv(30); key(K_HOLD, 0); }
+        for (i = 0; i < RECORD_MAX; i++) if (recording[i].vel) { n++; e = i; inv += !recording_valid(&recording[i]); }
+        snprintf(what, sizeof what, "R1   %s with the playhead on step 64 and LEN just cut to 48: one event, valid, on step 16 (63 mod 48), where the step row puts it", kind);
+        chk(what, n == 1u && !inv && e < RECORD_MAX && (recording[e].step & 63u) == 15u && recording_view(t, &recording[e]) < 48u);
+        if (e < RECORD_MAX) printf("ctl_rec:        (%s: step byte 0x%02x, on %u, view %u; the step row's cell 15 is time %u flags 0x%02x)\n", kind, recording[e].step, recording[e].on, recording_view(t, &recording[e]), t->step[15].time, t->step[15].flags);
+        if (v) chk("R1   .. the ordinary note has its recorded cell (step 16) and is what NOTES edits there", e < RECORD_MAX && recording_active(t, e) && t->step[15].time == ST_NOTE && (t->step[15].flags & SF_RECORDED) && t->step[15].note[0] == 60);
+        adv(2000); seq_stop(); song.rec = 0;
+        project_capture(&q);
+        snprintf(what, sizeof what, "R1   %s: the project captured after it passes the load's check and packs (the stored record)", kind);
+        chk(what, ({ int ok = 1; for (i = 0; i < RECORD_MAX; i++) ok &= recording_valid(&q.recording[i]); ok; }) && proj_pack(&st, &q) != 0);
+        project_save(2);
+        recording_reset(); for (i = 0; i < NSTEP; i++) { memset(&t->step[i], 0, sizeof t->step[i]); t->step[i].time = ST_REST; } t->p[P_SLEN] = 16;
+        project_load(2);
+        snprintf(what, sizeof what, "R1   %s: saved and loaded: the project loads (LEN 48 back) and holds the event", kind);
+        chk(what, trk[0].p[P_SLEN] == 48 && n_ctl(0) + n_ord(0) == 1u && ctl_all_valid());
+    }
+    {   /* the second guard: an event the check refuses, however it got there */
+        track_t *t = begin(-1);
+        uint32_t i;
+        stored(t, 0, 60, 3, 100, 30000, 0, 0); stored(t, 1, 125, 5, 100, 30000, 0, 1); stored(t, 2, 62, 7, 100, 30000, 0, 0);
+        recording[1].step = 0x7Fu;                       /* view 64 */
+        recording[2].pitch = 40;
+        chk("R1   (the fixture) two events the check refuses (a step past the row, a pitch out of range) and one good one", !recording_valid(&recording[1]) && !recording_valid(&recording[2]) && recording_valid(&recording[0]));
+        project_capture(&q);
+        chk("R1   the project capture leaves the refused events out and keeps the good one: the capture passes the load's check and packs",
+            ({ int ok = 1; for (i = 0; i < RECORD_MAX; i++) ok &= recording_valid(&q.recording[i]); ok; }) && !q.recording[1].vel && !q.recording[2].vel && q.recording[0].vel && proj_pack(&st, &q) != 0);
+        recording[1].step = 5; recording[2].pitch = 0;
+        project_save(2);
+        recording[1].step = 0x7Fu;
+        project_save(3);
+        recording_reset(); t->p[P_SLEN] = 7;
+        project_load(3);
+        chk("R1   .. a project saved with a refused event in the store loads: LEN back, the good notes there", trk[0].p[P_SLEN] == 16 && n_ord(0) == 2u && n_ctl(0) == 0u);
+    }
+}
+static void r2_tools(void)
+{
+    track_t *t = begin(1);
+    recorded_note_t was;
+    uint32_t i;
+    int rc;
+    adv_to(at_step(t, 2) + 10u); key(K_KICK, 1); adv(50); key(K_KICK, 0);
+    adv_to(at_step(t, 4)); seq_stop(); song.rec = 0;
+    manual(&t->step[6], 1, 60, 0, 0, 0, 90);
+    i = find_ctl(0, 124);
+    chk("R2   (the fixture) a bank with a manual step 7 and one KICK on step 3, nothing NOTES can pick", i < RECORD_MAX && n_ctl(0) == 1u && n_ord(0) == 0u && !notes_have_recording(t));
+    if (i >= RECORD_MAX) return;
+    was = recording[i];
+    rc = seq_tool(t, ST_SHIFT_R);
+    chk("R2   SHIFT RIGHT runs on it (it said RECORDED NOTES: USE NOTES): the step is on 8, the KICK byte for byte where it was in time", rc == 0 && t->step[7].n == 1u && t->step[7].note[0] == 60 && !t->step[6].n && !memcmp(&was, &recording[i], sizeof was));
+    rc = seq_tool(t, ST_SHIFT_L);
+    chk("R2   SHIFT LEFT: the step back on 7, the KICK untouched", rc == 0 && t->step[6].n == 1u && !t->step[7].n && !memcmp(&was, &recording[i], sizeof was));
+    rc = seq_tool(t, ST_REVERSE);
+    chk("R2   REVERSE: the step on 10 (16 - 7 + 1), the KICK untouched", rc == 0 && t->step[9].n == 1u && !t->step[6].n && !memcmp(&was, &recording[i], sizeof was) && n_ctl(0) == 1u);
+    stored(t, 40, 64, 12, 0, 30000, 0, 0);
+    chk("R2   with an ordinary recorded note in the bank the tools still leave it to NOTES", seq_tool(t, ST_SHIFT_R) == 1);
+    /* the lane paste on a drum track */
+    t = begin(-1);
+    set_engine_of(t, ENGI_DRUMX); t->engine = t->eng_req; t->p[P_SLEN] = 16; t->p[P_DUB_ECHO] = 100;
+    stored(t, 0, 124, 3, 100, 30000, 0, 1);
+    for (i = 0; i < 16u; i += 4u) { memset(&t->step[i], 0, sizeof t->step[i]); t->step[i].time = ST_NOTE; t->step[i].hit = 1; t->step[i].vel = 90; }
+    ui.lane = 0; st_lane_copy(); ui.lane = 2; ui.msg_t = 0; st_lane_paste();
+    chk("R2   the lane paste runs on a drum pattern that holds a KICK control note: lane 1's four hits are on lane 3, the control note untouched",
+        !msg_is("RECORDED NOTES: USE NOTES") && (t->step[0].hit & 4u) && (t->step[4].hit & 4u) && (t->step[8].hit & 4u) && (t->step[12].hit & 4u) && n_ctl(0) == 1u);
+    /* Capture */
+    t = begin(-1);
+    t->p[P_SLEN] = 64;
+    stored(t, 0, 125, 40, 100, 30000, 2, 1); stored(t, 1, 124, 50, 0, 100, 0, 1);
+    seq_start(); seq_advance(0); now = 0;
+    adv_to(at_step(t, 1) + 10u); input_on(t, 60, 100); adv(300); input_off(t, 60);
+    adv_to(at_step(t, 2) + 10u); input_on(t, 64, 100); adv(300); input_off(t, 64);
+    adv_to(at_step(t, 4));
+    ui.msg_t = 0; capture_take();
+    printf("ctl_rec:        (Capture of two played notes into a 64-step bank that holds only two control notes: LEN %d, %u notes, message %s)\n", t->p[P_SLEN], n_ord(0), ui.msg_t ? ui.msg : "none");
+    chk("R2   Capture into a bank that holds only control notes (steps 41 and 51 of 64) keeps LEN 64 (it took the bank for empty and set LEN 16: they went dormant) and takes the notes",
+        t->p[P_SLEN] == 64 && n_ord(0) == 2u && n_ctl(0) == 2u);
+    seq_stop();
+}
+static void r3_quant(void)
+{
+    track_t *t = begin(-1);
+    uint32_t i, c, h, o = RECORD_MAX;
+    uint32_t q;
+    manual(&t->step[6], 1, 62, 0, 0, 0, 90);            /* a manual note on step 7 */
+    for (q = 1; q < 16u && !(seq_div_samples(q - 1u) + 2u >= 2u * period_of(t) && seq_div_samples(q - 1u) <= 2u * period_of(t) + 2u); q++) {}
+    chk("R3   (the fixture) a record quantize grid of two steps exists", q < 16u);
+    t->p[P_RECQ] = (int16_t)q;
+    recording_quant_blocked = 0;
+    song.rec = 1u; seq_start(); song.rec_pass = 0; seq_advance(0); now = 0;
+    adv_to(at_step(t, 5) + period_of(t) / 5u); input_on(t, 60, 100); key(K_KICK, 1); adv(64); key(K_KICK, 0); input_off(t, 60);   /* played on step 6; the grid's nearest line is step 7, a manual note's */
+    adv_to(at_step(t, 9) + period_of(t) / 5u); key(K_HOLD, 1); adv(300); key(K_HOLD, 0);                                          /* nearest line: step 11, free */
+    adv_to(at_step(t, 12)); seq_stop(); song.rec = 0;
+    c = find_ctl(0, 124); h = find_ctl(0, 125);
+    for (i = 0; i < RECORD_MAX; i++) if (recording[i].vel && !(recording[i].length & RN_CTL)) o = i;
+    printf("ctl_rec:        (quantize blocked %u; note 60 step byte 0x%02x on %u; KICK step byte 0x%02x on %u; HOLD step byte 0x%02x on %u)\n", recording_quant_blocked, o < RECORD_MAX ? recording[o].step : 0xff,
+           o < RECORD_MAX ? recording[o].on : 0, c < RECORD_MAX ? recording[c].step : 0xff, c < RECORD_MAX ? recording[c].on : 0, h < RECORD_MAX ? recording[h].step : 0xff, h < RECORD_MAX ? recording[h].on : 0);
+    chk("R3   (the fixture) the take's note would quantize onto a manual step: the quantize is refused, the note stays where it was played, the manual step as it was",
+        o < RECORD_MAX && recording_quant_blocked && recording[o].on != 0u && (recording[o].step & 63u) == 5u && t->step[6].n == 1u && t->step[6].note[0] == 62 && !(t->step[6].flags & SF_RECORDED));
+    chk("R3   .. and the take's control notes stay where they were played too (KICK in step 6, HOLD in step 10): the take is not quantized in part",
+        c < RECORD_MAX && h < RECORD_MAX && recording[c].on != 0u && (recording[c].step & 63u) == 5u && recording[h].on != 0u && (recording[h].step & 63u) == 9u);
+}
+static void r4_old_cell(void)
+{
+#if OC_ONE_AUTH
+    for (int v = 0; v < 2; v++) {
+        track_t *t = begin(-1);
+        int eng = 0, rec = 0;
+        manual(&t->step[6], v ? 2 : 1, 125, v ? 60 : 0, 0, 0, 127); t->step[6].flags = SF_RECORDED;      /* as rec_note left it */
+        stored(t, 0, 125, 6, 100, 30000, 0, 1);
+        fm1_irq_off(); recording_reconcile(); fm1_irq_on();
+        printf("ctl_rec:        (after the reconcile: step 7 time %u n %u note %u flags 0x%02x, %u control notes)\n", t->step[6].time, t->step[6].n, t->step[6].note[0], t->step[6].flags, n_ctl(0));
+        seq_start(); seq_advance(0); now = 0;
+        for (uint32_t k = 0; k < 10u * period_of(t) / 40u; k++) { adv(40); eng |= eng_ctl(t); rec |= dub_rec[0][1]; }
+        seq_stop();
+        chk(v ? "R4   a Round 23 cell (step notes 125 and 60, flagged, its only event HOLD) through the reconcile: 125 is out of the step, the 60 stays a manual note, HOLD plays, no engine gets 125"
+              : "R4   a Round 23 cell (the step note 125, flagged, its only event HOLD) through the reconcile: the step is empty, HOLD stays and plays, no engine gets a note 124 to 127",
+            !eng && rec && n_ctl(0) == 1u && !(t->step[6].flags & SF_RECORDED) && (v ? t->step[6].n == 1u && t->step[6].note[0] == 60 : t->step[6].n == 0u && t->step[6].time == ST_REST));
+    }
+#endif
+}
+static void r5_gaps(void)
+{
+    /* a track other than track 1 */
+    for (uint32_t k = 1; k < NTRK; k++) {
+        char what[200];
+        track_t *t;
+        int own = 0, other = 0, eng = 0;
+        uint32_t ow, st = 0;
+        begin(-1);
+        song.sel = (uint8_t)k; t = &trk[k]; ow = k * NPAT + t->pattern;
+        t->p[P_SLEN] = 16; t->p[P_DUB_ECHO] = 100; t->p[P_QUANT] = Q_OFF; t->p[P_RECQ] = 0;
+        song.rec = (uint8_t)(1u << k); seq_start(); song.rec_pass = 0; seq_advance(0); now = 0;
+        adv_to(at_step(t, 2) + 10u); key(K_HOLD, 1); adv_to(at_step(t, 5)); key(K_HOLD, 0);
+        adv_to(at_step(t, 7) + 10u); midi_parameter(t, 21, 127); adv(200); midi_parameter(t, 21, 0);
+        adv_to(at_step(t, 9)); seq_stop(); song.rec = 0;
+        snprintf(what, sizeof what, "R5   track %u: HOLD (the key) and RISE (CC 21) record in its bank, the live triggers were its own", k + 1u);
+        chk(what, n_ctl(ow) == 2u && n_ctl(0) == 0u && find_ctl(ow, 125) < RECORD_MAX && find_ctl(ow, 127) < RECORD_MAX);
+        seq_start(); seq_advance(0); now = 0;
+        for (uint32_t j = 0; j < 10u * period_of(t) / 40u; j++) {
+            adv(40); eng |= eng_ctl(t);
+            own |= dub_rec[k][1] | (dub_rec[k][3] << 1);
+#if NEW_SRC
+            st |= dub_struck[k];
+            for (uint32_t x = 0; x < 4u; x++) if (x != k) other |= dub_struck[x];
+#endif
+            for (uint32_t x = 0; x < 4u; x++) if (x != k) other |= dub_rec[x][0] | dub_rec[x][1] | dub_rec[x][2] | dub_rec[x][3];
+        }
+        snprintf(what, sizeof what, "R5   track %u: the replay drives dub_rec[%u] and dub_struck[%u] (HOLD and RISE), no other track's, no engine", k + 1u, k, k);
+        chk(what, own == 3 && !other && !eng && (!NEW_SRC || st == 0x0Au));
+        seq_stop();
+        snprintf(what, sizeof what, "R5   track %u: the stop leaves nothing down, queued or struck", k + 1u);
+        chk(what, quiet() && !struck_any());
+    }
+    {   /* the stop clears dub_struck */
+        track_t *t = begin(-1);
+        stored(t, 0, 124, 2, 0, 10, 0, 1);
+        seq_start(); seq_advance(0); now = 0;
+        adv_to(at_step(t, 2) + 4u);
+#if NEW_SRC
+        chk("R5   (the fixture) a KICK just struck: its bit waits for the block's read", dub_struck[0] == 1u);
+#endif
+        seq_stop();
+        chk("R5   the stop clears dub_struck: a strike of the stop's own block is not handed to the kernel after it", !struck_any() && quiet());
+    }
+    {   /* a pattern switch under a sounding HOLD, and back */
+        track_t *t = begin(-1);
+        uint32_t k, seen = 0, maxc = 0;
+        stored(t, 0, 125, 2, 100, 49152, 3, 1);          /* 6 steps */
+        seq_start(); seq_advance(0); now = 0;
+        adv_to(at_step(t, 4));
+        chk("R5   (the fixture) a stored HOLD of 6 steps sounds", dub_rec[0][1] == 1 && recording_cref[0][1] == 1);
+        pattern_switch(t, 1); adv(200);
+        chk("R5   a pattern switch under a sounding HOLD: the trigger is up, nothing queued or counted", quiet());
+        pattern_switch(t, 0);
+        for (k = 0; k < 40u * period_of(t) / 16u; k++) { adv(16); if (t->seq_idx >= 3 && t->seq_idx <= 6) seen |= dub_rec[0][1]; if (recording_cref[0][1] > maxc) maxc = recording_cref[0][1]; if (recording_heap_count[0] > 1) maxc = 99; }
+        chk("R5   .. back on the bank: HOLD sounds in the passes that follow, counted once", seen && maxc == 1u);
+        seq_stop();
+        chk("R5   .. the stop: quiet", quiet());
+    }
+    {   /* a reindex, then the take's undo and redo, under its sounding HOLD */
+        track_t *t = begin(1);
+        adv_to(at_step(t, 2) + 10u); key(K_HOLD, 1); adv_to(at_step(t, 8)); key(K_HOLD, 0);
+        adv_to(at_step(t, 10)); key(K_KICK, 1); adv(50); key(K_KICK, 0);
+        adv_to(at_step(t, 12)); seq_stop(); song.rec = 0;
+        seq_start(); seq_advance(0); now = 0;
+        adv_to(at_step(t, 4));
+        fm1_irq_off(); recording_reindex(); fm1_irq_on();
+        chk("R5   a reindex under a sounding HOLD: counted once, still down, one release queued", n_ctl(0) == 2u && dub_rec[0][1] == 1 && recording_cref[0][1] == 1 && recording_heap_count[0] == 1 && !watch_sum());
+        adv(100);
+        chk("R5   the take's undo under its sounding HOLD: the trigger up, nothing queued, no control note left", recording_history(0) == 1 && quiet() && n_ctl(0) == 0u);
+        adv_to(16u * period_of(t) + at_step(t, 1));
+        chk("R5   .. the redo while it plays", recording_history(1) == 1 && n_ctl(0) == 2u);
+        adv_to(16u * period_of(t) + at_step(t, 4));
+        chk("R5   .. HOLD is back and sounds on the next pass, counted once", dub_rec[0][1] == 1 && recording_cref[0][1] == 1);
+        adv_to(16u * period_of(t) + at_step(t, 9));
+        chk("R5   .. and is released at its end", quiet());
+        seq_stop();
+    }
+    {   /* a deep queue, notes and control notes mixed; a cell's events dropped under it (the web editor's step write: editor.c ED_STEP_SET calls events_drop_view) */
+        track_t *t = begin(-1);
+        uint32_t i, a, b;
+        for (i = 0; i < 60u; i++) stored(t, i, 36 + i, 1 + (i % 3u), 5 + i * 7u, 49152, 3, 0);
+        for (i = 0; i < 24u; i++) stored(t, 100 + i, 124 + (i & 3u), 1 + (i % 4u), 9 + i * 11u, 40000 + i * 37u, 3, 1);
+        seq_start(); seq_advance(0); now = 0;
+        adv_to(at_step(t, 5));
+        a = sounding_n(0); b = sounding_n(1);
+        printf("ctl_rec:        (the deep queue: %u notes and %u control notes sound, %u queued, %u chunks taken, %u cells' watch counts)\n", a, b, recording_heap_count[0], recording_heap_taken, watch_sum());
+        chk("R5   a deep mixed queue (more than 32 releases): every sounding event queued, the control count is the control notes sounding, the watch counts the notes only",
+            recording_heap_count[0] > 32u && recording_heap_count[0] == a + b && b >= 12u && cref_sum() == b && watch_sum() == a && recording_heap_taken >= 1u);
+        events_drop_view(t, 2);
+        fm1_irq_off(); step_clear(&t->step[2]); fm1_irq_on();
+        adv(64);
+        chk("R5   .. a cell's events dropped and the cell cleared under it (the web editor's step write): its 20 notes are gone and silent, every control note is still there and still counted",
+            n_ord(0) == 40u && n_ctl(0) == 24u && sounding_n(1) == b && cref_sum() == b && sounding_n(0) == a - 20u && watch_sum() == a - 20u && recording_heap_count[0] == a + b - 20u);
+        t->p[P_SLEN] = 3;                                /* LEN cut under it: the events of steps 4 and 5 are out of the loop */
+        adv(64);
+        chk("R5   .. LEN cut to 3 under it: the events past LEN are released, the counts agree", cref_sum() == sounding_n(1) && watch_sum() == sounding_n(0) && recording_heap_count[0] == sounding_n(0) + sounding_n(1));
+        adv(20u * period_of(t));
+        chk("R5   .. twenty steps on: the counts still agree", cref_sum() == sounding_n(1) && watch_sum() == sounding_n(0) && recording_heap_count[0] == sounding_n(0) + sounding_n(1));
+        seq_stop();
+        chk("R5   .. the stop: quiet", quiet() && !struck_any());
+    }
+    /* F6 on a MONO and a drum track */
+    for (int v = 1; v < 3; v++) {
+        track_t *t = begin(-1);
+        int eng = 0, rec = 0;
+        if (v == 1) t->p[P_VOICE] = V_MONO;
+        else { set_engine_of(t, ENGI_DRUMX); t->engine = t->eng_req; t->p[P_SLEN] = 16; t->p[P_DUB_ECHO] = 100; }
+        manual(&t->step[6], 1, 125, 0, 0, 0, 100);
+        memcpy(SB, t->step, sizeof SB);
+        song.rec = 1u; seq_start(); song.rec_pass = 0; seq_advance(0);
+        adv_to(at_step(t, 6) - 200u); key(K_HOLD, 1); adv(period_of(t)); key(K_HOLD, 0);
+        adv_to(at_step(t, 12)); seq_stop(); song.rec = 0;
+        for (uint32_t i = 0; i < 4u; i++) stored(t, 200 + i, 40 + i, 9 + i, 5, 3000, 0, 0);     /* a dense bank: the pitch index's path */
+        memcpy(SB, t->step, sizeof SB);
+        seq_start(); seq_advance(0); now = 0;
+        for (uint32_t k = 0; k < 9u * period_of(t) / 20u; k++) { adv(20); if (now > at_step(t, 6) && now < at_step(t, 7)) { eng |= v == 1 ? eng_note(t, 125) : (int)t->seq_n && t->seq_notes[0] == 125; rec |= dub_rec[0][1]; } }
+        seq_stop();
+        chk(v == 1 ? "R5   F6 on a MONO track: the step note 125 under HOLD reaches the engine in its step, HOLD reaches dub_rec, the steps as they were"
+                   : "R5   F6 on a drum track: the step note 125 under HOLD is played by the step (not skipped as the control note's duplicate), HOLD reaches dub_rec, the steps as they were",
+            eng && rec && n_ctl(0) == 1u && !memcmp(SB, t->step, sizeof SB));
+    }
+    {   /* the bound through a key, and a same-time replacement at the bound */
+        track_t *t = begin(1);
+        uint32_t i, last = RECORD_MAX;
+        adv(at_step(t, 1));
+        for (i = 0; i < 400u && n_ctl(0) < RN_CTL_MAX - 1u; i++) { key(K_KICK, 1); adv(3); key(K_KICK, 0); adv(2); }
+        key(K_KICK, 1); key(K_KICK, 0);                  /* the 128th, at this very time */
+        chk("R5   the bound through the key: KICK hammered records 128 control notes", n_ctl(0) == RN_CTL_MAX && !recording_full);
+        key(K_KICK, 1);                                  /* the same step and time: the same slot, not a 129th */
+        for (i = 0; i < RECORD_MAX; i++) if (recording[i].vel && (recording_flags[i] & 1u)) last = i;
+        chk("R5   .. at the bound a press at the same step and time takes the slot of the one that is there (128, not refused, the note open)", n_ctl(0) == RN_CTL_MAX && !recording_full && last < RECORD_MAX && recording[last].length == RN_CTL);
+        key(K_KICK, 0); adv(5);
+        key(K_KICK, 1); key(K_KICK, 0); key(K_HOLD, 1); key(K_HOLD, 0);
+        chk("R5   .. a press at a new time is refused for every control key: 128, RECORDING FULL, the live triggers still worked", n_ctl(0) == RN_CTL_MAX && recording_full && ctl_all_valid());
+        recording_full = 0;
+        seq_stop();
+    }
+}
 #else
 static void s6_off(void)
 {
@@ -634,6 +948,7 @@ int main(void)
 #if OC_CTL_REC
     f1_grid(); f2_track(); f3_editors(); f4_release(); f4_reset(); f5a_queue(); f5b_strike(); f5c_same(); f6_skip(); f7_flood();
     s2_take(); s3_tools(); s4_quant(); s5_arm();
+    r1_len(); r2_tools(); r3_quant(); r4_old_cell(); r5_gaps();
 #else
     s6_off();
 #endif

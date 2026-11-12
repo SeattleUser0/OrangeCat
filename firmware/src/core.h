@@ -167,7 +167,7 @@
 #ifndef OC_CTL_REC
 #define OC_CTL_REC 1              /* (Round 23, Session A's review of r3-format2, UI_BUILD.md) 1 (the default since Round 24): KICK, HOLD, DIVE and RISE (the DUB keys, MIDI
                                    * CC 18 to 21) RECORD as control notes while a DUB track records. 0: they sound and are not recorded; stored control notes still play.
-                                   * (Round 24, Session C: UI_BUILD.md "Session C, Round 24") on: the recording path no longer goes through rec_note (a control note owns
+                                   * (Round 24, Session A: UI_BUILD.md "Session A, Round 24") on: the recording path no longer goes through rec_note (a control note owns
                                    * no step cell: recording.c, dub_keys.h); Session A's findings are closed there, each with a check in tests/ctl_rec_test.c. */
 #endif
 #ifndef OC_PJ4
