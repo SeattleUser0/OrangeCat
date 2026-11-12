@@ -363,6 +363,7 @@ int main(void)
         trk[k].p[P_DUB_ECHO] = 100; trk[k].p[P_DUB_TIML] = trk[k].p[P_DUB_TIMR] = (int16_t)dub_t_val(9);       /* 1/4 at 120 BPM (0.5 s): 6 blocks x 4 */
     }
     for (b = 0; b < 400; b++) mix_block(rec[b], CTL);
+    memset(eng_keep, 1, sizeof eng_keep);                 /* (round 23) the four tracks as played: their states stay. Idle and never played, three of them give 33 KB back after a second (the automatic release) and the reverb fits beside DUB: nothing gives way, which is not this case */
     {   uint32_t before = dub_ready[0] + dub_ready[1] + dub_ready[2] + dub_ready[3], after, h;
         for (h = 0; h < 8; h++) { uint32_t size = 80000u; while (size >= 1000u && !resource_allocate(RES_JFX0 + JB_DLY0 + h, size)) size -= 500u; }   /* (what is left taken by something else: the reverb cannot fit without DUB giving way) */
         trk[0].p[P_REV] = 100;
