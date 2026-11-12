@@ -587,4 +587,131 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
   u = placedUnit(withA); r = await run(u, MODS, { modules: [fxImg(MIDA, 3)] });
   assert.ok(!r.sum.placement);
 }
+// 17. (round 23, FLASH_MAP_R3.md 10.5: the page's half of the placement rule) a unit that reports the tail region (21 starts) against a unit with 18. The mocked unit
+//     (web/test_placed_unit.mjs) plans with the loader's rules and keeps what it was asked, in order.
+//     a. an empty unit with the tail: the set goes on in the goal's order (SHAPES, the models, WHEEL, DUB TAPE), whatever the page's file order; nothing is removed or asked
+//     b. the unit as the Nightly leaves it: the 9 sector pick has no run; the page asks (the names of what it takes off), removes the set's own modules and installs all again
+//     c. the question answered no (or no question given): nothing removed, nothing written
+//     d. a failure in the middle (a refused BEGIN, a lost link, a refused removal): a clear summary, and a second Install finishes the job
+//     e. a module that is not of the set is in the way: named, never removed
+//     f. a unit with 18 starts gets, byte for byte, the requests it got before this round
+{
+  const {arrangementOf} = await import("./fm1oc.js");
+  const T = await import("./test_placed_unit.mjs");
+  const {SHAPES, WHEEL, DUB, MODELS, engOcm, fxOcm, modelsOcm, sectsFor, AREA, unitState, nightly, placedUnit, snap} = T;
+  const MODS = {module: true}, want4 = {kind: 4, module_id: MODELS};
+  const shapes = engOcm(SHAPES, [0, 6]), wheel = engOcm(WHEEL, AREA), dub = fxOcm(DUB, 3, sectsFor(3)), pick9 = modelsOcm(9, [-6, 0, 3]);
+  const SET = {modules: [wheel, shapes, dub, pick9], want: [null, null, {kind: 1, module_id: DUB}, want4]};   // the page's file order: WHEEL, SHAPES, the effect modules, the pick last
+  const GOAL = "begin:14@1 begin:0x4d08@17 begin:7@5 begin:0x1@18";       // SHAPES at start 1 (sectors 6..11), the pick at 17 (-6..2), WHEEL at 5 (sector 3), DUB TAPE at 18 (the tail)
+  const goal = PLACE.simulate(PLACE.emptyState(true, PLACE.OC_TAIL), [{engine: SHAPES}, {mid: MODELS, sectors: 9}, {engine: WHEEL}, {mid: DUB, sectors: 3}]);
+  assert.ok(goal.ok && goal.steps.map((x) => x.start).join() === "1,17,5,18", "the planner's own answer for the goal's order");
+  const go = async (u, files, extra = {}) => {
+    const asked = [];
+    const ctx = {stages: MODS, files, openUnit: async () => u.link(), sleep: async () => {}, confirmRearrange: (names) => { asked.push(names.join(", ")); return true; }, ...extra};
+    if (extra.confirmRearrange) { const f = extra.confirmRearrange; ctx.confirmRearrange = (names) => { asked.push(names.join(", ")); return f(names); }; }
+    let sum = null, error = null;
+    try { sum = await runSet(ctx); } catch (e) { error = e; }
+    return {sum, error, asked};
+  };
+  const inGoal = (u) => snap(u.st) === snap(goal.final);
+  // a. an empty unit
+  let u = placedUnit(unitState(true), OcLink), r = await go(u, SET);
+  assert.deepEqual(r.sum.module, ["installed", "installed", "installed", "installed"]); assert.equal(u.ops.join(" "), GOAL, "the goal's order, not the page's file order");
+  assert.ok(!r.sum.rearrange && !r.asked.length && inGoal(u), "nothing to rearrange on an empty unit; it ends as the planner said");
+  // with a 2 sector effect module before DUB TAPE too (21 of the 21 sectors) the page's file order is refused at the pick (test_place.mjs): the order is what makes the set fit
+  {
+    const FX2 = 0x1002, set5 = {modules: [wheel, shapes, fxOcm(FX2, 2, sectsFor(2).slice(0, 18)), dub, pick9], want: [null, null, {kind: 1, module_id: FX2}, {kind: 1, module_id: DUB}, want4]};
+    const E = () => PLACE.emptyState(true, PLACE.OC_TAIL), S = {engine: SHAPES}, W = {engine: WHEEL}, D = {mid: DUB, sectors: 3}, F = {mid: FX2, sectors: 2}, P = {mid: MODELS, sectors: 9};
+    assert.equal(PLACE.simulate(E(), [W, S, F, D, P]).ok, false, "the page's file order (the pick last) has no run for the pick");
+    const g5 = PLACE.simulate(E(), [S, P, W, F, D]);
+    assert.ok(g5.ok && g5.steps.map((x) => x.start).join() === "1,17,5,2,18", "the goal's order places all five: " + g5.steps.map((x) => x.start));
+    u = placedUnit(unitState(true), OcLink); r = await go(u, set5);
+    assert.deepEqual(r.sum.module, ["installed", "installed", "installed", "installed", "installed"]);
+    assert.equal(u.ops.join(" "), "begin:14@1 begin:0x4d08@17 begin:7@5 begin:0x1002@2 begin:0x1@18", "SHAPES, the pick, WHEEL, then the effect modules in the page's order");
+    assert.equal(snap(u.st), snap(g5.final)); assert.ok(u.st.starts.every((x, i) => x.state === 7 || ![1, 17, 5, 18, 2].includes(i)));
+    u = placedUnit(unitState(true), OcLink); r = await go(u, SET);
+  }
+  // a second Install on that unit: SHAPES, WHEEL and DUB TAPE are current, the pick is written again where it is (in place: asked as always), nothing is rearranged
+  r = await go(u, SET);
+  assert.deepEqual(r.sum.module, ["current", "current", "current", "installed"]); assert.ok(!r.sum.rearrange && !r.asked.length && inGoal(u));
+  // b. the Nightly's unit: asked, then every module of the set off (the small ones first) and on again in the goal's order
+  u = placedUnit(nightly(true), OcLink);
+  const before = snap(u.st);
+  const a0 = arrangementOf(await probeUnit(u.link(), {fx: true}), SET.modules.map((b) => OCM.parse(b)));
+  assert.equal(a0.how, "rearrange"); assert.deepEqual(a0.remove.map((m) => m.name), ["SHAPES", "WHEEL", "DUB TAPE"]); assert.deepEqual(a0.order, [1, 3, 0, 2]);
+  u.wire.length = 0; u.sent.length = 0;
+  r = await go(u, SET);
+  assert.deepEqual(r.asked, ["SHAPES, WHEEL, DUB TAPE"], "one question, naming what is taken off");
+  assert.equal(u.ops.join(" "), "remove:0x1 remove:7 remove:14 " + GOAL, "the set's own modules off, then all on in the goal's order");
+  assert.equal(r.sum.rearrange, "done"); assert.deepEqual(r.sum.module, ["installed", "installed", "installed", "installed"]); assert.ok(inGoal(u), "the unit ends in the goal's arrangement");
+  assert.ok(!r.sum.rolledBack, "nothing is rolled back after a rearrange");
+  // c. declined, and a caller that has no question to ask: nothing removed, nothing written
+  for (const extra of [{confirmRearrange: () => false}, {confirmRearrange: undefined}]) {
+    u = placedUnit(nightly(true), OcLink); r = await go(u, SET, extra);
+    assert.equal(r.sum.rearrange, "declined"); assert.ok(r.sum.module.every((m) => m.error === "modRearrangeDeclined"));
+    assert.equal(u.ops.length, 0, "no BEGIN, no REMOVE"); assert.equal(snap(u.st), before, "the unit is as it was");
+    assert.ok(![121, 122, 123, 124].some((c) => u.sent.includes(c)), "no write command at all");
+  }
+  // d1. the unit refuses the second install (rc 2: the transport runs): the summary says what is on, what failed and what is not back; Install again finishes, unasked
+  u = placedUnit(nightly(true), OcLink, {fail: (op, k) => (op === "begin" && k === 1 ? 2 : 0)}); r = await go(u, SET);
+  assert.equal(r.sum.rearrange, "stopped");
+  assert.deepEqual(r.sum.module, [{error: "modRearrangeLeft"}, "installed", {error: "modRearrangeLeft"}, {error: "modStop"}], "SHAPES is back, the pick failed, WHEEL and DUB TAPE are not back yet");
+  assert.equal(u.ops.join(" "), "remove:0x1 remove:7 remove:14 begin:14@1 begin:0x4d08@17", "stopped at the first failure: nothing more is written");
+  u.fail = null; u.ops.length = 0; r = await go(u, SET);
+  assert.ok(!r.asked.length && !r.sum.rearrange, "the second Install has nothing to take off: no question");
+  assert.deepEqual(r.sum.module, ["installed", "current", "installed", "installed"]); assert.equal(u.ops.join(" "), "begin:0x4d08@17 begin:7@5 begin:0x1@18"); assert.ok(inGoal(u), "the job is finished");
+  // d2. the link goes at the third install: modRearrangeLost (the page's text says to press Install again); the second Install finishes
+  u = placedUnit(nightly(true), OcLink, {fail: (op, k) => (op === "begin" && k === 2 ? "lost" : 0)}); r = await go(u, SET);
+  assert.ok(r.error && r.error.code === "modRearrangeLost", "a lost link in the middle of a rearrange has its own code: " + (r.error && r.error.message));
+  u.fail = null; u.ops.length = 0; r = await go(u, SET);
+  assert.deepEqual(r.sum.module, ["installed", "current", "installed", "installed"]); assert.ok(!r.asked.length && inGoal(u), "finished by the second Install");
+  assert.equal(u.ops.join(" "), "begin:0x4d08@17 begin:7@5 begin:0x1@18", "the pick again where it is (always written), then the two that were not back");
+  // d3. the link goes during the removals: the same code; the second Install asks again for what is still to move, and finishes
+  u = placedUnit(nightly(true), OcLink, {fail: (op, k) => (op === "remove" && k === 1 ? "lost" : 0)}); r = await go(u, SET);
+  assert.ok(r.error && r.error.code === "modRearrangeLost"); assert.equal(u.ops.join(" "), "remove:0x1");
+  u.fail = null; u.ops.length = 0; r = await go(u, SET);
+  assert.deepEqual(r.asked, ["SHAPES, WHEEL"], "DUB TAPE is off already: the question names the two still on the unit");
+  assert.equal(r.sum.rearrange, "done"); assert.equal(u.ops.join(" "), "remove:7 remove:14 " + GOAL); assert.ok(inGoal(u));
+  // d4. a removal refused after one was done: stopped, nothing written; d5. the first removal refused (the transport runs): the unit is as it was, the unit's own reason
+  u = placedUnit(nightly(true), OcLink, {fail: (op, k) => (op === "remove" && k === 1 ? 2 : 0)}); r = await go(u, SET);
+  assert.equal(r.sum.rearrange, "stopped"); assert.ok(r.sum.module.every((m) => m.error === "modRearrangeLeft")); assert.equal(u.ops.join(" "), "remove:0x1 remove:7");
+  u.fail = null; u.ops.length = 0; r = await go(u, SET);
+  assert.equal(r.sum.rearrange, "done"); assert.ok(inGoal(u), "the second Install finishes it");
+  u = placedUnit(nightly(true), OcLink, {fail: (op, k) => (op === "remove" && k === 0 ? 2 : 0)}); r = await go(u, SET);
+  assert.ok(!r.sum.rearrange && r.sum.module.every((m) => m.error === "modStop")); assert.equal(snap(u.st), before, "nothing was removed");
+  // d6. a file of the set that could not be put back (no image for the start the plan gives it) is found before anything is removed
+  u = placedUnit(nightly(true), OcLink); r = await go(u, {modules: [wheel, shapes, dub, modelsOcm(9, [0, 3])], want: SET.want});
+  assert.deepEqual(r.sum.module[3], {error: "modNoVariant"}); assert.ok(r.sum.module.slice(0, 3).every((m) => m.error === "modNoPlace"));
+  assert.ok(!r.asked.length && !u.ops.length && snap(u.st) === before, "not asked, nothing removed");
+  // e. a module that is not of the set is never removed: the pick alone on the Nightly's unit is in the way of SHAPES (start 0) and DUB TAPE (start 14), named
+  u = placedUnit(nightly(true), OcLink); r = await go(u, {modules: [pick9], want: [want4]});
+  assert.deepEqual(r.sum.module, [{error: "modBlocked", detail: "14:0,127:14:1"}], "SHAPES at start 0 and the effect module 1 (DUB TAPE) at start 14 are in the way");
+  assert.ok(!r.asked.length && !u.ops.length && snap(u.st) === before, "not asked, nothing removed, nothing written");
+  // ... and SHAPES with the pick: SHAPES is the set's and may move, WHEEL (start 1) and DUB TAPE (start 14) are not and stay: both named
+  u = placedUnit(nightly(true), OcLink); r = await go(u, {modules: [shapes, pick9], want: [null, want4]});
+  assert.ok(r.sum.module.every((m) => m.error === "modBlocked" && m.detail === "7:1,127:14:1"), JSON.stringify(r.sum.module)); assert.ok(!u.ops.length && snap(u.st) === before);
+  // ... and a set that has no place whatever is moved is refused as it always was
+  u = placedUnit(unitState(true), OcLink); r = await go(u, {modules: [shapes, modelsOcm(16, [-6])], want: [null, want4]});
+  assert.ok(r.sum.module.every((m) => m.error === "modNoPlace" && /16 sectors in one run/.test(m.detail)), JSON.stringify(r.sum.module)); assert.equal(u.ops.length, 0);
+  // the page's texts for all of it, in both languages
+  const html = readFileSync(new URL("index_pkg.html", import.meta.url), "utf8");
+  for (const k of ["rearrangeConfirm", "rearrangeWorking", "modRearrangeLost", "modRearrangeDeclined", "modRearrangeLeft", "rearrangeStopped", "rearrangeDone"])
+    assert.equal([...html.matchAll(new RegExp("\\b" + k + ":", "g"))].length, 2, "a text for " + k + " in ja and en");
+  assert.equal([...html.matchAll(/rearrangeConfirm: "[^"]*\{names\}[^"]*"/g)].length, 2, "the question names the modules in both languages");
+  // f. a unit with 18 starts: the same bytes on the wire and the same summary as the runSet before this round (hashes taken from 1b385434 with this mock)
+  const was = [["empty unit, the page's set", "b1b1315f9e63abcd", ["installed", "installed", "installed", "installed"], "begin:7@0 begin:14@1 begin:0x1@14 begin:0x4d08@17"],
+               ["the Nightly's unit, the 9 sector pick", "51b2e5bd771b7151", "modNoPlace", ""],
+               ["the Nightly's unit, a newer DUB TAPE and a 3 sector pick", "a8a0251a418ada36", ["current", "installed", "installed"], "begin:0x1@17 begin:0x4d08@14"],
+               ["the Nightly's unit, engines only", "81e5704a062e1c56", ["installed", "current"], "begin:7@1"]];
+  const now = await T.baseline18(runSet, OcLink);
+  assert.equal(now.length, was.length);
+  now.forEach(([name, hash, sum, ops], k) => {
+    assert.equal(name, was[k][0]); assert.equal(hash, was[k][1], name + ": the requests are byte for byte what they were"); assert.equal(ops, was[k][3], name);
+    const m = JSON.parse(sum);
+    assert.ok(!m.rearrange, name + ": never a rearrange on a unit with 18 starts");
+    if (was[k][2] === "modNoPlace") assert.ok(m.module.every((x) => x.error === "modNoPlace" && x.detail === "MACRO models needs 9 sectors in one run; the biggest run the unit's loader can use is 3.") && m.placement, name);
+    else assert.deepEqual(m.module, was[k][2], name);
+  });
+  console.log("installer set: a unit with the tail region: the goal's order, the rearrange (asked, declined, stopped and finished by a second Install), a foreign module named and kept; a unit with 18 starts byte for byte as before: passed");
+}
 console.log("installer set: stages, skips, old firmware, retry, refusals and the shared .ocm reader, effect modules by module id, a models module by its id passed");

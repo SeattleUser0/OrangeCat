@@ -497,7 +497,7 @@ either. Commands past 127 are allocated from 128 up in this file: the next free 
 (Release 3 step 4b) The installer page (web/fm1oc.js `installFx`) and the card's installer (card_install.c `fb_mod_file`) install an effect module's package (engine word of
 kind 1..3, the module id in the image's `fx_desc_t`): MOD_INFO without an engine for the firmware's numbers and the starts, 130 FX_INFO for the id and the image's sector count,
 the page's own check of the image (`fxCheck`: the inner header, the code CRC, the descriptor, the tails), 131 FX_BEGIN at the start the unit names, then 122 and 123 as for an
-engine. 133 FX_TABLE is asked only when a set holds an effect module, so an engine set's requests are unchanged. 132 FX_REMOVE is the page's Remove.
+engine. 133 FX_TABLE is asked only when a set holds an effect module, so an engine set's requests are unchanged. 132 FX_REMOVE is the page's Remove. (Round 23) On a unit that reports the tail region (more than 18 starts in MOD_INFO) the installer page also sends 124 MOD_REMOVE and 132 FX_REMOVE for the modules of the ticked set, after asking, when the set fits only with them taken off and installed again in the goal's order (docs/orangecat/FLASH_MAP_R3.md 10.5); on such a unit 133 FX_TABLE is asked for every set. A unit with 18 starts gets the requests it always got.
 
 (Release 3, the model picker: docs/candidates/model_picker.md) A MODELS module (engine word `engine | 4 << 8`, firmware/src/fw_models.h: the models the installer page's picker
 packed for MACRO) goes through the same four commands with the module id 0x4D00 + engine (0x4D08), a span of up to 18 sectors; MOD_INFO's per-start engine byte names the
