@@ -289,7 +289,7 @@ def app_flags():
                  "OC_PROJECT_PAGE",    # (ui-fix2 3: UI_BUILD.md "ui-fix2 3") the plain project page; off by default
                  "OC_SLIDE_TIME",      # (ui-fix2 4: UI_BUILD.md "ui-fix2 4") SLIDE TIME, a per-track value on P_RESERVED48; needs OC_SLIDE=1; off by default
                  "OC_START_NUDGE",
-                 "OC_PJ4", "OC_CTL_REC"):    # (ui-fix2 5: UI_BUILD.md "ui-fix2 5") NOTES' KNOB 2 on a typed note is NUDGE; needs OC_ONE_AUTH=1; off by default
+                 "OC_PJ4", "OC_CTL_REC", "OC_TRK_RELEASE"):    # (ui-fix2 5: UI_BUILD.md "ui-fix2 5") NOTES' KNOB 2 on a typed note is NUDGE; needs OC_ONE_AUTH=1; off by default
         v = os.environ.get(flag)    # unset: the default in firmware/src/melodee.c
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")

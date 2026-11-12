@@ -1691,6 +1691,7 @@ static int trk_wanted(const track_t *t)
 static uint32_t eng_idle_left = FS;                   /* (the first check a second after power-on) */
 static void eng_idle_check(uint32_t n)
 {
+    if (!OC_TRK_RELEASE) return;                        /* (off by default: core.h) nothing is ever released, eng_rel stays 0 and the rest is inert */
     if (eng_idle_left > n) {
         eng_idle_left -= n;
         return;

@@ -159,6 +159,11 @@
 #if OC_CLIP_SEL && !OC_CLIP
 #error "OC_CLIP_SEL needs OC_CLIP (each step of the new interface ships behind the one before: UI_BUILD.md)"
 #endif
+#ifndef OC_TRK_RELEASE
+#define OC_TRK_RELEASE 0          /* (Round 23, BUILD.md 7.31 "Track OFF: built") 1: the automatic release of an idle, never-played track's engine state (seq.c eng_idle_check).
+                                   * 0 (the default): built and host-tested, not shipped: the review found that a released track's memory goes to the effects, and selecting the
+                                   * track then makes them yield (all buses and DUB's lines off for JFX_YIELD), again at every visit. The owner decides who gives way. */
+#endif
 #ifndef OC_CTL_REC
 #define OC_CTL_REC 0              /* (Round 23, Session A's review of r3-format2, UI_BUILD.md) 1: KICK, HOLD, DIVE and RISE (the DUB keys, MIDI CC 18 to 21) RECORD as control
                                    * notes while the track records. 0 (the default): they sound and are not recorded, as before; stored control notes still play.

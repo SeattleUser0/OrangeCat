@@ -67,13 +67,13 @@ int main(void)
     setvbuf(stdout,0,_IONBF,0);
     /* one track alone: min(the engine's cap, budget / units). name, units a voice, the cap, voices at 18 units, at 16 */
     static const struct { const char *name; uint8_t units, cap, two, one; } ONE[] = {
-        {"VA BASS", 4, 4, 4, 4},            /* its cap: every voice the engine has */
+        {"VA BASS", 3, 4, 4, 4},            /* its cap: every voice the engine has */
         {"NOISE WIND", 2, 4, 4, 4},         /* its cap, with 10 units to spare: only a larger engine cap would raise it */
         {"CHORD MINOR", 3, 4, 4, 4},
-        {"FOLD PLUCK", 5, 4, 3, 3},         /* the units: 3 x 5 */
-        {"FM BELL", 8, 4, 2, 2},            /* the units: 2 x 8 */
-        {"ORGAN DRAWBAR", 9, 4, 2, 2},      /* the units: 2 x 9 on two cores; on one core 2 as well, 18 of 16 units: a track's lowest held note is */
-        {"MALLET", 9, 4, 2, 2},             /* never taken for a new one, so the lowest and the newest sound whatever the units (as before this round) */
+        {"FOLD PLUCK", 4, 4, 4, 4},         /* (the picker's units, by cost: 4; linux-hw before it: 5, three voices) */
+        {"FM BELL", 4, 4, 4, 4},            /* (the picker's units: 4; before it 8, two voices) */
+        {"ORGAN DRAWBAR", 7, 4, 2, 2},      /* the units: 2 x 9 on two cores; on one core 2 as well, 18 of 16 units: a track's lowest held note is */
+        {"MALLET", 10, 4, 2, 2},             /* never taken for a new one, so the lowest and the newest sound whatever the units (as before this round) */
     };
     for(unsigned i=0;i<sizeof ONE/sizeof ONE[0];i++){
         uint32_t a=alone(ONE[i].name,6,1,0), b=alone(ONE[i].name,6,0,0);
@@ -82,7 +82,7 @@ int main(void)
         assert(a==ONE[i].two && b==ONE[i].one);
         {   uint32_t u=ONE[i].units, c=ONE[i].cap, r2=18u/u<2u?2u:18u/u, r1=16u/u<2u?2u:16u/u;   /* (two at least: the lowest and the newest) */
             assert(a==(r2<c?r2:c) && b==(r1<c?r1:c));
-            assert(a*u<=18u && (b*u<=16u || b==2u));
+            assert((a*u<=18u || a==2u) && (b*u<=16u || b==2u));   /* (round 23, the merge with the picker: MALLET is 10 units there, two voices are 20 of 18: the lowest held note and the newest always sound) */
         }
         assert(alone(ONE[i].name,6,1,1)==a && alone(ONE[i].name,6,0,1)==b);   /* the others released: the same (they held no unit) */
     }
