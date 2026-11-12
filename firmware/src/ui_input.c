@@ -3055,6 +3055,7 @@ static void ui_input(void)
         uint32_t k = (uint32_t)__builtin_ctz(notes);
         drum_pick_lane(dxe_lane((uint32_t)ENG_DRUMX.keys(TSEL, k)));
     }
+    if (pattern_keys_on() && (bank_notes & dubk_owned())) ui.seq_t0 |= 2u;   /* (round 24 review) SEQ + a DUB key is a combo all the same: SEQ's release is not a tap (it left the DUB page) */
     pattern_keys(bank_notes & ~dubk_owned());           /* ((round 24) SEQ held on HOME's DUB page: C4 .. B4 stay DUB's keys, not patterns E .. H or track 4) */
 #if OC_MGRID
     if (!mgrid_on()) mgrid_reset();                     /* (the stage lives on the GRID page only) */

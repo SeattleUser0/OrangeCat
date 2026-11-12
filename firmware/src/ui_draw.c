@@ -1106,7 +1106,8 @@ static int own_screen(void)                             /* a page drawn whole by
 /* the page (or Stage): its own screen, the redesign's, else its cards, panel and footer */
 static void draw_page(void)
 {
-    dub_view_on = 0;                                  /* (dub-perf review) cleared on every draw; the DUB page below sets it again: no other screen leaves the DUB keys on */
+    uint8_t dub_v = 0;                                /* (dub-perf review) the DUB page below sets it; (round 24 review) the flag itself is written ONCE a draw: cleared here and set again
+                                                       * further down, the audio interrupt read 0 in between (a forced redraw: milliseconds) and a DUB key struck there was a note, or a held layer's key */
     /* SCALES opens explicitly from the Scale row, outside the SCL/SELECT cycle.
      * An unavailable OP page returns to EDIT 1; an emptied FX slot to its rack. */
     if (!ui.home && !page_visible(ui.page) && cur_page()->graph != GR_SCALE_PICKER) {
@@ -1156,7 +1157,8 @@ static void draw_page(void)
         }
         if (ui.home && (ui.home_pg == 2u || ui.home_pg == DUB_PG) && !home_pic_on())   /* (never the picture with TRACKS chosen) */
             ui.home_pg = 0;
-        dub_view_on = (uint8_t)(ui.home && ui.home_pg == DUB_PG);   /* (dub-perf) the keys C4 .. B4 are the DUB page's while it shows */
+        dub_v = (uint8_t)(ui.home && ui.home_pg == DUB_PG);
+        if (dub_v) dub_view_on = 1;                       /* (dub-perf) the keys C4 .. B4 are the DUB page's while it shows */
         if (ui.home && (ui.home_pg == 2u || ui.home_pg == DUB_PG))   /* (the new interface, UI_BUILD.md 1c) HOME's picture page, and DUB's */
             home_pic_draw();
         else
@@ -1171,6 +1173,7 @@ static void draw_page(void)
     melodee_dbg.stage = 6;
     if (!ui.home && !own_screen() && !pv_kind() && !list_on() && !slot_kind() && !motion_page())
         draw_foot();
+    if (!dub_v) dub_view_on = 0;                        /* (round 24 review) another screen: the keys are the track's again */
 }
 /* the toast: a message too long for the header on a card under it, wrapped (nothing cut); when it goes, what it covered
  * is drawn again */

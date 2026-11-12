@@ -113,6 +113,7 @@ int main(void)
         key_up(7); frames(64); btn_up(B_SEQ); frames(32);
         chk("HELD     SEQ held + C#4, then C4: KICK and the throw, the selected track and its pattern stay", ok && song.sel == sel && lists.cur[sel % NTRK] == cur &&
             ocl_staged_ent(sel % NTRK) == OCL_NENT && quiet());
+        chk("HELD     SEQ let go after a DUB key: the DUB page stays (no SEQ tap)", ui.home && ui.home_pg == DUB_PG);
     }
 
     /* ---- OTHERS ---- */
