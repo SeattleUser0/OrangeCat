@@ -387,8 +387,9 @@ static void lat_render(int32_t (*out)[CTL * 2], int e, int playing, int with_mod
 }
 static uint32_t lat_first(void)
 {
-    uint32_t i;
-    for (i = 0; i < LAT_BLOCKS * CTL * 2u; i++) if (lat_ref[0][i] != lat_out[0][i]) return i / 2u;
+    uint32_t b, i;
+    for (b = 0; b < LAT_BLOCKS; b++)
+        for (i = 0; i < CTL * 2u; i++) if (lat_ref[b][i] != lat_out[b][i]) return b * CTL + i / 2u;
     return 0xFFFFFFFFu;
 }
 static void latency_checks(void)
@@ -516,8 +517,10 @@ int main(void)
     uint32_t s, r;
     memcpy(gp_init, (void *)perf_gp, sizeof gp_init);
     stopfirst = getenv("FLM_STOPFIRST") != 0;
-    keep = malloc(sizeof *keep * FLM_BLOCKS);
+#if OC_PERF_RESIDENT
+    keep = malloc(sizeof *keep * FLM_BLOCKS);            /* (run A's blocks; the build without the resident copy has no run A) */
     if (!keep) return 2;
+#endif
     printf("fx layer module: MELODEE_FX_DEFER %d, OC_PERF_RESIDENT %d\n", (int)MELODEE_FX_DEFER, (int)OC_PERF_RESIDENT);
     if (stopfirst) {                                     /* the mutation check: the descriptor and the host's checks of it first (a mutated descriptor word ends here), then A against B */
         refusal_checks();
