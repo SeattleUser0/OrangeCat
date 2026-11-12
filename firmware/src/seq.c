@@ -1641,6 +1641,74 @@ static void seq_advance(uint32_t n)
     } while (n);
 }
 
+/* (round 23) The automatic release: the rule (BUILD.md 7.31, "Track OFF: the design", item 1, and "Built (Round 23)").
+ * trk_wanted: track t has something to play, or may have at once. Not wanted, in order: every voice ended (none active, none fading), no engine
+ * switch under way and no note waiting for one; its engine keeps nothing between notes (no block or post hook: those run with no voice sounding and
+ * their state carries on, FM6's ghost envelopes, a rotor; DRUM-X has one and holds 960 B); not the selected track (the keys and the keyboard play it,
+ * and MIDI with ROUT SEL: narrower than the design's "while a key is routed to it", and never wrong); not armed for recording; no key held, no arp
+ * note, no recorded hold, no audition asked; the old SONG chain not armed or running (it switches patterns with no staging); nothing staged whose
+ * steps hold a note (a staged pattern not yet read into the staging buffer counts as holding one); no step of its playing pattern holds a note, a hit
+ * or a recorded view, and no recorded note is linked to it; not kept by a note that found it released (voice.c eng_keep).
+ * A track that is wanted is never released, so what a project sounds like does not change: the first note after a release starts on a fresh state,
+ * as the first note after the project's load does. */
+static int trk_wanted(const track_t *t)
+{
+    const engine_t *e = ENGINES[t->engine];
+    uint32_t k = trk_index(t), i;
+    for (i = 0; i < NVOICE; i++)
+        if (t->v[i].active)
+            return 1;
+    if (t->xf_on || t->eng_req != t->engine || t->xp_n)
+        return 1;
+    if (trk_off(k))                                     /* (the explicit OFF, when it exists: released whatever follows) */
+        return 0;
+    if (e->block || e->post || eng_keep[k])
+        return 1;
+    if (k == song.sel || (((uint32_t)song.rec | song.rec_wait | song.rec_pass | song.rec_latch) >> k) & 1u)
+        return 1;
+    if (t->nheld || t->arp_phys || t->arp_note || t->seq_n || t->rh_n || (live_held[k][0] | live_held[k][1] | live_held[k][2] | live_held[k][3]))
+        return 1;
+    if ((audition_request && audition_track % NTRK == k) || chain.armed || chain.running)
+        return 1;
+    if (recording_head[recording_owner(t) % (NTRK * NPAT)] < RECORD_MAX)
+        return 1;
+    for (i = 0; i < NSTEP; i++)
+        if (t->step[i].n || t->step[i].hit || (t->step[i].flags & SF_RECORDED))
+            return 1;
+    if (t->pattern_next < NPAT) {                       /* staged: its steps as the main loop prepared them (pattern.c pattern_prepare) */
+        const step_t *st = pattern_stage[k].data.step;
+        if (pattern_stage[k].bank != t->pattern_next || pattern_stage[k].pending)
+            return 1;
+        for (i = 0; i < NSTEP; i++)
+            if (st[i].n || st[i].hit || (st[i].flags & SF_RECORDED))
+                return 1;
+    }
+    return 0;
+}
+/* the check: once a bar while playing, once a second stopped (counted in samples from the last check, so it does not fall on the bar line, where the
+ * notes are). A track in use that is not wanted gives its state back with eng_state_clear, here in the audio interrupt between two blocks, where
+ * engine_block clears and takes the states (the arena is the audio owner's; the second core's jobs are joined before a block ends, and a track with
+ * a voice active or fading is wanted). Called at the end of events_block: this block's notes have started. */
+static uint32_t eng_idle_left = FS;                   /* (the first check a second after power-on) */
+static void eng_idle_check(uint32_t n)
+{
+    if (eng_idle_left > n) {
+        eng_idle_left -= n;
+        return;
+    }
+    eng_idle_left = song.playing && seq_beat_samples() ? 4u * seq_beat_samples() : FS;
+    for (uint32_t k = 0; k < NTRK; k++) {
+        if (k >= trk_n())
+            eng_rel[k] = 0;                             /* (not in use: eng_state_take has cleared it; added again, it is taken as before) */
+        else if (!eng_rel[k] && !trk_wanted(&trk[k])) {
+            eng_release_bytes += resource[RES_ENGINE0 + k].size;
+            eng_releases += resource[RES_ENGINE0 + k].size != 0;
+            eng_state_clear(k);
+            eng_rel[k] = 1;
+        }
+    }
+}
+
 /* everything that happens between two rendered blocks */
 static void events_block(uint32_t n)
 {
@@ -1795,4 +1863,5 @@ static void events_block(uint32_t n)
     }
     if (song.playing)
         song.tick++;
+    eng_idle_check(n);
 }
