@@ -934,6 +934,13 @@ static void keyboard_block(void)
         if ((cur >> k) & 1u) {                    /* the selected track; the key-up goes to the same one */
             kb_trk[k] = song.sel;
             if (kb_asleep) { kb_note[k]=KB_SILENT; continue; }
+            if ((dubk_owned() >> k) & 1u) {      /* (dub-perf; GRID or NAME, song.grid >= 2, owns every key even before the next draw clears dub_view_on)  HOME's DUB page: the octave C4 .. B4 is its keys, not notes;
+                                                   * (round 24) and not a held layer's: read before the layer's button, so KICK (C#4) with ARP, GLO, FX or SEQ still down is KICK, never MUTE 4 (dub_keys.h dubk_owned) */
+                kb_note[k] = KB_SILENT;
+                kb_dubk |= 1u << k;
+                dub_key(k, kb_trk[k], 1);
+                continue;
+            }
             if ((fm1_in.buttons & kb_mask) || kb_lock) {       /* a layer's button held: the key is the layer's (ui_layer.c), */
                 kb_note[k] = KB_SILENT;           /* a quick-layer key */
                 kb_layer |= 1u << k;
@@ -942,12 +949,6 @@ static void keyboard_block(void)
                     perf_press(jfx_key(k), 1);
                 }
 
-                continue;
-            }
-            if (dub_view_on && song.grid < 2u && k >= DUBK_FIRST && k <= DUBK_LAST) {   /* (dub-perf; GRID or NAME, song.grid >= 2, owns every key even before the next draw clears dub_view_on)  HOME's DUB page: the octave C4 .. B4 is its keys, not notes */
-                kb_note[k] = KB_SILENT;
-                kb_dubk |= 1u << k;
-                dub_key(k, kb_trk[k], 1);
                 continue;
             }
             if (song.grid >= 2u)                  /* NAME (ui_name.c), (melodic-grid) GRID's STEP stage: every key is the UI's, none sounds */

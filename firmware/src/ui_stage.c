@@ -479,8 +479,9 @@ static void stage_row(uint32_t k)
     cat = entry_cat(src, kk) % CAT_N;
     {   /* the role (NEW SONG's words: DRUMS, CHORDS; none, OTHER: the track), then what plays */
         char tn[3] = {'T', (char)('1' + k), 0};
-        str_cpy(line, frozen ? "FROZEN" : cat == CAT_DRUM ? "DRUMS" : cat == CAT_KEYS ? "CHORDS" :
-                cat && cat != CAT_OTHER ? CAT_NAME[cat] : tn, sizeof line);   /* ((0.5.6) frozen: says so) */
+        str_cpy(line, mute ? "MUTE" : frozen ? "FROZEN" : cat == CAT_DRUM ? "DRUMS" : cat == CAT_KEYS ? "CHORDS" :
+                cat && cat != CAT_OTHER ? CAT_NAME[cat] : tn, sizeof line);   /* ((0.5.6) frozen: says so; (round 24) muted: says so
+                                                         * first (the grey alone read as a fault: "Track 4 graying out")) */
     }
     sig = str_hash(str_hash(1u + sel * 2u + mute * 4u + arm * 8u + (uint32_t)pending * 16u + stage.out * 32u + frozen * 64u, nm),
                    line) +
@@ -501,7 +502,7 @@ static void stage_row(uint32_t k)
                                                          * right of its line (the role where the name leaves room), the
                                                          * steps across under them) */
         room = BOX_W - 6 - tx - 8 - pills - text_w(lf, role) - 8;
-        if (text_w(TY_TX, nm) > room)
+        if (text_w(TY_TX, nm) > room && !mute && !frozen)   /* ((round 24) MUTE and FROZEN stay: the name gives the room, smaller or cut) */
             showrole = 0, room = BOX_W - 6 - tx - 6 - pills;
         nf = ty_fit(TY_TX, nm, room);
         lay = st_layout(nb, BOX_W - 6 - tx, h - 6 - TY_TX->cap - 5);
@@ -580,7 +581,7 @@ static void stage_row(uint32_t k)
             int32_t lx = steps_row ? tx : BOX_W - 6 - pills - (showrole ? text_w(lf, role) + 8 : 0), cy = pcy,
                     ly = ty_y(cy, lf), re = BOX_W - 6;
             if (showrole)
-                lx = cv_text_on(lx, ly, lf, role, tc, bg) + 8;
+                lx = cv_text_on(lx, ly, lf, role, mute ? T_REC : tc, bg) + 8;   /* ((round 24) MUTE: red, as MIXER's Mute and GLO's map) */
             if (!idle) {
                 cv_rrect(lx, cy - 8, pw, 16, 4, tc, bg);
                 cv_text_on(lx + 4, ly, lf, pt, T_INK, tc);
