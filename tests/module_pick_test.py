@@ -32,7 +32,9 @@ PICKS = [("all", list(range(28)), 40),                                          
          ("odd", ["speech", "6opb", "harp"], 0),                                 # 6OP B alone: the six-op code with banks 0 and 2 dropped
          ("wt3", ["wavtbl", "wav0", "wav1", "wav2", "terran"], 40),
          ("tailfm", ["fm"], 0, "tail"),                                          # (the second place: FLASH_MAP_R3.md option A's tail region, 3 sectors at -58) one sector at its three starts
-         ("tail3", ["vavcf", "pd", "terran", "strmch"], 0, "tail")]              # three sectors: the whole tail, one start (-58)
+         ("tail3", ["vavcf", "pd", "terran", "strmch"], 0, "tail"),              # three sectors: the whole tail, one start (-58)
+         ("bothfm", ["fm"], 0, "both"),                                          # (round 23) what the page packs for a unit with the tail: the area's starts, then the tail's: 18 + 3
+         ("both3", ["vavcf", "pd", "terran", "strmch"], 0, "both")]              # three sectors: 16 starts of the area and the tail's one
 TAIL_OVER = ["vavcf", "pd", "terran", "strmch", "chip"]                          # four sectors: one more than the tail (it was the four sector tail's whole pick)
 REFUSED = [([], "nothing picked"), (["wavtbl"], "needs a wave bank"), (["wav0"], "of use to"), ([99], "no item")]
 
@@ -103,6 +105,12 @@ def main():
             _, sectors, starts = pick_module.pack(master, pick_module.pick_items(manifest, items), 0, None, "tail")
             want = {"tailfm": (1, [-58, -57, -56]), "tail3": (3, [-58])}[name]
             check(f"pick {name} in the tail: {sectors} sectors at {starts}", (sectors, starts) == want)
+    for name, want in (("bothfm", (1, list(range(-6, 12)) + [-58, -57, -56])), ("both3", (3, list(range(-6, 10)) + [-58]))):   # (round 23) both places: the area's starts, then the tail's
+        items = next(p[1] for p in PICKS if p[0] == name)
+        _, sectors, starts = pick_module.pack(master, pick_module.pick_items(manifest, items), 0, None, "both")
+        check(f"pick {name} for both places: {sectors} sectors at {len(starts)} starts, the tail's last", (sectors, starts) == want)
+    over = pick_module.pick_items(manifest, TAIL_OVER)
+    check("a four sector pick for both places is the area's package byte for byte (no tail start)", pick_module.pack(master, over, 0, None, "both") == pick_module.pack(master, over))
     try:
         pick_module.pack(master, pick_module.pick_items(manifest, TAIL_OVER), 0, None, "tail")
         check("refused: a four sector pick for the tail (3 sectors)", False)

@@ -1157,7 +1157,7 @@ def main():
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     ap.add_argument("--module", metavar="NAME", choices=sorted(MODULES), help="build a loadable engine module (build/NAME-<version>.ocm) and check it")
     ap.add_argument("--pick", metavar="ITEMS", help="(model picker) --module plaits: the items to link, by key or id, comma separated (build/plaits-pick.ocm)")
-    ap.add_argument("--place", default=None, help="(model picker) with --pick: link the pick for this place (area, tail) instead of the module area")
+    ap.add_argument("--place", default=None, help="(model picker) with --pick: link the pick for this place (area, tail; both: the area's starts and, when it fits, the tail's) instead of the module area")
     ap.add_argument("--area", type=int, metavar="SECTORS", help="(model picker) with --pick: pretend the module area has this many sectors (the byte proof of a pick too large for the real one)")
     ap.add_argument("--cpu-manifest", type=Path, help="Write source/package identity for CPU experiments")
     ap.add_argument("--no-core1-fallback", action="store_true",
