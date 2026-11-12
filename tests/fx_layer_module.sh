@@ -41,7 +41,7 @@ if [ "$MODE" = check ]; then
     if ! cmp -s "$OUT/flp.txt" tests/fx_layer_golden.txt; then
         echo "fx_layer_module: the resident layer's render differs from the pinned printout (tests/fx_layer_golden.txt):"; diff "$OUT/flp.txt" tests/fx_layer_golden.txt | head -30; exit 1
     fi
-    echo "fx_layer_module: the resident layer's render equals the pinned printout (20 scenarios, MELODEE_FX_DEFER 0 and 1)"
+    echo "fx_layer_module: the resident layer's render equals the pinned printout (12 scenarios, MELODEE_FX_DEFER 0 and 1)"
     [ -f tests/fx_layer_module_test.c ] || exit 0
     for d in 0 1; do
         build "$ROOT" ok $d || { echo "fx_layer_module: compile (MELODEE_FX_DEFER=$d)"; exit 1; }
@@ -55,9 +55,10 @@ fi
 
 # the mutations: a sed on the module's own copy of the kernel text (perf_kern_mut.h, which only the module's source includes), the resident effects unchanged
 fail=0; n=0
-mutant() {   # mutant 'sed script' what
+mutant() {   # mutant 'sed script' what [scenario]: the scenario to run first (the mutated effect's own), so the mutant is caught in seconds
     n=$((n + 1))
-    rm -rf "$OUT/flm_mdir" && mkdir -p "$OUT/flm_mdir" && cp -r firmware tools tests "$OUT/flm_mdir/" || exit 2
+    rm -rf "$OUT/flm_mdir" && mkdir -p "$OUT/flm_mdir/firmware" "$OUT/flm_mdir/tools" "$OUT/flm_mdir/tests" && cp -r firmware/src "$OUT/flm_mdir/firmware/" && cp -r tools/module "$OUT/flm_mdir/tools/" &&
+        cp tests/module_host_fxlayer_tu.c "$OUT/flm_mdir/tests/" || exit 2    # (what the module's unit is compiled from: the firmware's headers, the module's source, its host wrapper)
     cp "$OUT/flm_mdir/firmware/src/perf_kern.h" "$OUT/flm_mdir/firmware/src/perf_kern_mut.h"
     sed -i 's/#include "perf_kern.h"/#include "perf_kern_mut.h"/' "$OUT/flm_mdir/tools/module/fxlayer_mod.c"
     grep -q 'perf_kern_mut.h' "$OUT/flm_mdir/tools/module/fxlayer_mod.c" || { echo "fx_layer_module: the module does not include perf_kern.h"; exit 2; }
@@ -66,14 +67,16 @@ mutant() {   # mutant 'sed script' what
     sed -i "$1" "$OUT/flm_mdir/tools/module/fxlayer_mod.c"      # (a mutation of a descriptor word is in the module's own source; the kernel mutations match nothing there)
     cat "$OUT/flm_mdir/firmware/src/perf_kern_mut.h" "$OUT/flm_mdir/tools/module/fxlayer_mod.c" | cmp -s - "$OUT/flm_mdir/before" && { echo "fx_layer_module: mutation $n ($2) did not apply"; exit 2; }
     build "$OUT/flm_mdir" mut 1 || { echo "fx_layer_module: mutant $n does not compile"; exit 2; }
-    (cd "$ROOT" && FLM_STOPFIRST=1 "$OUT/flm_mut_d1" > "$OUT/flm_mut.out" 2>&1); rc=$?
-    # caught means: the test ran to its own verdict (exit 1) and names a difference or a failed check. Any other exit (a crash, a sanitizer's abort, a timeout) is not a proof and is said
+    (cd "$ROOT" && FLM_STOPFIRST=1 FLM_FIRST="$3" "$OUT/flm_mut_d1" > "$OUT/flm_mut.out" 2>&1); rc=$?
+    # caught means: the test ended with exit 1 AND its own verdict line: an output block of the module's render that differs from the resident's (VERDICT render), the two copies of the
+    # kernel text side by side giving different samples or state (VERDICT kernel: what no render reached), or a failed check of the
+    # module's descriptor (VERDICT descriptor). Any other end (a crash, a sanitizer's abort, a timeout, some other check failing) is not a proof that the mutant was seen, and is said
     if [ $rc -eq 0 ]; then
         echo "fx_layer_module: MUTATION SURVIVED: $2"; fail=1
-    elif [ $rc -ne 1 ] || ! grep -q -E 'FAIL|differs' "$OUT/flm_mut.out"; then
-        echo "fx_layer_module: mutation $n ($2): the test ended with exit $rc and no verdict of its own: $(tail -n 2 "$OUT/flm_mut.out" | cut -c1-160)"; fail=1
+    elif [ $rc -ne 1 ] || ! grep -q -E 'VERDICT (render|kernel|descriptor):' "$OUT/flm_mut.out"; then
+        echo "fx_layer_module: mutation $n ($2): the test ended with exit $rc and no verdict of the render or the descriptor: $(tail -n 2 "$OUT/flm_mut.out" | cut -c1-200)"; fail=1
     else
-        echo "fx_layer_module: mutation $n caught: $2 ($(grep -m1 -E 'FAIL|differs' "$OUT/flm_mut.out" | cut -c1-130))"
+        echo "fx_layer_module: mutation $n caught: $2 ($(grep -m1 -E 'VERDICT (render|kernel|descriptor):' "$OUT/flm_mut.out" | sed 's/^fx layer module: VERDICT //' | cut -c1-130))"
     fi
 }
 . tests/fx_layer_mutants.sh
