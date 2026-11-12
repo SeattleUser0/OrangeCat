@@ -20,6 +20,12 @@
  *           pressed again; STUT (the SLICER's use of the same 32 KB) under a buffer effect and after it
  *   MIX     a full mix (chords, the three sends, the SLICER's GATE) with the buffer effects in turn over CRUSH, THROW, the mutes and the FILTER macro
  *   RANDOM  40,000 blocks of keys, knobs, tempo, transport, latch, dialogs and lost buffers from a fixed generator
+ *   STEREO  the tracks panned apart, the CHORUS and a wide reverb on (the scenarios above are all but mono at the layer: a kernel that mixed its channels up would pass them): each effect
+ *           and a REPEAT at two settings, stopped and playing
+ *   SCRATCH the hand on the record where the scenarios above do not reach: detents turned while the tape still falls (they move the hand when it stops), and fast turns at 300 BPM, where
+ *           64 detents stay inside what the loop holds (at 200 BPM they run into its ends)
+ * (STEREO and SCRATCH were added after the mutation check let four mutants live: their lines of tests/fx_layer_golden.txt were made from the tree of 45eef53b, the resident code before the
+ * cut, with this probe, whose other twenty lines that tree reproduces.)
  * Arguments: none. Built and run by tests/fx_layer_module.sh (tests/run_tests.sh). */
 /* the device's banks (tests/jfx_arena_test.c): the arena is as small as the unit's */
 #define RES_HOST_MAIN_WORDS (85760u / 4u)
@@ -440,6 +446,72 @@ static void scenario_random(void)
 #undef RND
     end("RANDOM");
 }
+static void scenario_stereo(void)
+{
+    static const int8_t SET[2][4][4] = {{{100, 5, 1, 3}, {0, 3, 40, 0}, {100, 2, 100, 7}, {70, -5, 60, 1}}, {{80, -7, 3, 9}, {0, 1, -60, 0}, {90, 1, 50, 2}, {100, 12, 100, 3}}};
+    static const int8_t PAN[4] = {-50, 30, 60, -20};
+    uint32_t x, k, pass, set;
+    if (!begin("STEREO")) return;
+    fresh();
+    G(G_BPM, 220);
+    G(G_RWIDE, 110); G(G_RMOD, 50);
+    for (k = 0; k < NPART; k++) { T(k, P_PAN, PAN[k]); T(k, P_CHOR, 50); T(k, P_REV, 50); }
+    run(200);
+    for (pass = 0; pass < 2u; pass++) {
+        if (pass) play();
+        for (set = 0; set < 2u; set++)
+            for (x = 0; x < 4u; x++) {
+                for (k = 0; k < 4u; k++) perf_gp[x][k] = SET[set][x][k];
+                perf_press(FLP_E[x], 1); run(x == GX_TAPE ? 500u : 900u);
+                if (x == GX_TAPE) { perf_scr += 9u; run(40); perf_scr -= 30u; run(120); }
+                perf_press(FLP_E[x], 0); run(50);
+            }
+        perf_press(PF_R16, 1); run(400); perf_press(PF_R32, 1); run(200); perf_press(PF_R32, 0); perf_press(PF_R16, 0); run(50);
+        stop();
+        run(40);
+    }
+    end("STEREO");
+}
+static void scenario_scratch(void)
+{
+    static const int8_t FALL[] = {3, -2, 7, -11, 1, 20, -30, 5};
+    static const int8_t FAST[] = {-64, 64, -100, 100, -127, 127, -63, 63, -65, 65, -1, 1, -40, 90, -127, -127, 127, 127, 127};
+    uint32_t i, pass;
+    if (!begin("SCRATCH")) return;
+    fresh();
+    run(100);
+    for (pass = 0; pass < 2u; pass++) {
+        if (pass) play();
+        /* the knob turned while the tape still falls (TIME 1/4 at 120 BPM: half a second): the detents move the hand when it stops */
+        G(G_BPM, 120);
+        perf_press(PF_TAPE, 1);
+        for (i = 0; i < sizeof FALL; i++) { run(60); perf_scr += (uint32_t)(int32_t)FALL[i]; }
+        run(700);
+        perf_scr += 4u; run(100);
+        perf_press(PF_TAPE, 0); run(60);
+        perf_gp[GX_TAPE][2] = 100;                      /* CURVE up: a longer fall */
+        perf_press(PF_TAPE, 1); run(30); perf_scr -= 25u; run(30); perf_scr += 3u; run(900); perf_press(PF_TAPE, 0); run(60);
+        perf_gp[GX_TAPE][2] = 0;
+        /* fast turns at 300 BPM: a detent is 183 samples, 64 of them stay inside the loop */
+        G(G_BPM, 300);
+        perf_press(PF_TAPE, 1);
+        run(500);
+        for (i = 0; i < sizeof FAST; i++) { perf_scr += (uint32_t)(int32_t)FAST[i]; run(25); }
+        run(100);
+        perf_press(PF_TAPE, 0); run(60);
+        /* .. and at 240 BPM with TIME 1/64 (stopped at once), the hand pulled back and let run forward */
+        G(G_BPM, 240); perf_gp[GX_TAPE][1] = 0;
+        perf_press(PF_TAPE, 1); run(100);
+        for (i = 0; i < 12u; i++) { perf_scr -= 50u; run(8); }
+        for (i = 0; i < 12u; i++) { perf_scr += 45u; run(8); }
+        run(100);
+        perf_press(PF_TAPE, 0); run(60);
+        perf_gp[GX_TAPE][1] = 4;
+        stop();
+        run(40);
+    }
+    end("SCRATCH");
+}
 static void flp_scenarios(void)
 {
     flp_nres = 0;
@@ -453,6 +525,8 @@ static void flp_scenarios(void)
     scenario_mem();
     scenario_mix();
     scenario_random();
+    scenario_stereo();
+    scenario_scratch();
 }
 #ifndef FLP_NO_MAIN
 int main(void)

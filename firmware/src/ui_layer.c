@@ -608,10 +608,11 @@ static void layer_fx_keys(int32_t h)
         }
     }
 }
+/* the cards' enumerated values (file scope since Release 3 step 8b: tests/fx_layer_module_test.c holds the FX layer module's descriptor equal to them, FXK_LABEL, FXK_MIN and FXK_MAX) */
+static const char *const FXK_GSIZE[4] = {"LONG", "MID", "SHORT", "TINY"}, *const FXK_TTIME[5] = {"1/64", "1/32", "1/16", "1/8", "1/4"};
+static const char *const FXK_SSIZE[3] = {"1/4", "1/8", "1/16"}, *const FXK_FSIZE[5] = {"1/128", "1/64", "1/32", "1/16", "1/8"};
 static void layer_fx_cards(void)
 {
-    static const char *const GSIZE[4] = {"LONG", "MID", "SHORT", "TINY"}, *const TTIME[5] = {"1/64", "1/32", "1/16", "1/8", "1/4"};
-    static const char *const SSIZE[3] = {"1/4", "1/8", "1/16"}, *const FSIZE[5] = {"1/128", "1/64", "1/32", "1/16", "1/8"};
     uint32_t g = perf_gfocus(), c;
     char val[12];
     for (c = 0; c < 4u; c++) {
@@ -623,10 +624,10 @@ static void layer_fx_cards(void)
             int32_t p = perf_gp[x][c], lo = FXK_MIN[x][c], hi = FXK_MAX[x][c];
             lb = FXK_LABEL[x][c];
             if (x == GX_TAPE && c == 0u) v = "TURN";
-            else if (x == GX_GLT && c == 2u) v = GSIZE[clamp(p, 0, 3)];
-            else if (x == GX_TAPE && c == 1u) v = TTIME[clamp(p, 0, 4)];
-            else if (x == GX_SHUF && c == 1u) v = SSIZE[clamp(p, 0, 2)];
-            else if (x == GX_FRZ && c == 3u) v = FSIZE[clamp(p, 0, 4)];
+            else if (x == GX_GLT && c == 2u) v = FXK_GSIZE[clamp(p, 0, 3)];
+            else if (x == GX_TAPE && c == 1u) v = FXK_TTIME[clamp(p, 0, 4)];
+            else if (x == GX_SHUF && c == 1u) v = FXK_SSIZE[clamp(p, 0, 2)];
+            else if (x == GX_FRZ && c == 3u) v = FXK_FSIZE[clamp(p, 0, 4)];
             else if (lb[0]) {
                 fmt_int(val, p);
                 unit = c == 1u && (x == GX_GLT || x == GX_FRZ) ? "st" : (c == 0u || c == 2u) && x != GX_TAPE ? "%" : "";

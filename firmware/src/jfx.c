@@ -47,6 +47,7 @@
  * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
  *   0.6.0: first version (Jiant 0.9.18's effects).
  */
+#include "fx_master.h"                                 /* (Release 3 step 8b) the master host's vocabulary: the FX layer's ring effects' state, context and calls (shared with the FX layer module) */
 #include "fx_send.h"                                   /* (Release 3 step 8a) the send host's vocabulary: the tank, the modes' state, the context and the call a mode's kernel gets (shared with the reverb module) */
 #include "fx_insert.h"                                 /* (Release 3 step 5) the insert host's vocabulary (fx_kernel_t, fx_ins_t; it includes dubdelay.h: dd_params_t for the size of the snapshot) */
 #define JFX_XIP __attribute__((section(".text.xip_jfx"), noinline))
