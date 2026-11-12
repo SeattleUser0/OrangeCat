@@ -31,8 +31,9 @@ PICKS = [("all", list(range(28)), 40),                                          
          ("wtb", ["wavtbl", "wav1", "terran"], 0),                               # one wave bank in the middle, the others dropped
          ("odd", ["speech", "6opb", "harp"], 0),                                 # 6OP B alone: the six-op code with banks 0 and 2 dropped
          ("wt3", ["wavtbl", "wav0", "wav1", "wav2", "terran"], 40),
-         ("tailfm", ["fm"], 0, "tail"),                                          # (the second place: FLASH_MAP_R3.md option A's tail region, 4 sectors at -59) one sector at its four starts
-         ("tail4", ["vavcf", "pd", "terran", "strmch", "chip"], 0, "tail")]      # four sectors: the whole tail, one start
+         ("tailfm", ["fm"], 0, "tail"),                                          # (the second place: FLASH_MAP_R3.md option A's tail region, 3 sectors at -58) one sector at its three starts
+         ("tail3", ["vavcf", "pd", "terran", "strmch"], 0, "tail")]              # three sectors: the whole tail, one start (-58)
+TAIL_OVER = ["vavcf", "pd", "terran", "strmch", "chip"]                          # four sectors: one more than the tail (it was the four sector tail's whole pick)
 REFUSED = [([], "nothing picked"), (["wavtbl"], "needs a wave bank"), (["wav0"], "of use to"), ([99], "no item")]
 
 
@@ -97,6 +98,16 @@ def main():
         check("refused: every model for the real area (37 sectors in 12)", False)
     except ValueError as e:
         check(f"refused: every model for the real area ({e})", "fit no start" in str(e))
+    for name, items, area, *pl in PICKS:                                        # the tail's picks are what their names say (the packer's own count and starts)
+        if pl and pl[0] == "tail":
+            _, sectors, starts = pick_module.pack(master, pick_module.pick_items(manifest, items), 0, None, "tail")
+            want = {"tailfm": (1, [-58, -57, -56]), "tail3": (3, [-58])}[name]
+            check(f"pick {name} in the tail: {sectors} sectors at {starts}", (sectors, starts) == want)
+    try:
+        pick_module.pack(master, pick_module.pick_items(manifest, TAIL_OVER), 0, None, "tail")
+        check("refused: a four sector pick for the tail (3 sectors)", False)
+    except ValueError as e:
+        check(f"refused: a four sector pick for the tail ({e})", "fit no start of the tail's 3" in str(e))
     print(f"module pick: {'all passed' if not bad else f'{bad} FAILED'}")
     return 1 if bad else 0
 

@@ -2775,7 +2775,7 @@ function ocmParse(bytes) {
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), ver = dv.getUint16(4, true);
   if (dv.getUint32(0, true) !== OCM_MAGIC || (ver !== 1 && ver !== 2)) return fail("modWrongFile");
   const n = dv.getUint16(6, true), tab = 56, m = ver === 2 && bytes.length >= tab + 32 ? dv.getUint32(tab + 28, true) : 0, hcrcAt = ver === 2 ? tab + 32 + 8 * m : tab + 16 * n;
-  if (n < 1 || n > 18 || (ver === 2 && (n !== 1 || m < 1 || m > 22)) || hcrcAt + 4 > bytes.length || crc32(bytes.subarray(0, hcrcAt)) !== dv.getUint32(hcrcAt, true)) return fail("modWrongFile");
+  if (n < 1 || n > 18 || (ver === 2 && (n !== 1 || m < 1 || m > 21)) || hcrcAt + 4 > bytes.length || crc32(bytes.subarray(0, hcrcAt)) !== dv.getUint32(hcrcAt, true)) return fail("modWrongFile");
   let name = ""; for (let i = 28; i < 44 && bytes[i]; i++) name += String.fromCharCode(bytes[i]);
   const o = { ok: true, iface: dv.getUint32(8, true), apiAddr: dv.getUint32(12, true), engine: dv.getUint32(16, true), stateSize: dv.getUint32(20, true), packHash: dv.getUint32(24, true),
               name, apiVersion: dv.getUint32(44, true), apiSize: dv.getUint32(48, true), sectors: dv.getUint32(52, true), variants: [], format: ver };

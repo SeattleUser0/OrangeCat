@@ -61,10 +61,10 @@ static inline void *fl_far(void *p) { void *volatile q = p; return q; }
 #define FL_MODULE_LO    0x000C2000u                /* 18 sectors (Release 3 step 1: 0xC2000..0xD3FFF; 0.9.1 had 12 from 0xC8000, the six below were the sample slot's) */
 #define FL_MODULE_HI    0x000D4000u
 #define FL_MODULE_BASE  0x000C8000u                /* where a module package's start 0 is: the numbering origin, kept so no published package changes meaning (a start is a signed sector from here) */
-/* (Release 3 option A, FLASH_MAP_R3.md 10) the tail region: the freed end of the app area, a second module region, only in a build with OC_MOD_TAIL=4 (core.h).
- * The app body ends below it (tools/fm1pkg_make.py BODY_MAX 0x88000, the loader's LDR_BODY_END); the marker's sector 0x91000 is never the store's. FL_PLAIN_LO: where
+/* (Release 3 option A, FLASH_MAP_R3.md 10) the tail region: the freed end of the app area, a second module region, 3 sectors, only in a build with OC_MOD_TAIL=3 (core.h).
+ * The app body ends below it (tools/fm1pkg_make.py BODY_MAX 0x89000, the loader's LDR_BODY_END); the marker's sector 0x91000 is never the store's. FL_PLAIN_LO: where
  * the plaintext XIP window begins (a module in the tail runs through it) */
-#define FL_TAIL_LO      0x0008D000u
+#define FL_TAIL_LO      0x0008E000u
 #define FL_TAIL_HI      0x00091000u
 #if defined(OC_MOD_TAIL) && OC_MOD_TAIL
 #define FL_TAIL_OK(off, n) FL_IN(off, n, FL_TAIL_LO, FL_TAIL_HI)
@@ -244,7 +244,7 @@ static RAMFN int fl_read_ram(uint32_t off, uint8_t *dst, uint32_t n)   /* 0x0B f
 static void fl_plain_window_init(void)
 {
     SFCENC_CON &= (uint8_t)~2u;
-    SFCENC_UNENC_L = FL_XIP(FL_PLAIN_LO);         /* (0x93000: the app area ends there, the pack begins; option A: 0x8D000, the tail region) */
+    SFCENC_UNENC_L = FL_XIP(FL_PLAIN_LO);         /* (0x93000: the app area ends there, the pack begins; option A: FL_TAIL_LO, 0x8E000, the tail region) */
     SFCENC_UNENC_H = 0x07FFFFFFu;
     SFCENC_CON |= 2u;
     __asm__ volatile("cli" ::: "memory");
@@ -254,9 +254,9 @@ static void fl_plain_window_init(void)
 
 #if OC_SFC_PROBE
 /* (Round 22, FLASH_MAP_R3.md 10.9 blocker 1: the bench gate; OC_SFC_PROBE builds only) does the plaintext window survive a reset? The boot stub reads its commit
- * marker (flash 0x91FE0) through XIP and expects decrypted bytes; a window from 0x8D000 that outlived a reset would show it ciphertext. fl_probe_boot_sample runs
+ * marker (flash 0x91FE0) through XIP and expects decrypted bytes; a window from the tail region (FL_TAIL_LO, 0x8E000) that outlived a reset would show it ciphertext. fl_probe_boot_sample runs
  * once at boot BEFORE fl_plain_window_init: SFCENC_CON as found (bit 1: the window on), 32 bytes at the pack's start (0x93000: plain only under the window) and the
- * 32 of the marker, both through XIP as found. fl_probe_window(lo): the window from lo (the gate sets 0x8D000 before a restart). fl_probe_stub_test: the word the
+ * 32 of the marker, both through XIP as found. fl_probe_window(lo): the window from lo (the gate sets FL_TAIL_LO before a restart). fl_probe_stub_test: the word the
  * stub takes as "check the staged loader on the way" (stub_core.h STUB_REQ_TEST, the stub's RAM at 0x01C7C000). */
 static uint8_t fl_boot_con, fl_boot_xip[64];
 static uint32_t fl_boot_unenc_l;

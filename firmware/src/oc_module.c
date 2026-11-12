@@ -111,8 +111,8 @@ static void fm1_guard_pc_window(void) { host_pc_hi = fm1_guard_pc_hi(fm1_guard_c
 #endif
 /* FL_XIP(off): the XIP address of flash offset off (hal/fm1_flash.h on the device; tests/hostsim.c for a host build) */
 /* (Release 3 option A, FLASH_MAP_R3.md 10 and its review 10.9) the modules have two PLACES: the area (18 sectors, 0xC2000..0xD3FFF) and the tail region (OC_MOD_TAIL
- * sectors at 0x8D000, the freed end of the app area). OC_MOD_TAIL is 0 until the stub window's bench gate allows the region: then the build sets 4. A start, a span and an
- * erase are always inside ONE place; a sector is the signed number from the area's first sector (0 = 0xC2000; the tail's are -53 .. -50), never an unsigned index. */
+ * sectors ending at 0x90FFF, the freed end of the app area). OC_MOD_TAIL is 0 until the stub window's bench gate allows the region: then the build sets 3 (0x8E000..0x90FFF). A start, a span and an
+ * erase are always inside ONE place; a sector is the signed number from the area's first sector (0 = 0xC2000; the tail's are -52 .. -50), never an unsigned index. */
 #define OC_MOD_AREA_STARTS 18u
 #define OC_MOD_STARTS (OC_MOD_AREA_STARTS + OC_MOD_TAIL)       /* (Release 3 step 1) the places a module can start: every sector of the 18 (0.12.1: three, sector 0, 6 and 4 of 0xC8000) */
 #define OC_MOD_AREA 18u                                        /* sectors in the area, 0xC2000..0xD3FFF (ST_MODULE_LO); 0.12.1: 12 from 0xC8000 */
@@ -120,16 +120,16 @@ static void fm1_guard_pc_window(void) { host_pc_hi = fm1_guard_pc_hi(fm1_guard_c
 /* start number -> sector from 0xC8000, signed: the numbering a package carries (its start field) and the page shows. The published packages' starts 0, 1, 2 are the sectors 0, 6 and 4
  * from there; 3.. the other sectors of 0xC8000..0xD3FFF (1, 2, 3, 5, 7 .. 11); 12..17 the six below it, numbered downward (-1 .. -6). The area itself starts at 0xC2000, six
  * sectors lower: OC_MOD_START_SECTOR is the sector in the area (0 = 0xC2000), OC_MOD_START_REL the signed one. */
-#define OC_MOD_TAIL_REL (-59)                                  /* the tail region's first sector from 0xC8000: flash 0x8D000; starts 18.. are its sectors upward */
-_Static_assert(OC_MOD_TAIL == 0u || OC_MOD_TAIL == 4u, "the tail region is 0x8D000..0x90FFF or absent");
+#define OC_MOD_TAIL_REL (-58)                                  /* the tail region's first sector from 0xC8000: flash 0x8E000; starts 18.. are its sectors upward */
+_Static_assert(OC_MOD_TAIL == 0u || OC_MOD_TAIL == 3u, "the tail region is 0x8E000..0x90FFF (3 sectors) or absent");
 _Static_assert(sizeof oc_modguard.unclean == OC_MOD_STARTS, "the guard record has a count for every start");
 static const int8_t oc_mod_sect[OC_MOD_STARTS] = { 0, 6, 4, 1, 2, 3, 5, 7, 8, 9, 10, 11, -1, -2, -3, -4, -5, -6,
 #if OC_MOD_TAIL
-                                                   OC_MOD_TAIL_REL, OC_MOD_TAIL_REL + 1, OC_MOD_TAIL_REL + 2, OC_MOD_TAIL_REL + 3,
+                                                   OC_MOD_TAIL_REL, OC_MOD_TAIL_REL + 1, OC_MOD_TAIL_REL + 2,
 #endif
                                                  };
 #define OC_MOD_START_REL(i) ((int32_t)oc_mod_sect[i])
-#define OC_MOD_START_SECTOR(i) ((int32_t)(OC_MOD_START_REL(i) + (int32_t)OC_MOD_BASE_SECTOR))   /* signed: the area's are 0..17, the tail's -53..-50 */
+#define OC_MOD_START_SECTOR(i) ((int32_t)(OC_MOD_START_REL(i) + (int32_t)OC_MOD_BASE_SECTOR))   /* signed: the area's are 0..17, the tail's -52..-50 */
 #define OC_MOD_TAIL_S0 ((int32_t)OC_MOD_TAIL_REL + (int32_t)OC_MOD_BASE_SECTOR)
 /* the place a sector is in: 0 the area, 1 the tail, -1 neither (the pack, the stores, the app: never a module's) */
 static int oc_sec_place(int32_t sec)
@@ -150,7 +150,11 @@ static uint32_t oc_sec_room(int32_t sec)
     return p == 0 ? (uint32_t)((int32_t)OC_MOD_AREA - sec) : p == 1 ? (uint32_t)(OC_MOD_TAIL_S0 + (int32_t)OC_MOD_TAIL - sec) : 0u;
 }
 static uint32_t oc_sec_flash(int32_t sec) { return (uint32_t)((int32_t)ST_MODULE_LO + sec * 0x1000); }
-_Static_assert((int32_t)ST_MODULE_LO + OC_MOD_TAIL_S0 * 0x1000 == 0x8D000, "the tail region is flash 0x8D000 (hal/fm1_flash.h FL_TAIL_LO, the loader's LDR_BODY_END)");
+_Static_assert((int32_t)ST_MODULE_LO + OC_MOD_TAIL_S0 * 0x1000 == 0x8E000 && (int32_t)ST_MODULE_LO + (OC_MOD_TAIL_S0 + 3) * 0x1000 == 0x91000,
+               "the tail region is flash 0x8E000..0x90FFF: it ends at the marker's sector (hal/fm1_flash.h FL_TAIL_LO / FL_TAIL_HI, the loader's LDR_BODY_END)");
+#ifdef FL_TAIL_LO                                              /* the firmware build includes hal/fm1_flash.h first: the two must agree */
+_Static_assert((int32_t)ST_MODULE_LO + OC_MOD_TAIL_S0 * 0x1000 == (int32_t)FL_TAIL_LO, "the tail region starts at FL_TAIL_LO");
+#endif
 /* the six sectors below 0xC8000 are the module area's only once the first boot has moved the record store out of them (smp_slot.c smp_claim; FLASH_MAP_R3.md 4B):
  * until then they may hold a live record part, so no start there is allowed, read, planned or erased */
 #ifndef OC_MOD_LOW_OK

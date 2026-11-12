@@ -82,7 +82,7 @@ static void ota_commit(const uint8_t *parm) { (void)parm; }
 static int ldr_fread(uint32_t off, void *p, uint32_t n) { memcpy(p, nor + off, n); return 0; }
 static int ldr_erase(uint32_t off)
 {
-    if (off < 0x4000u || off >= 0xFC000u || (off & 0xFFFu) || (off >= 0x8D000u && off < 0x91000u)) bad_range++;
+    if (off < 0x4000u || off >= 0xFC000u || (off & 0xFFFu) || (off >= 0x8E000u && off < 0x91000u)) bad_range++;
     if (off < 0x4000u) { printf("ERASE IN THE HEAD %#x\n", off); exit(1); }
     erases++;
     if (marker_erase_stuck && off == 0x91000u) return 0;
@@ -96,7 +96,7 @@ static int ldr_prog(uint32_t off, const void *p, uint32_t n)
     uint32_t i;
     if (prog_fail_after && !--prog_fail_after) return -1;
     /* Programming is restricted to the application. */
-    if (off < 0x4000u || off + n > 0x93000u || ((off & 0xFFu) + n) > 256u || (off + n > 0x8D000u && off < 0x91000u)) bad_range++;   /* (option A) never a byte of the tail region */
+    if (off < 0x4000u || off + n > 0x93000u || ((off & 0xFFu) + n) > 256u || (off + n > 0x8E000u && off < 0x91000u)) bad_range++;   /* (option A) never a byte of the tail region */
     for (i = 0; i < n; i++) nor[off + i] &= s[i];
     return 0;
 }
@@ -139,8 +139,8 @@ static int check(const char *what, int ok) { printf("%-56s %s\n", what, ok ? "ok
 
 
 /* (option A, FLASH_MAP_R3.md 10) what an install writes: the stub's sector, the body (the marker's length, to the sector), 0x92000 and the marker's sector; never the
- * tail region 0x8D000..0x90FFF. TAIL_B(i): the bytes the tests put in the tail before the install (stand-ins for modules), which every install must leave as they are */
-#define TAIL_LO 0x8D000u
+ * tail region 0x8E000..0x90FFF (3 sectors). TAIL_B(i): the bytes the tests put in the tail before the install (stand-ins for modules), which every install must leave as they are */
+#define TAIL_LO 0x8E000u
 #define TAIL_HI 0x91000u
 #define TAIL_B(i) ((uint8_t)(0xA5u ^ ((i) * 7u) ^ ((i) >> 8)))
 static void tail_fill(uint8_t *n) { uint32_t i; for (i = 0; i < TAIL_HI - TAIL_LO; i++) n[TAIL_LO + i] = TAIL_B(i); }
@@ -247,20 +247,26 @@ int main(int argc, char **argv)
         uint8_t saved[32], plain[32];
         ldr_chip_key(&key);
         memcpy(saved, logical+nfo+LDR_MARK_OFF, sizeof saved);
-        for (uint32_t k=0;k<6u;k++) {
+        for (uint32_t k=0;k<7u;k++) {
             memcpy(plain,saved,sizeof plain);
             ldr_sfc(plain,32,LDR_MARK_OFF-LDR_APP_LO,key);
             if (!k) plain[0]^=1u;
             else if (k==1u) plain[16]^=1u;
             else {
-                ota_wr32(plain+8,k==2u?0u:k==3u?3u:k==4u?0x8C004u:0x88004u);
+                ota_wr32(plain+8,k==2u?0u:k==3u?3u:k==4u?0x8C004u:k==5u?0x89004u:0x89000u);   /* (k 5, 6) the cap: flash 0x5000 + 0x89000 = 0x8E000, the tail's first byte */
                 ota_wr32(plain+16,ldr_crc32(plain,16));
             }
             ldr_sfc(plain,32,LDR_MARK_OFF-LDR_APP_LO,key);
             memcpy(logical+nfo+LDR_MARK_OFF,plain,32);
             erases=0;
+            if (k==6u) { memset(nor+0x8D000u,0x3C,0x1000u); tail_fill(nor); }   /* the body's last sector holds something else; the tail its stand-ins */
             rc=ldr_session();
-            bad += check(k==5u ? "a body past 0x88000 (into the tail region) refused before any erase" : "invalid stub marker refused before any erase",rc==(k==5u?-16:-15) && !erases);
+            if (k==6u) {   /* the cap itself: a body of exactly 0x89000 is taken, written up to 0x8DFFF (the sector round 23 gave back to the body) and not a byte further */
+                bad += check("a body of exactly 0x89000 installs: sector 0x8D000 written, the tail (0x8E000..) untouched",
+                             rc==0 && erases && !bad_range && tail_kept(nor) && !memcmp(nor+0x8D000u,logical+nfo+0x8D000u,0x1000u) && nor[0x8D000u]!=0x3C);
+                continue;
+            }
+            bad += check(k==5u ? "a body past 0x89000 (into the tail region, 0x8E000) refused before any erase" : "invalid stub marker refused before any erase",rc==(k==5u?-16:-15) && !erases);
         }
         memcpy(logical+nfo+LDR_MARK_OFF,saved,sizeof saved);
         static uint8_t before[0x8F000];

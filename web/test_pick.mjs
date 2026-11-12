@@ -99,22 +99,36 @@ assert.deepEqual(PICK.default(manifest), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
 }
 console.log("test_pick: all passed");
 
-// 5. (the second place) the tail region of FLASH_MAP_R3.md option A (4 sectors, 59 below 0xC8000): the packer's starts there, and the meter over both places
+// 5. (the second place) the tail region of FLASH_MAP_R3.md option A (3 sectors, 58 below 0xC8000: flash 0x8E000..0x90FFF): the packer's starts there, and the meter over both places
 {
-  assert.deepEqual(manifest.places, [{ name: "area", first: -6, last: 12 }, { name: "tail", first: -59, last: -55 }]);
+  assert.deepEqual(manifest.places, [{ name: "area", first: -6, last: 12 }, { name: "tail", first: -58, last: -55 }]);
   const tailStarts = PICK.startsFor(manifest, 3, null, "tail");
-  assert.deepEqual(tailStarts, [-59, -58], "a 3 sector pick has two starts in the tail");
+  assert.deepEqual(tailStarts, [-58], "a 3 sector pick fills the tail: one start, its first sector");
+  assert.deepEqual(PICK.startsFor(manifest, 2, null, "tail"), [-58, -57], "a 2 sector pick has two starts in the tail");
+  assert.deepEqual(PICK.startsFor(manifest, 4, null, "tail"), [], "a 4 sector pick has none (one more than the tail)");
   assert.deepEqual(PICK.startsFor(manifest, 5, null, "tail"), [], "a 5 sector pick has none");
   const one = PICK.pack(master, PICK.items(manifest, ["fm"]), 0, null, "tail");
-  assert.ok(one.ocm && one.starts.join() === "-59,-58,-57,-56", "a one sector pick packs for the tail: " + (one.error || one.starts));
+  assert.ok(one.ocm && one.starts.join() === "-58,-57,-56", "a one sector pick packs for the tail: " + (one.error || one.starts));
   const full = [{ name: "SHAPES", sectors: 6, only: "area" }, { name: "WHEEL", sectors: 1, only: "area" }, { name: "DUB TAPE", sectors: 3 }, { name: "REVERB", sectors: 1 }, { name: "FX", sectors: 2 }];
-  const places = [{ name: "area", label: "module area", sectors: 18 }, { name: "tail", label: "tail region", sectors: 4 }];
-  const def = PICK.room(manifest, img0.length, PICK.default(manifest), places, full);
-  assert.ok(def.ok && def.place === "area", "the default pick (9) goes in the area beside the full set, the tail taking DUB TAPE and the reverb: " + def.text);
+  const tail = manifest.places[1].last - manifest.places[1].first;
+  assert.equal(tail, 3, "the tail region is 3 sectors");
+  const places = [{ name: "area", label: "module area", sectors: 18 }, { name: "tail", label: "tail region", sectors: tail }];
+  // the full set (13 sectors) and the default pick (9) are 22 on 21: one too many (the four sector tail held them: FLASH_MAP_R3.md 10.5). Without the reverb mode, or
+  // without the 2 sector effect, the pick goes in the area and DUB TAPE fills the tail
+  const over = PICK.room(manifest, img0.length, PICK.default(manifest), places, full);
+  assert.ok(over.need === 9 && over.taken === 13 && !over.ok && over.free === 8 && /needs 9 in one piece: 1 too many/.test(over.text), "the default pick (9) beside the full set (13) on 21 sectors: one too many: " + over.text);
+  const def = PICK.room(manifest, img0.length, PICK.default(manifest), places, full.filter((o) => o.name !== "REVERB"));
+  assert.ok(def.ok && def.place === "area" && /nothing to spare/.test(def.text) && /DUB TAPE 3 \(tail region\)/.test(def.text) && /0 left in the tail region/.test(def.text),
+    "the default pick (9) goes in the area beside SHAPES, WHEEL and the 2 sector effect, the tail taking DUB TAPE: 21 of 21: " + def.text);
+  const def1 = PICK.room(manifest, img0.length, PICK.default(manifest), places, full.filter((o) => o.name !== "FX"));
+  assert.ok(def1.ok && def1.place === "area", "the same with the reverb mode in place of the 2 sector effect (20 of 21): " + def1.text);
   const big = PICK.room(manifest, img0.length, PICK.items(manifest, ["wavtbl", "wav0", "wav1", "wav2"]), places, full);
   assert.ok(!big.ok && /too many/.test(big.text) && /Leave a model or a wave bank out/.test(big.text), "a large pick is refused with the room line: " + big.text);
-  const small = PICK.room(manifest, img0.length, PICK.items(manifest, ["fm"]), places, [{ name: "SHAPES", sectors: 6, only: "area" }, { name: "EXTRA", sectors: 12, only: "area" }, { name: "DUB TAPE", sectors: 3 }]);
-  assert.ok(small.ok && small.place === "tail", "with the area full, a small pick goes in the tail: " + small.text);
+  const areaFull = [{ name: "SHAPES", sectors: 6, only: "area" }, { name: "EXTRA", sectors: 12, only: "area" }];
+  const small = PICK.room(manifest, img0.length, PICK.items(manifest, ["fm"]), places, [...areaFull, { name: "FX", sectors: 2 }]);
+  assert.ok(small.ok && small.place === "tail" && /nothing to spare/.test(small.text), "with the area full and a 2 sector effect in the tail, a one sector pick takes the tail's last sector: " + small.text);
+  const none = PICK.room(manifest, img0.length, PICK.items(manifest, ["fm"]), places, [...areaFull, { name: "DUB TAPE", sectors: 3 }]);
+  assert.ok(!none.ok && none.free === 0 && /1 too many/.test(none.text), "with the area full and DUB TAPE in the tail (it fills it: 3 of 3), even a one sector pick has no room: " + none.text);
   const pk = PICK.pack(master, PICK.default(manifest), 0, null, "area");
   assert.ok(pk.ocm, "the default pick packs for the area");
   console.log("test_pick: the second place: " + def.text);

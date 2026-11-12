@@ -821,9 +821,9 @@ struct { uint32_t magic, failed, pending; } bootguard __attribute__((section(".n
  * The magic is new in 0.10.1 (the layout grew): RAM that kept the old layout across an update reads as fresh. 0.12.1: three starts (unclean[3]; the
  * word is the same size), so the magic changed again. */
 #ifndef OC_MOD_TAIL
-#define OC_MOD_TAIL 0u                                         /* (Release 3 option A) the tail region's sectors: 0 (off) or 4 (oc_module.c, FLASH_MAP_R3.md 10) */
+#define OC_MOD_TAIL 0u                                         /* (Release 3 option A) the tail region's sectors: 0 (off) or 3 (oc_module.c, FLASH_MAP_R3.md 10) */
 #endif
-#define OC_MODGUARD_MAGIC (OC_MOD_TAIL ? 0x4D4F4435u : 0x4D4F4434u)   /* "MOD5" with the tail's four starts (a record of the other size is discarded) */
+#define OC_MODGUARD_MAGIC (OC_MOD_TAIL ? 0x4D4F4436u : 0x4D4F4434u)   /* "MOD6" with the tail's three starts (round 23; "MOD5" was the four sector tail's, 22 counts) (a record of the other size is discarded) */
 #define OC_MODGUARD_MAGIC_R3 0x4D4F4434u                          /* "MOD4" (Release 3 step 1: eighteen starts; 0.12.1: three) */
 #ifndef OC_MODULE                                               /* (a module's own translation unit, tools/module/shapes_mod.c, has no RAM of its own) */
 struct { uint32_t magic, inuse, banned, run, notice; uint8_t unclean[18u + OC_MOD_TAIL]; } oc_modguard __attribute__((section(".noinit")));

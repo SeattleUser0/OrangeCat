@@ -335,7 +335,7 @@ web_tests() {                                     # the editor mock's tables mus
         step "web backup: capture, validation before writes, restore order" node web/test_backup.mjs
         step "stock restore: the unmodified official V15 file is the image, CHECK HEAD range" node web/test_stock_restore.mjs
         step "installer page: the room meter's placement against the unit loader's own planner (oc_mod_plan, oc_fxmod_plan), random and edge unit states, mutants caught" node web/test_place.mjs
-        step "installer page: the same with the tail region (FLASH_MAP_R3.md option A: OC_MOD_TAIL=4, 22 starts in two places, effect modules plan the tail first)" env PLACE_TAIL=4 node web/test_place.mjs
+        step "installer page: the same with the tail region (FLASH_MAP_R3.md option A: OC_MOD_TAIL=3, 21 starts in two places, effect modules plan the tail first; the goal set one sector short)" env PLACE_TAIL=3 node web/test_place.mjs
         step "relocatable modules (Orange Cat 0.14.1): the page's relocation = ocflash.py's, the build's packages = their variants, damaged lists refused" node web/test_ocm.mjs
         step "the model picker's packer (web/fm1pick.js): the linker's picks and tools/pick_module.py's reproduced byte for byte, refusals, the pick block, the room meter" node web/test_pick.mjs
         # (Orange Cat 0.14.2, Session D) the web app (web/app): its project codec's layout and fixtures from the firmware's C (tests/app_layout.c), then its tests
@@ -589,8 +589,8 @@ core && t "effect modules (Release 3 step 4): the kind field, fx_desc_t, the Eff
 core && t "DUB TAPE module (Release 3 step 6): the real image (build/module/dub.*.img) through the loader, the install and the page/card check, the descriptor out of the flash, each mutation refused" fx_dub_image_test -O1 $FW -DOC_MODULE_WINS=1 -- "$OUT/fx_dub_image_test" build/module
 core && t "effect modules (Release 3 step 4): the same with the built-in SHAPES winning no slot (OC_MODULE_WINS 0)" fx_module_shadow:fx_module_test -O1 $FW -DOC_MODULE_WINS=0 -DMELODEE_MACRO_PICK=1
 core && t "effect modules (Release 3 step 4): SHAPES built out" fx_module_out:fx_module_test -O1 $FW -DMELODEE_SHAPES=0 -DMELODEE_MACRO_PICK=1
-core && t "effect modules with the tail region (option A, OC_MOD_TAIL=4): spans and erases inside one place, a remove at a tail start erases, the tail first" fx_module_tail:fx_module_test -O1 $FW -DOC_MODULE_WINS=1 -DMELODEE_MACRO_PICK=1 -DOC_MOD_TAIL=4u
-core && t "module loader with the tail region (OC_MOD_TAIL=4): every case of the loader with 22 starts" oc_module_tail:oc_module_test -O1 $FW -DOC_MODULE_WINS=1 -DOC_MOD_TAIL=4u
+core && t "effect modules with the tail region (option A, OC_MOD_TAIL=3): spans and erases inside one place, a remove at a tail start erases, the tail first" fx_module_tail:fx_module_test -O1 $FW -DOC_MODULE_WINS=1 -DMELODEE_MACRO_PICK=1 -DOC_MOD_TAIL=3u
+core && t "module loader with the tail region (OC_MOD_TAIL=3): every case of the loader with 21 starts" oc_module_tail:oc_module_test -O1 $FW -DOC_MODULE_WINS=1 -DOC_MOD_TAIL=3u
 core && t "the card installers against the real loaders on a simulated NOR (0.13.4): a damaged pack or module, a bad link address, a record on a sector tail, a set with one bad file: refused with zero erases, the old pack and module still working" card_install_test -O1 $FW -DOC_MODULE_WINS=1
 # (Orange Cat 0.12.2, Part 2b) the fuzzers: fixed seeds, FUZZ_SECONDS each (default 3); a long run is FUZZ_SECONDS=1800 tests/run_tests.sh (30 minutes each; the
 # mutation counts are printed). Each stops at its first finding with the seed, the round and the mutations that made it.

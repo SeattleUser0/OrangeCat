@@ -18,8 +18,8 @@
 #include "fm1_time.h"
 #include "fm1_sys.h"
 /* the loader writes the app area and erases update records; never the head */
-/* (option A, FLASH_MAP_R3.md 10.9 item 6) never the tail region 0x8D000..0x90FFF either: the driver itself refuses it, whatever ldr_core.c asks */
-#define LDR_WR_OK(off, n) (FL_IN(off, n, 0x4000u, 0x8D000u) || FL_IN(off, n, 0x91000u, 0x93000u))
+/* (option A, FLASH_MAP_R3.md 10.9 item 6) never the tail region 0x8E000..0x90FFF either: the driver itself refuses it, whatever ldr_core.c asks */
+#define LDR_WR_OK(off, n) (FL_IN(off, n, 0x4000u, 0x8E000u) || FL_IN(off, n, 0x91000u, 0x93000u))
 #define FL_RANGE_OK(off, n) (LDR_WR_OK(off, n) || FL_IN(off, n, 0x93000u, 0xFC000u))
 #include "fm1_flash.h"
 #include "../src/libc.c"

@@ -14,7 +14,7 @@
  * 0x01C7FD50.. is reserved: boot_info, boot-state mailbox, vector table. */
 MEMORY
 {
-    XIP    (rx)  : ORIGIN = 0x02001000, LENGTH = 0x88000   /* (option A) the body ends before the tail region 0x8D000 (tools/fm1pkg_make.py BODY_MAX, the loader's LDR_BODY_MAX); the marker's sector is 0x91000 */
+    XIP    (rx)  : ORIGIN = 0x02001000, LENGTH = 0x89000   /* (option A) the body ends before the tail region 0x8E000 (tools/fm1pkg_make.py BODY_MAX, the loader's LDR_BODY_MAX); the marker's sector is 0x91000 */
     RAMTEXT (rwx): ORIGIN = 0x01C00000, LENGTH = 0x7F00
     RAM    (rwx) : ORIGIN = 0x01C08000, LENGTH = 96K
     POOL   (rwx) : ORIGIN = 0x01C20000, LENGTH = 0x54000

@@ -111,7 +111,7 @@ static void ota_commit(const uint8_t *parm) { (void)parm; }
 static int ldr_fread(uint32_t off, void *p, uint32_t n) { memcpy(p, nor + off, n); return 0; }
 static int ldr_erase(uint32_t off)
 {
-    if (off < 0x4000u || off >= 0xFC000u || (off & 0xFFFu) || (off >= 0x8D000u && off < 0x91000u)) bad_range++;
+    if (off < 0x4000u || off >= 0xFC000u || (off & 0xFFFu) || (off >= 0x8E000u && off < 0x91000u)) bad_range++;
     if (off < 0x4000u) { printf("ERASE IN THE HEAD %#x\n", off); exit(1); }
     erases++;
     memset(nor + off, 0xFF, 0x1000);
@@ -122,7 +122,7 @@ static int ldr_prog(uint32_t off, const void *p, uint32_t n)
 {
     const uint8_t *s = p;
     uint32_t i;
-    if (off < 0x4000u || off + n > 0x93000u || ((off & 0xFFu) + n) > 256u || (off + n > 0x8D000u && off < 0x91000u)) bad_range++;   /* (option A) never a byte of the tail region */
+    if (off < 0x4000u || off + n > 0x93000u || ((off & 0xFFu) + n) > 256u || (off + n > 0x8E000u && off < 0x91000u)) bad_range++;   /* (option A) never a byte of the tail region */
     for (i = 0; i < n; i++) nor[off + i] &= s[i];
     op_done(off);
     return 0;
@@ -164,8 +164,8 @@ static uint32_t flash_off(const uint8_t *lg)        /* flash.bin offset in the l
 
 
 /* (option A, FLASH_MAP_R3.md 10) what an install writes: the stub's sector, the body (the marker's length, to the sector), 0x92000 and the marker's sector; never the
- * tail region 0x8D000..0x90FFF. TAIL_B(i): the bytes the tests put in the tail before the install (stand-ins for modules), which every install must leave as they are */
-#define TAIL_LO 0x8D000u
+ * tail region 0x8E000..0x90FFF (3 sectors). TAIL_B(i): the bytes the tests put in the tail before the install (stand-ins for modules), which every install must leave as they are */
+#define TAIL_LO 0x8E000u
 #define TAIL_HI 0x91000u
 #define TAIL_B(i) ((uint8_t)(0xA5u ^ ((i) * 7u) ^ ((i) >> 8)))
 static void tail_fill(uint8_t *n) { uint32_t i; for (i = 0; i < TAIL_HI - TAIL_LO; i++) n[TAIL_LO + i] = TAIL_B(i); }

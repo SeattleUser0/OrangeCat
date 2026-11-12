@@ -26,7 +26,7 @@
  *   b. sector 0x4000 (the directory and the stub), only if it differs from the
  *      flash: the one window without a working stub. It is the same bytes in
  *      every build with the same stub, so normally nothing is written here;
- *   c. the body, 0x5000 .. its length (at most 0x88000), and 0x92000..0x92FFF; never the tail region 0x8D000..0x90FFF (option A);
+ *   c. the body, 0x5000 .. its length (at most 0x89000), and 0x92000..0x92FFF; never the tail region 0x8E000..0x90FFF (option A);
  *   d. the marker's sector last (its last page holds the marker).
  * A package without the marker is refused (-17) before any erase: the old address order wrote the tail region too.
  * Power loss during 3 (the SPL does not start the loader from the flash copy
@@ -45,11 +45,12 @@
 #define LDR_STUB_SEC 0x4000u                    /* the directory and the boot stub */
 #define LDR_MARK_SEC 0x91000u                   /* stub_core.h STUB_MARK_SEC, STUB_MARK_OFF */
 #define LDR_MARK_OFF 0x91FE0u
-/* (Release 3, FLASH_MAP_R3.md 10: option A) the app body ends at 0x8D000: 0x8D000..0x90FFF is the TAIL REGION, a second module region the installer owns.
+/* (Release 3, FLASH_MAP_R3.md 10: option A) the app body ends at 0x8E000: 0x8E000..0x90FFF is the TAIL REGION (3 sectors; 4 from 0x8D000 until round 23
+ * gave the firmware one more sector), a second module region the installer owns.
  * This loader writes the body (0x5000 .. its length, never past LDR_BODY_END), the stub's sector, the last app sector (0x92000, the SDK's cfg_tool) and the
- * marker's sector, and NEVER the tail: a firmware update leaves the tail's modules as they are. The body's longest length is 0x88000 */
+ * marker's sector, and NEVER the tail: a firmware update leaves the tail's modules as they are. The body's longest length is LDR_BODY_MAX, 0x89000 */
 #define LDR_BODY_LO 0x5000u
-#define LDR_BODY_END 0x8D000u
+#define LDR_BODY_END 0x8E000u
 #define LDR_BODY_MAX (LDR_BODY_END - LDR_BODY_LO)
 #define LDR_LAST_SEC 0x92000u
 

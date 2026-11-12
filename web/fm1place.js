@@ -7,10 +7,11 @@
 // are the module area's only once the unit says so) and nfxmod (the Effects table's entries in use). A start: {state, kind, mid, engine, length}; state 7 = ok.
 // (everything is inside one function: the page's script is these library files joined, so no helper name may be a global)
 export const PLACE = (() => {
-// (option A, FLASH_MAP_R3.md 10) two places: the area (starts 0..17) and, on a unit that has it, the tail region (starts 18..21: sectors -59..-56 from 0xC8000, flash 0x8D000).
-// A state has 18 starts or 22 (s.starts.length); a span and every overlap are inside one place; an effect or models module tries the tail first (oc_module.c OC_FX_ORDER).
-const OC_SECT = [0, 6, 4, 1, 2, 3, 5, 7, 8, 9, 10, 11, -1, -2, -3, -4, -5, -6, -59, -58, -57, -56];
-const OC_TAIL = 4, OC_TAIL_S0 = -59 + 6;
+// (option A, FLASH_MAP_R3.md 10) two places: the area (starts 0..17) and, on a unit that has it, the tail region (starts 18..20: sectors -58..-56 from 0xC8000, flash 0x8E000..0x90FFF;
+// OC_TAIL sectors from OC_TAIL_REL: round 23 gave the firmware the fourth sector, 0x8D000).
+// A state has 18 starts or 21 (s.starts.length); a span and every overlap are inside one place; an effect or models module tries the tail first (oc_module.c OC_FX_ORDER).
+const OC_TAIL = 3, OC_TAIL_REL = -58, OC_TAIL_S0 = OC_TAIL_REL + 6;
+const OC_SECT = [0, 6, 4, 1, 2, 3, 5, 7, 8, 9, 10, 11, -1, -2, -3, -4, -5, -6, ...Array.from({ length: OC_TAIL }, (_, k) => OC_TAIL_REL + k)];
 const OC_STARTS = 18, OC_AREA = 18, OC_BASE = 6, OC_FX_TABLE = 8, OC_FX_MAX = 8;
 const OC_FX_ENGINE = 0xFFFF;
 const ENG_GEO = { 14: { sectors: 6, starts: 0x03 }, 19: { sectors: 8, starts: 0x05 }, 7: { sectors: 4, starts: 0x03 } };   // SHAPES, the Prophet, WHEEL (oc_mod_geo)
@@ -129,7 +130,7 @@ function biggestRun(s, mid = 0x4D08) {
 // null when the unit has not been read (no MOD_INFO): the meter then says so and Install reads the unit first.
 function fromUnit(unit) {
   if (!unit || !unit.mod || !unit.mod.starts) return null;
-  const tail = unit.mod.starts.length > OC_STARTS ? 1 : 0;                  // (option A) a unit with the tail region reports 22 starts
+  const tail = unit.mod.starts.length > OC_STARTS ? 1 : 0;                  // (option A) a unit with the tail region reports 21 starts
   const s = emptyState(!!unit.mod.lowOk, tail), fx = unit.fx && unit.fx.effects ? unit.fx.effects : [];
   unit.mod.starts.slice(0, s.starts.length).forEach((x, i) => { s.starts[i] = { state: x.state, kind: 0, mid: 0, engine: x.engine === 127 ? OC_FX_ENGINE : x.engine, length: x.length || 0 }; });
   for (const e of fx) {
@@ -146,5 +147,5 @@ function whyNot(s, mods, r) {
   const run = m.engine == null ? biggestRun(t, m.mid) : 0;
   return m.engine == null ? name + " needs " + m.sectors + " sectors in one run; the biggest run the unit's loader can use is " + run + "." : name + " has no start the unit's loader allows.";
 }
-return { plan, planEngine, planFx, apply, simulate, fromUnit, emptyState, cloneState, biggestRun, whyNot, OC_SECT, OC_STARTS, OC_AREA, OC_BASE, OC_TAIL, OC_FX_ENGINE, ENG_GEO, ENG_GEO_TAIL };
+return { plan, planEngine, planFx, apply, simulate, fromUnit, emptyState, cloneState, biggestRun, whyNot, OC_SECT, OC_STARTS, OC_AREA, OC_BASE, OC_TAIL, OC_TAIL_REL, OC_FX_ENGINE, ENG_GEO, ENG_GEO_TAIL };
 })();

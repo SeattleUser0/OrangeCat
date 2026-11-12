@@ -11,12 +11,14 @@ import { join } from "node:path";
 import { PLACE } from "./fm1place.js";
 const { ENG_GEO, OC_STARTS, OC_FX_ENGINE, emptyState, plan, simulate } = PLACE;
 
-// (option A) PLACE_TAIL=4: the same against a loader built with the tail region (22 starts, two places)
-const TAIL = process.env.PLACE_TAIL === "4" ? 4 : 0, NST = 18 + TAIL;
+// (option A) PLACE_TAIL=3: the same against a loader built with the tail region (21 starts, two places; the library's OC_TAIL, 3 sectors: any other value is refused,
+// so a stale PLACE_TAIL=4 fails here and does not quietly test the unit without a tail)
+if (process.env.PLACE_TAIL && process.env.PLACE_TAIL !== "0" && process.env.PLACE_TAIL !== String(PLACE.OC_TAIL)) { console.log("place: PLACE_TAIL=" + process.env.PLACE_TAIL + ", the tail region is " + PLACE.OC_TAIL + " sectors (or 0)"); process.exit(1); }
+const TAIL = process.env.PLACE_TAIL === String(PLACE.OC_TAIL) ? PLACE.OC_TAIL : 0, NST = 18 + TAIL;
 let oracle = process.env.PLAN_ORACLE || "";
 if (!oracle || !existsSync(oracle)) {                                  // built here from the loader's own source (tests/plan_oracle.c includes firmware/src/oc_module.c)
   oracle = join(mkdtempSync(join(tmpdir(), "oc-place-")), "plan_oracle");
-  const b = spawnSync(process.env.CC || "cc", ["-O1", "-w", "-Ibuild/gen", "-Ifirmware/src", "-DOC_MODULE_WINS=1", "-DMELODEE_MACRO_PICK=1", ...(TAIL ? ["-DOC_MOD_TAIL=4u"] : []), "tests/plan_oracle.c", "-lm", "-o", oracle], { encoding: "utf8" });
+  const b = spawnSync(process.env.CC || "cc", ["-O1", "-w", "-Ibuild/gen", "-Ifirmware/src", "-DOC_MODULE_WINS=1", "-DMELODEE_MACRO_PICK=1", ...(TAIL ? ["-DOC_MOD_TAIL=" + TAIL + "u"] : []), "tests/plan_oracle.c", "-lm", "-o", oracle], { encoding: "utf8" });
   if (b.status !== 0) { console.log("place: the oracle did not build\n" + b.stderr); process.exit(1); }
 }
 if (OC_STARTS !== 18 || !ENG_GEO || !ENG_GEO[14] || OC_FX_ENGINE !== 0xFFFF) { console.log("place: the library's constants are missing"); process.exit(1); }
@@ -96,18 +98,52 @@ console.log("place: " + cases.length + " unit states x " + q.length + " modules 
   const r2 = simulate(s, [{ engine: 14 }, { mid: 0x4D08, sectors: 9 }]);
   console.log("place: SHAPES alone then a 9 sector pick: " + (r2.ok ? "places at start " + r2.steps[1].start : "refused (the default pick has no run)"));
   if (TAIL) {
-    // (option A, FLASH_MAP_R3.md 10.5) the goal: SHAPES, the default pick (14 models, 9 sectors), WHEEL re-cut, a 2 sector effect module, DUB TAPE (3) and a 1 sector reverb mode:
-    // 22 sectors of 22, in the order SHAPES, the models, then the small modules. The placement rule (the longest run left) is what makes it fit
-    const goal = [{ engine: 14 }, { mid: 0x4D08, sectors: 9 }, { engine: 7 }, { mid: 0x1002, sectors: 2 }, { mid: 0x1001, sectors: 3 }, { mid: 0x1003, sectors: 1 }];
-    const g = simulate(emptyState(true, TAIL), goal), cover = new Set();
-    let inside = g.ok;                                            // every sector of every span: in the area (-6 .. 11) or the tail (-59 .. -56), and nobody else's
-    if (g.ok) g.steps.forEach((x) => { const n = x.mod.engine != null ? PLACE.ENG_GEO_TAIL[x.mod.engine].sectors : x.mod.sectors; for (let q = 0; q < n; q++) { const v = PLACE.OC_SECT[x.start] + q; if (cover.has(v) || !((v >= -6 && v <= 11) || (v >= -59 && v <= -56))) inside = false; cover.add(v); } });
-    const used = cover.size, okg = g.ok && inside && used === 22 && g.steps.map((x) => x.start).join(" ") === "1 17 5 2 18 21";
-    console.log("place: the goal set on an empty unit (SHAPES, a 9 sector pick, WHEEL, 2, DUB TAPE 3, 1): " + (okg ? "all placed, 22 of 22 sectors, starts " + g.steps.map((x) => x.start).join(" ") + " ok" : "FAIL at " + g.failAt + " " + JSON.stringify(g.steps.map((x) => x.start))));
-    if (!okg) bad++;
+    // (option A, FLASH_MAP_R3.md 10.5) the goal was SHAPES (6), the default pick (14 models, 9 sectors), WHEEL re-cut (1), a 2 sector effect module, DUB TAPE (3) and a 1 sector
+    // reverb mode: 22 sectors, which the four sector tail held exactly. Round 23 gave the firmware the tail's first sector: 21 sectors (18 + 3), so the full set is ONE SHORT.
+    // What fits: SHAPES, the pick, WHEEL (16 of the area's 18), DUB TAPE (the whole tail), and ONE of the two small modules in the area's last two sectors.
+    const S = { engine: 14 }, P = { mid: 0x4D08, sectors: 9 }, W = { engine: 7 }, F = { mid: 0x1002, sectors: 2 }, D = { mid: 0x1001, sectors: 3 }, R = { mid: 0x1003, sectors: 1 };
+    const nsecOf = (m) => m.engine != null ? PLACE.ENG_GEO_TAIL[m.engine].sectors : m.sectors;
+    const T0 = PLACE.OC_TAIL_REL, T1 = T0 + PLACE.OC_TAIL - 1, room = PLACE.OC_AREA + PLACE.OC_TAIL;
+    const cover = (g) => {                                         // the sectors the placed modules hold, or null: every one in the area (-6 .. 11) or the tail (T0 .. T1), nobody else's
+      const c = new Set(); let inside = true;
+      g.steps.forEach((x) => { for (let q = 0; q < nsecOf(x.mod); q++) { const v = PLACE.OC_SECT[x.start] + q; if (c.has(v) || !((v >= -6 && v <= 11) || (v >= T0 && v <= T1))) inside = false; c.add(v); } });
+      return inside ? c : null;
+    };
+    const starts = (g) => g.steps.map((x) => x.start).join(" ");
+    const fits = (name, set, want, used) => {
+      const g = simulate(emptyState(true, TAIL), set), c = g.ok ? cover(g) : null, ok = g.ok && !!c && c.size === used && used === set.reduce((n, m) => n + nsecOf(m), 0) && starts(g) === want;
+      console.log("place: " + name + ": " + (ok ? "all placed, " + used + " of " + room + " sectors, starts " + starts(g) + " ok" : "FAIL at " + g.failAt + " [" + starts(g) + "]" + (c ? " " + c.size + " sectors" : "")));
+      if (!ok) bad++;
+    };
+    if (T0 !== -58 || T1 !== -56 || room !== 21) { console.log("place: the tail is not sectors -58 .. -56 (21 sectors with the area)"); bad++; }
+    fits("the goal set less the reverb mode (SHAPES, a 9 sector pick, WHEEL, a 2 sector effect, DUB TAPE 3)", [S, P, W, F, D], "1 17 5 2 18", 21);
+    fits("the goal set less the 2 sector effect (SHAPES, a 9 sector pick, WHEEL, DUB TAPE 3, a 1 sector reverb mode)", [S, P, W, D, R], "1 17 5 18 2", 20);
+    // the limit, on record: the full goal set is 22 sectors on 21. In the goal's order the first five place as above and the sixth (1 sector) finds nothing: short by exactly one.
+    // And no order of the six places them all (720 orders), so it is the room, not the order
+    {
+      const goal = [S, P, W, F, D, R], need = goal.reduce((n, m) => n + nsecOf(m), 0), g = simulate(emptyState(true, TAIL), goal), c = cover(g);
+      const perm = (a) => a.length <= 1 ? [a] : a.flatMap((x, i) => perm([...a.slice(0, i), ...a.slice(i + 1)]).map((q) => [x, ...q]));
+      const any = perm(goal).filter((o) => simulate(emptyState(true, TAIL), o).ok).length;
+      const left = c ? room - c.size : -1, okf = need === 22 && room === 21 && need - room === 1 && !g.ok && g.failAt === 5 && starts(g) === "1 17 5 2 18" && left === 0 && nsecOf(goal[g.failAt]) - left === 1 && any === 0;
+      console.log("place: the full goal set (22 sectors: SHAPES 6, the pick 9, WHEEL 1, 2, DUB TAPE 3, 1) on " + room + ": " +
+        (okf ? "refused at the last module (the 1 sector reverb mode): 21 placed, 0 free, one sector short; no order of the six fits ok" : "FAIL: " + JSON.stringify({ ok: g.ok, failAt: g.failAt, starts: starts(g), left, need, any })));
+      if (!okf) bad++;
+      // (the four sector tail placed all six at starts 1 17 5 2 18 21: start 21 is gone)
+      if (PLACE.OC_SECT.length !== 21 || emptyState(true, TAIL).starts.length !== 21) { console.log("place: FAIL: a unit with the tail has 21 starts"); bad++; }
+    }
+    // DUB TAPE fills the tail exactly: its only tail start is the first (-58); a small module that took a tail sector first would leave it no run of three there
+    {
+      const e = emptyState(true, TAIL), d = plan(e, D), u = emptyState(true, TAIL);
+      u.starts[19] = { state: 7, kind: 1, mid: 0x1003, engine: OC_FX_ENGINE, length: 4096 }; u.nfxmod = 1;
+      const d2 = plan(u, D), okd = d === 18 && PLACE.OC_SECT[d] === -58 && d2 >= 0 && d2 < 18;
+      console.log("place: DUB TAPE (3 sectors) on an empty unit: " + (okd ? "start 18 (sector -58, the whole tail); with a module on the tail's second sector it goes to the area (start " + d2 + ") ok" : "FAIL: " + d + " " + d2));
+      if (!okd) bad++;
+    }
+    const goal = [S, P, W, F, D];
     // the same set in the old order (the pick last) does not fit: the page must install SHAPES, the models, then the small ones
-    const old = simulate(emptyState(true, TAIL), [goal[0], goal[2], goal[3], goal[4], goal[5], goal[1]]);
-    console.log("place: the goal set with the pick last: " + (old.ok ? "placed" : "refused at the pick (the order matters)"));
+    const old = simulate(emptyState(true, TAIL), [goal[0], goal[2], goal[3], goal[4], goal[1]]);
+    console.log("place: the set that fits with the pick last: " + (old.ok ? "placed" : "refused at the pick (the order matters)"));
+    if (old.ok || old.failAt !== 4) bad++;
     // a unit as the Nightly leaves it today (SHAPES at start 0, WHEEL at start 1, DUB TAPE at start 14): the pick has no run until the modules are put on again in the goal's order
     let u = emptyState(true, TAIL);
     u.starts[0] = { state: 7, kind: 0, mid: 0, engine: 14, length: 24160 }; u.starts[1] = { state: 7, kind: 0, mid: 0, engine: 7, length: 2928 };

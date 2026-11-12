@@ -693,14 +693,14 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             if (a[1]) fm1_enc_log.w = 0;
             break;
         }
-        if (na == 4u && a[0] == 4u) {                /* .. [4, window (0 as it is, 1 from 0x8D000), restart (0 core reset, 1 the watchdog, 2 core reset with the stub's test request), 0x5A]:
+        if (na == 4u && a[0] == 4u) {                /* .. [4, window (0 as it is, 1 from the tail region: FL_TAIL_LO), restart (0 core reset, 1 the watchdog, 2 core reset with the stub's test request), 0x5A]:
                                                       * no reply; the unit restarts. Stop the transport first. */
             if (a[1] > 1u || a[2] > 2u || a[3] != 0x5Au) { ed_b(127); break; }   /* (review) the last byte is 0x5A: a stray request restarts nothing */
             if (a[2] == 1u && !(fm1_p33_read(FM1_P3_WDT_CON) & 0x10u)) { ed_b(126); break; }   /* (review) the watchdog is not armed: it would hang here */
             fm1_irq_off();
             fm1_core1_stop();                        /* (review) nothing of the second core in XIP while the window's register is rewritten */
             reset_intended();                        /* (review) before the watchdog's wait too: a test restart is not a failed boot or a module's crash */
-            if (a[1]) fl_probe_window(0x8D000u);
+            if (a[1]) fl_probe_window(FL_TAIL_LO);
             if (a[2] == 1u) { for (;;) ; }           /* the watchdog ends it (never fed again) */
             if (a[2] == 2u) fl_probe_stub_test();
             fm1_core_reset();
