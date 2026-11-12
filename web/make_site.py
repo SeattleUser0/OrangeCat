@@ -274,7 +274,7 @@ def check_set(pak, ocms, manifest):
             raise SystemExit(f"{ocm}: not a module package")
         m = struct.unpack_from("<I", b, 84)[0] if ver == 2 else 0     # (0.14.1) format 2: one relocatable image and the starts it was proved for
         head = 56 + 32 + 8 * m if ver == 2 else 56 + 16 * n
-        if not m <= 8 or zlib.crc32(b[:head]) != struct.unpack_from("<I", b, head)[0]:
+        if not m <= 21 or zlib.crc32(b[:head]) != struct.unpack_from("<I", b, head)[0]:   # (round 23) up to 21 starts: the area's 18 and the tail region's 3
             raise SystemExit(f"{ocm}: damaged (header CRC)")
         if iface != info["iface"] or api_addr != info["api_addr"]:
             raise SystemExit(f"{ocm}: interface {iface:08x} at {api_addr:#x} is not the firmware's ({info['iface']:08x} at {info['api_addr']:#x})")
@@ -284,7 +284,9 @@ def check_set(pak, ocms, manifest):
         rows = [struct.unpack_from("<IIII", b, 56 + 16 * k) for k in range(n)] if ver == 1 else \
             [(struct.unpack_from("<i", b, 88 + 8 * k)[0],) + struct.unpack_from("<III", b, 60) for k in range(m)]    # (Release 3: a start is signed, -6 .. 11 on the 18 sector grid)
         for k, (start, length, _, off) in enumerate(rows):      # and starts, in sectors from the area's first, leave room for it
-            if not 1 <= sectors <= 12 or length > sectors * 4096 or start < -6 or start + sectors > 12 or off + length > len(b):
+            in_area = start >= -6 and start + sectors <= 12
+            in_tail = start >= -58 and start + sectors <= -55    # (round 23, FLASH_MAP_R3.md 10) the tail region: 3 sectors at 0x8E000, signed sectors -58 .. -56 (a format 2 package may name up to 21 starts)
+            if not 1 <= sectors <= 18 or length > sectors * 4096 or not (in_area or in_tail) or off + length > len(b):
                 raise SystemExit(f"{ocm}: image {k + 1} (start {start}, {length} B) does not fit the module's {sectors} sectors of the area (starts -6 .. 11, ending at 12)")
     return info
 
