@@ -399,6 +399,13 @@ json.dump(out, sys.stdout)`], { cwd: ROOT, input: JSON.stringify(cases), maxBuff
     assert.ok(o.ok, "a models module parses: " + o.key);
     assert.equal(o.kind, 4); assert.equal(o.moduleId, 0x4D08); assert.equal(OCM.modelsId(8), 0x4D08); assert.equal(o.fxVersion, FXVER); assert.equal(o.fxCount, NM); assert.equal(o.fxSectors, 1);
     assert.equal(OCM.fxCheck(o, info, fx(5)).variant.start, 3, "fxCheck takes it with FX_INFO's plan (start 5 is sector 3), as an effect module");
+    // (round 24) the block's abi (PL_MDL_ABI_ID) against the word FX_INFO answers for a models id: the same taken, another refused before anything is sent (round 23's page did
+    // not compare a models module: the firmware answered the effect host's FX_ABI_ID for every id); a unit that sends no abi is not asked, as for an effect module
+    assert.equal(o.fxAbi, 0x5AFADF6F, "the abi of the models block is parsed");
+    assert.ok(OCM.fxCheck(o, info, fx(5, { abi: 0x5AFADF6F })).ok, "the unit answers the module's PL_MDL_ABI_ID: taken");
+    assert.equal(OCM.fxCheck(o, info, fx(5, { abi: 0x5AFADF6E })).key, "modWrongFw", "another models ABI: refused as not for this firmware");
+    assert.equal(OCM.fxCheck(o, info, fx(5, { abi: 0x9DCB40AD })).key, "modWrongFw", "a firmware that answers its FX_ABI_ID for the models id (Nightly 5f894f and before): refused, nothing is written on a guess");
+    assert.ok(OCM.fxCheck(o, info, fx(5)).ok, "a unit that reports no abi: not compared");
     const big = OCM.parse(mpkg(modelsImage({ len: 9 * 4096 }), [0, -6]));
     assert.ok(big.ok && big.fxSectors === 9, "a pick of 9 sectors (an effect module may take 8)");
     assert.equal(OCM.parse(mpkg(modelsImage({ len: 19 * 4096 }), [-6])).key, "modWrongFile", "19 sectors: more than the area");

@@ -377,9 +377,12 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
     dv.setUint32(hc, bkCrc(out.subarray(0, hc)), true);
     return out;
   };
-  // the mocked unit with the extension: opts {noExt, have: [{id, version, start}], plan, inPlace, blocker, blockEngine, endRc}
+  // the mocked unit with the extension: opts {noExt, have: [{id, version, start}], plan, inPlace, blocker, blockEngine, endRc, oldFw, mdlAbi}
+  // (round 24) FX_INFO's abi word as the firmware answers it: the models ABI (mdlAbi; 1 is what modelsOcm's block carries) for a models module's id (0x4D00 + engine), the effect
+  // host's (FX_ABI) for any other id; u.oldFw: FX_ABI for every id, as Nightly 5f894f and before answered
+  const FX_ABI = 0x9DCB40AD;
   const fxUnit = (opts = {}) => {
-    const u = { sent: [], ext: [], writes: 0, have: [...(opts.have || [])], removed: [], begin: null };
+    const u = { sent: [], ext: [], writes: 0, have: [...(opts.have || [])], removed: [], begin: null, oldFw: !!opts.oldFw };
     const input = { state: "connected", onmidimessage: null };
     const reply = (cmd, data) => setImmediate(() => input.onmidimessage({ data: Uint8Array.from([240, 125, 70, 76, cmd, ...data, 247]) }));
     const id5 = (a) => a.slice(0, 5).reduce((v, b, i) => v + b * 2 ** (7 * i), 0);
@@ -395,7 +398,7 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
         const n = args[0], a = args.slice(1);
         if (n === 2) {                                            // FX_INFO
           assert.equal(a.length, 6, "FX_INFO: id (5) and sectors");
-          reply(0, [2, opts.plan ?? 1, opts.inPlace ? 1 : 0, opts.blocker ?? 127, 1]);
+          reply(0, [2, opts.plan ?? 1, opts.inPlace ? 1 : 0, opts.blocker ?? 127, 1, ...n5(!u.oldFw && ((id5(a) & ~0xFF) >>> 0) === 0x4D00 ? opts.mdlAbi ?? 1 : FX_ABI)]);
         } else if (n === 3) {                                     // FX_BEGIN
           assert.equal(a.length, 9, "FX_BEGIN: id (5), start, length (3)");
           u.begin = { id: id5(a), start: a[5], len: a[6] | a[7] << 7 | a[8] << 14 };
@@ -480,6 +483,21 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
   assert.deepEqual(r.sum.module, ["installed"], "a pick is written again even when the Effects table holds the id at the same version and size: the table does not say which models");
   u = fxUnit(); r = await run(u, MOD, { modules: [modelsOcm()], want: [{ kind: 1, module_id: 0x4D08 }] });
   assert.deepEqual(r.sum.module, [{ error: "modManifest" }], "the manifest's kind against the file's");
+  // (round 24) a models module is compared with the word the unit answers for its id (the firmware's PL_MDL_ABI_ID; round 23's page left kind 4 out of the compare, the firmware
+  // answering the effect host's FX_ABI_ID for every id). The unit above answered the module's own word and took it. Another models ABI: refused before a byte is streamed
+  u = fxUnit({ mdlAbi: 2 }); r = await run(u, MOD, { modules: [modelsOcm()], want: [{ kind: 4, module_id: 0x4D08 }] });
+  assert.deepEqual(r.sum.module, [{ error: "modWrongFw" }], "a models module of another PL_MDL_ABI_ID than the unit's: not for this firmware");
+  assert.ok(u.begin === null && u.writes === 0 && !u.sent.includes(121) && !u.sent.includes(122) && !u.sent.includes(123), "nothing begun, nothing written");
+  // the unit on an older firmware (Nightly 5f894f, e49499: FX_ABI_ID for every id), modules only: refused, nothing written (the page cannot know whether that firmware loads it)
+  u = fxUnit({ oldFw: true }); r = await run(u, MOD, { modules: [modelsOcm()], want: [{ kind: 4, module_id: 0x4D08 }] });
+  assert.deepEqual(r.sum.module, [{ error: "modWrongFw" }], "an older firmware, the firmware box not ticked: the models module is refused");
+  assert.ok(u.begin === null && u.writes === 0, "... before FX_BEGIN");
+  // the same unit, the firmware ticked: the firmware goes on first and the unit is asked afterwards (no FX_INFO before it), so the whole install is taken in one run
+  u = fxUnit({ oldFw: true });
+  r = await run(u, { firmware: true, module: true }, { modules: [modelsOcm()], want: [{ kind: 4, module_id: 0x4D08 }] },
+    { runFirmware: async () => { assert.equal(u.sent.length, 0, "nothing is asked of the unit before the firmware is on: no pre-check against the old firmware"); u.oldFw = false; } });
+  assert.deepEqual(r.sum.firmware, "installed"); assert.deepEqual(r.sum.module, ["installed"], "this build over an older firmware: the models module goes on after the firmware");
+  assert.deepEqual(u.begin, { id: 0x4D08, start: 1, len: 0x800 });
   // FX_REMOVE and the listing
   const { removeFx, listUnit, parseFxTable, parseFxInfo, ocReq } = await import("./fm1oc.js");
   u = fxUnit({ have: [{ id: MID, version: FXVER, start: 3 }] });
@@ -542,7 +560,7 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
         if (n === 2) {                                             // FX_INFO: id (5), sectors
           const mid = id5(a), sec = a[5], c = lie.includes(mid) ? -1 : PLACE.planFx(u.st, mid, sec);
           const inPlace = c >= 0 && u.st.starts.some((x, j) => x.state === 7 && x.kind && x.mid === mid && SECT[c] < SECT[j] + Math.max(1, Math.ceil(x.length / 4096)) && SECT[j] < SECT[c] + sec);
-          reply(0, [2, c < 0 ? 127 : c, inPlace ? 1 : 0, 127, u.st.lowOk ? 1 : 0]);
+          reply(0, [2, c < 0 ? 127 : c, inPlace ? 1 : 0, 127, u.st.lowOk ? 1 : 0, ...n5(((mid & ~0xFF) >>> 0) === 0x4D00 ? 1 : 0x9DCB40AD)]);   // (round 24) the abi word, as the firmware answers it
         } else if (n === 3) { u.begin = { id: id5(a), start: a[5], len: a[6] | a[7] << 7 | a[8] << 14 }; u.begins++; reply(0, [3, 0, ...n3(256)]); }
         else if (n === 4) { const mid = id5(a); u.removed.push(mid); u.st.starts = u.st.starts.map((x) => (x.kind && x.mid === mid ? { state: 0, kind: 0, mid: 0, engine: 0, length: 0 } : x)); u.st.nfxmod = nfx().length; reply(0, [4, 0, ...n3(0)]); }
         else if (n === 5) reply(0, [5, nfx().length, ...u.st.starts.flatMap((x, i) => x.state === 7 && x.kind ? [...n5(x.mid), 1, 2, 3, 1, 1, 7, 0, i, Math.ceil(x.length / 4096), 0, 0] : [])]);
@@ -645,6 +663,17 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
   assert.equal(u.ops.join(" "), "remove:0x1 remove:7 remove:14 " + GOAL, "the set's own modules off, then all on in the goal's order");
   assert.equal(r.sum.rearrange, "done"); assert.deepEqual(r.sum.module, ["installed", "installed", "installed", "installed"]); assert.ok(inGoal(u), "the unit ends in the goal's arrangement");
   assert.ok(!r.sum.rolledBack, "nothing is rolled back after a rearrange");
+  // (round 24) the rearrange's check before anything is taken off: the pick's ABI against the word the unit answers for the models id. A unit on an older firmware (FX_ABI_ID for
+  // every id), modules only: the pick is named as not for this firmware, nothing is asked, removed or written. The firmware ticked: it goes on first, then the rearrange runs
+  for (const opts of [{oldFw: true}, {mdlAbi: 2}]) {
+    u = placedUnit(nightly(true), OcLink, opts); r = await go(u, SET);
+    assert.deepEqual(r.sum.module.map((m) => m.error), ["modNoPlace", "modNoPlace", "modNoPlace", "modWrongFw"], "the pick is not for this firmware; the others wait for it");
+    assert.ok(!r.asked.length && !u.ops.length && snap(u.st) === before && ![121, 122, 123, 124].some((c) => u.sent.includes(c)), "no question, no REMOVE, no BEGIN: the unit is as it was");
+  }
+  u = placedUnit(nightly(true), OcLink, {oldFw: true});
+  r = await go(u, SET, {stages: {firmware: true, module: true}, runFirmware: async () => { assert.equal(u.wire.length, 0, "the unit is not asked before the firmware is on"); u.oldFw = false; }});
+  assert.equal(r.sum.firmware, "installed"); assert.equal(r.sum.rearrange, "done"); assert.deepEqual(r.sum.module, ["installed", "installed", "installed", "installed"]);
+  assert.ok(inGoal(u), "this build over an older firmware, from the page: the firmware, then the set in the goal's arrangement");
   // c. declined, and a caller that has no question to ask: nothing removed, nothing written
   for (const extra of [{confirmRearrange: () => false}, {confirmRearrange: undefined}]) {
     u = placedUnit(nightly(true), OcLink); r = await go(u, SET, extra);
