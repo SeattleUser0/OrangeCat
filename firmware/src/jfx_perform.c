@@ -108,16 +108,16 @@ static const fx3_kcalls_t PERF_RESIDENT[FX3_FX] = { {PFK_CALLS_GLT}, {PFK_CALLS_
 #endif
 /* the kernel of ring effect x (GX_*): the module's when one is registered, else the resident copy; 0: none (only without the resident copy: OC_PERF_RESIDENT 0) */
 static inline __attribute__((always_inline)) const fx3_kcalls_t *perf_kern(uint32_t x) { return fx3_modk[x].run ? &fx3_modk[x] : PERF_RESIDENT_OF(x); }
-/* the keys whose effect has a kernel: all of them while the resident copy is in the image */
-static inline __attribute__((always_inline)) uint32_t perf_have(void)
-{
+/* the keys whose effect has a kernel: all of them while the resident copy is in the image. Without it (OC_PERF_RESIDENT 0) the four glitchers' keys count only while the module serves them:
+ * one word, kept by fx3_modk_set / fx3_modk_clear, so perf_avail (in SRAM: the key scan and the UI call it) grows by one load and not by a walk of the table (which took 64 B off the arena) */
 #if OC_PERF_RESIDENT
-    return ~0u;
+static inline __attribute__((always_inline)) uint32_t perf_have(void) { return ~0u; }
+#define FX3_HAS_SET() ((void)0)
 #else
-    return ~((fx3_modk[GX_GLT].run ? 0u : 1u << 3) | (fx3_modk[GX_TAPE].run ? 0u : 1u << 4) | (fx3_modk[GX_SHUF].run ? 0u : 1u << 15) | (fx3_modk[GX_FRZ].run ? 0u : 1u << 18));   /* (PF_GLT, PF_TAPE, PF_SHUF, PF_FRZ: asserted below) */
+static __attribute__((section(".pool"))) uint32_t fx3_has;                    /* PF_BIT of each glitcher the module serves (0: none registered) */
+static inline __attribute__((always_inline)) uint32_t perf_have(void) { return ~PF_GX | fx3_has; }
+#define FX3_HAS_SET() (fx3_has = (fx3_modk[GX_GLT].run ? PF_BIT(PF_GLT) : 0u) | (fx3_modk[GX_TAPE].run ? PF_BIT(PF_TAPE) : 0u) | (fx3_modk[GX_SHUF].run ? PF_BIT(PF_SHUF) : 0u) | (fx3_modk[GX_FRZ].run ? PF_BIT(PF_FRZ) : 0u))
 #endif
-}
-_Static_assert(PF_GLT == 3 && PF_TAPE == 4 && PF_SHUF == 15 && PF_FRZ == 18, "perf_have's bits");
 /* ---- the registration: what the loader (oc_module.c oc_fx3mod_reg) and the host tests call ----
  * fx3_modk_set: the bank of module FX3_MODULE_ID, n entries (effect id = 1 + GX_*, its caps block, its call table), ALL OR NONE. Checked here, after the loader's fx_caps_check (the pointers,
  * the magic and the abi at install and at boot), for a caller that did not come through the loader and for what only the host knows:
@@ -145,6 +145,7 @@ static int fx3_modk_set(uint32_t module_id, uint32_t version, uint32_t n, const 
     for (i = 0; i < n; i++) fx3_modk[e[i].effect_id - 1u] = *e[i].calls;
     (void)version;
     fx3_mod_n = (uint8_t)n; fx3_marked = 0;
+    FX3_HAS_SET();
     return FX3M_OK;
 }
 /* the module goes (its sectors are about to be erased, or it no longer stands): the host's copy of the calls zeroed; from the next block on the resident copy plays, on the same state and
@@ -154,6 +155,7 @@ static void fx3_modk_clear(void)
 {
     memset(fx3_modk, 0, sizeof fx3_modk);
     fx3_mod_n = 0; fx3_marked = 0;
+    FX3_HAS_SET();
 }
 static inline int fx3_modk_ok(void) { return fx3_mod_n != 0; }
 /* the crash mark, taken once a registration, in the audio interrupt just before the module's code runs for the first time. In flash and not inlined (as fx2_mark: inlined, the loader's

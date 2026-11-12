@@ -501,6 +501,14 @@ static void absent_checks(void)
     ok &= pf.cw > 0 && pf.td > 0 && pf.mg[1] == 0 && perf_hush == 2u;
     perf_press(PF_SCRU, 0); perf_press(PF_STHR, 0); perf_press(PF_M1 + 1, 0); run(1200);
     ck("no resident copy, no module: REPEAT 1/16 records and loops (a glitcher's key over it changes nothing), CRUSH, THROW and a mute work and end: the rest of the layer is as it was", ok && !pf.busy && !perf_hush);
+    {   fx3_reg_t one_[1] = { { 3, oc_host_fxl_caps(2), &WRAP[2] } };
+        fx3_modk_clear();
+        ok = fx3_modk_set(FX3_MODULE_ID, 0x00010000u, 1, one_) == FX3M_OK && (perf_avail() & PF_GX) == PF_BIT(PF_SHUF);
+        ok &= module_set() == FX3M_OK && (perf_avail() & PF_GX) == PF_GX;
+        fx3_modk_clear();
+        ok &= (perf_avail() & PF_GX) == 0;
+        ck("no resident copy: perf_avail follows the registration: a bank that serves SHUFFLE alone gives SHUFFLE's key alone, the whole bank all four, a cleared table none", ok);
+    }
 }
 #endif
 int main(void)
