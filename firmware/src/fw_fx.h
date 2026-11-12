@@ -36,6 +36,7 @@
 #pragma once
 #include "fw_pages.h"
 #include "fx_kernel.h"                                  /* (step 6) the caps block and the call table */
+#include "fx_send.h"                                    /* (step 8a) a send effect's call table and its identifier (kind 2) */
 #define FX_BANK_MAX 8u
 #define FX_PARAMS_MAX 64u
 #define FX_DESC_WIRE 20u
@@ -53,18 +54,21 @@ _Static_assert(sizeof(fx_desc_wire_t) == FX_DESC_WIRE && sizeof(fx_entry_wire_t)
  * code; pages 0 or a version 3 effect descriptor that fw_pages_check_ex accepts as SC_FX in this build; hot and nhot 0 (a hot set is not in version 1); rows 0, or 1 .. FX_ROWS_MAX rows of
  * FX_PROW_WIRE bytes (2 aligned) with ids strictly increasing, legacy below P_COUNT (or 0xFFFF), min <= def <= max; the padding 0. The capability numbers (RAM, cost, instances) are range-checked
  * by the host when it builds the kernel (fx_modk_set), not here. 0 FXD_OK, else why not */
-static inline int fx_caps_check(fw_pages_rd rd, void *ctx, uint32_t caps, uint32_t lo, uint32_t hi)
+/* (step 8a) `kind` is the entry's: a send effect (kind 2, FW_MOD_KIND_SEND) has the send host's convention: abi FX2_ABI_ID and a call table of FX2_KCALLS_N words (fx_send.h); every other kind
+ * the insert host's (FX_ABI_ID, FX_KCALLS_N). The block's layout and every other rule are the same */
+static inline int fx_caps_check(fw_pages_rd rd, void *ctx, uint32_t caps, uint32_t lo, uint32_t hi, uint32_t kind)
 {
     uint8_t c[FX_CAPS_WIRE], t[FX_KCALLS_WIRE], r[FX_PROW_WIRE];
     uint32_t kernel, pages, rows, nrows, i, prev = 0xFFFFFFFFu;
+    const uint32_t ncalls = kind == 2u ? FX2_KCALLS_N : FX_KCALLS_N, abi = kind == 2u ? FX2_ABI_ID : FX_ABI_ID;
     if (!fwp_in(caps, FX_CAPS_WIRE, lo, hi) || (caps & 3u)) return FXD_CAPS;
     if (rd(ctx, caps, c, FX_CAPS_WIRE)) return FXD_READ;
-    if (fwp_u32(c) != FX_CAPS_MAGIC || fxd_u16(c + 4) != FX_CAPS_WIRE || fxd_u16(c + 6) != FX_CAPS_VERSION || fwp_u32(c + 52) != FX_ABI_ID) return FXD_CAPS;
+    if (fwp_u32(c) != FX_CAPS_MAGIC || fxd_u16(c + 4) != FX_CAPS_WIRE || fxd_u16(c + 6) != FX_CAPS_VERSION || fwp_u32(c + 52) != abi) return FXD_CAPS;
     kernel = fwp_u32(c + 8); pages = fwp_u32(c + 12); rows = fwp_u32(c + 24); nrows = c[36];
     if (fwp_u32(c + 16) || c[35] || c[37] || !fxd_u16(c + 38)) return FXD_CAPS;   /* hot, nhot, the padding, the snapshot's size (not 0) */
-    if (!fwp_in(kernel, FX_KCALLS_WIRE, lo, hi) || (kernel & 3u)) return FXD_KERN;
-    if (rd(ctx, kernel, t, FX_KCALLS_WIRE)) return FXD_READ;
-    for (i = 0; i < FX_KCALLS_N; i++) {
+    if (!fwp_in(kernel, 4u * ncalls, lo, hi) || (kernel & 3u)) return FXD_KERN;
+    if (rd(ctx, kernel, t, 4u * ncalls)) return FXD_READ;
+    for (i = 0; i < ncalls; i++) {
         uint32_t a = fwp_u32(t + 4u * i);
         if (!a || !fwp_in(a, 2u, lo, hi)) return FXD_KERN;
     }
@@ -100,7 +104,7 @@ static inline int fx_desc_check(fw_pages_rd rd, void *ctx, uint32_t desc, uint32
         if (rd(ctx, entries + i * FX_ENTRY_WIRE, e, FX_ENTRY_WIRE)) return FXD_READ;
         if (e[1] != kind || e[1] < 1u || e[1] > 3u) return FXD_KIND;
         if (fxd_u16(e + 2) || fxd_u16(e + 6)) return FXD_RSV;
-        if (fwp_u32(e + 12)) { int rc = fx_caps_check(rd, ctx, fwp_u32(e + 12), lo, hi); if (rc) return rc; }   /* (step 6) the caps block; step 4 refused any word */
+        if (fwp_u32(e + 12)) { int rc = fx_caps_check(rd, ctx, fwp_u32(e + 12), lo, hi, e[1]); if (rc) return rc; }   /* (step 6) the caps block; step 4 refused any word */
         seen[i] = e[0];
         for (k = 0; k < i; k++) if (seen[k] == e[0]) return FXD_ENTRY;       /* effect ids are unique in the bank */
         np = fxd_u16(e + 4); params = fwp_u32(e + 8);
