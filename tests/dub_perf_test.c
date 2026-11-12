@@ -196,7 +196,7 @@ int main(void)
         {   uint32_t n = motion.count;
             TSEL->seq_idx = 12;
             key(8, 1); key(8, 0); key(10, 1); key(10, 0); key(15, 1); key(15, 0); key(17, 1); key(17, 0);
-            chk("RECORD  KICK, HOLD, DIVE and RISE write no event (they have no lane: the view says so)", motion.count == n); }
+            chk("RECORD  KICK, HOLD, DIVE and RISE write no motion event (they record as flagged control notes: tests/ctl_play_test.c)", motion.count == n); }
         song.rec = 0; song.playing = 0;
         memset(&motion, 0, sizeof motion);
         TSEL->p[P_DUB_SEND] = 90;

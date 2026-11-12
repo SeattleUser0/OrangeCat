@@ -1929,7 +1929,7 @@ static void notes_event_edit(uint32_t slot, int32_t delta)
         after.step = (uint8_t)(actual | (before.step & 64u) | (!view && actual ? 128u : 0u));
     } else if (slot == 1u) {
         if(drum_track(TSEL))after.pitch=(int8_t)clamp(before.pitch+delta,-24,24);
-        else after.note=(uint8_t)clamp((int32_t)before.note+delta,1,127);
+        else if(!(before.length&RN_CTL))after.note=(uint8_t)clamp((int32_t)before.note+delta,1,127);   /* (8.2b) a control note is never moved into a pitch (nor an ordinary note into a control: the flag stays with the event) */
     }
     else if (slot == 2u || slot == 4u || slot == 5u) {   /* (0.7.1: 5, the tracker's KNOB 4, a whole step) */
         int32_t duration = (int32_t)before.duration * (1u << (before.owner >> 5));
@@ -1937,10 +1937,10 @@ static void notes_event_edit(uint32_t slot, int32_t delta)
 #if OC_ONE_AUTH
         if(MELODEE_DRUM && cur_page()->scope==SC_DRUMHIT){   /* (ui-fix 7) the pads: a hit turned below one sixteenth plays its natural
                                                          * length (length 0); NOTES' and the tracker's LEN on a drum hit are as before */
-            int32_t raw=note_snap(before.length?duration:0,delta,quantum);
+            int32_t raw=note_snap((before.length&1u)?duration:0,delta,quantum);
             after.length=raw>=(int32_t)quantum;
             duration=after.length?clamp(raw,(int32_t)quantum,128*RECORD_UNIT):(int32_t)quantum;
-            if(!before.length && !after.length){fm1_irq_on();return;}   /* (natural to natural: nothing) */
+            if(!(before.length&1u) && !after.length){fm1_irq_on();return;}   /* (natural to natural: nothing) */
         } else
 #endif
         duration=clamp(note_snap(duration,delta,quantum),(int32_t)quantum,128*RECORD_UNIT);

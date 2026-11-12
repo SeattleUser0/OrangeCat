@@ -284,6 +284,14 @@ fx_insert_job() {                                 # (Release 3 step 5) the gener
     echo "== the generic insert host with DUB TAPE's kernel across the cut (Release 3 step 5): the probe against the tree of d620160d (one resident kernel file, dub-perf included) and against the pinned printout, sample for sample"
     CC="$CC" BS="$BS" limited sh tests/fx_insert_diff.sh "$OUT/fx_insert" || fail "tests/fx_insert_diff.sh"
 }
+pj4_old_store_job() {                             # (Release 3 step 7) the Release 2 record store on a converted store: no old record found, nothing of the new erased
+    echo "== the Release 2 record store (the release-2 branch's oc_store.c and storage.c) on a converted store: it finds no old record, erases nothing, saves beside it"
+    if git rev-parse --verify -q origin/release-2 >/dev/null 2>&1; then
+        CC="$CC" limited sh tests/pj4_old_store.sh origin/release-2 || fail "tests/pj4_old_store.sh"
+    else
+        echo "(no origin/release-2 in this checkout: skipped)"
+    fi
+}
 fx_dub_module_job() {                             # (Release 3 step 6) DUB TAPE as a module through the same insert host: its render against the resident kernel's, sample for sample
     echo "== DUB TAPE as an effect module (Release 3 step 6): the module's kernel through the generic insert host against the resident kernel, every output sample, and the mutation check"
     CC="$CC" BS="$BS" limited sh tests/fx_dub_module.sh "$OUT/fx_dub_module" || fail "tests/fx_dub_module.sh"
@@ -682,6 +690,8 @@ if core && [ $TABLES = 1 ]; then
     t "MIDI timing: quantized TRS/USB recording, audio timeline, tempo changes and timer wrap" midi_timing_test -O1 $FW
     t "MIDI recording: raw events, quantization at take end, independent releases, banks and capacity" recording_test \
         -O1 $FW
+    t "The pattern pool and the control-note flag (Release 3 step 7): a flagged note makes a version 3 pattern, a version 2 pattern holding one is refused" pool_ctl_test -O1 $FW
+    t "Control-note recording and playback (Release 3 step 7, 8.2b): the DUB keys and MIDI CC 18 to 21 record flagged notes, the player drives dub_rec, nothing reaches an engine" ctl_play_test -O1 $FW
     t "Control notes 124 to 127 (KICK, HOLD, DIVE, RISE) through every note-range path: recorder, replay, save and load, MIDI in, octave, transpose, scale layouts" control_notes_test -O1 $FW
     t "Restoring an event over a slot in use keeps the track's chain a chain (a hang failed the suite for 98 min), with its own alarm" restore_chain_test -O1 $FW
     t "Recording scheduler: reference-state parity, cache invalidation and live lists" recording_scheduler_test -O1 $FW
@@ -817,6 +827,10 @@ if core && [ $TABLES = 1 ]; then
     t "Orange Cat steps: RATCH, FLAM, trig conditions, NUDGE; the compact step keeps them" oc_steps_test -O2 $FW
     # (Orange Cat 0.3, build doc phase 4a part 3) the record store: torn writes, rot, full, wear
     t "Orange Cat record store: power cuts, rot, delete, full store, areas and wear" oc_store_test -O2
+    # (Release 3 step 7, PROJECT_FORMAT_R3.md 13) the project format core on the simulated NOR: a cut at every erase and program, the Release 2 store code on a converted store
+    t "Release 3 project format core: chunks, the generation save, the conversion, restore, OLD FORMAT, a power cut at every erase and program" pj4_test -O1 -w -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all
+    job pj4_old_store_job
+    t "Release 3 control-note flag (8.2b): recording_valid, the project record's pitch code 63, a Release 2 reader refuses it, an ordinary 124 to 127 stays a note" ctl_flag_test -O1 $FW
     t "Orange Cat pattern pool: banks round trip through flash, chunks, the fullest pattern, no room, power cuts" oc_pool_test -O1 $FW
     t "Orange Cat project store: SAVE and load through the pool, two slots, PATTERNS FULL, FBKK, power cuts" oc_project_test -O1 $FW
     t "Orange Cat lists: new patterns kept, any track any pattern, the bank cache, projects share patterns" oc_lists_test -O1 $FW

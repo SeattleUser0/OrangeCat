@@ -263,7 +263,7 @@ static int proj_record_pack(uint8_t *b,const project_t *q)
             wire_bits_put(v,&pos,r->on,16);wire_bits_put(v,&pos,r->duration,16);
             wire_bits_put(v,&pos,r->note,7);wire_bits_put(v,&pos,r->vel,7);
             wire_bits_put(v,&pos,r->step,8);wire_bits_put(v,&pos,r->owner>>5,3);
-            wire_bits_put(v,&pos,(uint32_t)(r->pitch+24),6);wire_bits_put(v,&pos,r->length,1);count++;
+            wire_bits_put(v,&pos,r->length==RN_CTL?63u:(uint32_t)(r->pitch+24),6);wire_bits_put(v,&pos,r->length&1u,1);count++;   /* (8.2b) pitch code 63: a control note */
         }
         uint32_t dir=owner*11u;wire_bits_put(b+PROJ_REC_DIR,&dir,count,11);
     }
@@ -280,7 +280,7 @@ static int proj_record_unpack(project_t *q,const uint8_t *b)
             r->on=wire_bits_get(v,&pos,16);r->duration=wire_bits_get(v,&pos,16);
             r->note=wire_bits_get(v,&pos,7);r->vel=wire_bits_get(v,&pos,7);
             r->step=wire_bits_get(v,&pos,8);r->owner=owner|(wire_bits_get(v,&pos,3)<<5);
-            r->pitch=(int8_t)((int32_t)wire_bits_get(v,&pos,6)-24);r->length=wire_bits_get(v,&pos,1);
+            {uint32_t pc=wire_bits_get(v,&pos,6);uint32_t ln=wire_bits_get(v,&pos,1);r->pitch=(int8_t)((int32_t)pc-24);r->length=(uint8_t)ln;if(pc==63u){r->pitch=0;r->length=RN_CTL;}}   /* (8.2b) code 63 back to the flag; a Release 2 reader's pitch check refuses it */
             if(!r->vel || !recording_valid(r))return 0;
         }
     }
@@ -630,6 +630,10 @@ static void proj_bound(project_t *q)
 #include "oc_store.c"            /* (Orange Cat 0.3) the record store over the project area (build doc 4a part 3; in
                                   * RAM without the flash driver) */
 #include "smp_slot.c"            /* (Orange Cat 0.6.0) the internal user sample slot, 22 of its sectors */
+#if OC_PJ4
+#include "oc_pj4.c"              /* (Release 3 step 7, PROJECT_FORMAT_R3.md) the project format core: chunks, the generation save, the conversion. Host only in step 1: nothing calls it yet; OC_PJ4=1 links it so its size can be measured */
+static const void *const pj4_keep[] __attribute__((used)) = {pj4_save, pj4_phrase_read, pj4_boot, pj4_slot_clear, pj4_carry, pj4_head_load, pj4_sec_read, pj4_sweep};
+#endif
 #if MELODEE_FLASH || defined(OC_PACK_HOST)      /* (OC_PACK_HOST: a host test with its own flash hooks, tests/editor_test.c) */
 #include "oc_pack.c"             /* (Orange Cat 0.8.0) the asset pack: SHAPES' and MACRO's tables in flash, checked at boot (oc_pack.h) */
 #if OC_MODULES

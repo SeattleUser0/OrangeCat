@@ -522,7 +522,7 @@ turned shows its value in the sound line); the tape loop (240 x 80) under the di
 CUT on B, KICK on C#, HOLD on D#, DIVE on G#, RISE on A# (F# empty). The other keys play the track. `ui/dub_perf_screens.png` is the firmware's own screens (resting; FDBK past 1.00 with the 85 throw held; CUT, KICK
 and HOLD held; DIVE with the filter closed; FDBK turning), drawn by `tests/ui_render.c` in every palette under the layout lint. **Recording:** the knobs record on their own lanes, a throw as the SEND lane, CUT as
 the ECHO lane at 0 (ECHO 0 now closes the loop's output as CUT does, so the two play identically: tests/dub_perf_test.c); **KICK, HOLD, DIVE and RISE play live and are not recorded**, and the page's line says
-"BLACK: NOT RECORDED" (PROJECT_FORMAT_R3.md 8.2b designs their lane for the format revision). Not built: the choice of the octave that carries the keys, the throw levels' presets, the keys' LEDs.
+"BLACK: RECORDED" (Release 3 step 7: they record as flagged control notes, PROJECT_FORMAT_R3.md 8.2b). Not built: the choice of the octave that carries the keys, the throw levels' presets, the keys' LEDs.
 
 **Options for DUB as it is today (round 9, November 3, 2026; design only, for the owner to pick).** The text above is SPEC 9.3.2's view, written for the DUB of
 October 26. The DUB of the 0.16.0 Nightlies is not that one: TONE is **FILTER**, SPACE is gone (**TIM L** and **TIM R** are the times, **SPRNG** the spring's mix), HOLD and CRASH
