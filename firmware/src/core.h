@@ -159,6 +159,11 @@
 #if OC_CLIP_SEL && !OC_CLIP
 #error "OC_CLIP_SEL needs OC_CLIP (each step of the new interface ships behind the one before: UI_BUILD.md)"
 #endif
+#ifndef OC_CTL_REC
+#define OC_CTL_REC 0              /* (Round 23, Session A's review of r3-format2, UI_BUILD.md) 1: KICK, HOLD, DIVE and RISE (the DUB keys, MIDI CC 18 to 21) RECORD as control
+                                   * notes while the track records. 0 (the default): they sound and are not recorded, as before; stored control notes still play.
+                                   * Off until the recording path stops going through rec_note's step-grid writes (it wiped a mono step, set a drum step's accent). */
+#endif
 #ifndef OC_PJ4
 #define OC_PJ4 0                  /* (Release 3 step 7, branch r3-format, docs/orangecat/PROJECT_FORMAT_R3.md) 1: link the project format core (oc_pj4.c); step 1 is host only, nothing calls it, so 1 only measures it */
 #endif

@@ -691,7 +691,7 @@ if core && [ $TABLES = 1 ]; then
     t "MIDI recording: raw events, quantization at take end, independent releases, banks and capacity" recording_test \
         -O1 $FW
     t "The pattern pool and the control-note flag (Release 3 step 7): a flagged note makes a version 3 pattern, a version 2 pattern holding one is refused" pool_ctl_test -O1 $FW
-    t "Control-note recording and playback (Release 3 step 7, 8.2b): the DUB keys and MIDI CC 18 to 21 record flagged notes, the player drives dub_rec, nothing reaches an engine" ctl_play_test -O1 $FW
+    t "Control-note recording and playback (Release 3 step 7, 8.2b): the DUB keys and MIDI CC 18 to 21 record flagged notes, the player drives dub_rec, nothing reaches an engine" ctl_play_test -O1 -DOC_CTL_REC=1 $FW
     t "Control notes 124 to 127 (KICK, HOLD, DIVE, RISE) through every note-range path: recorder, replay, save and load, MIDI in, octave, transpose, scale layouts" control_notes_test -O1 $FW
     t "Restoring an event over a slot in use keeps the track's chain a chain (a hang failed the suite for 98 min), with its own alarm" restore_chain_test -O1 $FW
     t "Recording scheduler: reference-state parity, cache invalidation and live lists" recording_scheduler_test -O1 $FW

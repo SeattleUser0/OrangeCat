@@ -465,6 +465,7 @@ static void recording_reindex(void)
     for (uint32_t k = 0; k < NTRK * NPAT; k++) recording_head[k] = RECORD_MAX;
     recording_tracks = 0;
     memset(recording_refs, 0, sizeof recording_refs);
+    memset(recording_cref, 0, sizeof recording_cref); memset(dub_rec, 0, sizeof dub_rec);   /* (Round 23 review) counted again below with the sounding notes: a reindex under a sounding control note counted it twice and the trigger stayed on */
 #if MELODEE_RECORD_QUEUE
     memset(recording_heap_count, 0, sizeof recording_heap_count);
     memset(recording_heap_free, 0, sizeof recording_heap_free);

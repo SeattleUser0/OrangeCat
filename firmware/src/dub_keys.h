@@ -22,7 +22,7 @@ static void dubk_rec(track_t *t, uint32_t id, int32_t v)
 /* (8.2b) a control key of a recording track is a timed note on its reserved number (124 + which), flagged: opened at the press, closed at the release */
 static void dubk_ctl_rec(track_t *t, uint32_t which, int down)
 {
-    if (!rec_on(t) || t != TSEL) return;
+    if (!OC_CTL_REC || !rec_on(t) || t != TSEL) return;
     if (down) {
         recording_last = RECORD_MAX;
         rec_note(t, RN_CTL_FIRST + which, 127u);
