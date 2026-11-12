@@ -80,6 +80,7 @@
     <p><label><input type="checkbox" id="stage-mod" checked> <span data-t="stageMod"></span></label><br><span class="small" data-t="modWhy"></span></p>
     <p><label><input type="checkbox" id="stage-prophet"> <span data-t="stageProphet"></span></label><br><span class="small" data-t="prophetWhy"></span></p>
     <p><label><input type="checkbox" id="stage-fx" checked> <span data-t="stageFx"></span> <span id="fx-names"></span></label><br><span class="small" data-t="fxWhy"></span></p>
+    <p><label><input type="checkbox" id="stage-fx-opt"> <span data-t="stageFxOpt"></span> <span id="fx-opt-names"></span></label><br><span class="small" data-t="fxOptWhy"></span></p>
     <p><label><input type="checkbox" id="stage-models" checked> <span data-t="stageModels"></span> <span id="models-count"></span></label><br><span class="small" data-t="modelsWhy"></span></p>
     <div id="models-pick" hidden>
       <p class="small" id="models-list"></p>
@@ -150,6 +151,7 @@ const TEXT = {
     installWhat: "インストールボタンは、選んだビルドについて上でチェックした内容を書き込みます：",
     installNone: "何もチェックされていません：何も書き込みません",
     installFw: "ファームウェア", installPack: "アセットパック", installMod: "SHAPESとWHEELのモジュール", installProphet: "Prophetモジュール", installFx: "エフェクトモジュール",
+    stageFxOpt: "追加のエフェクトモジュール", fxOptWhy: "このビルドにある、チェックしたときだけ入るエフェクトモジュール。リバーブのSPRING、SHIMMER、RESOは、このビルドではファームウェア自体からも鳴ります。モジュールは同じ音で、入れるとモジュール側のコードが鳴ります。", installFxOpt: "追加のエフェクトモジュール",
     stageFx: "エフェクトモジュール", fxWhy: "このビルドのエフェクトモジュール（インサート、センド、マスター）。モジュールIDで入ります。エンジンのモジュールとは別に、空いている場所に入ります。",
     stageModels: "MACROのモデル", installModels: "MACROのモデル",
     modelsWhy: "VAはファームウェアに内蔵です。MACROのほかのモデルは、ここで選んで1つのモジュールにします（今日の15モデルにチェック済み）。ほかのモジュールと並べて入れる空きが必要で、リストの下の行がその空きを示します。入らないモデルを外すまでインストールは始まりません。",
@@ -244,6 +246,7 @@ const TEXT = {
     installWhat: "The Install button writes what is ticked above, for the build you chose: ",
     installNone: "nothing is ticked: nothing will be written",
     installFw: "the firmware", installPack: "the asset pack", installMod: "the SHAPES and WHEEL modules", installProphet: "the Prophet module", installFx: "the effect modules",
+    stageFxOpt: "More effect modules", fxOptWhy: "Effect modules of this build that go in only when you tick this box. The reverb modes SPRING, SHIMMER and RESO also play from the firmware itself in this build; the module is the same sound, and with it installed the module's code plays.", installFxOpt: "the optional effect modules",
     stageFx: "Effect modules", fxWhy: "The build's effect modules (insert, send, master). They go in by their module id, into a free place beside the engine modules.",
     stageModels: "MACRO models", installModels: "the MACRO models",
     modelsWhy: "VA is built into the firmware. The other models of MACRO come as one module you put together here: tick the models to install (today's fifteen are ticked). The module needs room beside the other modules; the line under the list says how much. Install does not start until the models fit.",
@@ -361,6 +364,11 @@ const offered = () => { const c = selection().channel || {}; return {pak: c.pak 
 const ocmKind = (u) => /orangecat-prophet-/.test(u) ? "prophet" : "shapes";
 /* (Release 3 step 4) an effect module of the release list is an entry {url, kind (1..3), module_id}: the manifest's kind and id, checked against the file after it is read (fm1oc.js runSet) */
 const fxOf = () => offered().ocm.filter(u => u && typeof u === "object" && typeof u.url === "string" && u.kind >= 1 && u.kind <= 3 && u.module_id > 0);
+/* (Release 3 step 8a) two boxes: "stage-fx" (ticked by default) holds the effect modules of the list that are not marked optional (DUB TAPE); "stage-fx-opt" (UNTICKED by default: the owner's
+ * decision) holds the ones the release list marks {optional: true} (the reverb modes SPRING, SHIMMER, RESO: make_site.py FX_OPTIONAL). fxPick is what the ticked boxes install: the room
+ * meter, the placement and the Install count an optional module only when its box is ticked. `locked`: a box counts while the page is locked for an Install too (placeMods) */
+const fxMain = () => fxOf().filter((x) => !x.optional), fxOpt = () => fxOf().filter((x) => x.optional === true);
+const fxPick = (locked = false) => { const on = (id) => $(id).checked && (locked ? true : !$(id).disabled); return [...(on("stage-fx") ? fxMain() : []), ...(on("stage-fx-opt") ? fxOpt() : [])]; };
 const ocmOf = (kind) => offered().ocm.filter(u => typeof u === "string" && ocmKind(u) === kind).sort((a, b) => /orangecat-wheel-/.test(b) - /orangecat-wheel-/.test(a));   /* (round 14) WHEEL first: it takes the unit's first start, SHAPES the next */
 /* (Release 3, the model picker: docs/candidates/model_picker.md) MACRO's models: the master package of the chosen build (the release list's "ocp"), the pick (ticked
  * models; VA is built into the firmware and shown locked; MACRO's own fifteen are the default), the room meter against the module area (18 sectors: what the ticked module
@@ -387,7 +395,7 @@ function modelsOthers() {                             /* the modules beside the 
   const tailBuild = !!(master && master.manifest.places && master.manifest.places.some((x) => x.name === "tail"));   /* (round 23, found on the unit) a build with the tail region ships WHEEL re-cut to one sector (fm1place.js ENG_GEO_TAIL); counted as 4, the default pick read "1 too many" and Install stayed locked */
   const geo = (u) => /orangecat-wheel-/.test(u) ? {name: "WHEEL", sectors: tailBuild ? 1 : 4, only: "area"} : /orangecat-prophet-/.test(u) ? {name: "PROPHET", sectors: 8, only: "area"} : {name: "SHAPES", sectors: 6, only: "area"};   /* (an engine module's geometry is the module area's) */
   const eng = $("stage-prophet").checked && !$("stage-prophet").disabled ? ocmOf("prophet") : $("stage-mod").checked && !$("stage-mod").disabled ? ocmOf("shapes") : [];
-  const fx = $("stage-fx").checked && !$("stage-fx").disabled ? fxOf().filter((x) => x.kind !== 4).map((x) => ({name: x.name || "0x" + x.module_id.toString(16), sectors: x.sectors || 1})) : [];
+  const fx = fxPick().filter((x) => x.kind !== 4).map((x) => ({name: x.name || "0x" + x.module_id.toString(16), sectors: x.sectors || 1}));   /* (step 8a) the ticked boxes' effect modules: an optional one counts only when its box is ticked */
   return PICK.others([...eng.map(geo), ...fx], unitState);
 }
 /* the places the modules may go: the module area, and the tail region of FLASH_MAP_R3.md option A (the unit says how many sectors it has: MOD_INFO's `tail`; a page that has not
@@ -405,7 +413,7 @@ function placeMods(pickSectors, locked = false) {   /* locked (round 23, the uni
   const engNum = (u) => /orangecat-wheel-/.test(u) ? 7 : /orangecat-prophet-/.test(u) ? 19 : 14;
   const on = (id) => $(id).checked && (locked && writing ? true : !$(id).disabled);
   const eng = on("stage-prophet") ? ocmOf("prophet") : on("stage-mod") ? ocmOf("shapes") : [];
-  const fx = on("stage-fx") ? fxOf().filter((x) => x.kind !== 4) : [];
+  const fx = fxPick(locked && writing).filter((x) => x.kind !== 4);
   const out = [...eng.map((u) => ({engine: engNum(u), name: {7: "WHEEL", 19: "PROPHET", 14: "SHAPES"}[engNum(u)]})), ...fx.map((x) => ({mid: x.module_id, sectors: x.sectors || 1, name: x.name || "0x" + x.module_id.toString(16)}))];
   if (pickSectors > 0) out.push({mid: 0x4D00 | (master.manifest.engine & 0xFF), sectors: pickSectors, name: "MACRO models"});
   return out;
@@ -494,8 +502,10 @@ function stageNote() {
   $("stage-pack").disabled = writing || !o.pak;
   $("stage-mod").disabled = writing || !ocmOf("shapes").length;
   $("stage-prophet").disabled = writing || !ocmOf("prophet").length;
-  $("stage-fx").disabled = writing || !fxOf().length;
-  $("fx-names").textContent = fxOf().length ? "(" + fxOf().map(x => x.name || "0x" + x.module_id.toString(16)).join(", ") + ")" : "";   /* (Release 3 step 6) the effects of the list by name: the release list's {url, kind, module_id, name}, e.g. (DUB TAPE) */
+  $("stage-fx").disabled = writing || !fxMain().length;
+  $("stage-fx-opt").disabled = writing || !fxOpt().length;
+  $("fx-opt-names").textContent = fxOpt().length ? "(" + fxOpt().map(x => x.name || "0x" + x.module_id.toString(16)).join(", ") + ")" : "";   /* (step 8a) the optional ones by name, e.g. (REVERB MODES) */
+  $("fx-names").textContent = fxMain().length ? "(" + fxMain().map(x => x.name || "0x" + x.module_id.toString(16)).join(", ") + ")" : "";   /* (Release 3 step 6) the effects of the list by name: the release list's {url, kind, module_id, name}, e.g. (DUB TAPE) */
   modStages();
 }
 const ready = () => { lastKey = "ready"; $("status").textContent = `Orange Cat ${selection().channel.version} (${t(build() + "Tag")})`; };
@@ -528,12 +538,12 @@ function buildLabels() {
 /* what the Install button will write: the ticked boxes, for the chosen build; (the model picker) the room meter first: it depends on the same boxes */
 function installWhat() {
   modelsMeter();
-  const parts = [["stage-fw", "installFw"], ["stage-pack", "installPack"], ["stage-mod", "installMod"], ["stage-prophet", "installProphet"], ["stage-fx", "installFx"], ["stage-models", "installModels"]]
+  const parts = [["stage-fw", "installFw"], ["stage-pack", "installPack"], ["stage-mod", "installMod"], ["stage-prophet", "installProphet"], ["stage-fx", "installFx"], ["stage-fx-opt", "installFxOpt"], ["stage-models", "installModels"]]
     .filter(([id]) => $(id).checked && (writing || !$(id).disabled)).map(([, k]) => t(k));
   const ch = selection().channel || {};
   $("install-what").textContent = t("installWhat") + (parts.length ? parts.join(", ") + (ch.version ? " (" + ch.version + ")" : "") : t("installNone"));
 }
-["stage-fw", "stage-pack", "stage-mod", "stage-prophet", "stage-fx"].forEach((id) => $(id).addEventListener("change", () => installWhat()));
+["stage-fw", "stage-pack", "stage-mod", "stage-prophet", "stage-fx", "stage-fx-opt"].forEach((id) => $(id).addEventListener("change", () => installWhat()));
 const remembered = () => { try { return localStorage.getItem("oc-build"); } catch (_) { return null; } };
 const remember = (k) => { try { localStorage.setItem("oc-build", k); } catch (_) { /* no storage: the choice is not kept */ } };
 if (remembered() === "nightly-dual" && meta.nightly) { $("build-dual").checked = false; $("build-nightly-dual").checked = true; }
@@ -546,7 +556,7 @@ const lockInstaller = (on) => {
   $("stage-models").disabled = on || !master;
   buildIds.forEach(k => { $("build-" + k).disabled = on; });
   $("stock-go").disabled = on || !stock;
-  ["stage-fw", "stage-pack", "stage-mod", "stage-prophet", "stage-fx"].forEach(id => { $(id).disabled = on || (id === "stage-pack" && !offered().pak) || (id === "stage-mod" && !ocmOf("shapes").length) || (id === "stage-prophet" && !ocmOf("prophet").length) || (id === "stage-fx" && !fxOf().length); });
+  ["stage-fw", "stage-pack", "stage-mod", "stage-prophet", "stage-fx", "stage-fx-opt"].forEach(id => { $(id).disabled = on || (id === "stage-pack" && !offered().pak) || (id === "stage-mod" && !ocmOf("shapes").length) || (id === "stage-prophet" && !ocmOf("prophet").length) || (id === "stage-fx" && !fxMain().length) || (id === "stage-fx-opt" && !fxOpt().length); });
   $("unit-read").disabled = on; $("fx-remove").disabled = on || !$("fx-remove-id").value;
   ["stock-file", "stock-recovery", "stock-skip-backup", "transit-go", "transit-recovery", "transit-skip-backup"].forEach(id => { $(id).disabled = on; });
 };
@@ -630,7 +640,7 @@ const getFile = async (url) => {
 };
 // the summary: one line a stage
 /* (0.12.1) "ENGINE X INSTALLED AT START N: REMOVE IT FIRST": detail is "engine:start" (fm1oc.js installModule); only a module engine can be in the way */
-const blockedOne = (detail) => { const [e, s, id] = String(detail || "").split(":"); return t("modBlocked").replace("{name}", id ? ({1: "DUB TAPE"}[+id] || "EFFECT 0x" + (+id).toString(16).toUpperCase()) : {14: "SHAPES", 19: "PROPHET", 7: "WHEEL", 8: "MACRO MODELS", 127: "EFFECT"}[+e] || "#" + e).replace("{n}", s); };
+const blockedOne = (detail) => { const [e, s, id] = String(detail || "").split(":"); return t("modBlocked").replace("{name}", id ? ({1: "DUB TAPE", 2: "REVERB MODES"}[+id] || "EFFECT 0x" + (+id).toString(16).toUpperCase()) : {14: "SHAPES", 19: "PROPHET", 7: "WHEEL", 8: "MACRO MODELS", 127: "EFFECT"}[+e] || "#" + e).replace("{n}", s); };
 const blockedText = (detail) => String(detail || "").split(",").map(blockedOne).join(" ");   /* (round 23) a unit with the tail region: every module in the way that is not of the ticked set, "engine:start" or "127:start:module id" (an effect module by its name), comma separated */   /* (Release 3 step 4) 127: a start of no engine, an effect module; (the model picker) 8: a start of MACRO's models */
 const sumWord = (v) => typeof v === "string" ? t({installed: "sInstalled", current: "sCurrent", off: "sOff", nofile: "sNofile", oldfw: "sOldfw", nounit: "sNounit"}[v]) : v.error === "modBlocked" ? blockedText(v.detail) : v.error === "modNoPlace" ? (v.detail ? v.detail + " " : "") + t("modNoPlace") : (TEXT[lang][v.error] || v.error);
 function summaryText(sum) {
@@ -683,7 +693,7 @@ $("go").addEventListener("click", async () => {
   if (writing || !image) return;
   const ch = selection().channel, product = ch.product, o = offered();
   const engMods = $("stage-prophet").checked ? ocmOf("prophet") : $("stage-mod").checked ? ocmOf("shapes") : [];   /* (0.12.1) one module stage at a time */
-  const fxMods = $("stage-fx").checked && !$("stage-fx").disabled ? fxOf() : [];   /* (Release 3 step 4) the effect modules after it */
+  const fxMods = fxPick();   /* (Release 3 step 4) the effect modules after it; (step 8a) those of the ticked boxes: the optional ones (the reverb modes) only when their box is ticked */
   const modules = [...engMods, ...fxMods.map((x) => x.url)], want = [...engMods.map(() => null), ...fxMods.map((x) => ({kind: x.kind, module_id: x.module_id}))];
   const modelsOn = $("stage-models").checked && !$("stage-models").disabled && !!master;   /* (the model picker) the pick, packed below, goes in after the others */
   const stages = {firmware: $("stage-fw").checked, pack: $("stage-pack").checked && !!o.pak, module: modules.length > 0 || modelsOn};

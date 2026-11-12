@@ -10,8 +10,13 @@
  *           resident reverb is the stand-in that the module's values drive; what is proved is that nothing is lost, clamped or moved on the way in.) A control: the render with the other modes' modules'
  *           (default) values differs from the resident's, so the renders can tell.
  *   CLAMP   a stored value outside a mode's range (G_RPRE = 30 under RESO, where it is PITCH 0 .. 14) is clamped by the module and reported: the resident reverb's render of it is compared too
+ *   MODULE  (Release 3 step 8a) for SPRING, SHIMMER and RESO the same through the REAL module (tools/module/reverb_mod.c, its host unit linked in): the mode's own descriptor out of the module
+ *           (not the test's data) imports the seven values; the other two module modes' descriptors hold their defaults; and the loaded project, and a default project with the module's values
+ *           written back, are rendered THROUGH THE MODULE'S KERNEL (registered with the send host, its calls counted): both equal the resident reverb's render sample for sample. CLOUD is not a
+ *           module yet: it keeps the resident stand-in
  *   DUB     (RENDER too) the fixture with DUB values on all three DUB pages loads into DUB's module (fx_dub_data.h) with every knob, SYNC, PING, DRIVE and WOW as written
  * Revisions:
+ *   (Release 3 step 8a) MODULE: the real reverb module's descriptors and kernels for SPRING, SHIMMER and RESO.
  *   (Release 3, round 9) the projects are the committed fixtures, not made by this tree's writer; the DUB fixture.
  *   (Release 3, step 3 decisions L1 to L4) first version.
  */
@@ -23,6 +28,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include "dub_module_host.h"                         /* (round 20) DUB's kernel is the module: registered in main */
+#include "rev_module_host.h"                         /* (step 8a) the reverb module's host unit: its descriptors and kernels */
 #define BASE 0x10200000u
 static uint8_t img[4096];
 static uint32_t desc;
@@ -39,7 +45,20 @@ static int img_rd(void *ctx, uint32_t addr, void *buf, uint32_t n)
 static int bad, nchk;
 static void chk(const char *what, int ok) { nchk++; printf("fx_legacy: %-130s %s\n", what, ok ? "ok" : "FAIL"); bad += !ok; }
 #define RN 1400u
-static struct { int32_t pcm[RN * CTL]; } *shm;
+static struct { int32_t pcm[RN * CTL]; uint32_t mcalls; } *shm;   /* mcalls: blocks the reverb module's kernels rendered (counted in the child) */
+/* (step 8a) the module's three calls behind a counter, registered with the send host for a render through the module */
+static void lw_spring(const fx2_ctx_t *c, const int32_t *in, int32_t *out, uint32_t n) { shm->mcalls++; oc_host_rev_calls(0)->process(c, in, out, n); }
+static void lw_shimmer(const fx2_ctx_t *c, const int32_t *in, int32_t *out, uint32_t n) { shm->mcalls++; oc_host_rev_calls(1)->process(c, in, out, n); }
+static void lw_reso(const fx2_ctx_t *c, const int32_t *in, int32_t *out, uint32_t n) { shm->mcalls++; oc_host_rev_calls(2)->process(c, in, out, n); }
+static int rev_module_on(void)
+{
+    static const fx2_kcalls_t W[3] = { {lw_spring}, {lw_shimmer}, {lw_reso} };
+    fx2_reg_t r[3];
+    oc_host_rev_fw = &FW_API;
+    for (uint32_t k = 0; k < 3u; k++) { r[k].effect_id = oc_host_rev_entry(k)->effect_id; r[k].caps = oc_host_rev_caps(k); r[k].calls = &W[k]; }
+    return fx2_modk_set(oc_host_rev_desc()->module_id, oc_host_rev_desc()->version, 3, r);
+}
+static uint32_t last_mcalls;
 /* the track plays a long chord note into the reverb; song.g is whatever the caller set */
 static void render(int32_t *out)
 {
@@ -63,6 +82,7 @@ static void render(int32_t *out)
     }
     waitpid(pid, &st, 0);
     memcpy(out, shm->pcm, sizeof shm->pcm);
+    last_mcalls = shm->mcalls;
 }
 /* DUB through the module's kernel (tests/dub_module_host.h, tests/dub_insert_test.c's way): track 1 plays a note into the insert whose ids are whatever the caller set */
 static void render_dub(int32_t *out)
@@ -164,6 +184,49 @@ int main(void)
         render(R_other);
         snprintf(buf, sizeof buf, "%s RENDER  control: the same TYPE with the knobs at their defaults renders differently (the render can tell)", REV_NM[k]);
         chk(buf, memcmp(R_res, R_other, sizeof R_res) != 0);
+        snprintf(buf, sizeof buf, "%s RENDER  .. and not one block of these renders went through the module's kernels (the resident reverb played)", REV_NM[k]);
+        chk(buf, last_mcalls == 0 && !fx2_modk_ok());
+        if (k < 3u) {                                    /* (step 8a) MODULE: the real module's own descriptor and kernel for this mode */
+            int16_t rm[8], ro[8];
+            uint32_t okm = 1, rdesc = 0;
+            fixture_project(FXR2_REV_FILE[k], &loaded);
+            project_restore_runtime(&loaded);
+            if (!fwp_wire(oc_host_rev_pages(k), img, sizeof img, BASE, &rdesc)) { printf("fx_legacy: image full\n"); return 2; }
+            snprintf(buf, sizeof buf, "%s MODULE  the real module's descriptor of the mode (tools/module/reverb_mod.c) passes the checker as SC_FX", REV_NM[k]);
+            chk(buf, fw_pages_check_ex(img_rd, 0, rdesc, BASE + 0x100u, BASE + sizeof img, SC_FX, P_COUNT, G_COUNT, 0) == FWP_OK);
+            memset(rm, 0, sizeof rm);
+            okm = fx_legacy_import(img_rd, 0, rdesc, trk[0].p, song.g, rm) == 7;
+            for (uint32_t i = 0; i < 7; i++) okm &= rm[i] == song.g[REV_G[i]] && rm[i] == KN[k][i];
+            snprintf(buf, sizeof buf, "%s MODULE  VALUES  the real module imports seven values from the loaded Release 2 project: each is the resident reverb's value of that knob", REV_NM[k]);
+            chk(buf, okm);
+            for (uint32_t j = 0; j < 3; j++) if (j != k) {
+                uint32_t same = 1, od = 0;
+                if (!fwp_wire(oc_host_rev_pages(j), img, sizeof img, BASE, &od)) return 2;
+                memset(ro, 0, sizeof ro);
+                same = fx_legacy_import(img_rd, 0, od, trk[0].p, song.g, ro) == 7;
+                for (uint32_t i = 0; i < 7; i++) same &= ro[i] == rev_m[j][i].def;
+                snprintf(buf, sizeof buf, "%s MODULE  VALUES  the real module's %s, whose mode is not selected, holds its defaults", REV_NM[k], REV_NM[j]);
+                chk(buf, same);
+            }
+            snprintf(buf, sizeof buf, "%s MODULE  the module's bank registers with the send host", REV_NM[k]);
+            chk(buf, rev_module_on() == FX2M_OK);
+            render(R_mod);                               /* the loaded project, the module's kernel playing */
+            snprintf(buf, sizeof buf, "%s MODULE  RENDER  the loaded Release 2 project through the MODULE's kernel equals the resident reverb's render, sample for sample (%u blocks through the module's call)", REV_NM[k], (unsigned)last_mcalls);
+            chk(buf, !memcmp(R_res, R_mod, sizeof R_res) && last_mcalls > 1000u);
+            fwp_wire(oc_host_rev_pages(k), img, sizeof img, BASE, &rdesc);
+            fresh_song();
+            song.g[G_RTYPE] = (int16_t)REV_TYPE[k];
+            okm = fx_legacy_export(img_rd, 0, rdesc, rm, trk[0].p, song.g) == 7;
+            render(R_mod);                               /* a default project with the module's values written back through its own descriptor, the module's kernel playing */
+            snprintf(buf, sizeof buf, "%s MODULE  RENDER  a default project with the module's imported values written back through its descriptor, through the MODULE's kernel: the same samples again", REV_NM[k]);
+            chk(buf, okm && !memcmp(R_res, R_mod, sizeof R_res) && last_mcalls > 1000u);
+            fresh_song();
+            song.g[G_RTYPE] = (int16_t)REV_TYPE[k];
+            render(R_other);                             /* control, through the module: the defaults sound different */
+            snprintf(buf, sizeof buf, "%s MODULE  RENDER  control: the module's kernel at the default knobs renders differently", REV_NM[k]);
+            chk(buf, memcmp(R_res, R_other, sizeof R_res) != 0 && last_mcalls > 1000u);
+            fx2_modk_clear();
+        }
     }
     /* CLAMP: RESO's PITCH is 0 .. 14, a stored 30 (it was a PRE of 30 ms under ROOM before the player chose RESO) */
     {   project_t loaded;
@@ -182,6 +245,22 @@ int main(void)
         fx_legacy_export(img_rd, 0, desc, mod, trk[0].p, song.g);
         render(R_clamp);
         chk("CLAMP   .. and the resident reverb plays the 30 as it plays the 14 (it clamps the same way): renders equal", !memcmp(R_res, R_clamp, sizeof R_res));
+        {   /* (step 8a) through the real module: its RESO descriptor clamps the same, and its kernel plays the 14 as the resident plays the stored 30 */
+            uint32_t rdesc = 0;
+            int16_t rm[8];
+            fixture_project(FXR2_CLAMP_FILE, &loaded);
+            project_restore_runtime(&loaded);
+            fwp_wire(oc_host_rev_pages(2), img, sizeof img, BASE, &rdesc);
+            fx_legacy_import(img_rd, 0, rdesc, trk[0].p, song.g, rm);
+            chk("CLAMP   MODULE  the real module's RESO: a stored G_RPRE of 30 is its PITCH 14", song.g[G_RPRE] == 30 && rm[2] == 14);
+            fresh_song();
+            song.g[G_RTYPE] = 3;
+            fx_legacy_export(img_rd, 0, rdesc, rm, trk[0].p, song.g);
+            (void)rev_module_on();
+            render(R_clamp);
+            chk("CLAMP   MODULE  .. and the module's kernel plays the 14 as the resident reverb plays the stored 30: renders equal", !memcmp(R_res, R_clamp, sizeof R_res) && last_mcalls > 1000u);
+            fx2_modk_clear();
+        }
     }
     /* DUB: the fixture's track 1 holds DUB with a value on each of its three pages (DUB SETUP: SYNC TIM L TIM R PING; DUB: FDBK SEND FILTER ECHO; DUB 2: SPRNG DRIVE WOW SPEED) */
     {   project_t loaded;

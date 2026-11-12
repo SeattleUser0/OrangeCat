@@ -492,6 +492,7 @@ static int ed_kit_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
  *             first), blocker (the start whose usable module stands in the way when no start can take it, else 127), low (1 the six sectors below 0xC8000 are the module area's),
  *             abi (5 x 7 bits: the firmware's FX_ABI_ID; (round 24) for a models module's id the firmware's PL_MDL_ABI_ID, the word a models module's block carries and
  *             fw_models_check compares: Nightly 5f894f and before answered FX_ABI_ID for every id; a firmware before round 18 sends the four bytes above only)
+ *             abi2 (5 x 7 bits, Release 3 step 8a: FX2_ABI_ID, the send host's; a firmware without the send host does not send it)
  *   FX_BEGIN  id, start, length (3 x 7 bits) -> rc, then the bytes written so far (3 x 7 bits): rc as MOD_BEGIN (0 done, 1 refused, 2 flash or the transport is running,
  *             4 the old preset pairs have not moved, 5 no start free); then 122 WRITE and 123 END as for an engine (END: 7 written but not readable as a module, 8 a sector tail)
  *   FX_REMOVE id -> rc, then the bytes written so far
@@ -516,6 +517,9 @@ static int ed_fx_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
         ed_b(OC_MOD_LOW_OK() ? 1u : 0u);
         ed_fx_id(FW_MODELS_ID_P(id) ? PL_MDL_ABI_ID : FX_ABI_ID);   /* (round 18) the firmware's FX_ABI_ID, so the page refuses a module of another host calling convention before it streams a byte;
                                                          * (round 24) a models module's id: PL_MDL_ABI_ID, what the loader compares in its block (oc_module.c, fw_models_check) */
+#ifdef OC_FX2_HOST
+        ed_fx_id(FX2_ABI_ID);                           /* (Release 3 step 8a) and the send host's (kind 2: the reverb's modes), a sixth word: a firmware without the send host does not send it and the page does not offer it a kind 2 module */
+#endif
         return 1;
     }
     if (cmd == ED_FX_BEGIN || cmd == ED_FX_REMOVE) {
@@ -538,7 +542,7 @@ static int ed_fx_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
             ed_fx_id(x->module_id);
             ed_b(x->version >> 16); ed_b(x->version >> 8); ed_b(x->version);
             ed_b(x->kind); ed_b(x->nfx); ed_b(oc_mod.state[x->start]); ed_b(oc_mod.why[x->start]); ed_b(x->start);
-            ed_b(oc_mod_nsec(oc_mod.length[x->start])); ed_b(0); ed_b(x->module_id == FX_MODK_ID ? fx_modk_uses() : 0u);
+            ed_b(oc_mod_nsec(oc_mod.length[x->start])); ed_b(0); ed_b(x->module_id == FX_MODK_ID ? fx_modk_uses() : x->module_id == FX2_MODULE_ID ? fx2_modk_uses() : 0u);   /* (step 8a) the reverb bank: 1 while the reverb runs one of its modes */
         }
         return 1;
     }

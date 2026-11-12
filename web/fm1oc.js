@@ -136,6 +136,7 @@ export function parseFxInfo(a) {
   if (o.plan === 127) o.plan = null;
   if (o.blocker === 127) o.blocker = null;
   try { o.abi = r.n5(); } catch (e) { /* a firmware that does not send its FX_ABI_ID (before round 18): not compared */ }   // (round 24) for a models module's id the word is the firmware's PL_MDL_ABI_ID
+  try { o.abi2 = r.n5(); } catch (e) { /* (Release 3 step 8a) FX2_ABI_ID, the send host's: a firmware without the send host does not send it (a kind 2 module is then refused before it is streamed, fxCheck) */ }
   return o;
 }
 export const OC_FX_KIND = ["", "insert", "send", "master", "models"];   /* (the model picker) 4: sound models for an engine (MACRO's, module id 0x4D08) */
@@ -270,13 +271,15 @@ function ocmModelsDesc(img, link) {
 /* (Release 3 step 6) The caps block an entry's `pages` word points at (firmware/src/fx_kernel.h fx_caps_t, fw_fx.h fx_caps_check): 56 bytes, 4 aligned, inside the code; magic "GFXK", size 56,
  * version 1; hot and nhot 0, the padding 0, the snapshot size not 0; the call table (12 words) inside the code, every call an address inside the code; the pages pointer 0 or inside the
  * code and 4 aligned (the unit checks the descriptor itself); the legacy-slot rows 0, or 1..16 rows of 10 bytes (2 aligned) with ids strictly increasing and min <= default <= max (the unit also
- * checks that a legacy slot is below its P_COUNT); `abi` (offset 52) not 0: its value is the firmware's FX_ABI_ID, which the page does not know and the unit compares. */
-function ocmFxCaps(caps, inside, at, u32, u16, s16, img) {
+ * checks that a legacy slot is below its P_COUNT); `abi` (offset 52) not 0: its value is the firmware's FX_ABI_ID, which the page does not know and the unit compares.
+ * (Release 3 step 8a) A send effect (kind 2: the reverb's modes) has the send host's convention (firmware/src/fx_send.h): its call table is ONE word and its abi is the firmware's FX2_ABI_ID. */
+function ocmFxCaps(caps, inside, at, u32, u16, s16, img, kind) {
+  const ncalls = kind === 2 ? 1 : 12;
   if (!inside(caps, 56) || (caps & 3) || u32(caps) !== 0x4B584647 || u16(caps + 4) !== 56 || u16(caps + 6) !== 1 || !u32(caps + 52)) return false;
   const kernel = u32(caps + 8), pages = u32(caps + 12), rows = u32(caps + 24), nrows = img[at(caps + 36)];
   if (u32(caps + 16) || img[at(caps + 35)] || img[at(caps + 37)] || !u16(caps + 38)) return false;
-  if (!inside(kernel, 48) || (kernel & 3)) return false;
-  for (let w = 0; w < 12; w++) { const a = u32(kernel + 4 * w); if (!a || !inside(a, 2)) return false; }
+  if (!inside(kernel, 4 * ncalls) || (kernel & 3)) return false;
+  for (let w = 0; w < ncalls; w++) { const a = u32(kernel + 4 * w); if (!a || !inside(a, 2)) return false; }
   if (pages && (!inside(pages, 80) || (pages & 3))) return false;
   if (!rows !== !nrows || nrows > 16) return false;
   if (rows && (!inside(rows, nrows * 10) || (rows & 1))) return false;
@@ -303,7 +306,7 @@ function ocmFxDesc(img, link, kind) {
   for (let i = 0; i < n; i++) {
     const e = entries + 16 * i, eid = img[at(e)], np = u16(e + 4), params = u32(e + 8);
     if (img[at(e) + 1] !== kind || kind < 1 || kind > 3 || u16(e + 2) || u16(e + 6) || seen.includes(eid)) return null;
-    if (u32(e + 12)) { const a = ocmFxCaps(u32(e + 12), inside, at, u32, u16, s16, img); if (!a) return null; abi = abi || a; }       // (step 6) the caps block fx_caps_check reads
+    if (u32(e + 12)) { const a = ocmFxCaps(u32(e + 12), inside, at, u32, u16, s16, img, kind); if (!a) return null; abi = abi || a; }       // (step 6) the caps block fx_caps_check reads
     seen.push(eid);
     if (np > 64 || !np !== !params) return null;
     if (!np) continue;
@@ -368,11 +371,12 @@ function fxCheck(ocm, info, fx) {
   if (!ocm.kind || !ocm.moduleId) return { ok: false, key: "modWrongFile" };
   if (ocm.iface !== info.iface || ocm.apiAddr !== info.apiAddr || ocm.apiVersion > info.apiVersion || ocm.apiSize > info.apiSize || ocm.packHash !== info.packHash)
     return { ok: false, key: "modWrongFw" };
-  if (fx.abi !== undefined && ocm.fxAbi && ocm.fxAbi !== fx.abi) return { ok: false, key: "modWrongFw" };   /* (round 18) FX_INFO's abi, when the unit sends it: a module of another host calling convention is refused before it is streamed */
+  if (fx.abi !== undefined && ocm.fxAbi && ocm.fxAbi !== (ocm.kind === 2 ? fx.abi2 : fx.abi)) return { ok: false, key: "modWrongFw" };   /* (round 18) FX_INFO's abi, when the unit sends it: a module of another host calling convention is refused before it is streamed */
   /* (round 24) a models module (kind 4) too: its block carries PL_MDL_ABI_ID, and the firmware answers that word for a models id (editor.c FX_INFO) where Nightly 5f894f and before
    * answered the effect host's FX_ABI_ID for every id (round 23's page left kind 4 out of the compare for that reason). A unit still on such a firmware answers a word no models
    * module carries, so a models module is refused here, before a byte is streamed: the page cannot tell the firmware that could load it (5f894f) from the one that has no models
    * at all (e49499), and nothing is written on a guess. Install with the firmware box ticked asks FX_INFO after the firmware is on (runSet: the firmware first), so it is not refused. */
+  /* (Release 3 step 8a) a send effect (kind 2) is compared with FX_INFO's sixth word, the unit's FX2_ABI_ID: a firmware that sends its FX_ABI_ID and no second word has no send host and is not given the module */
   const tbl = info.sectorOf || OCM_SECTOR;
   if (fx.plan == null || !(fx.plan < tbl.length) || (tbl[fx.plan] < 0 && tbl[fx.plan] >= -6 && !fx.lowOk)) {   /* a usable module in the way is named, never erased by an install */
     const b = fx.blocker, s = b != null && info.starts ? info.starts[b] : null;
@@ -619,7 +623,7 @@ async function rearrangeCheck(link, probe, ocms, arr) {
       if (!key && ocm.kind) {
         const fa = await link.ask(ocReq.fxInfo(ocm.moduleId, ocm.fxSectors), { timeout: 600, retries: 1 });
         if (!fa) key = "fxOldFw";
-        else { const fx = parseFxInfo(fa); if (fx.abi !== undefined && ocm.fxAbi && ocm.fxAbi !== fx.abi) key = "modWrongFw"; }   // (as fxCheck; round 24: a models module too, with the word the unit answers for its id)
+        else { const fx = parseFxInfo(fa); if (fx.abi !== undefined && ocm.fxAbi && ocm.fxAbi !== (ocm.kind === 2 ? fx.abi2 : fx.abi)) key = "modWrongFw"; }   // (as fxCheck: kind 2 with the sixth word; round 24: a models module too, with the word the unit answers for its id)
       }
     }
     if (key) bad[arr.order[k]] = key;

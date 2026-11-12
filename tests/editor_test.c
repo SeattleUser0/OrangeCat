@@ -1380,6 +1380,8 @@ static int fx_protocol(void)
     bad += check("FX_INFO (130): empty area, 3 sectors: plan start 0, not in place, no blocker (127), the six low sectors usable",
                  host_wire[4] == 0 && host_wire[5] == 2 && host_wire[6] == 0 && host_wire[7] == 0 && host_wire[8] == 127 && host_wire[9] == 1 &&
                  (host_wire[10] | host_wire[11] << 7 | host_wire[12] << 14 | (uint32_t)host_wire[13] << 21 | (uint64_t)host_wire[14] << 28) == (uint32_t)FX_ABI_ID);   /* (round 18) the abi follows the four words */
+    bad += check("FX_INFO: (Release 3 step 8a) a sixth word follows, the send host's FX2_ABI_ID (kind 2: the reverb's modes), which is not FX_ABI_ID",
+                 (host_wire[15] | host_wire[16] << 7 | host_wire[17] << 14 | (uint32_t)host_wire[18] << 21 | (uint64_t)host_wire[19] << 28) == (uint32_t)FX2_ABI_ID && FX2_ABI_ID != FX_ABI_ID);
     /* (round 24) the abi word is the one a module of that id carries: PL_MDL_ABI_ID for a models module's id (FW_MODELS_ID: the loader's fw_models_check compares it), FX_ABI_ID for
      * any other id. Answering FX_ABI_ID for every id, the page refused every models pick (found on the unit, round 23) */
     {   uint32_t ids[4] = { FW_MODELS_ID(ENGI_MACRO), FW_MODELS_ID(0u), 0x4E08u, 0x80004D08u }, want[4] = { PL_MDL_ABI_ID, PL_MDL_ABI_ID, FX_ABI_ID, FX_ABI_ID }, q, z = 1;

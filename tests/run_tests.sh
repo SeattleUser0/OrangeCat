@@ -247,6 +247,15 @@ _dub_t() {
     _t "$_dt_title" "$_dt_spec" "$_dt_o" "$@"
 }
 dub_t() { job _dub_t "$@"; }
+# (Release 3 step 8a) the same with the reverb module's host unit linked in as well (tests/module_host_reverb_tu.c, tools/module/reverb_mod.c with OC_MODULE_HOST; tests/rev_module_host.h registers it)
+_dubrev_t() {
+    _dr_title=$1 _dr_spec=$2; shift 2
+    _dr_o="$OUT/revtu_${_dr_spec%%:*}.o"
+    _dr_d=; for _a in "$@"; do case $_a in -D*) _dr_d="$_dr_d $_a" ;; esac; done
+    $CC -c -O1 -ffp-contract=off $FW $_dr_d -o "$_dr_o" tests/module_host_reverb_tu.c || { fail "compile tests/module_host_reverb_tu.c (${_dr_spec%%:*})"; return 1; }
+    _dub_t "$_dr_title" "$_dr_spec" "$_dr_o" "$@"
+}
+dubrev_t() { job _dubrev_t "$@"; }
 flush() {                                         # the logs of the jobs ended, in order
     while [ $shown -lt $n ] && [ -f "$LOG/$((shown + 1)).done" ]; do
         shown=$((shown + 1))
@@ -255,7 +264,7 @@ flush() {                                         # the logs of the jobs ended, 
     done
 }
 # (dev-tools) a job's key, the name the profile and the dependency database know it by: a test's or a step's title, a job function's name
-jobkey() { case $1 in _t | _dub_t | step) echo "$2" ;; echo) echo "note: $2" ;; *) echo "$1" ;; esac; }
+jobkey() { case $1 in _t | _dub_t | _dubrev_t | step) echo "$2" ;; echo) echo "note: $2" ;; *) echo "$1" ;; esac; }
 affected() {                                      # --changed: the key runs when its inputs changed, when it is a golden or size check, or when the database does not know it
     [ -z "$CHANGED" ] && return 0
     case $1 in regression*|"main stack"*|note:*) return 0 ;; esac
@@ -296,6 +305,11 @@ fx_dub_module_job() {                             # (Release 3 step 6) DUB TAPE 
     echo "== DUB TAPE as an effect module (Release 3 step 6): the module's kernel through the generic insert host against the resident kernel, every output sample, and the mutation check"
     CC="$CC" BS="$BS" limited sh tests/fx_dub_module.sh "$OUT/fx_dub_module" || fail "tests/fx_dub_module.sh"
     CC="$CC" BS="$BS" limited sh tests/fx_dub_module.sh --mutate "$OUT/fx_dub_module" || fail "tests/fx_dub_module.sh --mutate"
+}
+fx_reverb_module_job() {                          # (Release 3 step 8a) SPRING, SHIMMER and RESO as one module (kind 2) beside the resident copy: the pinned resident render, the module's against it, the mutation check
+    echo "== the reverb modes as an effect module (Release 3 step 8a): the resident modes against the printout pinned before the cut, the module's render through the host against the resident's, every output sample, MELODEE_FX_DEFER 0 and 1, and the mutation check"
+    CC="$CC" BS="$BS" limited sh tests/fx_reverb_module.sh "$OUT/fx_reverb_module" || fail "tests/fx_reverb_module.sh"
+    [ -f tests/fx_reverb_mutants.sh ] && { CC="$CC" BS="$BS" limited sh tests/fx_reverb_module.sh --mutate "$OUT/fx_reverb_module" || fail "tests/fx_reverb_module.sh --mutate"; }
 }
 oc_scene_job() {                                  # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1b) HOME's scenes
     echo "== new interface 1b: the pack with and without its scene trailer (tools/gen_pack.py --scenes)"
@@ -579,6 +593,7 @@ sound && t "DUB TAPE's kernel (Release 2): the repeats at TIME, each darker; FEE
 sound && dub_t "DUB TAPE as the per-track insert (Release 2): OFF takes no memory, the echo where TIME says, DUB FULL, LEN and SPRP changes, the rate stages, a project load, a yield, four tracks, the old lanes dropped" dub_insert_test -O1 $FW
 sound && job fx_insert_job
 sound && job fx_dub_module_job
+sound && job fx_reverb_module_job
 core && t "the internal user sample slot (Orange Cat 0.6.0): the claim, the edges, power cuts, kept from the store" smp_slot_test -O1 $FW
 core && t "the asset pack (Orange Cat 0.8.0): boot check, install, a write cut at every program, bad CRC / hash / length / tail, the library's banks, erase, the engines silent without it" oc_pack_test -O1 $FW
 # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1b) OC_HOME_PIC=1: the install path takes the pack with HOME's scene trailer
@@ -602,6 +617,7 @@ core && t "module loader (Orange Cat 0.10.0, step 5): every refusal, the crash m
 core && t "module loader (0.10.0, step 5): the built-in SHAPES wins the slot (OC_MODULE_WINS 0): a valid module is NOSLOT" oc_module_shadow:oc_module_test -O1 $FW -DOC_MODULE_WINS=0
 core && t "module loader (0.10.0, step 5): SHAPES built out, the module supplies the engine" oc_module_out:oc_module_test -O1 $FW -DMELODEE_SHAPES=0
 core && t "effect modules (Release 3 step 4): the kind field, fx_desc_t, the Effects table, the install by module id, a power cut at every program and erase, the crash ban, a descriptor fuzz; (the model picker) a MODELS module: kind 4, its block, the install by its id, out of MACRO before an erase" fx_module_test -O1 $FW -DOC_MODULE_WINS=1 -DMELODEE_MACRO_PICK=1
+core && t "reverb module (Release 3 step 8a): the real image (build/module/reverb.*.img) through the loader at every start, the bank and the Release 2 import out of the flash, the install, each mutation refused, the send host's registration, erase guard and ban" fx_reverb_image_test -O1 $FW -DOC_MODULE_WINS=1 -- "$OUT/fx_reverb_image_test" build/module
 core && t "DUB TAPE module (Release 3 step 6): the real image (build/module/dub.*.img) through the loader, the install and the page/card check, the descriptor out of the flash, each mutation refused" fx_dub_image_test -O1 $FW -DOC_MODULE_WINS=1 -- "$OUT/fx_dub_image_test" build/module
 core && t "effect modules (Release 3 step 4): the same with the built-in SHAPES winning no slot (OC_MODULE_WINS 0)" fx_module_shadow:fx_module_test -O1 $FW -DOC_MODULE_WINS=0 -DMELODEE_MACRO_PICK=1
 core && t "effect modules (Release 3 step 4): SHAPES built out" fx_module_out:fx_module_test -O1 $FW -DMELODEE_SHAPES=0 -DMELODEE_MACRO_PICK=1
@@ -646,6 +662,7 @@ if core; then
     run "audio diagnostics schema compatibility" python3 tests/usb_audio_stats_test.py
     run "engine candidates gate (Orange Cat 0.14.0): placement against the firmware's geometry; the rows of SHAPES and the Prophet against the plan, the candidates' rows the verdicts rest on" python3 tests/engine_gate_test.py
     run "module build (Orange Cat 0.10.0, PoC step 2; 0.10.1: the update loader's record rule, the code moved on until no sector tail matches): the starts, the link scripts, the header checks, the .ocm package, against a stand-in toolchain" python3 tests/module_build_test.py
+    run "reverb module (Release 3 step 8a): the linked ELF against its image: no undefined symbol, no RAM, each call table's word is the mode's function, the descriptor chain, no firmware table in the image (skipped without the device toolchain and a built module)" python3 tests/reverb_module_symbols_test.py
     run "DUB TAPE module (Release 3 step 6): the linked ELF against its image: no undefined symbol, the call table is the kernel's twelve functions, the descriptor chain (skipped without the device toolchain and a built module)" python3 tests/dub_module_symbols_test.py
     run "the model picker against the linker (tests/module_pick_test.py: eight picks linked by ld and packed by tools/pick_module.py, byte for byte; skipped without the toolchain)" python3 tests/module_pick_test.py
     run "flash facts shared by the pack generator and the module build (Orange Cat 0.10.1): XIP address = fm1_xip.h, the update loader's record rule = ldr_core.c, oc_pack.c and ota.c" python3 tests/ocflash_test.py
@@ -899,7 +916,7 @@ if sound && [ $TABLES = 1 ]; then
     t "fw_pages version 3 (Release 3, step 3): the pid table, the effect scope, the picture and the knobs, the registry, the macros' RAM records, retire; fuzzed, sanitizers" \
         mod_ui_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     # (Release 3, step 8 decisions L1 to L4) a Release 2 project's reverb values load into the reverb module as they play today: the values, and a render against the resident reverb
-    dub_t "reverb modules (Release 3, L1): a Release 2 project of each mode imports into its module with the resident reverb's values and render; the other modes keep defaults" fx_legacy_test -O1 -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    dubrev_t "reverb modules (Release 3, L1; step 8a: the real module): a Release 2 project of each mode imports into its module with the resident reverb's values; SPRING, SHIMMER and RESO render the same through the module's kernel; the other modes keep defaults" fx_legacy_test -O1 -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     # (dub-perf) DUB TAPE's performance view: the keys, the triggers CC 19 .. 21, what records, CUT = ECHO 0 and the other triggers = their knobs through the module's kernel, the page, its draw budget
     dub_t "DUB TAPE performance view (dub-perf): the octave of keys, CC 19 .. 21, the SEND and ECHO lanes, CUT recorded as ECHO 0 plays as the trigger, the page and its budget; sanitizers" \
         dub_perf_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests

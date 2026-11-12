@@ -362,6 +362,40 @@ json.dump(out, sys.stdout)`], { cwd: ROOT, input: JSON.stringify(cases), maxBuff
       console.log("ocm: the real DUB TAPE package (build/dub-" + ver + ".ocm): kind 1, module id 1, 3 sectors, " + o.variants.length + " starts, taken by the installer page's check");
     } else console.log("ocm: (no build/dub-" + ver + ".ocm: the real DUB package check skipped)");
   }
+  // (Release 3 step 8a) the real reverb package the build made (tools/build.py --module reverb): kind 2 (send), module id 2, a bank of three, ONE sector, every start of the grid. A send
+  // effect's caps block has the send host's convention (firmware/src/fx_send.h): its call table is one word, and its abi is the firmware's FX2_ABI_ID, which FX_INFO sends as a sixth word
+  {
+    const ver = readFileSync(new URL("VERSION", ROOT), "utf8").trim(), f = new URL(`build/reverb-${ver}.ocm`, ROOT), gen = new URL("build/gen/fw_api_id.h", ROOT);
+    const { parseFxInfo } = await import(new URL("fm1oc.js", import.meta.url));
+    const enc = (v) => [0, 1, 2, 3, 4].map((i) => Math.floor(v / 2 ** (7 * i)) % 128);
+    assert.equal(parseFxInfo([2, 1, 0, 127, 1, ...enc(0x9DCB40AD), ...enc(0xE2B81A6B)]).abi2, 0xE2B81A6B, "FX_INFO's sixth word (5 x 7 bits) is the send host's abi");
+    assert.equal(parseFxInfo([2, 1, 0, 127, 1, ...enc(0x9DCB40AD), ...enc(0xE2B81A6B)]).abi, 0x9DCB40AD, "... after the insert host's, which is read as before");
+    assert.equal(parseFxInfo([2, 1, 0, 127, 1, ...enc(0x9DCB40AD)]).abi2, undefined, "a reply without it (a firmware with no send host) has none");
+    if (existsSync(f)) {
+      const o = OCM.parse(new Uint8Array(readFileSync(f)));
+      assert.ok(o.ok, "the reverb package parses (a kind 2 caps block: one call word): " + o.key);
+      assert.equal(o.kind, 2); assert.equal(o.moduleId, 2); assert.equal(o.fxVersion, 0x00010000); assert.equal(o.fxCount, 3); assert.equal(o.fxSectors, 1);
+      const got = o.variants.map((v) => v.start), area = Array.from({ length: 18 }, (_, i) => i - 6);
+      assert.ok(JSON.stringify(got) === JSON.stringify(area) || JSON.stringify(got) === JSON.stringify([...area, -58, -57, -56]), "the reverb package's starts: every sector of the area, and the tail's three in a tail build: " + got);
+      if (existsSync(gen)) {
+        const m = /#define FX2_ABI_ID (0x[0-9A-Fa-f]+)u/.exec(readFileSync(gen, "utf8")), m1 = /#define FX_ABI_ID (0x[0-9A-Fa-f]+)u/.exec(readFileSync(gen, "utf8"));
+        assert.ok(m && m1 && o.fxAbi === Number(m[1]) && o.fxAbi !== Number(m1[1]), "its abi is the build's FX2_ABI_ID, not FX_ABI_ID (DUB TAPE's)");
+      }
+      const unit = { iface: o.iface, apiAddr: o.apiAddr, apiVersion: o.apiVersion, apiSize: o.apiSize, packHash: o.packHash, sectorOf: SECT, starts: SECT.map(() => ({ state: 0, why: 0, engine: 127 })), lowOk: true };
+      const at = (plan, extra = {}) => OCM.fxCheck(o, unit, { plan, inPlace: false, blocker: null, lowOk: true, ...extra });
+      for (let plan = 0; plan < SECT.length; plan++) { const c = at(plan, { abi: 0x9DCB40AD, abi2: o.fxAbi }); assert.ok(c.ok && c.variant.start === SECT[plan], `start ${plan} (sector ${SECT[plan]}) takes the reverb module: ${JSON.stringify(c.key)}`); }
+      assert.equal(at(0, { abi: 0x9DCB40AD, abi2: (o.fxAbi + 1) >>> 0 }).key, "modWrongFw", "a unit with another FX2_ABI_ID: refused as not for this firmware, before anything is sent");
+      assert.equal(at(0, { abi: o.fxAbi }).key, "modWrongFw", "a unit that sends its FX_ABI_ID and no sixth word has no send host: refused (even if that word happened to equal the module's)");
+      assert.ok(at(0).ok, "a unit that reports no abi at all (before round 18): not compared (the unit refuses at 123 END)");
+      const dubf = new URL(`build/dub-${ver}.ocm`, ROOT);
+      if (existsSync(dubf)) {
+        const d = OCM.parse(new Uint8Array(readFileSync(dubf)));
+        assert.ok(OCM.fxCheck(d, unit, { plan: 0, inPlace: false, blocker: null, lowOk: true, abi: d.fxAbi, abi2: 1 }).ok, "DUB TAPE (kind 1) is compared with the fifth word alone: the sixth does not touch it");
+        assert.equal(OCM.fxCheck(d, unit, { plan: 0, inPlace: false, blocker: null, lowOk: true, abi: 1, abi2: d.fxAbi }).key, "modWrongFw", "... and is not taken on the sixth word's account");
+      }
+      console.log("ocm: the real reverb package (build/reverb-" + ver + ".ocm): kind 2, module id 2, three effects, 1 sector, " + o.variants.length + " starts, taken by the installer page's check; FX_INFO's sixth word");
+    } else console.log("ocm: (no build/reverb-" + ver + ".ocm: the real reverb package check skipped)");
+  }
   // 6. (Release 3, the model picker) a MODELS module (kind 4, firmware/src/fw_models.h): the engine word engine | 4 << 8, the block at engine_ptr (magic "OMDL", size 160, version 1,
   //    the abi word, the engine, n models, each 0 or a 24 byte descriptor inside the code whose start and render are inside the code, three bank words), the module id 0x4D00 | engine,
   //    a span of up to 18 sectors; every rule refused; fxCheck takes it with FX_INFO as an effect module

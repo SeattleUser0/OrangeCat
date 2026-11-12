@@ -173,7 +173,10 @@ check("OC_MOD_TAIL=4 (the four sector tail) and any other count are refused by t
 # (Release 3 step 6) DUB TAPE's entry: an effect module (kind 1) of 3 sectors on the area's grid, no geometry row
 check("DUB is in MODULES as a kind 1 module of 3 sectors with no list of starts: the grid -6, -3, 0, 3, 6, 9 (the multiples of 3 from the area's lowest sector)",
       build.MODULES["dub"]["kind"] == 1 and build.MODULES["dub"]["sectors"] == 3 and "starts" not in build.MODULES["dub"] and build.module_starts(3) == [-6, -3, 0, 3, 6, 9])
-check("no engine module has a kind", all("kind" not in v for k, v in build.MODULES.items() if k not in ("dub", "plaits")))
+# (Release 3 step 8a) the reverb modes' entry: an effect module (kind 2, send) of ONE sector, no geometry row: a variant for every sector of the area's grid
+check("reverb is in MODULES as a kind 2 module of 1 sector with no list of starts: every sector of the grid, -6 .. 11",
+      build.MODULES["reverb"]["kind"] == 2 and build.MODULES["reverb"]["sectors"] == 1 and "starts" not in build.MODULES["reverb"] and build.module_starts(1) == list(range(-6, 12)))
+check("no engine module has a kind", all("kind" not in v for k, v in build.MODULES.items() if k not in ("dub", "reverb", "plaits")))
 # (Release 3, the model picker) the MODELS module of MACRO: kind 4, many units (one region each), a variant for every start of the grid the pick fits at, no geometry row
 check("plaits is in MODULES as a kind 4 module of many units with no list of starts and no fixed size (the pick's)",
       build.MODULES["plaits"]["kind"] == 4 and "units" in build.MODULES["plaits"] and "starts" not in build.MODULES["plaits"] and build.MODULES["plaits"]["sectors"] == 0 and

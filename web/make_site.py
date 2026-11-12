@@ -114,7 +114,7 @@ def published(out, name):
 
 
 from struct import error as struct_error
-FX_NAMES = {1: "DUB TAPE", 0x4D08: "MACRO MODELS"}      # (Release 3 step 6) the modules Orange Cat ships by module id (docs/orangecat/MODULE_IDS.md): the installer page names them; (the model picker) 0x4D08 the MODELS module of MACRO (kind 4)
+FX_NAMES = {1: "DUB TAPE", 2: "REVERB MODES", 0x4D08: "MACRO MODELS"}      # (Release 3 step 6) the modules Orange Cat ships by module id (docs/orangecat/MODULE_IDS.md): the installer page names them; (the model picker) 0x4D08 the MODELS module of MACRO (kind 4)
 
 
 def fx_info(path):
@@ -143,6 +143,11 @@ def fx_info(path):
     if not module_id:
         raise SystemExit(f"{path}: module id 0")
     return kind, module_id
+
+
+# (Release 3 step 8a) the effect modules a release offers but the installer page does not tick by default (the owner's decision): the reverb modes SPRING, SHIMMER and RESO (module id 2), whose
+# resident copy is still in the firmware this Nightly. DUB TAPE (1) stays ticked by default
+FX_OPTIONAL = {2}
 
 
 def ocm_sectors(path):
@@ -184,6 +189,8 @@ def ocm_entry(path, url, strict=True):
     e = {"url": url, "kind": kind, "module_id": mid, "sectors": ocm_sectors(path)}   # (the model picker) sectors: the installer page's room meter counts the modules it installs
     if mid in FX_NAMES:
         e["name"] = FX_NAMES[mid]
+    if mid in FX_OPTIONAL:
+        e["optional"] = True                                    # (Release 3 step 8a) offered, not ticked: the installer page lists it under its own box, which starts unticked
     return e
 
 
