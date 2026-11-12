@@ -1615,7 +1615,7 @@ static void persist_boot(void)                    /* before settings_init / pane
     irq_restore(f);
     if (!flash_ok)
         return;
-#if OC_SFC_PROBE && defined(FM1_IRQ_TARGET)
+#if (OC_SFC_PROBE || OC_BOOT_SAMPLE) && defined(FM1_IRQ_TARGET)
     fl_probe_boot_sample();                        /* (Round 22, the stub window's bench gate) what the reset left, before the window is set */
 #endif
     fl_plain_window_init();                        /* flash above 0x93000 reads as plaintext through XIP

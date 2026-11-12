@@ -1048,6 +1048,8 @@ tab shows them as "Audio" and asks once a second while the tab is open; `tools/u
 
 ## Orange Cat: the flash read-path probe (command 109, OC_SFC_PROBE builds only, 0.13.7)
 
+(Round 24) **Mode 3 alone is in every build while `OC_BOOT_SAMPLE` is 1** (core.h): `109 [3,0,0,0]` answers 3, SFCENC_CON as this boot found it, the window's low register (5 x 7 bits), 64 bytes (two bytes each: 32 at flash 0x93000, 32 of the stub's marker at 0x91FE0, through XIP before the window was set), then the reset reason: `p3_rst` (two bytes; bit 0 power-on, 2 the watchdog, 6 soft) and `rst_src` (5 x 7 bits). Read only. Any other mode answers 127 in such a build.
+
 A hardware experiment's command, compiled only with `OC_SFC_PROBE=1` (core.h; default 0: no reply). Read only: nothing is written to flash.
 It reads 2 KB at a flash offset first through the plaintext XIP window (as the firmware reads the pack and the modules) and then through
 another path, timing a cold and a warm pass of each (TIMER4, 24 MHz), and returns the first 32 bytes of each. Interrupts are off for the

@@ -252,8 +252,11 @@ static void fl_plain_window_init(void)
     __asm__ volatile("csync\n\tsti" ::: "memory");
 }
 
-#if OC_SFC_PROBE
-/* (Round 22, FLASH_MAP_R3.md 10.9 blocker 1: the bench gate; OC_SFC_PROBE builds only) does the plaintext window survive a reset? The boot stub reads its commit
+#ifndef OC_BOOT_SAMPLE
+#define OC_BOOT_SAMPLE 1          /* (this header comes before core.h: the same default as there) */
+#endif
+#if OC_SFC_PROBE || OC_BOOT_SAMPLE
+/* (Round 22, FLASH_MAP_R3.md 10.9 blocker 1: the bench gate; OC_SFC_PROBE builds, and (Round 24) the boot sample alone in every build with OC_BOOT_SAMPLE: read only) does the plaintext window survive a reset? The boot stub reads its commit
  * marker (flash 0x91FE0) through XIP and expects decrypted bytes; a window from the tail region (FL_TAIL_LO, 0x8E000) that outlived a reset would show it ciphertext. fl_probe_boot_sample runs
  * once at boot BEFORE fl_plain_window_init: SFCENC_CON as found (bit 1: the window on), 32 bytes at the pack's start (0x93000: plain only under the window) and the
  * 32 of the marker, both through XIP as found. fl_probe_window(lo): the window from lo (the gate sets FL_TAIL_LO before a restart). fl_probe_stub_test: the word the
@@ -269,6 +272,8 @@ static void fl_probe_boot_sample(void)
         fl_boot_xip[32u + i] = ((const volatile uint8_t *)FL_XIP(0x91FE0u))[i];
     }
 }
+#endif
+#if OC_SFC_PROBE
 static void fl_probe_window(uint32_t lo)
 {
     SFCENC_CON &= (uint8_t)~2u;

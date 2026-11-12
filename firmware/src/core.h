@@ -103,6 +103,12 @@
 #define OC_SFC_PROBE 0            /* (Orange Cat 0.13.7, branch linux-hw) 1: editor command 109, a read-only probe of the flash's plaintext window and its
                                    * decrypting path (editor.c); a hardware experiment's switch, never in a release */
 #endif
+#ifndef OC_BOOT_SAMPLE
+#define OC_BOOT_SAMPLE 1          /* (Round 24, the power-on half of the stub window's gate, FLASH_MAP_R3.md 10.9) 1: every boot records what it found before the plaintext
+                                   * window is set (SFCENC_CON, 32 bytes at 0x93000 and the stub's marker through XIP: three register reads and 64 flash reads, nothing written) and
+                                   * editor command 109 [3,0,0,0] answers it with the reset reason. So a power-on by the owner can be read afterwards without a bench image.
+                                   * To come out once the power-on case is measured. */
+#endif
 #ifndef OC_MODULE_WINS
 #define OC_MODULE_WINS 0          /* (Orange Cat 0.10.0) 1: a valid module takes the slot of an engine that is also built in (the built-in one stays in the
                                    * image as the fallback when the module is skipped); 0: the built-in engine is kept and the module is "shadowed".

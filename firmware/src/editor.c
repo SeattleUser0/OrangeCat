@@ -714,8 +714,20 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         break;
     }
 #endif
-#if OC_SFC_PROBE && MELODEE_FLASH && defined(FM1_IRQ_TARGET)
+#if (OC_SFC_PROBE || OC_BOOT_SAMPLE) && MELODEE_FLASH && defined(FM1_IRQ_TARGET)
     case 109: {
+#if !OC_SFC_PROBE                                    /* (Round 24) the boot sample alone: mode 3 and nothing else of the probe */
+        if (na == 4u && a[0] == 3u) {                /* (Round 22, the stub window's bench gate) what this boot found before it set the window: 3, SFCENC_CON, then
+                                                      * 32 bytes at flash 0x93000 and the 32 of the stub's marker (0x91FE0), through XIP as found (each as two bytes) */
+            ed_b(3); ed_b(fl_boot_con & 127u); ed_bk_u32(fl_boot_unenc_l);     /* (review) the window's low register as read (the header calls it write-only: it may not read back) */
+            for (uint32_t i = 0; i < 64u; i++) { ed_b(fl_boot_xip[i] & 127u); ed_b(fl_boot_xip[i] >> 7); }
+            ed_b(fm1_boot.p3_rst & 127u); ed_b(fm1_boot.p3_rst >> 7); ed_bk_u32(fm1_boot.rst_src);   /* (Round 24) the reset reason of this boot (hal/fm1_sys.h: p3_rst bit 0 power-on, 2 the watchdog, 6 soft), after the 135 bytes the Round 22 reply had */
+            break;
+        }
+        ed_b(127);
+        break;
+    }
+#else
         /* (Orange Cat 0.13.7, branch linux-hw; OC_SFC_PROBE builds only) the flash's two read paths, read only (hal/fm1_flash.h fl_probe_paths):
          * mode (0..2), flash offset (3 x 7 bits) -> mode, the SFCENC KEY register (3 x 7 bits), then for the plaintext path and for the other
          * path: 32 bytes at the offset (each as two bytes, low 7 bits then the top bit) and the TIMER4 ticks of a cold and of a warm pass over
@@ -726,6 +738,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                                                       * 32 bytes at flash 0x93000 and the 32 of the stub's marker (0x91FE0), through XIP as found (each as two bytes) */
             ed_b(3); ed_b(fl_boot_con & 127u); ed_bk_u32(fl_boot_unenc_l);     /* (review) the window's low register as read (the header calls it write-only: it may not read back) */
             for (uint32_t i = 0; i < 64u; i++) { ed_b(fl_boot_xip[i] & 127u); ed_b(fl_boot_xip[i] >> 7); }
+            ed_b(fm1_boot.p3_rst & 127u); ed_b(fm1_boot.p3_rst >> 7); ed_bk_u32(fm1_boot.rst_src);   /* (Round 24) the reset reason of this boot (hal/fm1_sys.h: p3_rst bit 0 power-on, 2 the watchdog, 6 soft), after the 135 bytes the Round 22 reply had */
             break;
         }
         if (na == 4u && a[0] == 5u) {                /* (Round 22, the PRESETS knob) [5, clear, 0, 0]: 5, the ring's write count (5 x 7 bits), then its last 100 entries, oldest
@@ -760,6 +773,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         }
         break;
     }
+#endif
 #endif
 #if MELODEE_USB_AUDIO
     case ED_AUDIO_STATS: {                         /* flags: 1 resets maxima, 2 voices, 4 cores, 8 memory, 16 part victims, 32 full profile,
