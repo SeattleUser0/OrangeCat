@@ -40,4 +40,4 @@ mutant 's/(softclip(clamp(a - 24576, 0, 16384) \* 4) >> 2);/(softclip(clamp(a - 
 # the descriptor
 mutant 's/#define REVK_LINE_SHIMMER 1u/#define REVK_LINE_SHIMMER 0u/' "a capability word: SHIMMER declares no line block"
 mutant 's/#define REVK_FLAGS 8u /#define REVK_FLAGS 9u /' "a capability word: the bank asks for a seed"
-mutant 's/#define REVK_VERSION 0x00010000u/#define REVK_VERSION 0x00010001u/; s/_Static_assert(OC_MODULE_VERSION == REVK_VERSION, "one version");//' "the descriptor's version word"
+mutant 's/#define REVK_VERSION (1u << 16) /#define REVK_VERSION ((1u << 16) + 1u) /; s/_Static_assert(OC_MODULE_VERSION == REVK_VERSION, "one version");//' "the descriptor's version word"

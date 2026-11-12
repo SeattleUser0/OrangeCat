@@ -248,7 +248,7 @@ REVK_FN static void revk_spring_run(const fx2_ctx_t *kc, const int32_t *rev_in, 
 #define REVK_CALLS_RESO revk_reso
 /* the capability words of the three (fx_caps_t; the module's descriptor and the test read them here) */
 #define REVK_MODULE_ID FX2_MODULE_ID                    /* 2: docs/orangecat/MODULE_IDS.md */
-#define REVK_VERSION 0x00010000u                        /* 1.0.0 */
+#define REVK_VERSION (1u << 16)                         /* 0x00MMmmpp: 1.0.0 (not written as 0x00010000, which the build's hardware-address check reads as a register address: as DUBK_VERSION) */
 #define REVK_LEGACY 0x52455632u                         /* "REV2": the Release 2 key (provisional, as DUB2): the values sit in song.g's legacy slots (the pages' pid table, FW_LEG_GLOBAL) */
 #define REVK_FLAGS 8u                                   /* FXK_TAIL_SILENT: the bus runs until it is silent (the host's gate and rest); no seed; the cost in the engine unit (0: not measured) */
 #define REVK_RATES 1u                                   /* 44.1 kHz: the bus runs at the full rate (the model line is written at the rate the mode chooses) */

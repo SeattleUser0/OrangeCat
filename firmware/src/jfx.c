@@ -961,8 +961,9 @@ static inline int fx2_modk_ok(void) { return fx2_mod_n != 0; }
 /* the Effects table's `uses` (editor FX_TABLE): 1 while the reverb is held and the mode it runs is the module's */
 static uint32_t fx2_modk_uses(void) { return jrev && fx2_modk[fx.rtype < FX2_MODES ? fx.rtype : 0u].process ? 1u : 0u; }
 /* CPU0, at bus start, before the job is submitted: the crash mark is taken once a registration, the first time a block is about to run the module's code (the mode running, or the one
- * being changed to: its first block is the next) */
-static inline void fx2_mark(void)
+ * being changed to: its first block is the next). In flash and not inlined (as jfx_mem beside it): inlined into the bus start it put 118 B of mix_block and the loader's
+ * oc_fxmod_note_use into SRAM (the audio RAM pass follows the call), 192 B off the audio arena for a call that happens once a registration */
+JFX_XIP static void fx2_mark(void)
 {
     if (fx2_mod_n && !fx2_marked && jrev) {
         uint32_t rt = (uint32_t)clamp(fxp.g[G_RTYPE], 0, 4);
