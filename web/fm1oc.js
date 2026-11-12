@@ -135,7 +135,7 @@ export function parseFxInfo(a) {
   const r = extReader(a, OC_CMD.FX_INFO), o = { plan: r.b(), inPlace: r.b() === 1, blocker: r.b(), lowOk: r.b() === 1 };
   if (o.plan === 127) o.plan = null;
   if (o.blocker === 127) o.blocker = null;
-  try { o.abi = r.n5(); } catch (e) { /* a firmware that does not send its FX_ABI_ID (before round 18): not compared */ }
+  try { o.abi = r.n5(); } catch (e) { /* a firmware that does not send its FX_ABI_ID (before round 18): not compared */ }   // (round 24) for a models module's id the word is the firmware's PL_MDL_ABI_ID
   return o;
 }
 export const OC_FX_KIND = ["", "insert", "send", "master", "models"];   /* (the model picker) 4: sound models for an engine (MACRO's, module id 0x4D08) */
@@ -368,7 +368,11 @@ function fxCheck(ocm, info, fx) {
   if (!ocm.kind || !ocm.moduleId) return { ok: false, key: "modWrongFile" };
   if (ocm.iface !== info.iface || ocm.apiAddr !== info.apiAddr || ocm.apiVersion > info.apiVersion || ocm.apiSize > info.apiSize || ocm.packHash !== info.packHash)
     return { ok: false, key: "modWrongFw" };
-  if (ocm.kind !== 4 && fx.abi !== undefined && ocm.fxAbi && ocm.fxAbi !== fx.abi) return { ok: false, key: "modWrongFw" };   /* (round 18) FX_INFO's abi, when the unit sends it: a module of another host calling convention is refused before it is streamed */   /* (round 23, found on the unit) not a models module (kind 4): its block carries PL_MDL_ABI_ID and FX_INFO answers the effect host's FX_ABI_ID for every id, so every pick was refused here; the unit's loader compares a models module's own (fw_models_check) */
+  if (fx.abi !== undefined && ocm.fxAbi && ocm.fxAbi !== fx.abi) return { ok: false, key: "modWrongFw" };   /* (round 18) FX_INFO's abi, when the unit sends it: a module of another host calling convention is refused before it is streamed */
+  /* (round 24) a models module (kind 4) too: its block carries PL_MDL_ABI_ID, and the firmware answers that word for a models id (editor.c FX_INFO) where Nightly 5f894f and before
+   * answered the effect host's FX_ABI_ID for every id (round 23's page left kind 4 out of the compare for that reason). A unit still on such a firmware answers a word no models
+   * module carries, so a models module is refused here, before a byte is streamed: the page cannot tell the firmware that could load it (5f894f) from the one that has no models
+   * at all (e49499), and nothing is written on a guess. Install with the firmware box ticked asks FX_INFO after the firmware is on (runSet: the firmware first), so it is not refused. */
   const tbl = info.sectorOf || OCM_SECTOR;
   if (fx.plan == null || !(fx.plan < tbl.length) || (tbl[fx.plan] < 0 && tbl[fx.plan] >= -6 && !fx.lowOk)) {   /* a usable module in the way is named, never erased by an install */
     const b = fx.blocker, s = b != null && info.starts ? info.starts[b] : null;
@@ -615,7 +619,7 @@ async function rearrangeCheck(link, probe, ocms, arr) {
       if (!key && ocm.kind) {
         const fa = await link.ask(ocReq.fxInfo(ocm.moduleId, ocm.fxSectors), { timeout: 600, retries: 1 });
         if (!fa) key = "fxOldFw";
-        else { const fx = parseFxInfo(fa); if (ocm.kind !== 4 && fx.abi !== undefined && ocm.fxAbi && ocm.fxAbi !== fx.abi) key = "modWrongFw"; }   // (kind 4: as fxCheck)
+        else { const fx = parseFxInfo(fa); if (fx.abi !== undefined && ocm.fxAbi && ocm.fxAbi !== fx.abi) key = "modWrongFw"; }   // (as fxCheck; round 24: a models module too, with the word the unit answers for its id)
       }
     }
     if (key) bad[arr.order[k]] = key;

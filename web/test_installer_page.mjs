@@ -328,6 +328,34 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
     assert.match(blk.element("models-room").textContent, /needs 3 in one run\. ENGINE DUB TAPE INSTALLED AT START 18: REMOVE IT FIRST Install waits until the models fit\.$/, blk.element("models-room").textContent);
     assert.equal(blk.runs.length, 0, "a module that is not of the set is in the way: nothing is written");
     assert.ok(!blk.confirms.length, "and nothing is asked");
+    // (round 24; found on the unit in round 23, where the suite had passed) a build with the tail region ships WHEEL re-cut to one sector (fm1place.js ENG_GEO_TAIL). The page as
+    // it opens (the unit not read, the default pick, the boxes of the build ticked: SHAPES and WHEEL, DUB TAPE, the models) counts WHEEL as 1: SHAPES 6, WHEEL 1 and the 9 sector
+    // pick in the area, DUB TAPE in the tail. Counted as 4 the pick read "1 too many" and Install stayed locked, so the unit could not even be read. A build without the tail
+    // region keeps WHEEL's 4
+    {
+      const WHEELED = {...WITH, ocm: ["orangecat-shapes-0.15.0.ocm", "orangecat-wheel-0.15.0.ocm", "orangecat-prophet-0.15.0.ocm", WITH.ocm.at(-1)]};
+      const grain9 = regions.flatMap((r) => (r.name === "mdl_grain" ? [{...r, end: r.start + 28000 - 16}, {name: "rest", start: r.start + 28000, end: r.end}] : [r]));   // GRAIN cut to 28,000 B (the rest of it a region no item keeps): the default pick (WAVSHP, FM, GRAIN) is 9 sectors
+      const open = async (places) => {
+        const pg = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...WHEELED, releases: [WHEELED]});
+        await answer(pg, "standard.fwsc");
+        const i = pg.pending.findIndex((q) => q.url.startsWith("orangecat-plaits-")); const [q] = pg.pending.splice(i, 1);
+        q.resolve({ok: true, arrayBuffer: async () => masterOf({...manifest, regions: grain9, ...(places ? {places} : {})}).buffer}); await pg.tick(); await pg.tick();
+        pg.element("stage-models").checked = true; pg.element("stage-models").listeners.change();
+        pg.element("stage-fx").checked = true; pg.element("stage-fx").listeners.change();
+        return pg;
+      };
+      const tb = await open([{name: "area", first: -6, last: 12}, {name: "tail", first: -58, last: -55}]);
+      assert.ok(tb.element("stage-mod").checked && !tb.element("stage-mod").disabled && tb.element("mdl-3").checked, "the SHAPES and WHEEL box and the default pick are ticked");
+      const room = tb.element("models-room").textContent;
+      assert.match(room, /^Room: 18 sectors in the module area and 3 sectors in the tail region; /, room);
+      assert.match(room, /\bWHEEL 1 \(module area\)/, "a tail build's WHEEL is one sector in the meter: " + room);
+      assert.match(room, /DUB TAPE 3 \(tail region\) take 10; 11 left in the module area, 0 left in the tail region\. This pick \(WAVSHP, FM, GRAIN\) needs 9: it goes in the module area, 2 to spare\./, room);
+      assert.doesNotMatch(room, /too many|Install waits/, "SHAPES 6, WHEEL 1 and the 9 sector pick stand in the area, DUB TAPE in the tail: " + room);
+      assert.equal(tb.element("go").disabled, false, "Install is ready for the default pick of a tail build with the WHEEL package ticked");
+      const nt = await open(null);
+      assert.match(nt.element("models-room").textContent, /^Room: 18 sectors; WHEEL 4, SHAPES 6, DUB TAPE 3 take 13; 5 left\. This pick \(WAVSHP, FM, GRAIN\) needs 9: 4 too many\./, "a build without the tail region: WHEEL is 4 sectors, as its package is: " + nt.element("models-room").textContent);
+      assert.equal(nt.element("go").disabled, true);
+    }
   }
   const plain = boot(store());
   await answer(plain, "standard.fwsc");

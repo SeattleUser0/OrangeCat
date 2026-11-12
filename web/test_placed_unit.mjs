@@ -75,8 +75,11 @@ export const snap = (st) => JSON.stringify(st.starts.map((x) => [x.state, x.kind
 
 // the mocked unit. fail(op, k): asked for every BEGIN and REMOVE (op "begin" | "remove", k counts each from 0): a number is the rc the unit answers, "lost" the link going away
 // (the send throws, as a port that is gone), anything else the unit doing it. u.ops: what the unit was asked to do, in order; u.wire: every request, byte for byte.
-export function placedUnit(initial, OcLink, {fail = null} = {}) {
-  const u = {st: PLACE.cloneState(initial), sent: [], ops: [], wire: [], begin: null, fail, count: {begin: 0, remove: 0}};
+// (round 24) FX_INFO's abi word, as the firmware answers it (editor.c): MDL_ABI for a models module's id (0x4D00 + engine: what modelsOcm's block carries), FX_ABI for any other
+// id. u.oldFw (the option, or set later: a firmware install changes it): the unit answers FX_ABI for every id, as Nightly 5f894f and before did.
+export const FX_ABI = 0x9DCB40AD, MDL_ABI = 1;
+export function placedUnit(initial, OcLink, {fail = null, oldFw = false, mdlAbi = MDL_ABI} = {}) {
+  const u = {st: PLACE.cloneState(initial), sent: [], ops: [], wire: [], begin: null, fail, count: {begin: 0, remove: 0}, oldFw};
   initial.starts.forEach((x, i) => { u.st.starts[i].ver = x.ver; });
   const input = {state: "connected", onmidimessage: null};
   const reply = (cmd, data) => setImmediate(() => input.onmidimessage && input.onmidimessage({data: Uint8Array.from([240, 125, 70, 76, cmd, ...data, 247])}));
@@ -103,7 +106,7 @@ export function placedUnit(initial, OcLink, {fail = null} = {}) {
       const n = args[0], a = args.slice(1);
       if (n === 2) {                                             // FX_INFO: id (5), sectors
         const mid = id5(a), ns = a[5], c = PLACE.planFx(u.st, mid, ns);
-        reply(0, [2, c < 0 ? 127 : c, c >= 0 && over(c, ns, (x) => x.kind && x.mid === mid) ? 1 : 0, 127, u.st.lowOk ? 1 : 0]);
+        reply(0, [2, c < 0 ? 127 : c, c >= 0 && over(c, ns, (x) => x.kind && x.mid === mid) ? 1 : 0, 127, u.st.lowOk ? 1 : 0, ...n5(!u.oldFw && ((mid & ~0xFF) >>> 0) === 0x4D00 ? mdlAbi : FX_ABI)]);
       } else if (n === 3) {                                      // FX_BEGIN: id (5), start, length (3)
         const b = {mid: id5(a), start: a[5], len: a[6] | a[7] << 7 | a[8] << 14}, rc = gate("begin");
         u.ops.push("begin:0x" + b.mid.toString(16) + "@" + b.start);
