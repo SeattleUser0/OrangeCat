@@ -47,8 +47,16 @@
  * (Orange Cat 0.12.2) sanitizer fixes, project-record fuzzer, editor-protocol check
  *   0.6.0: first version (Jiant 0.9.18's effects).
  */
+#include "fx_send.h"                                   /* (Release 3 step 8a) the send host's vocabulary: the tank, the modes' state, the context and the call a mode's kernel gets (shared with the reverb module) */
 #include "fx_insert.h"                                 /* (Release 3 step 5) the insert host's vocabulary (fx_kernel_t, fx_ins_t; it includes dubdelay.h: dd_params_t for the size of the snapshot) */
 #define JFX_XIP __attribute__((section(".text.xip_jfx"), noinline))
+#define REVK_FN JFX_XIP                                 /* rev_kern.h: the resident copy of a mode's function sits where the reverb's did */
+#ifndef OC_REV_RESIDENT
+#define OC_REV_RESIDENT 1                               /* (Release 3 step 8a) the resident copy of SPRING, SHIMMER and RESO stays in the image this Nightly and plays whenever the module is not registered. 0 (the Nightly after: FX_MODULES_PLAN.md 16): the text is not built in, and those modes without the module are not run (the return silent) */
+#endif
+#if !OC_REV_RESIDENT
+#define REVK_NO_MODES 1
+#endif
 
 /* ------------------------------------------------------------------ memory --- */
 #ifndef DLY_LEN
@@ -64,12 +72,10 @@ _Static_assert(JFX_SEG == 1u << JFX_SEG_SH && DLY_LEN % JFX_SEG == 0u && (DLY_NS
 #define CHO_LEN 2048u
 #define REV_NCOMB (1116u + 1188u + 1277u + 1356u)
 #define REV_NAP (556u + 441u)
-typedef struct {
-    int16_t comb[REV_NCOMB + 1u];                       /* ROOM's combs; SPRING's loop; RESO's strings (+1: even) */
-    union { int16_t ap[REV_NAP + 1u]; int32_t sp[(REV_NAP + 1u) / 2u]; } u;   /* ROOM's allpasses; SPRING's chain */
-} jrev_t;
+typedef rev_tank_t jrev_t;                              /* (Release 3 step 8a) fx_send.h: ROOM's combs, SPRING's loop, RESO's strings (+1: even); ROOM's allpasses / SPRING's chain. The module's kernels get the same block */
+_Static_assert(sizeof(((jrev_t *)0)->comb) == (REV_NCOMB + 1u) * sizeof(int16_t) && sizeof(((jrev_t *)0)->u.ap) == (REV_NAP + 1u) * sizeof(int16_t) &&
+               sizeof(((jrev_t *)0)->u.sp) == (REV_NAP + 1u) / 2u * sizeof(int32_t), "fx_send.h's tank is the reverb's");
 #define RPRE_LEN 2048u                                  /* the reverb's pre-delay line, at half rate (4 KB): up to 92 ms */
-#define SH_LEN 2048u                                    /* SHIMMER's line (4 KB) */
 #define CL_LEN 16384u                                   /* .. CLOUD's, half rate: ~0.74 s (32 KB) */
 #define RX_NSEG (CL_LEN / JFX_SEG)                      /* the model line: 8 blocks for CLOUD, the first one for the
                                                          * others (the pre-delay, SHIMMER's line) */
@@ -448,19 +454,11 @@ static struct {
     uint16_t comb_i[4], ap_i[2];
     int32_t comb_lp[4];
     uint8_t rtype;                       /* the reverb model running (G_RTYPE: 0 ROOM, 1 SPRING, 2 SHIMMER 3 RESO 4 CLOUD) */
-    uint32_t sh_w, sh_ph;                /* (JIANT 0.5) SHIMMER: its line's write count, the grains' phase (Q16, 0.6.12) */
-    int32_t rs_lp[4];                    /* .. RESO: the combs' loop low-passes */
-    uint32_t rs_per[4];                  /* .. (0.6.5) their periods now (Q8), gliding to the chord's */
-    uint8_t rs_root;                     /* .. the note FOLW last heard + 1 (0: none yet) */
-    uint16_t rs_w;                       /* .. their write index (each its own line, 1024) */
+    rev_kst_t k;                         /* (Release 3 step 8a) SPRING's, SHIMMER's and RESO's state (fx_send.h; it was sh_w .. sp_ph here and the static sh_tlp): handed to the mode's kernel, resident or the module's, in fx2_ctx_t */
     uint32_t cl_w, cl_rng;               /* .. CLOUD: its line's write count (half rate), its random numbers */
     int32_t cl_dc;                       /* .. (0.9.14) its loop's DC (Q8 samples) */
     uint16_t cl_fill;                    /* .. (0.9.16) sound written into its line since it was cleared (to 32768) */
     int32_t cl_next, cl_lp, cl_half, cl_gl, cl_gr;     /* .. the samples to the next grain, the output's low-pass, the odd sample */
-    uint16_t sp_w;                       /* SPRING: the loop's write index (SP_MASK) */
-    uint8_t sp_ns;                       /* (0.6.70) SPRING's allpass stages last block */
-    int32_t sp_lp, sp_hp, sp_he, sp_size;   /* .. its loop low-pass, low cut (and its remainder), the loop length (Q8) */
-    uint32_t sp_ph;                      /* .. the output tap's wobble */
     uint32_t gr_rng;                     /* (Orange Cat) the GRAIN's random numbers: its own (Jiant's beta found the shared
                                           * generator drawn from both cores) */
 } fx;
@@ -473,21 +471,6 @@ static inline __attribute__((always_inline)) void dly_adv(void)           /* the
 #define rpre_buf jrev_x
 #define shim_buf jrev_x
 
-/* SPRING (G_RTYPE 1): one spring of a spring tank, mono like the other buses, in the ROOM's own buffers (no
- * RAM of its own): the input and the loop's return -> a low cut (~110 Hz: a spring carries little bass) ->
- * SP_N stretched first-order allpasses, (a + z^-4) / (1 + a z^-4) (after Valimaki, Parker and Abel: below
- * fs / 8 = 5.5 kHz the group delay rises with frequency, the chirp; each pass round the loop adds more of
- * it: the "boing", the drips) -> the loop's delay line (rev_comb, SP_LEN) -> back through a one-pole
- * low-pass (DAMP) and the decay gain (SIZE). The output: the spring's far end, half way along the loop
- * (the first sound 15 .. 30 ms after the send: the tank's own pre-delay; a slow wobble of a sample or two
- * on it), plus a second, quieter pickup at three quarters (a shorter spring beside it: denser). SIZE sets
- * the loop's length (30 .. 60 ms) and its decay; DAMP the loop's low-pass. The allpasses' states: 4
- * samples each (int32), in rev_ap's memory. Changing the model fades the old one's block out and clears both buffers. */
-#define SP_LEN 4096u                     /* the loop's line in rev_comb (4937 samples) */
-#define SP_MASK (SP_LEN - 1u)
-#define SP_N 10u                         /* allpass stages */
-#define SP_A 2867                        /* their coefficient, Q12 */
-_Static_assert(REV_NCOMB >= SP_LEN && (REV_NAP + 1u) / 2u >= 4u * (SP_N + 1u), "SPRING in ROOM's buffers");
 static const uint16_t REV_COMB[4] = {1116, 1188, 1277, 1356};
 static const uint16_t REV_AP[2] = {556, 441};
 
@@ -660,38 +643,7 @@ static uint32_t dly_dro(int32_t wd, int png)
     return dly_hold(raw, &dly_hold_dro, 2u);
 }
 
-/* (0.9.14) the reverbs' int16 lines written through a soft knee: linear to -2.5 dBFS, then tanh up to ~-0.1 dB */
-static inline int32_t rv_knee(int32_t x)
-{
-    int32_t a = x < 0 ? -x : x;
-    if (a <= 24576)
-        return x;
-    a = 24576 + (softclip(clamp(a - 24576, 0, 16384) * 4) >> 2);
-    return x < 0 ? -a : a;
-}
-/* (round 11) the reverbs' 16-bit lines held JFX_ROOM_HEAD / JFX_SPRING_HEAD bits higher than the input scale of before (ROOM and SPRING: their input 1/8 at -4 dB,
- * mulq15 2580, and the lines' quantization under it was the hiss the owner heard under a quiet note: a floor 6 dB (ROOM) and 10 dB (SPRING) over
- * the dry one). The lines are written through rv_knee (linear to -2.5 dBFS of the line, then soft) instead of a hard clamp, and the outputs are
- * scaled back, so the sound is the one of before wherever the line stays under the knee; a line that reaches it saturates softly where it
- * clamped hard (RESO, SHIMMER, CLOUD: their own code, unchanged). 0: the lines as before */
-#ifndef JFX_ROOM_HEAD
-#define JFX_ROOM_HEAD 1                                  /* ROOM's combs (and SHIMMER's, which runs ROOM) */
-#endif
-#ifndef JFX_ROOM_APSH
-#define JFX_ROOM_APSH 1                                  /* ROOM's allpass lines held this many bits under the combs (they carry the four combs' sum and
-                                                          * reach the knee first: at 1 the headroom of before is nearly whole and 3.4 of the 4.5 dB stay) */
-#endif
-#ifndef JFX_SPRING_HEAD
-#define JFX_SPRING_HEAD 2                                /* SPRING's loop */
-#endif
-#define RV_IN (2580 << JFX_ROOM_HEAD)
-#define SP_IN (2580 << JFX_SPRING_HEAD)
-/* the bus input into the lines' scale: the send is bounded by four tracks' contributions of 65,536 each (mix.c) and THROW's dry mix, so it is
- * clamped at four full-scale tracks before the multiply (the product would wrap above 416k at RV_IN, 208k at SP_IN; the review of round 11) */
-#define RV_SEND(x) clamp((x), -131072, 131072)
-/* a line write: as it is under the knee (no call), rv_knee above (soft to 32,473: the int16 holds it); the review: the clamp that stood before
- * rv_knee made the knee a hard clip at 30,814, and rv_knee was a call on every write */
-static inline int32_t rv_put(int32_t v) { return (uint32_t)(v + 24576) <= 49152u ? v : rv_knee(v); }
+#include "rev_kern.h"                                  /* (Release 3 step 8a) the lines' scale and knee, and the modes SPRING, SHIMMER and RESO: the text the module also includes */
 /* (JIANT 0.5) the combs' feedback from SIZE: 0.76 .. 0.99 */
 static int32_t rev_size(void)
 {
@@ -799,74 +751,6 @@ static JFX_XIP void rev_room_mod(const int32_t *rev_in, int32_t *out, uint32_t n
         fx.rm_m[k] = m1[k];                             /* (exact at the block's end) */
 }
 
-/* (0.6.70) SPRING's chain shortened / lengthened: the stages coming back start silent. (Orange Cat: no load governor,
- * always SP_N stages: only the first block sets it) */
-static void sp_chain(int32_t *ap, uint32_t ns)
-{
-    uint32_t j, k;
-    for (j = 0; j < 4u; j++)
-        for (k = ns + 1u; k <= SP_N; k++)
-            ap[j * (SP_N + 1u) + k] = 0;
-    fx.sp_ns = (uint8_t)ns;
-}
-/* SPRING (see above), added to out */
-static JFX_XIP void rev_spring(const int32_t *rev_in, int32_t *out, uint32_t n)
-{
-    uint32_t i, k, s = (uint32_t)clamp(fxp.g[G_RSIZE], 0, 127);
-    int32_t g = 19661 + (int32_t)s * 85 + (int32_t)(s * s) / 16;   /* the loop's gain: 0.6 .. 0.96 */
-    int32_t kl = 26000 - clamp(fxp.g[G_RDAMP], 0, 127) * 160;     /* its low-pass: ~9 kHz .. ~1.3 kHz */
-    int32_t len = (int32_t)(1323u + ((s * 1323u) >> 7)) << 8, L, L2, L3, f, w, rm = clamp(fxp.g[G_RMOD], 0, 127);
-    int16_t *ln = rev_comb;
-    int32_t *ap = jrev->u.sp;
-    uint32_t ns = SP_N;
-    if (!fx.sp_size)
-        fx.sp_size = len;
-    fx.sp_size += clamp(len - fx.sp_size, -256, 256);   /* SIZE glides (a sample a block at most) */
-    L = fx.sp_size >> 8;
-    fx.sp_ph += 2u * LFO_INC[rm ? fxp.g[G_RRATE] & 127 : 24];   /* the wobble: a slow sine, 1.5 samples */
-    w = (fx.sp_size >> 1) + ((osc_sine(fx.sp_ph) * (3 + rm / 2)) >> 8);   /* deep (MOD: up to 66); the far end, Q8 */
-    L2 = w >> 8;
-    f = w & 255;
-    L3 = (L * 3) >> 2;
-    if (ns != fx.sp_ns)
-        sp_chain(ap, ns);
-    for (i = 0; i < n; i++) {
-        uint32_t wp = fx.sp_w, j = (wp & 3u) * (SP_N + 1u);
-        int32_t x = mulq15(RV_SEND(rev_in[i]), SP_IN), r = ln[(wp - (uint32_t)L) & SP_MASK], p, o;
-        int32_t t0 = ln[(wp - (uint32_t)L2) & SP_MASK], t1 = ln[(wp - (uint32_t)L2 - 1u) & SP_MASK];
-        fx.sp_lp += mulq15(r - fx.sp_lp, kl);
-        o = fx.sp_lp * g;
-        x += (o + ((o >> 31) & 32767)) >> 15;           /* towards 0: a loop of floors would hold an offset */
-        o = x - fx.sp_hp + fx.sp_he;                    /* the low cut, its step's remainder kept */
-        fx.sp_he = o & 63;
-        fx.sp_hp += o >> 6;
-        x -= fx.sp_hp;
-        p = ap[j];                                      /* the chain: ap[j + k], stage k's output 4 samples ago */
-        ap[j] = x;
-        for (k = 1; k <= ns; k++) {                     /* (lossless: bounded by the loop's input, no clamp) */
-            int32_t v = (x - ap[j + k]) * SP_A;
-            o = ap[j + k];
-            x = ((v + ((v >> 31) & 4095)) >> 12) + p;
-            p = o;
-            ap[j + k] = x;
-        }
-        ln[wp & SP_MASK] = (int16_t)rv_put(x);
-        fx.sp_w = (uint16_t)(wp + 1u);
-        out[i] += ((t0 + (((t1 - t0) * f) >> 8)) * 4 + ln[(wp - (uint32_t)L3) & SP_MASK] * 2) >> JFX_SPRING_HEAD;
-    }
-}
-/* (JIANT 0.3) SPRING's WIDE, after its block: a tap a quarter along the loop against 3/4 as the side */
-static JFX_XIP void rev_spring_side(uint32_t n, int32_t wd)
-{
-    const int16_t *ln = rev_comb;
-    uint32_t i, L = (uint32_t)fx.sp_size >> 8, L3 = (L * 3u) >> 2, wp = (uint32_t)fx.sp_w - n;
-    for (i = 0; i < n; i++, wp++) {
-        int32_t sd = ((ln[(wp - L3) & SP_MASK] - ln[(wp - (L >> 2)) & SP_MASK]) * 3 * wd) >> (7 + JFX_SPRING_HEAD);
-        fx_sl[i] += sd;
-        fx_sr[i] -= sd;
-    }
-}
-
 /* (JIANT 0.5) three more models on the reverb send, no parameter of their own (the REVERB pages' knobs, read per model):
  *   SHIMMER (2)  ROOM with its output an octave up fed back into it (two crossfaded grains reading its own line twice
  *                as fast: a pitch shifter): each pass round the loop an octave higher. MOD the shimmer's amount; SIZE
@@ -876,57 +760,8 @@ static JFX_XIP void rev_spring_side(uint32_t n, int32_t wd)
  *   CLOUD (4)    a granular cloud: the send recorded (half rate, ~0.74 s) and read by up to twelve grains; RATE their
  *                density, DAMP the tone, WIDE them left and right, MOD pitched grains, PRE: AIR. SIZE full: FREEZE */
 static int32_t shim_fb[CTL];
-/* (0.6.12) AIR: a semitone count as a speed, Q16: 2^(st / 12) (-24 .. 36) */
-static uint32_t semi_q16(int32_t st)
-{
-    static const uint16_t R[12] = {32768, 34716, 36781, 38968, 41285, 43740, 46341, 49097, 52016, 55109, 58386, 61858};
-    int32_t o = (st + 48) / 12 - 4, k = (st + 48) % 12;   /* (an octave down, Q15: then shifted) */
-    uint32_t r = (uint32_t)R[k] << 1;                   /* 2^(k / 12), Q16 */
-    return o >= 0 ? r << o : r >> -o;
-}
-static int32_t rev_air(void)
-{
-    return fxp.g[G_RTYPE] == 2 || fxp.g[G_RTYPE] == 4 ? clamp(fxp.g[G_RPRE], -24, 24) : 0;
-}
-static int32_t sh_tlp;                                  /* (0.6.12) SHIMMER's tone: AIR's low-pass / its shelf */
-static JFX_XIP void rev_shimmer(const int32_t *rev_in, int32_t *out, uint32_t n)
-{
-    int32_t in[CTL], t[CTL], amt = clamp(fxp.g[G_RMOD], 0, 127) * 190;   /* Q15: up to ~0.74 */
-    int32_t air = rev_air(), st = clamp(12 + air, -12, 24), tk = air < 0 ? 32767 + air * 1150 : 9000;
-    int32_t step = (int32_t)semi_q16(st) - 65536;       /* (the delay changes by 1 - speed a sample, Q16) */
-    uint32_t i, j;
-    for (i = 0; i < n; i++) {
-        in[i] = rev_in[i] + mulq15(shim_fb[i], amt);
-        t[i] = 0;
-    }
-    rev_room(in, t, n);
-    for (i = 0; i < n; i++) {
-        int32_t x = 0, y = t[i];
-        if (air) {                                      /* AIR: down a low-pass (dark), up a high shelf (air) */
-            sh_tlp += mulq15(y - sh_tlp, tk);
-            y = air < 0 ? sh_tlp : y + (((y - sh_tlp) >> 3) * air) / 3;
-        }
-        out[i] += y;
-        shim_buf[fx.sh_w & (SH_LEN - 1u)] = (int16_t)clamp(y >> 1, -32768, 32767);
-        for (j = 0; j < 2u; j++) {                      /* two grains, the delay sliding: read at octave + AIR's speed */
-            uint32_t q = fx.sh_ph + j * ((SH_LEN / 2u) << 16), ph = (q >> 16) & (SH_LEN - 1u), d = SH_LEN - 1u - ph;
-            int32_t w = (int32_t)(ph < SH_LEN / 2u ? ph : SH_LEN - 1u - ph);   /* the triangles: their sum flat */
-            int32_t f = (int32_t)((q >> 8) & 255u), x0 = shim_buf[(fx.sh_w - d) & (SH_LEN - 1u)];
-            int32_t x1 = shim_buf[(fx.sh_w - d + 1u) & (SH_LEN - 1u)];
-            x += ((x0 + (((x1 - x0) * f) >> 8)) * w) >> 9;
-        }
-        fx.sh_ph += (uint32_t)step;
-        fx.sh_w++;
-        shim_fb[i] = x;                                 /* (into the next block's input) */
-    }
-}
-#define RS_LEN 1024u                                     /* each comb's line, in rev_comb: down to ~43 Hz */
-_Static_assert(REV_NCOMB >= 4u * RS_LEN, "RESO in ROOM's buffers");
-/* (JIANT 0.6.5) RESO's two knobs of its own, in the slots of PRE and DAMP: PITCH (G_RPRE 0..14) the chord that many
- * steps of the scale up; FOLW (G_RDAMP 0..4, Orange Cat's four tracks) OFF / T1..T4: the chord built on the lowest
- * note that track sounds (held after it stops), so it moves with the sequence. The strings glide there */
-static uint32_t reso_pitch(void) { return fxp.g[G_RTYPE] == 3 ? (uint32_t)clamp(fxp.g[G_RPRE], 0, 14) : 0u; }
-static uint32_t reso_folw(void) { return fxp.g[G_RDAMP] >= 1 && fxp.g[G_RDAMP] <= (int16_t)NTRK ? (uint32_t)fxp.g[G_RDAMP] : 0u; }
+static int32_t rev_air(void) { return revk_air(fxp.g); }
+static uint32_t reso_folw(void) { return revk_folw(fxp.g); }
 /* the first melodic track (its scale, Jiant's "song scale"): Orange Cat's DRUM tracks are drum_track's */
 static const track_t *jfx_scale_track(void)
 {
@@ -934,60 +769,6 @@ static const track_t *jfx_scale_track(void)
     for (k = 0; k < NTRK; k++)
         if (!drum_track(&trk[k])) return &trk[k];
     return &trk[0];
-}
-static JFX_XIP void rev_reso(const int32_t *rev_in, int32_t *out, uint32_t n)
-{
-    uint32_t i, k, per[4], mask, s, fol = reso_folw(), up = reso_pitch();
-    int32_t root = fxp.reso_root;
-    int32_t sz = clamp(fxp.g[G_RSIZE], 0, 127), dk = 32767 - 60 * 200, note[4], deg = 0, nn;
-    int32_t fb = sz <= 100 ? 26000 + sz * 52 : clamp(31200 + (sz - 100) * 58, 0, 32740);   /* (0.5.1: the top of SIZE
-                                                         * rings on for tens of seconds) */
-    mask = fxp.reso_mask;                                 /* (the copy: scale_mask of the first melodic track, 0 -> all) */
-    nn = 48 + root;
-    if (fol) {                                           /* FOLW: the lowest note the track sounds */
-        uint32_t lo = fxp.reso_lo;
-        if (lo != 0xFFu)
-            fx.rs_root = (uint8_t)(lo + 1u);
-        if (fx.rs_root) {
-            nn = 48 + (int32_t)(fx.rs_root - 1u) % 12;          /* (its pitch class from C3, down onto the scale) */
-            for (k = 0; k < 12u && !((mask >> (uint32_t)((nn - root + 120) % 12)) & 1u); k++)
-                nn--;
-        }
-    }
-    for (k = 0; k < up; nn++)                            /* PITCH: that many steps of the scale up */
-        if ((mask >> (uint32_t)((nn + 1 - root + 120) % 12)) & 1u)
-            k++;
-    for (k = 0, s = 0; k < 4u && s < 48u; s++, nn++)     /* the I, III, V, VII from there up */
-        if ((mask >> (uint32_t)((nn - root + 120) % 12)) & 1u) {
-            if (deg % 2 == 0)
-                note[k++] = nn;
-            deg++;
-        }
-    for (; k < 4u; k++) note[k] = note[k - 1] + 12;
-    if (fxp.g[G_RMOD] > 64) { note[2] += 12; note[3] += 12; }   /* MOD: the voicing open */
-    for (k = 0; k < 4u; k++) {
-        uint32_t inc = pitch_inc((uint32_t)clamp(note[k] * 16, 0, 2047));
-        per[k] = 0xFFFFFFFFu / ((inc >> 8) | 1u);          /* the period, Q8 */
-        if (per[k] > (RS_LEN - 2u) << 8) per[k] = (RS_LEN - 2u) << 8;
-        if (!fx.rs_per[k])
-            fx.rs_per[k] = per[k];
-        fx.rs_per[k] += (uint32_t)(((int32_t)per[k] - (int32_t)fx.rs_per[k]) / 6);   /* (a glide, ~6 blocks) */
-        per[k] = fx.rs_per[k];
-    }
-    for (i = 0; i < n; i++) {
-        int32_t in = mulq15(rev_in[i], 3600), a = 0;
-        for (k = 0; k < 4u; k++) {
-            int16_t *c = rev_comb + k * RS_LEN;
-            uint32_t d = per[k] >> 8, f = per[k] & 255u;
-            int32_t x0 = c[(fx.rs_w - d) & (RS_LEN - 1u)], x1 = c[(fx.rs_w - d - 1u) & (RS_LEN - 1u)];
-            int32_t o = x0 + (((x1 - x0) * (int32_t)f) >> 8);
-            fx.rs_lp[k] = o + mulq15(fx.rs_lp[k] - o, 32767 - dk);
-            c[fx.rs_w & (RS_LEN - 1u)] = (int16_t)clamp(in + mulq15(fx.rs_lp[k], fb), -32768, 32767);
-            a += o;
-        }
-        fx.rs_w++;
-        out[i] += a;
-    }
 }
 #define CL_N 12u
 #define CL_WMAX 320                                      /* (0.9.14) the grains' windows summed: 1.25 grains' worth at most */
@@ -1093,25 +874,102 @@ static JFX_XIP void rev_cloud(const int32_t *rev_in, int32_t *out, uint32_t n)
     }
 }
 /* the model ty's block into out */
+/* (Release 3 step 8a) the send host: a mode's kernel is the registered module's (fx2_modk[mode], set by the loader through fx2_modk_set: pointers into the module's flash) or, with none, the
+ * resident copy of the same text (rev_kern.h). Both get the same context: the state, the tank and the line are the host's, so a module that appears or goes away between two blocks changes
+ * nothing that sounds. fx2_modk is written on CPU0 with the audio interrupt masked and no bus job out (the interrupt drains the job before it ends: audio.c); the job reads it */
+static __attribute__((section(".pool"))) fx2_kcalls_t fx2_modk[FX2_MODES];     /* [mode]: the module's call, 0: none registered */
+static __attribute__((section(".pool"))) uint32_t fx2_mod_version;            /* the registered module's version (0: none) */
+static __attribute__((section(".pool"))) uint8_t fx2_mod_n, fx2_marked;       /* modes the module serves; the crash mark taken for this registration */
+static __attribute__((section(".pool"))) void (*fx2_modk_note)(uint32_t module_id);   /* the loader's crash mark (oc_fxmod_note_use), set with the registration */
+#if OC_REV_RESIDENT
+static const fx2_kcalls_t REV_RESIDENT[FX2_MODES] = { {0}, {REVK_CALLS_SPRING}, {REVK_CALLS_SHIMMER}, {REVK_CALLS_RESO}, {0} };
+#define REV_RESIDENT_OF(ty) (REV_RESIDENT[ty].process)
+#else
+#define REV_RESIDENT_OF(ty) ((void (*)(const fx2_ctx_t *, const int32_t *, int32_t *, uint32_t))0)
+#endif
+static inline __attribute__((always_inline)) void rev_ctx(fx2_ctx_t *c)
+{
+    c->g = fxp.g; c->st = &fx.k; c->fb = shim_fb; c->tank = jrev; c->line = rx_seg; c->nline = rx_have; c->sl = fx_sl; c->sr = fx_sr;
+    c->reso_mask = fxp.reso_mask; c->reso_lo = fxp.reso_lo; c->reso_root = fxp.reso_root;
+    c->room = rev_room; c->room_mod = rev_room_mod; c->lfo_inc = LFO_INC;
+}
+/* a mode that is a kernel's (1 .. 3) has one: the module's or the resident copy (always, while the resident copy is in the image: OC_REV_RESIDENT) */
+static inline int rev_has_kernel(uint32_t ty) { return ty < 1u || ty > 3u || fx2_modk[ty].process || REV_RESIDENT_OF(ty); }
 /* (0.6.0 rev 2) the model ty can run: CLOUD needs its 32 KB line, SHIMMER its 4 KB one (jfx_mem may not have them:
  * FX FULL). Checked before every rev_run, the fade of a model being left too (a reviewer found SHIMMER faded out with
  * no line read a null pointer) */
 static int rev_can_run(uint32_t ty)
 {
-    return !(ty == 4u && rx_have < RX_NSEG) && !(ty == 2u && !jrev_x);
+    return !(ty == 4u && rx_have < RX_NSEG) && !(ty == 2u && !jrev_x) && rev_has_kernel(ty);   /* (step 8a) .. and a mode that is a kernel's has one (it always has while the resident copy is in the image) */
 }
 static void rev_run(uint32_t ty, const int32_t *rev_in, int32_t *out, uint32_t n)
 {
     int32_t wd = clamp(fxp.g[G_RWIDE], 0, 127);
     switch (ty) {
-    case 1: rev_spring(rev_in, out, n); if (wd) rev_spring_side(n, wd); break;
-    case 2: rev_shimmer(rev_in, out, n); break;
-    case 3: rev_reso(rev_in, out, n); break;
+    case 1: case 2: case 3: {
+        fx2_ctx_t c;
+        void (*run)(const fx2_ctx_t *, const int32_t *, int32_t *, uint32_t) = fx2_modk[ty].process;
+        if (!run) run = REV_RESIDENT_OF(ty);
+        rev_ctx(&c);
+        run(&c, rev_in, out, n);
+        break;
+    }
     case 4: rev_cloud(rev_in, out, n); break;
     default:
         if (fxp.g[G_RMOD] || wd) rev_room_mod(rev_in, out, n, wd);
         else rev_room(rev_in, out, n);
         break;
+    }
+}
+/* ---- (Release 3 step 8a) the send host's registration: what the loader (oc_module.c oc_fx2mod_reg) and the host tests call ----
+ * fx2_modk_set: the bank of module FX2_MODULE_ID, n entries (effect id = the mode, its caps block, its call table), ALL OR NONE. Checked here, after the loader's fx_caps_check (the pointers, the
+ * magic and the abi at install and at boot), for a caller that did not come through the loader and for what only the host knows:
+ *   FX2M_VER    the caps block's magic, size, version or abi (FX2_ABI_ID: the layout of the context, the state, the tank and the call) is not this build's
+ *   FX2M_RANGE  an effect id that is not a mode a kernel may serve (1 SPRING, 2 SHIMMER, 3 RESO) or twice in the bank; more than one instance; a seed; a rate other than the bus's; a state, an
+ *               option or a hot set of its own (the state is the host's rev_kst_t); a model line other than the one the host gives the mode (REV_LINE: SHIMMER 1 block, SPRING and RESO none);
+ *               a snapshot that is not song.g (2 * G_COUNT bytes); no call
+ * 0 FX2M_OK: from the next bus job on the registered modes run the module's code. The caller masks the audio interrupt in a running session (no bus job is out between interrupts) */
+#define OC_FX2_HOST 1                                   /* oc_module.c, editor.c: this build has the send host */
+typedef struct { uint8_t effect_id; const fx_caps_t *caps; const fx2_kcalls_t *calls; } fx2_reg_t;
+static const uint8_t REV_LINE[FX2_MODES] = { 0, 0, 1, 0, RX_NSEG };   /* the model line's blocks a mode needs before it runs (rev_can_run); the pre-delay's block is the host's own business */
+static int fx2_modk_set(uint32_t module_id, uint32_t version, uint32_t n, const fx2_reg_t *e)
+{
+    uint32_t i, seen = 0;
+    if (module_id != FX2_MODULE_ID || !n || n > FX2_MODES) return FX2M_RANGE;
+    for (i = 0; i < n; i++) {
+        const fx_caps_t *c = e[i].caps;
+        uint32_t m = e[i].effect_id;
+        if (!c || c->magic != FX_CAPS_MAGIC || c->size != FX_CAPS_WIRE || c->version != FX_CAPS_VERSION || c->abi != FX2_ABI_ID) return FX2M_VER;
+        if (m < 1u || m > 3u || ((seen >> m) & 1u)) return FX2M_RANGE;
+        seen |= 1u << m;
+        if (c->max_inst != 1u || (c->flags & FXK_SEED) || !(c->rates & 1u) || c->ram_state || c->ram_extra || c->ram_extra_bytes || c->hot || c->nhot ||
+            c->ram_work_min != REV_LINE[m] || c->ram_work_max != REV_LINE[m] || c->param_bytes != 2u * G_COUNT || !e[i].calls || !e[i].calls->process)
+            return FX2M_RANGE;
+    }
+    for (i = 0; i < n; i++) fx2_modk[e[i].effect_id].process = e[i].calls->process;
+    fx2_mod_version = version; fx2_mod_n = (uint8_t)n; fx2_marked = 0;
+    return FX2M_OK;
+}
+/* the module goes (its sectors are about to be erased, or it no longer stands): the host's copy of the calls zeroed; from the next bus job on the resident copy plays, on the same state, tank
+ * and line (nothing to hand over, nothing that sounds changes). The caller masks the audio interrupt, as for fx2_modk_set */
+static void fx2_modk_clear(void)
+{
+    memset(fx2_modk, 0, sizeof fx2_modk);
+    fx2_mod_version = 0; fx2_mod_n = 0; fx2_marked = 0;
+}
+static inline int fx2_modk_ok(void) { return fx2_mod_n != 0; }
+/* the Effects table's `uses` (editor FX_TABLE): 1 while the reverb is held and the mode it runs is the module's */
+static uint32_t fx2_modk_uses(void) { return jrev && fx2_modk[fx.rtype < FX2_MODES ? fx.rtype : 0u].process ? 1u : 0u; }
+/* CPU0, at bus start, before the job is submitted: the crash mark is taken once a registration, the first time a block is about to run the module's code (the mode running, or the one
+ * being changed to: its first block is the next) */
+static inline void fx2_mark(void)
+{
+    if (fx2_mod_n && !fx2_marked && jrev) {
+        uint32_t rt = (uint32_t)clamp(fxp.g[G_RTYPE], 0, 4);
+        if (fx2_modk[fx.rtype < FX2_MODES ? fx.rtype : 0u].process || fx2_modk[rt].process) {
+            fx2_marked = 1;
+            if (fx2_modk_note) fx2_modk_note(FX2_MODULE_ID);
+        }
     }
 }
 /* the reverb's buffers and states to silence (the model changed), but for the models' own line */
@@ -1121,12 +979,12 @@ static void rev_state_clear(void)
     if (jrev)
         memset(jrev, 0, sizeof *jrev);
     for (i = 0; i < 4u; i++)
-        fx.comb_lp[i] = fx.rs_lp[i] = 0;
-    fx.sp_lp = fx.sp_hp = fx.sp_he = 0;
-    fx.sp_ns = 0;
+        fx.comb_lp[i] = fx.k.rs_lp[i] = 0;
+    fx.k.sp_lp = fx.k.sp_hp = fx.k.sp_he = 0;
+    fx.k.sp_ns = 0;
     for (i = 0; i < CTL; i++)                           /* (JIANT 0.5) SHIMMER's feedback, CLOUD's grains */
         shim_fb[i] = 0;
-    sh_tlp = 0;
+    fx.k.sh_tlp = 0;
     for (i = 0; i < CL_N; i++)
         cl_g[i].len = 0;
     fx.cl_gl = fx.cl_gr = 0;
@@ -2412,6 +2270,7 @@ static void jfx_bus_start(uint32_t n)
     jfx_bus_n = n;
     jfx_bus_pending = 0;
     jfx_bus_ran = dly_have || jrev || cho_buf;
+    fx2_mark();                                         /* (Release 3 step 8a) the reverb module's crash mark, before its code can run */
     fx_bs = &fx_snd[fx_sc];
     fx_bw = &fx_ret[fx_rw];
     fx_fresh = 1;                                       /* a result to adopt (jfx_bus_drain) */

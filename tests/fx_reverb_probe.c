@@ -12,6 +12,8 @@
  *   CHANGE  the mode changed while it sounds: every ordered pair of the five modes, with the knobs at their defaults and away from them (the old mode's block fades out, the tank and the model
  *           line are cleared, the new mode starts from silence); a change every block; the arena short of the model line (SHIMMER and CLOUD without it: FX FULL) and given back; the buses at
  *           rest (the sends silent until the memory is given back) and woken; a project load (jfx_clear_all) in the middle of a tail
+ *   HOT     the sends as loud as the mixer can make them (every track's REVERB send and level full, chords at full velocity, SIZE at its top, DAMP 0): the lines' soft knee (rv_put / rv_knee:
+ *           a line write above -2.5 dBFS) on SPRING, then SHIMMER and RESO at their clamps, then ROOM and CLOUD
  *   MIXm    a full mix on mode m: four engines, chords, the three sends at 64 on every track, the DELAY long enough for its lower rates, MOD and WIDE up
  * Arguments: none. Built and run by tests/fx_reverb_module.sh (tests/run_tests.sh). */
 /* the device's banks (tests/jfx_arena_test.c): the arena is as small as the unit's */
@@ -151,6 +153,27 @@ static void scenario_change(void)
     for (i = 1; i < 4u; i++) { G(G_RTYPE, i); run(300); jfx_clear_all(); run(300); }
     end("CHANGE");
 }
+static void scenario_hot(void)
+{
+    static const uint8_t order[5] = { 1, 2, 3, 0, 4 };
+    uint32_t k, i, j, b;
+    if (!begin("HOT")) return;
+    fresh();
+    notes_off = 1;
+    for (k = 0; k < NPART; k++) { T(k, P_REV, 127); T(k, P_LEVEL, 127); }
+    G(G_RSIZE, 127); G(G_RDAMP, 0); G(G_RMOD, 20); G(G_RWIDE, 127);
+    for (i = 0; i < 5u; i++) {
+        G(G_RTYPE, order[i]);
+        G(G_RDAMP, order[i] == 3u ? 1 : 0);
+        for (j = 0; j < 6u; j++) {
+            for (k = 0; k < NPART; k++) { trk_note_on(&trk[k], 36 + 12 * (int)(k % 3u) + (int)j, 127); trk_note_on(&trk[k], 43 + 12 * (int)(k % 3u) + (int)j, 127); trk_note_on(&trk[k], 48 + 12 * (int)(k % 3u) + (int)j, 127); }
+            for (b = 0; b < 110u; b++) blk();
+            for (k = 0; k < NPART; k++) { trk_note_off(&trk[k], 36 + 12 * (int)(k % 3u) + (int)j); trk_note_off(&trk[k], 43 + 12 * (int)(k % 3u) + (int)j); trk_note_off(&trk[k], 48 + 12 * (int)(k % 3u) + (int)j); }
+            for (b = 0; b < 40u; b++) blk();
+        }
+    }
+    end("HOT");
+}
 static void scenario_mix(uint32_t m)
 {
     uint32_t k, ps, st, i;
@@ -183,6 +206,7 @@ static void rvp_scenarios(void)
     rvp_nres = 0;
     for (m = 0; m < 5u; m++) scenario_knobs(m);
     scenario_change();
+    scenario_hot();
     for (m = 0; m < 5u; m++) scenario_mix(m);
 }
 #ifndef RVP_NO_MAIN

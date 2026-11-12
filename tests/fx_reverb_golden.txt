@@ -5,6 +5,7 @@ KNOBS2 blocks 7520 au 30b1420885474c95 st dc8304825f692d25
 KNOBS3 blocks 7520 au 2af13190f2ea8071 st 47793e500ebcc725
 KNOBS4 blocks 7520 au a05a19c7a3f9d747 st 7aa48975dc475201
 CHANGE blocks 20779 au ed40587ff277e634 st e9083e5d007cebaf
+HOT blocks 4500 au 1941002c3f9678fa st 4cb79871dd55aaf8
 MIX0 blocks 16512 au 692d0ffbdd0964c1 st 38637506eb2c7b25
 MIX1 blocks 16512 au 40c984fc7160382c st 271d098fde39b325
 MIX2 blocks 16512 au c01caab063da51ce st c466cc9b32c89b25
@@ -18,6 +19,7 @@ KNOBS2 blocks 7520 au d276fddd08bcf6ad st dc8304825f692d25
 KNOBS3 blocks 7520 au 7f171bb5cd418511 st 47793e500ebcc725
 KNOBS4 blocks 7520 au b370df35ced827ec st 7aa48975dc475201
 CHANGE blocks 20779 au 7ddb9435a3f4435f st e9083e5d007cebaf
+HOT blocks 4500 au 2ccbc1b543489498 st 4cb79871dd55aaf8
 MIX0 blocks 16512 au 4850c058dad9020a st 38637506eb2c7b25
 MIX1 blocks 16512 au e9dcc5e502ffe54b st 271d098fde39b325
 MIX2 blocks 16512 au 21f1c51135664dfa st c466cc9b32c89b25
