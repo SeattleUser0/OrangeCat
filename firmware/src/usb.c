@@ -71,6 +71,9 @@ static struct {
     uint8_t sx_len, sx_on;
     uint8_t rx_pend;             /* EP1 OUT packet seen, not yet taken (the MIDI ring was too full) */
     volatile uint8_t uboot_req;
+#if defined(OC_LDR_CUT) && OC_LDR_CUT
+    volatile uint8_t cut_req;                      /* (Round 23, bench builds of the loader only) SysEx F0 7D 43 55 54 F7: restart now, a cut in the middle of an update */
+#endif
     volatile uint8_t ota_req;    /* F0 22 24 35 7F F7: M-UPGRADE upgrade command (MELODEE_OTA) */
 } usb;
 
@@ -594,6 +597,10 @@ static void sysex_byte(uint8_t b)
             ok = usb.sysex[i] == UBOOT_KEY[i];
         if (ok)
             usb.uboot_req = 1;
+#if defined(OC_LDR_CUT) && OC_LDR_CUT
+        if (usb.sx_len == 6u && usb.sysex[1] == 0x7Du && usb.sysex[2] == 0x43u && usb.sysex[3] == 0x55u && usb.sysex[4] == 0x54u)
+            usb.cut_req = 1;
+#endif
 #if MELODEE_OTA
         else if (usb.sx_len == 6u && usb.sysex[1] == 0x22 && usb.sysex[2] == 0x24 && usb.sysex[3] == 0x35 &&
                  usb.sysex[4] == 0x7F)

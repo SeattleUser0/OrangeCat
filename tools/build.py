@@ -169,6 +169,8 @@ def build_loader():
     LDR.mkdir(parents=True, exist_ok=True)
     src = FW / "loader"
     flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src"]
+    if os.environ.get("OC_LDR_CUT") == "1":     # (Round 23) the bench loader: a SysEx key restarts it mid-update (loader.c ldr_poll); never in a published build
+        flags.append("-DOC_LDR_CUT=1")
     tc_all(("cc", "-c", src / "crt0_ldr.S", "-o", LDR / "crt0_ldr.o"),
            ("cc", *flags, "-c", src / "loader.c", "-o", LDR / "loader.o"))
     elf = LDR / "loader.elf"

@@ -44,6 +44,10 @@ static void ldr_poll(void)                          /* USB at ~2 kHz, watchdog *
     if (now - last >= 500u * FM1_TICKS_PER_US) {
         last = now;
         usb_poll();
+#if defined(OC_LDR_CUT) && OC_LDR_CUT
+        if (usb.cut_req) fm1_core_reset();          /* (Round 23, FLASH_MAP_R3.md 10.6: the bench's cut; OC_LDR_CUT=1 builds only) the host stops answering at the window under test and sends the key:
+                                                     * the loader restarts where it stands, mid-update, as a power cut would leave the flash (not a torn program: the host test's) */
+#endif
     }
 }
 
