@@ -46,6 +46,7 @@ SEQ is not a layer, but with it held the keys are silent pattern keys. SEQ tappe
 - White keys F3 G3 A3 B3 C4 D4 E4 F4 are the selected track's chain slots A to H. A tap goes to the slot (playing: at the end of the loop). A tap on an empty slot also arms one recording pass; the same key again at once is REC.
 - Held for 1 s a slot key opens a dialog: the same key again deletes the slot's phrase, another white key copies it there (stopped only), C#4 halves and D#4 doubles the phrase length, OCT- closes.
 - Black keys F#3 G#3 A#3 C#4 pick T1 to T4.
+- On HOME's DUB page the keys C4 to B4 stay DUB's keys with SEQ held: slots A to D and T1 to T3 are on the keys below; for slots E to H or T4 leave the DUB page.
 - SELECT: the next or previous pattern bank of the selected track (while playing, at the loop end; refused while a song plays: "STOP SONG TO SWITCH").
 - On MOTION, SEQ + KNOB 2 clears the lane and SEQ + KNOB 4 deletes a point.
 
@@ -64,9 +65,9 @@ SEQ is not a layer, but with it held the keys are silent pattern keys. SEQ tappe
 
 HOME has up to four pages. MENU > HOME PAGE chooses the first. With TRACKS (the default) a HOME tap on HOME toggles TRACKS and CHORD. With PICTURE it steps PICTURE, DUB, TRACKS, CHORD; DUB is in the turn only while the selected track's ECHO is above 0.
 
-- TRACKS: one row per track in use, with its numeral, sound name and the bar's 16 steps; the selected track is outlined. Under them the notes played over the waveform. A frozen track is grey and says FROZEN. KNOB 1 to 4 are the selected engine's first four values; they drop in over the rows when turned.
+- TRACKS: one row per track in use, with its numeral, sound name and the bar's 16 steps; the selected track is outlined. Under them the notes played over the waveform. A muted track is grey and says MUTE in red where its role (DRUMS, CHORDS, T1) stands; a frozen track is grey-blue and says FROZEN. KNOB 1 to 4 are the selected engine's first four values; they drop in over the rows when turned.
 - CHORD: the twelve notes as a wheel in fifths with the song's key. Notes sounding on the tracks are lit in the track colors and the chord is named in the middle. The knobs drop in over the wheel.
-- PICTURE: the sound line (track, sound name, its place in the factory list; a knob turned shows its name and value there), four dials in the knob colors (blue, green, white, orange), a value row and the engine's picture. PACK MISSING in red means the asset pack is not installed. A macro knob moves around the sound as stored (-64 to +63); going back to TRACKS keeps the offsets in the sound.
+- PICTURE: the sound line (track, sound name, its place in the factory list; a knob turned shows its name and value there), four dials in the knob colors (blue, green, white, orange), a value row and the engine's picture. PACK MISSING in red means the asset pack is not installed. A macro knob moves around the sound as stored (-64 to +63); going back to TRACKS keeps the offsets in the sound. While the selected track is muted its numeral is grey and the line says MUTE in red at the right (also on DUB).
 - DUB: the tape loop and the performance keys, see "DUB performance view".
 - On every HOME page: SELECT turns HOME SELECT (BPM at first). PRESETS browses the sounds; a fast turn loads when it rests. EDIT opens the EDIT sheets. ENV, LFO, SCL, ARP, FX, GLO, SAVE and SEQ open their pages. OCT- and OCT+ shift the octave. PLAY plays what it played last. REC held (stopped) clears the selected track. SAVE opens PROJECT.
 
@@ -91,6 +92,7 @@ EDIT opens a sheet: a tab with rows, each row a page. From HOME, or from a page 
 
 - The gesture: let go before the hold time with nothing else touched and it is a tap: the button's page opens. Held longer alone, it is a peek: the map shows and letting go does nothing. A key, knob or button meanwhile makes it a combo.
 - Keys pressed while the layer button is down are the layer's: silent, no MIDI, never recorded. Keys already held before stay notes.
+- On HOME's DUB page the octave C4 to B4 stays DUB's keys while a layer button is held: a KICK (C#4) played with ARP, GLO or FX still down is a KICK, not MUTE T4. The layer's other keys work as ever. For the layer's own C4 to B4 keys, lock the layer (double-tap) or leave the DUB page.
 - Double-tap the button (second press within 0.3 s, then let go before the hold time) to lock the layer open. The header says LOCK. Press the button again to unlock; any other button closes it.
 - Only one layer at a time. PLAY and REC work in every layer; SAVE, HOME, SEQ and the other page buttons are swallowed. No layer opens in the menu, a dialog or the NAME screen.
 - In the GLO, SCL and ARP layers OCT- and OCT+ do not shift the octave.
@@ -749,6 +751,7 @@ HOME's DUB page. Set MENU > HOME PAGE to PICTURE, make sure the selected track's
 
 - The four knobs: KNOB 1 FDBK, KNOB 2 SEND, KNOB 3 FILTER, KNOB 4 ECHO (0 to 127; ECHO 0 turns DUB off). A knob turned shows its value in the sound line.
 - The keys are the octave C4 to B4, whatever OCT is set to. Every other key plays the track.
+- They stay DUB's keys while GLO, SCL, ARP, FX or SEQ is held, so a KICK with a layer button still down never mutes a track. A layer locked open (double-tap) takes the whole keyboard.
 - A throw replaces SEND while it is held. Another throw key held moves to its level; letting one go returns to the highest still held; letting the last go returns SEND to the knob.
 - CUT shuts the loop's input and the wet. KICK strikes the spring. HOLD forces feedback to 1.00 while held. DIVE drops the repeats' speed an octave; RISE raises it an octave; both together are normal.
 - Recording: with the track armed and recording, a throw is written as the SEND lane and CUT as the ECHO lane at 0. KICK, HOLD, DIVE and RISE sound but are not recorded (the page says "BLACK: NOT RECORDED").

@@ -903,6 +903,11 @@ if sound && [ $TABLES = 1 ]; then
     # (dub-perf) DUB TAPE's performance view: the keys, the triggers CC 19 .. 21, what records, CUT = ECHO 0 and the other triggers = their knobs through the module's kernel, the page, its draw budget
     dub_t "DUB TAPE performance view (dub-perf): the octave of keys, CC 19 .. 21, the SEND and ECHO lanes, CUT recorded as ECHO 0 plays as the trigger, the page and its budget; sanitizers" \
         dub_perf_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    # (round 24, "Track 4 graying out") the DUB page's octave is DUB's under a held layer: a KICK with ARP, GLO, FX or SEQ still down mutes nothing; and a muted track says MUTE
+    t "DUB keys under a held layer (round 24): GLO, ARP, FX, SCL, SEQ held on HOME's DUB page, C4 .. B4 stay DUB's (no mute, no staged mute, no punch-in); the other keys, TRACKS and a locked layer as before; sanitizers" \
+        dub_layer_keys_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    t "a muted track says MUTE (round 24): the TRACKS rows with four, two and one track, FROZEN, a name that takes the role's room, the picture and DUB pages' sound line; sanitizers" \
+        stage_mute_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "regression with the new interface built in (OC_HOME_PIC=1): every golden render unchanged, the macros at 0" regress_pic:regress -O2 $FW -DOC_HOME_PIC=1 -- \
         "$OUT/regress_pic" tests/golden.txt tests/cpu_baseline.txt
     mkdir -p build/shapes_demo

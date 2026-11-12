@@ -13,6 +13,11 @@
 #define DUBK_LAST 18u
 static volatile uint8_t dub_view_on;                   /* 1: HOME's DUB page is showing (ui_draw.c), the keys are the view's */
 static uint8_t dubk_held[4];                            /* [track] the throw keys held, bit n of the six (C D E F G A) */
+/* (round 24) the keys the DUB page owns now, a bit a key (0: none): the octave while the page shows and the keys are not GRID's or NAME's. A layer's button held (ARP, GLO, SCL, FX) or SEQ
+ * held does not take them: seq.c keyboard_block reads this before the layer's button, ui_input.c keeps them from the layer's keys, SEQ's pattern keys and the key LEDs. So a KICK (C#4) played
+ * with ARP or GLO still down is a KICK, not MUTE 4 (the owner's finding: "Track 4 graying out"). A layer locked open (double tap: its map is the screen, no button is held) keeps every key. */
+#define DUBK_MASK ((1u << (DUBK_LAST + 1u)) - (1u << DUBK_FIRST))
+static uint32_t dubk_owned(void) { return dub_view_on && song.grid < 2u && !kb_lock ? DUBK_MASK : 0u; }
 static const uint8_t DUBK_LEVEL[6] = {13, 38, 64, 89, 108, 127};
 static const uint8_t DUBK_ACT[12] = {0, 7, 1, 8, 2, 3, 0xFF, 4, 9, 5, 10, 6};   /* by the semitone from C: 0 .. 5 a throw, 6 CUT, 7 KICK, 8 HOLD, 9 DIVE, 10 RISE, 0xFF none */
 static void dubk_rec(track_t *t, uint32_t id, int32_t v)
