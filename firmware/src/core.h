@@ -160,9 +160,10 @@
 #error "OC_CLIP_SEL needs OC_CLIP (each step of the new interface ships behind the one before: UI_BUILD.md)"
 #endif
 #ifndef OC_TRK_RELEASE
-#define OC_TRK_RELEASE 0          /* (Round 23, BUILD.md 7.31 "Track OFF: built") 1: the automatic release of an idle, never-played track's engine state (seq.c eng_idle_check).
-                                   * 0 (the default): built and host-tested, not shipped: the review found that a released track's memory goes to the effects, and selecting the
-                                   * track then makes them yield (all buses and DUB's lines off for JFX_YIELD), again at every visit. The owner decides who gives way. */
+#define OC_TRK_RELEASE 0          /* (Round 23, BUILD.md 7.31 "Track OFF: built") the automatic release of an idle, never-played track's engine state (seq.c eng_idle_check).
+                                   * (Round 24) THE OWNER DECIDED AGAINST IT: a track gives its memory back only when the owner turns it OFF (the explicit OFF, with the project's
+                                   * TRKS section). The code stays compiled out (0, and tools/build.py does not pass the switch): trk_wanted, eng_state_clear and the retake are what
+                                   * the explicit OFF will call; tests/track_release_test.c keeps them exercised with =1 on the host. No firmware is built with 1. */
 #endif
 #ifndef OC_CTL_REC
 #define OC_CTL_REC 0              /* (Round 23, Session A's review of r3-format2, UI_BUILD.md) 1: KICK, HOLD, DIVE and RISE (the DUB keys, MIDI CC 18 to 21) RECORD as control
