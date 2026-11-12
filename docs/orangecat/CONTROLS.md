@@ -751,8 +751,8 @@ HOME's DUB page. Set MENU > HOME PAGE to PICTURE, make sure the selected track's
 - The keys are the octave C4 to B4, whatever OCT is set to. Every other key plays the track.
 - A throw replaces SEND while it is held. Another throw key held moves to its level; letting one go returns to the highest still held; letting the last go returns SEND to the knob.
 - CUT shuts the loop's input and the wet. KICK strikes the spring. HOLD forces feedback to 1.00 while held. DIVE drops the repeats' speed an octave; RISE raises it an octave; both together are normal.
-- Recording: with the track armed and recording, a throw is written as the SEND lane and CUT as the ECHO lane at 0. KICK, HOLD, DIVE and RISE sound but are not recorded (the page says "BLACK: NOT RECORDED").
-- MIDI: CC 12 FDBK, CC 13 SEND, CC 14 FILTER, CC 15 ECHO. CC 16 THROW (the value is the send level while above 0; 0 releases), CC 17 CUT, CC 18 KICK, CC 19 HOLD, CC 20 DIVE, CC 21 RISE (64 or more is down). They work on the track's channel, are never stored, and CC 121 clears them.
+- Recording: with the track armed and recording, a throw is written as the SEND lane and CUT as the ECHO lane at 0. KICK, HOLD, DIVE and RISE are recorded too (the page says "BLACK: RECORDED"), as control notes of the phrase: each plays back at the moment its key went down and for as long as it was held, and RECQ moves it to the grid as it does a note. They are recorded on a DUB track only (ECHO above 0), change no step, and do not show on NOTES, TRACKER or GRID. To take them away, undo the take (EDIT held) or clear the pattern. A pattern records up to 128 of them; after that the keys still sound and the screen says RECORDING FULL.
+- MIDI: CC 12 FDBK, CC 13 SEND, CC 14 FILTER, CC 15 ECHO. CC 16 THROW (the value is the send level while above 0; 0 releases), CC 17 CUT, CC 18 KICK, CC 19 HOLD, CC 20 DIVE, CC 21 RISE (64 or more is down). They work on the track's channel and CC 121 clears them. The triggers are never stored; CC 18 to 21 are recorded as the black keys are while the track records, whatever page shows.
 
 The keys:
 
