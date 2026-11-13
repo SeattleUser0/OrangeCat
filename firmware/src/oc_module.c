@@ -1006,46 +1006,50 @@ static void oc_fxmod_kernel_guard(int32_t first, uint32_t n)
 }
 /* (Release 3 step 8a) the same for the send host: the reverb's module modes run code in the registered module's flash; before any erase of its sectors the host lets go (the resident copy plays
  * from the next bus job on, on the same state and tank: nothing that sounds changes). The audio interrupt is masked for the store: no bus job is out between interrupts (audio.c drains it) */
-static void oc_fx2mod_guard(int32_t first, uint32_t n)
+static uint32_t oc_fx2mod_guard(int32_t first, uint32_t n)   /* 1: the kernels were let go of (Round 24 review: a refused or failed erase then reads the area again) */
 {
 #ifdef OC_FX2_HOST
     uint32_t i;
     int hit = 1;
-    if (!fx2_modk_ok()) return;
+    if (!fx2_modk_ok()) return 0;
     for (i = 0; i < OC_MOD_STARTS; i++)
         if (oc_mod.state[i] == MD_OK && oc_mod.kind[i] && oc_mod.mid[i] == FX2_MODULE_ID) {
             int32_t s0 = OC_MOD_START_SECTOR(i), n0 = (int32_t)oc_mod_nsec(oc_mod.length[i]);
             hit = first < s0 + n0 && s0 < first + (int32_t)n;
             break;
         }
-    if (!hit) return;
+    if (!hit) return 0;
     fm1_irq_off();
     fx2_modk_clear();
     fm1_irq_on();
+    return 1;
 #else
     (void)first; (void)n;
+    return 0;
 #endif
 }
 /* (Release 3 step 8b) the same for the master host: the FX layer's ring effects run code in the registered module's flash; before any erase of its sectors the host lets go (the resident copy
  * plays from the next block on, on the same state and buffer). The audio interrupt, the kernels' only caller, is masked for the store */
-static void oc_fx3mod_guard(int32_t first, uint32_t n)
+static uint32_t oc_fx3mod_guard(int32_t first, uint32_t n)   /* 1: the kernels were let go of (Round 24 review: a refused or failed erase then reads the area again) */
 {
 #ifdef OC_FX3_HOST
     uint32_t i;
     int hit = 1;
-    if (!fx3_modk_ok()) return;
+    if (!fx3_modk_ok()) return 0;
     for (i = 0; i < OC_MOD_STARTS; i++)
         if (oc_mod.state[i] == MD_OK && oc_mod.kind[i] && oc_mod.mid[i] == FX3_MODULE_ID) {
             int32_t s0 = OC_MOD_START_SECTOR(i), n0 = (int32_t)oc_mod_nsec(oc_mod.length[i]);
             hit = first < s0 + n0 && s0 < first + (int32_t)n;
             break;
         }
-    if (!hit) return;
+    if (!hit) return 0;
     fm1_irq_off();
     fx3_modk_clear();
     fm1_irq_on();
+    return 1;
 #else
     (void)first; (void)n;
+    return 0;
 #endif
 }
 /* sectors of the area erased in order from `first` (the header sector first), the watchdog fed between. 0 or the flash's error */
@@ -1056,9 +1060,10 @@ static int oc_mod_erase_span(int32_t first, uint32_t n)
     if (!n) return 0;
     if (!oc_span_ok(first, n)) return -1;                       /* (option A, review 10.9 blocker 2) a span outside a place or across a place's end: refused, nothing erased (never clipped, never a silent 0) */
     oc_fxmod_kernel_guard(first, n);
-    oc_fx2mod_guard(first, n);                                  /* (step 8a) the reverb module's modes */
-    oc_fx3mod_guard(first, n);                                  /* (step 8b) the FX layer module's effects */
-    parked = oc_models_guard(first, n);                         /* (the model picker) a MODELS module in the span: out of its engine first */
+    parked = oc_fx2mod_guard(first, n);                         /* (step 8a) the reverb module's modes */
+    parked |= oc_fx3mod_guard(first, n);                        /* (step 8b) the FX layer module's effects */
+    if (oc_mod_live) parked = 0;                                /* (Round 24 review) an erase from inside oc_mod_boot's own pass (a loser's): that pass registers what is good at its end, never a second pass from here */
+    parked |= oc_models_guard(first, n);                         /* (the model picker) a MODELS module in the span: out of its engine first */
     for (s = 0; s < n; s++) {
         int rc;
         if (oc_mod_low(first + (int32_t)s) && !OC_MOD_LOW_OK()) { if (parked) oc_mod_reload(); return -1; }   /* (Release 3) never a sector that may hold a live record part: refused, not skipped */

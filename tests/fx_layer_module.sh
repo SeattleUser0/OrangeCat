@@ -11,6 +11,8 @@
 #   tests/fx_layer_module.sh --mutate [OUTDIR]  the mutation check: for each mutation of the MODULE's copy of the kernel text only (the resident effects keep the original) the test must FAIL
 # The layer's own arithmetic shifts negative samples left (GLITCH's and CRUSH's bit reduction: ((x + b) >> sh) << sh), which the C standard leaves undefined and both compilers in use define
 # (two's complement); it is the resident text of 0.6.0 and is pinned as it is, so under the sanitizers (SAN=1) this job turns the one check off (-fno-sanitize=shift-base) and no other.
+# (Round 24 review) the same check also meets the same shift in the SLICER (jfx_slicer.c) and in djf_block (jfx.c), which this probe is the first to reach: eleven sites in all, every one
+# "left shift of negative value", no other finding with the check set to report.
 MODE=check
 case $1 in --mutate) MODE=mutate; shift ;; esac
 OUT=${1:-build/host}
@@ -42,7 +44,9 @@ if [ "$MODE" = check ]; then
         echo "fx_layer_module: the resident layer's render differs from the pinned printout (tests/fx_layer_golden.txt):"; diff "$OUT/flp.txt" tests/fx_layer_golden.txt | head -30; exit 1
     fi
     echo "fx_layer_module: the resident layer's render equals the pinned printout (12 scenarios, MELODEE_FX_DEFER 0 and 1)"
-    [ -f tests/fx_layer_module_test.c ] || exit 0
+    [ -f tests/fx_layer_module_test.c ] || { echo "fx_layer_module: tests/fx_layer_module_test.c is not there"; exit 1; }
+    unset FLM_E_ONLY FLM_STOPFIRST          # (Round 24 review) the mutation check's shortcuts: a stray one in the environment would skip runs here
+    rm -f "$OUT"/flm_test_d0.o "$OUT"/flm_test_d1.o   # (Round 24 review) the object's freshness test knows nothing of CC, BS or SAN: the check always compiles its own
     for d in 0 1; do
         build "$ROOT" ok $d || { echo "fx_layer_module: compile (MELODEE_FX_DEFER=$d)"; exit 1; }
         "$OUT/flm_ok_d$d" || { echo "fx_layer_module: FAILED (MELODEE_FX_DEFER=$d)"; exit 1; }

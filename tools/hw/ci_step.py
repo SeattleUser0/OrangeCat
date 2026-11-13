@@ -77,6 +77,9 @@ def main():
     env.setdefault("JIELI_TOOLCHAIN", str(TOOLS / "jieli/toolchain"))
     env.setdefault("AC79_SDK", str(TOOLS / "fw-AC79_AIoT_SDK"))
     env["PATH"] = f"{TOOLS / 'venv/bin'}:{env['PATH']}"
+    if a.step == "test":   # (Round 24 review) the tests on the built module images and ELFs pass when they skip; here the build step has run, so a missing image is a failure
+        for v in ("FXDI_REQUIRE", "FXRI_REQUIRE", "FXLI_REQUIRE", "DUBSYM_REQUIRE", "REVSYM_REQUIRE", "FXLSYM_REQUIRE"):
+            env.setdefault(v, "1")
     env["GITHUB_SHA"] = subprocess.run(["git", "-C", co, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
     env["GITHUB_REF_TYPE"], env["GITHUB_REF_NAME"] = "branch", "local"
     env["TZ"] = "UTC"
