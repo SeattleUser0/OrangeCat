@@ -2,7 +2,7 @@
 
 # Orange Cat controls
 
-For the Nightly v0.16.0-2e1056 and later (firmware commit 52a41894, November 5, 2026). Made from the firmware's tables ea3fb820: when they change, this page is made again.
+For the Nightly v0.16.0-5f894f and later (firmware commit 5f894f97, November 12, 2026). Made from the firmware's tables ea3fb820: when they change, this page is made again.
 
 What every knob, button and key does on the unit, page by page. It describes the Nightly build: the new interface with HOME's pictures, the four knobs and the EDIT sheets, with the FX order SENDS first and the track's own effects last.
 
@@ -799,6 +799,26 @@ DUB TAPE is an effect module. With it installed, every track with ECHO above 0 r
 
 The FX button's pages are the same with or without it: an effect module adds, hides or renames no page on the unit. The modules are listed in the Effects table of the installer and the web app.
 
+## MACRO's models: the picker on the installer page
+
+MACRO has 25 models. VA is built into the firmware and is always there. The other 24 come as one module, MACRO models, that you put together on the installer page: the box "MACRO models" lists them (with their wave banks), you tick the ones you want, and Install writes the module with the rest of the set. Your last pick is remembered by the browser. A model you leave out frees room for the other modules.
+
+The line under the list is the room meter. It says how many sectors the module area (18) and the tail region (3) hold, what the other modules take, and what the pick needs in one run. Install does not start until the pick fits; when it does not, leave a model or a wave bank out.
+
+- On the unit, MACRO's MODL knob (KNOB 1 on TRACKS, the MODEL row of the Sound sheet) steps over a model that is not installed.
+- A sound or a project that names a model that is not installed loads and keeps every setting. MODL shows MISSG, the track plays VA with those settings, and the screen says MODULE MISSING. Install the model and the track plays it again.
+- Installing the pick does not change a sound: a model plays as it did when it was built in.
+
+## Modules that do not fit: the page asks first
+
+The modules sit in the module area and the tail region in the order they were installed. When the set you ticked (a bigger pick of models, say) does not fit beside the modules as they sit now, the installer page works out an order that does. It never moves anything without asking: the page says which modules it would take off the FM-1 and install again, and Install waits for your answer.
+
+- Yes: the page takes those modules off and installs them again in the order that fits. It takes about a minute. Until it is done the FM-1 plays without those engines and effects (their tracks say MODULE MISSING).
+- No: nothing is written for the modules and the unit is as it was; the room meter keeps saying what is in the way.
+- If the cable is pulled or the page is closed part way, nothing is damaged. Some modules are off the FM-1 until you plug it in again and press Install: the page puts the rest back.
+
+A module of a set you did not tick is never taken off; the page names it when it is in the way.
+
 ## The system menu
 
 Hold HOME alone for 0.7 s to open it (a combo within 0.7 s is a SHIFT shortcut instead). KNOB 2 or PRESETS picks the row; KNOB 1 changes its value; OCT+ steps the value on (it wraps) or does the row's action. Leave with OCT- (from ABOUT back to the list first), OCT+ on BACK, or HOME held again. Settings are saved when it closes. Taps of SAVE, REC and HOME do nothing inside it.
@@ -841,3 +861,5 @@ These points in older documents or notes do not match the Nightly. This guide fo
 - The FX order is SENDS, the shared pages, then the track's DIST, AUTO PAN, DUB SETUP, DUB, DUB 2.
 - SEQ held is not only a jump to CHAIN: with it held the keys are the pattern keys and SELECT switches the pattern bank.
 - HOME + OCT- and HOME + OCT+ (copy and paste) are not in this build.
+- MACRO's models other than VA are a module you pick on the installer page. A model that is not installed shows MISSG and plays VA; MODL steps over it.
+- The installer page can ask to rearrange the modules before a set that does not fit; older notes know only "too many".

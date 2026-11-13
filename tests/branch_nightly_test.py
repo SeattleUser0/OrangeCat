@@ -126,7 +126,9 @@ class BranchNightly(unittest.TestCase):
         stable = (self.site / "webapp/editor/index.html").read_bytes()
         self.publish()
         self.assertEqual((self.site / "webapp/editor/index.html").read_bytes(), stable)
-        self.assertEqual((self.site / "webapp/nightly-editor/index.html").read_bytes(), (ROOT / "web/editor.html").read_bytes())
+        import re
+        ctl = lambda b: re.sub(rb"<!--ctl-->.*?<!--/ctl-->", b"<!--ctl-->", b, flags=re.S)     # (0.16.1) only the Controls link differs: it follows the published layout
+        self.assertEqual(ctl((self.site / "webapp/nightly-editor/index.html").read_bytes()), ctl((ROOT / "web/editor.html").read_bytes()))
         self.assertNotIn("webapp/nightly-editor/index.html", site_check.stable_files(self.site))
 
     def test_nightly_files_are_named_as_the_page_reads_them(self):
