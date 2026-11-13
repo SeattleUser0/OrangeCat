@@ -37,6 +37,7 @@
 #include "fw_pages.h"
 #include "fx_kernel.h"                                  /* (step 6) the caps block and the call table */
 #include "fx_send.h"                                    /* (step 8a) a send effect's call table and its identifier (kind 2) */
+#include "fx_master.h"                                  /* (step 8b) a master effect's call table and its identifier (kind 3) */
 #define FX_BANK_MAX 8u
 #define FX_PARAMS_MAX 64u
 #define FX_DESC_WIRE 20u
@@ -60,7 +61,7 @@ static inline int fx_caps_check(fw_pages_rd rd, void *ctx, uint32_t caps, uint32
 {
     uint8_t c[FX_CAPS_WIRE], t[FX_KCALLS_WIRE], r[FX_PROW_WIRE];
     uint32_t kernel, pages, rows, nrows, i, prev = 0xFFFFFFFFu;
-    const uint32_t ncalls = kind == 2u ? FX2_KCALLS_N : FX_KCALLS_N, abi = kind == 2u ? FX2_ABI_ID : FX_ABI_ID;
+    const uint32_t ncalls = kind == 2u ? FX2_KCALLS_N : kind == 3u ? FX3_KCALLS_N : FX_KCALLS_N, abi = kind == 2u ? FX2_ABI_ID : kind == 3u ? FX3_ABI_ID : FX_ABI_ID;   /* (step 8b) a master effect (kind 3, FW_MOD_KIND_MASTER): the master host's convention, FX3_ABI_ID and FX3_KCALLS_N words (fx_master.h) */
     if (!fwp_in(caps, FX_CAPS_WIRE, lo, hi) || (caps & 3u)) return FXD_CAPS;
     if (rd(ctx, caps, c, FX_CAPS_WIRE)) return FXD_READ;
     if (fwp_u32(c) != FX_CAPS_MAGIC || fxd_u16(c + 4) != FX_CAPS_WIRE || fxd_u16(c + 6) != FX_CAPS_VERSION || fwp_u32(c + 52) != abi) return FXD_CAPS;

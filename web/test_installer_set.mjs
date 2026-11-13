@@ -743,4 +743,65 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
   });
   console.log("installer set: a unit with the tail region: the goal's order, the rearrange (asked, declined, stopped and finished by a second Install), a foreign module named and kept; a unit with 18 starts byte for byte as before: passed");
 }
+// 18. (Release 3 step 8b) the owner's default set with the FX layer module (kind 3, module id 3, two sectors) on a unit with the tail region: SHAPES 6, WHEEL 1, the 9 sector pick,
+//     DUB TAPE 3 and the FX layer 2 are the unit's 21 sectors exactly.
+//     a. the unit as it stands after round 23 (SHAPES at start 1, WHEEL at 5, the models at 17, DUB TAPE at 18): the FX layer goes into the last two free sectors and the pick is
+//        written again where it is; nothing is asked, nothing taken off; the 21 sectors are then all held
+//     b. the reverb module ticked as well (22 sectors): refused before anything is written or removed, with the page's own words (modNoPlace)
+//     c. an empty unit: the five in the goal's order; with the reverb module: refused, nothing written
+//     d. the unit as the published Nightly left it (SHAPES at 0, the old WHEEL at 1, DUB TAPE at 14): the page asks, takes the set's own modules off and puts all five on
+{
+  const T = await import("./test_placed_unit.mjs");
+  const {SHAPES, WHEEL, DUB, MODELS, engOcm, fxOcm, modelsOcm, sectsFor, AREA, unitState, nightly, placedUnit, snap} = T;
+  const FXL = 3, REV = 2, MODS = {module: true}, want4 = {kind: 4, module_id: MODELS};
+  const shapes = engOcm(SHAPES, [0, 6]), wheel = engOcm(WHEEL, AREA), dub = fxOcm(DUB, 3, sectsFor(3)), pick9 = modelsOcm(9, [-6, 0, 3]);
+  const fxl = fxOcm(FXL, 2, sectsFor(2).slice(0, 18), {kind: 3}), rev = fxOcm(REV, 1, sectsFor(1).slice(0, 18), {kind: 2});
+  assert.ok(OCM.parse(fxl).ok && OCM.parse(fxl).kind === 3 && OCM.parse(fxl).moduleId === FXL && OCM.parse(fxl).fxSectors === 2, "the page reads a kind 3 package: module id 3, two sectors");
+  const SET5 = {modules: [wheel, shapes, dub, fxl, pick9], want: [null, null, {kind: 1, module_id: DUB}, {kind: 3, module_id: FXL}, want4]};         // the page's file order: the ticked effects box is DUB TAPE, then the FX layer
+  const SET6 = {modules: [wheel, shapes, dub, fxl, rev, pick9], want: [null, null, {kind: 1, module_id: DUB}, {kind: 3, module_id: FXL}, {kind: 2, module_id: REV}, want4]};   // .. and the optional box ticked: the reverb module after them
+  const held = () => unitState(true, [[1, {engine: SHAPES}], [5, {engine: WHEEL}], [17, {mid: MODELS, sectors: 9, kind: 4}], [18, {mid: DUB, sectors: 3}]]);
+  const full = (st) => { const c = new Set(); st.starts.forEach((x, j) => { if (x.state === 7) for (let q = 0; q < PLACE.sectorsOf(st, x.kind ? {mid: x.mid, sectors: Math.ceil(x.length / 4096)} : {engine: x.engine}); q++) c.add(PLACE.OC_SECT[j] + q); }); return c.size; };
+  const go = async (u, files) => {
+    const asked = [];
+    let sum = null, error = null;
+    try { sum = await runSet({stages: MODS, files, openUnit: async () => u.link(), sleep: async () => {}, confirmRearrange: (names) => { asked.push(names.join(", ")); return true; }}); } catch (e) { error = e; }
+    return {sum, error, asked};
+  };
+  assert.equal(full(held()), 19, "the unit as it stands holds 19 of its 21 sectors");
+  // a.
+  let u = placedUnit(held(), OcLink), before = snap(u.st), r = await go(u, SET5);
+  assert.ok(!r.error, r.error && r.error.message);
+  assert.deepEqual(r.sum.module, ["current", "current", "current", "installed", "installed"], "SHAPES, WHEEL and DUB TAPE are the unit's; the FX layer and the pick are written: " + JSON.stringify(r.sum.module));
+  assert.equal(u.ops.join(" "), "begin:0x4d08@17 begin:0x3@2", "the pick again in place (start 17), the FX layer at start 2: the area's last free two sectors");
+  assert.ok(!r.asked.length && !r.sum.rearrange && !u.sent.includes(124) && !u.ops.some((o) => o.startsWith("remove")), "nothing asked, nothing taken off");
+  assert.equal(full(u.st), 21, "the unit then holds all of its 21 sectors");
+  r = await go(u, SET5);
+  assert.deepEqual(r.sum.module, ["current", "current", "current", "current", "installed"], "a second Install: the FX layer is current too; the pick is written again where it is");
+  assert.equal(full(u.st), 21);
+  // b.
+  u = placedUnit(held(), OcLink); before = snap(u.st); r = await go(u, SET6);
+  assert.ok(r.sum.module.length === 6 && r.sum.module.every((m) => m.error === "modNoPlace"), "the reverb module ticked as well: every module of the run answers modNoPlace: " + JSON.stringify(r.sum.module));
+  assert.match(r.sum.placement, /needs \d+ sectors? in one run; the biggest run the unit's loader can use is \d+\./, "the planner's words: " + r.sum.placement);
+  assert.ok(!u.ops.length && snap(u.st) === before && !r.asked.length && ![121, 122, 123, 124].some((c) => u.sent.includes(c)), "not asked, nothing removed, nothing written: the unit is as it was");
+  {   // the same unit already holding the FX layer (after a.): the reverb module still has no place, and the FX layer is not taken off for it
+    u = placedUnit(held(), OcLink); await go(u, SET5); u.ops.length = 0; u.sent.length = 0; before = snap(u.st);
+    r = await go(u, SET6);
+    assert.ok(r.sum.module.every((m) => m.error === "modNoPlace") && !u.ops.length && snap(u.st) === before && !r.asked.length, "on the full unit: refused, the 21 sectors as they were");
+  }
+  // c.
+  u = placedUnit(unitState(true), OcLink); r = await go(u, SET5);
+  assert.deepEqual(r.sum.module, ["installed", "installed", "installed", "installed", "installed"]);
+  assert.equal(u.ops.join(" "), "begin:14@1 begin:0x4d08@17 begin:7@5 begin:0x1@18 begin:0x3@2", "an empty unit: SHAPES, the pick, WHEEL, then the effect modules in the page's order (DUB TAPE into the tail, the FX layer into the area)");
+  assert.equal(full(u.st), 21); assert.equal(snap(u.st), snap((() => { const h = placedUnit(held(), OcLink); return PLACE.apply(h.st, {mid: FXL, sectors: 2}, 2); })()), "... which is the arrangement of a.");
+  u = placedUnit(unitState(true), OcLink); before = snap(u.st); r = await go(u, SET6);
+  assert.ok(r.sum.module.every((m) => m.error === "modNoPlace") && !u.ops.length && snap(u.st) === before, "an empty unit, the reverb module ticked as well: 22 sectors on 21: refused, nothing written");
+  // d.
+  u = placedUnit(nightly(true), OcLink); r = await go(u, SET5);
+  assert.deepEqual(r.asked, ["SHAPES, WHEEL, DUB TAPE"], "the published Nightly's unit: one question, naming what is taken off");
+  assert.equal(r.sum.rearrange, "done"); assert.deepEqual(r.sum.module, ["installed", "installed", "installed", "installed", "installed"]);
+  assert.equal(u.ops.join(" "), "remove:0x1 remove:7 remove:14 begin:14@1 begin:0x4d08@17 begin:7@5 begin:0x1@18 begin:0x3@2"); assert.equal(full(u.st), 21);
+  u = placedUnit(nightly(true), OcLink); before = snap(u.st); r = await go(u, SET6);
+  assert.ok(r.sum.module.every((m) => m.error === "modNoPlace") && !u.ops.length && snap(u.st) === before && !r.asked.length, "... and with the reverb module ticked as well: refused, not asked, nothing removed");
+  console.log("installer set: the default set with the FX layer module on a unit with the tail region: 21 of 21 from the unit as it stands (the FX layer at start 2, nothing taken off), from an empty unit and after a rearrange; the reverb module as well: refused, nothing written or removed ok");
+}
 console.log("installer set: stages, skips, old firmware, retry, refusals and the shared .ocm reader, effect modules by module id, a models module by its id passed");

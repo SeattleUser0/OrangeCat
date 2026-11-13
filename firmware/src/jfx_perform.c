@@ -47,18 +47,19 @@ enum { PF_R8, PF_R16, PF_R32, PF_GLT, PF_TAPE,
 #define PF_Q PF_BUF                                            /* start on the 1/16 */
 #define PF_SWEEP (3u << PF_SCRU)
 #define PF_MIDI (((1u << (PF_RND + 1)) - 1u) & ~((1u << PF_OCTD) - 1u))
-#define PB_FRAMES SL_FR
-#define PB_MAX (2u * PB_FRAMES)               /* the longest loop, 44.1 kHz samples */
-#define GL_SPAN 7680u                         /* GLITCH: the longest slice it reads back */
-#define TP_LAG 15000u                         /* TAPE STOP: how far it may fall behind */
-#define AD_BYTES (SL_FR * 4u - 256u)          /* SHUFFLE's ADPCM ring: 32512 B, 65024 nibbles, 2.95 s */
-#define AD_N (2u * AD_BYTES)
-#define AD_TBL (&sl_buf[SL_FR - 64u][0])      /* .. the coder at each 1/16's start: 32 x (place, value, step index) */
-_Static_assert(AD_N <= 65536u, "SHUFFLE's ring places in 16 bits");
 enum { BM_NONE, BM_LOOP, BM_GLT, BM_TAPE, BM_SHUF, BM_FRZ };
-enum { GA_PASS, GA_RPT, GA_REV, GA_UP, GA_DN, GA_GATE, GA_SKIP, GA_CRU };
-enum { SK_NORM, SK_HALF, SK_DBL, SK_STUT };
-enum { GX_GLT, GX_TAPE, GX_SHUF, GX_FRZ };
+/* (Release 3 step 8b, FX_MODULES_PLAN.md 17) the four ring effects' text is perf_kern.h, ONE text the image's resident copy (here) and the effect module (tools/module/fxlayer_mod.c: kind 3)
+ * both include; this file is their host: the keys, what plays, the 1/16, the 32 KB, REPEAT, the sweeps, the mutes, and the dispatch to the registered module's kernel or the resident copy */
+#ifndef OC_PERF_RESIDENT
+#define OC_PERF_RESIDENT 1                               /* the resident copy of GLITCH, TAPE STOP, SHUFFLE and FREEZE stays in the image this Nightly and plays whenever the module is not registered. 0 (the Nightly after: FX_MODULES_PLAN.md 17): the text is not built in, and without the module those four keys do nothing (perf_avail) */
+#endif
+#define PFK_FN JFX_XIP                                   /* perf_kern.h: the resident copy of a kernel function sits where the layer's did */
+#if !OC_PERF_RESIDENT
+#define PFK_NO_FX 1
+#endif
+#include "perf_kern.h"
+_Static_assert(PFK_RAMP_LOG2 == SL_RAMP_LOG2 && PFK_SLOPE == SL_SLOPE && FX3_FRAMES == SL_FR, "the kernel's fade and loop are the SLICER's");
+_Static_assert(BM_GLT + GX_GLT == BM_GLT && BM_GLT + GX_TAPE == BM_TAPE && BM_GLT + GX_SHUF == BM_SHUF && BM_GLT + GX_FRZ == BM_FRZ, "a ring effect's mode is BM_GLT + its place");
 
 static volatile uint8_t perf_kill;    /* main: every effect off (a dialog, a project load) */
 static volatile uint8_t perf_m[4];    /* main: the macros (Orange Cat: only FILTER, perf_m[3], 0..100) */
@@ -75,30 +76,15 @@ static volatile uint32_t perf_act;    /* .. running (a 1/16 one from its start o
 static volatile uint8_t perf_hush;    /* tracks the layer mutes: no new notes (voice.c) */
 static uint16_t perf_ord[PF_N], perf_seq;   /* press order: the last pressed buffer effect plays */
 
-typedef struct {                       /* SHUFFLE: a reader of the ADPCM ring, or live */
-    uint32_t fr, rate;
-    uint16_t pos;
-    int16_t a, b;
-    uint8_t idx, live;
-} shr_t;
-typedef struct { uint32_t pos, rate, x, dx; } grain_t;   /* FREEZE: read place (Q16), rate, window 0..65536 */
 static struct {
-    uint32_t ph, P, split;             /* samples since play; the 1/16; this block: where a 1/16 starts */
+    uint32_t ph, split;                /* samples since play; this block: where a 1/16 starts (the 1/16 itself: k.P) */
     uint32_t act, act0;                /* running after / before split */
     uint8_t busy, sync, mute;          /* sync: a 1/16 starts with the next block; mute: tracks to ramp */
     uint8_t mode, src, next;           /* BM_*, the effect it plays (PF_N none), one waiting for the fade */
-    uint8_t state, odd;                /* LOOP: 0 recording, 1 playing; TAPE: 1 stopped; FREEZE: 1 frozen; a pair's half */
-    uint32_t len, wr, rp;              /* loop length (samples), frames written, read (samples into the loop) */
+    uint32_t len, rp;                  /* LOOP: loop length (samples), read (samples into the loop) */
     uint32_t xrp, xlen, xn;            /* the loop it switched from, faded over xn samples */
-    int32_t w, tw, hl, hr;             /* the buffer's share and its target, Q15; the first of a pair */
-    int32_t yl, yr;                    /* what the glitcher plays this sample */
-    uint32_t gs, gph;                  /* GLITCH, SHUFFLE: the transport's 1/16 (a count), samples into it */
-    union {
-        struct { uint8_t a, n, h, sh; uint32_t l, u, k, g0, sp, src; int32_t rate, cl, cr; } g;   /* GLITCH */
-        struct { uint32_t x, dx, p, p1, q, sc; int32_t c, gn; } t;                                 /* TAPE */
-        struct { uint32_t c, fs, iv, scan, rnd, ph; int32_t sd, gain, nl, nr; grain_t v[4]; } f;   /* FREEZE */
-        struct { uint32_t ew, nrec, cu, mid; int32_t ep; uint8_t ei, kind, j0, xn; shr_t r[2]; } s;   /* SHUFFLE */
-    } u;
+    fx3_st_t k;                        /* (Release 3 step 8b) the buffer effect's state as a kernel gets it (fx_master.h; it was P, state, odd, wr, w, hl, hr, yl, yr, gs, gph and u here; tw is a local now): the 1/16,
+                                        * LOOP: state 0 recording, 1 playing; frames written; the buffer's share and its target; the ring effects' own. Handed to the effect's kernel, resident or the module's */
     uint32_t sw[2];                    /* the sweeps (Q24 progress: 0 dry), CRUSH, THROW */
     int32_t ss[2];                     /* .. on the S curve, Q15 */
     int32_t cw, chl, chr;              /* CRUSH share, held sample */
@@ -106,6 +92,79 @@ static struct {
     int32_t td;                        /* THROW: the share of the dry mix sent, Q15 */
     int32_t mg[NTRK];                  /* mute gains, Q15 (32768 = open) */
 } pf = {.src = PF_N, .next = PF_N, .mg = {[0 ... NTRK - 1] = 32768}};
+
+/* ---- (Release 3 step 8b) the master host: a ring effect's kernel is the registered module's (fx3_modk[x], set by the loader through fx3_modk_set: pointers into the module's flash) or, with
+ * none, the resident copy of the same text (perf_kern.h). Both get the same context: the state and the 32 KB are the host's, so a module that appears or goes away between two blocks changes
+ * nothing that sounds. fx3_modk is written on CPU0 with the audio interrupt masked; the audio interrupt (CPU0: perf_block) is its only reader */
+static __attribute__((section(".pool"))) fx3_kcalls_t fx3_modk[FX3_FX];       /* [GX_*]: the module's calls, 0: none registered */
+static __attribute__((section(".pool"))) uint8_t fx3_mod_n, fx3_marked, fx3_mod_start;   /* effects the module serves; the crash mark taken for this registration; the loader's note: the start
+                                                                                * of the module the calls point into (oc_module.c; here, beside the other two bytes, it costs no RAM) */
+static __attribute__((section(".pool"))) void (*fx3_modk_note)(uint32_t module_id);   /* the loader's crash mark (oc_fxmod_note_use), set with the registration */
+#if OC_PERF_RESIDENT
+static const fx3_kcalls_t PERF_RESIDENT[FX3_FX] = { {PFK_CALLS_GLT}, {PFK_CALLS_TAPE}, {PFK_CALLS_SHUF}, {PFK_CALLS_FRZ} };
+#define PERF_RESIDENT_OF(x) (&PERF_RESIDENT[x])
+#else
+#define PERF_RESIDENT_OF(x) ((const fx3_kcalls_t *)0)
+#endif
+/* the kernel of ring effect x (GX_*): the module's when one is registered, else the resident copy; 0: none (only without the resident copy: OC_PERF_RESIDENT 0) */
+static inline __attribute__((always_inline)) const fx3_kcalls_t *perf_kern(uint32_t x) { return fx3_modk[x].run ? &fx3_modk[x] : PERF_RESIDENT_OF(x); }
+/* the keys whose effect has a kernel: all of them while the resident copy is in the image. Without it (OC_PERF_RESIDENT 0) the four glitchers' keys count only while the module serves them:
+ * one word, kept by fx3_modk_set / fx3_modk_clear, so perf_avail (in SRAM: the key scan and the UI call it) grows by one load and not by a walk of the table (which took 64 B off the arena) */
+#if OC_PERF_RESIDENT
+static inline __attribute__((always_inline)) uint32_t perf_have(void) { return ~0u; }
+#define FX3_HAS_SET() ((void)0)
+#else
+static __attribute__((section(".pool"))) uint32_t fx3_has;                    /* PF_BIT of each glitcher the module serves (0: none registered) */
+static inline __attribute__((always_inline)) uint32_t perf_have(void) { return ~PF_GX | fx3_has; }
+#define FX3_HAS_SET() (fx3_has = (fx3_modk[GX_GLT].run ? PF_BIT(PF_GLT) : 0u) | (fx3_modk[GX_TAPE].run ? PF_BIT(PF_TAPE) : 0u) | (fx3_modk[GX_SHUF].run ? PF_BIT(PF_SHUF) : 0u) | (fx3_modk[GX_FRZ].run ? PF_BIT(PF_FRZ) : 0u))
+#endif
+/* ---- the registration: what the loader (oc_module.c oc_fx3mod_reg) and the host tests call ----
+ * fx3_modk_set: the bank of module FX3_MODULE_ID, n entries (effect id = 1 + GX_*, its caps block, its call table), ALL OR NONE. Checked here, after the loader's fx_caps_check (the pointers,
+ * the magic and the abi at install and at boot), for a caller that did not come through the loader and for what only the host knows:
+ *   FX3M_VER    the caps block's magic, size, version or abi (FX3_ABI_ID: the layout of the context, the state, the 32 KB and the calls) is not this build's
+ *   FX3M_RANGE  an effect id that is not 1 GLITCH, 2 TAPE STOP, 3 SHUFFLE or 4 FREEZE, or twice in the bank; more than one instance; a seed; a rate other than the master's; a state, an option
+ *               or a hot set of its own (the state is the host's fx3_st_t); a working memory other than the 32 KB the host lends (8 blocks); a snapshot that is not the card's four bytes;
+ *               a call missing
+ * 0 FX3M_OK: from the next block on the registered effects run the module's code. The caller masks the audio interrupt in a running session */
+#define OC_FX3_HOST 1                                   /* oc_module.c, editor.c: this build has the master host */
+typedef struct { uint8_t effect_id; const fx_caps_t *caps; const fx3_kcalls_t *calls; } fx3_reg_t;
+static int fx3_modk_set(uint32_t module_id, uint32_t version, uint32_t n, const fx3_reg_t *e)
+{
+    uint32_t i, seen = 0;
+    if (module_id != FX3_MODULE_ID || !n || n > FX3_FX) return FX3M_RANGE;
+    for (i = 0; i < n; i++) {
+        const fx_caps_t *c = e[i].caps;
+        uint32_t m = e[i].effect_id;
+        if (!c || c->magic != FX_CAPS_MAGIC || c->size != FX_CAPS_WIRE || c->version != FX_CAPS_VERSION || c->abi != FX3_ABI_ID) return FX3M_VER;
+        if (m < 1u || m > FX3_FX || ((seen >> m) & 1u)) return FX3M_RANGE;
+        seen |= 1u << m;
+        if (c->max_inst != 1u || (c->flags & FXK_SEED) || !(c->rates & 1u) || c->ram_state || c->ram_extra || c->ram_extra_bytes || c->hot || c->nhot ||
+            c->ram_work_min != 8u || c->ram_work_max != 8u || c->param_bytes != 4u || !e[i].calls || !e[i].calls->start || !e[i].calls->run)
+            return FX3M_RANGE;
+    }
+    for (i = 0; i < n; i++) fx3_modk[e[i].effect_id - 1u] = *e[i].calls;
+    (void)version;
+    fx3_mod_n = (uint8_t)n; fx3_marked = 0;
+    FX3_HAS_SET();
+    return FX3M_OK;
+}
+/* the module goes (its sectors are about to be erased, or it no longer stands): the host's copy of the calls zeroed; from the next block on the resident copy plays, on the same state and
+ * buffer (nothing to hand over, nothing that sounds changes). Without the resident copy (OC_PERF_RESIDENT 0) a ring effect that is playing is cut at the next block (perf_buf_gone) and its key
+ * does nothing. The caller masks the audio interrupt, as for fx3_modk_set */
+static void fx3_modk_clear(void)
+{
+    memset(fx3_modk, 0, sizeof fx3_modk);
+    fx3_mod_n = 0; fx3_marked = 0;
+    FX3_HAS_SET();
+}
+static inline int fx3_modk_ok(void) { return fx3_mod_n != 0; }
+/* the crash mark, taken once a registration, in the audio interrupt just before the module's code runs for the first time. In flash and not inlined (as fx2_mark: inlined, the loader's
+ * oc_fxmod_note_use would follow it into SRAM and come off the audio arena) */
+JFX_XIP static void fx3_mark(void)
+{
+    fx3_marked = 1;
+    if (fx3_modk_note) fx3_modk_note(FX3_MODULE_ID);
+}
 
 static void perf_reset(void)
 {
@@ -127,7 +186,7 @@ static uint32_t perf_avail(void)
     for (e = PF_R8; e <= PF_R32; e++)
         if (b > PB_MAX * PF_DEN[e])
             m &= ~PF_BIT(e);
-    return m;
+    return m & perf_have();                               /* (step 8b) .. and a ring effect with no kernel (never, while the resident copy is in the image) */
 }
 
 /* a layer key down / up (e: PF_*; ui_layer.c, the main loop) */
@@ -168,61 +227,48 @@ static uint32_t perf_pick(uint32_t a)
     return best;
 }
 /* the glitcher whose knobs the FX layer's are: the last pressed of those whose key is down (PF_N: none) */
-static uint32_t perf_gfocus(void) { return perf_kill ? PF_N : perf_pick(perf_down & PF_GX); }
+static uint32_t perf_gfocus(void) { return perf_kill ? PF_N : perf_pick(perf_down & PF_GX & perf_have()); }   /* (step 8b: an effect with no kernel shows no card) */
+static uint32_t perf_gx(uint32_t e);
 static uint32_t perf_gx(uint32_t e) { return e == PF_GLT ? GX_GLT : e == PF_TAPE ? GX_TAPE : e == PF_SHUF ? GX_SHUF : GX_FRZ; }
 
-/* a slice's place in its 2-bar cycle (and its variation) to 32 random bits */
-static uint32_t pf_hash(uint32_t h)
-{
-    h *= 0x9E3779B1u;
-    h = (h ^ (h >> 15)) * 0x2C1B3C6Du;
-    return h ^ (h >> 13);
-}
 
-static void perf_glt_step(void);
-static void perf_shuf_step(void);
-static void perf_frz_grain(void);
+/* what a ring effect's kernel gets with a call (fx_master.h): the state, the 32 KB, the card's knobs, the tempo and SCRATCH's count as this interrupt reads them */
+static inline __attribute__((always_inline)) void perf_ctx(fx3_ctx_t *c, uint32_t x)
+{
+    c->st = &pf.k; c->buf = (fx3_buf_t *)sl_buf; c->gp = perf_gp[x]; c->beat = beat_samples(); c->scr = perf_scr;
+    c->go = pf.src != PF_N; c->head = 0; c->semi = semi_q16;
+}
 static void perf_buf_start(uint32_t e)
 {
-    uint32_t b = beat_samples();
+    const fx3_kcalls_t *kn = 0;
     if (!sl_buf)                          /* (Orange Cat: no memory: nothing plays; jfx_full says so) */
         return;
+    if ((PF_GX >> e) & 1u) {              /* (step 8b) a ring effect: its kernel, the module's or the resident copy */
+        if ((kn = perf_kern(perf_gx(e))) == 0)
+            return;                       /* (none: only without the resident copy, the module gone since the key was read: nothing plays, as with no memory) */
+        if (kn != PERF_RESIDENT_OF(perf_gx(e)) && !fx3_marked)
+            fx3_mark();                   /* the crash mark, before the module's first call */
+    }
     if (!sl_lent) {
         sl_lent = 1;
         perf_drop_slicer();
     }
     pf.src = (uint8_t)e;
     pf.next = PF_N;
-    pf.wr = pf.rp = 0;
-    pf.odd = 0;
+    pf.k.wr = pf.rp = 0;
+    pf.k.odd = 0;
     pf.xn = 0;
     pf.mode = e == PF_GLT ? BM_GLT : e == PF_TAPE ? BM_TAPE : e == PF_SHUF ? BM_SHUF : e == PF_FRZ ? BM_FRZ : BM_LOOP;
-    pf.state = 0;
+    pf.k.state = 0;
     pf.len = perf_len(e);
-    memset(&pf.u, 0, sizeof pf.u);
+    memset(&pf.k.u, 0, sizeof pf.k.u);
     memset(sl_buf[PB_FRAMES - 2u], 0, 2u * sizeof sl_buf[0]);   /* (what GLITCH / TAPE read before the start: quiet) */
-    if (e == PF_GLT || e == PF_SHUF) {    /* its first 1/16: the transport's (this block's split starts the next one) */
-        pf.gs = song.playing && clk_pos != CLK_START ? clk_n + (pf.split ? 1u : 0u) : 0u;
-        if (e == PF_GLT) {
-            perf_glt_step();
-        } else {
-            pf.u.s.r[0].live = 1;         /* (live until a chunk moves) */
-            perf_shuf_step();
-        }
-    }
-    if (e == PF_TAPE) {                   /* two frames behind (quiet), at full speed falling to 0 over TIME */
-        int32_t c = perf_gp[GX_TAPE][2];
-        uint32_t t = b >> (4u - (uint32_t)clamp(perf_gp[GX_TAPE][1], 0, 4)), m = TP_LAG * 600u / (uint32_t)(300 - c);
-        pf.u.t.p = (PB_MAX - 4u) << 16;
-        pf.u.t.c = c * 327;
-        pf.u.t.dx = (1u << 24) / (t < m ? (t > 64u ? t : 64u) : m);
-        pf.u.t.sc = perf_scr;
-    }
-    if (e == PF_FRZ) {                    /* the eighth after the press, then the grains */
-        pf.u.f.c = b / 2u < PB_MAX - 1024u ? (b / 2u > 4096u ? b / 2u : 4096u) : PB_MAX - 1024u;
-        pf.u.f.rnd = 0x2545F491u;
-        pf.u.f.sd = 1;
-        pf.u.f.v[0].x = pf.u.f.v[1].x = pf.u.f.v[2].x = pf.u.f.v[3].x = 65536u;
+    if (e == PF_GLT || e == PF_SHUF)      /* its first 1/16: the transport's (this block's split starts the next one) */
+        pf.k.gs = song.playing && clk_pos != CLK_START ? clk_n + (pf.split ? 1u : 0u) : 0u;
+    if (kn) {                             /* the effect's own start (perf_kern.h: GLITCH's and SHUFFLE's first step, TAPE's fall, FREEZE's eighth) */
+        fx3_ctx_t c;
+        perf_ctx(&c, perf_gx(e));
+        kn->start(&c);
     }
 }
 
@@ -232,8 +278,8 @@ static void perf_buf_select(uint32_t e)
 {
     if (e == pf.src && pf.next == PF_N)
         return;
-    if (e != PF_N && pf.mode == BM_LOOP && pf.state && e <= PF_R32 && pf.src != PF_N &&
-        perf_len(e) <= 2u * pf.wr) {
+    if (e != PF_N && pf.mode == BM_LOOP && pf.k.state && e <= PF_R32 && pf.src != PF_N &&
+        perf_len(e) <= 2u * pf.k.wr) {
         pf.xrp = pf.rp;
         pf.xlen = pf.len;
         pf.xn = SL_RAMP;
@@ -243,7 +289,7 @@ static void perf_buf_select(uint32_t e)
         pf.rp = 0;
         return;
     }
-    if (pf.mode == BM_NONE || !pf.w) {
+    if (pf.mode == BM_NONE || !pf.k.w) {
         if (e == PF_N) {
             pf.src = PF_N;
             pf.next = PF_N;
@@ -322,16 +368,16 @@ static int perf_begin(uint32_t n)
         perf_djf = (int8_t)lp;
         return 0;
     }
-    pf.P = beat_samples() >> 2;
+    pf.k.P = beat_samples() >> 2;
     if (pf.sync) {
         pf.ph = 0;
         pf.sync = 0;
     }
     if (song.playing && clk_pos != CLK_START)       /* (JIANT) playing: the transport's 1/16, so a REPEAT starts on the grid */
-        pf.P = div_samples(2);
-    if (!pf.P) pf.P = 1u;
-    ph0 = (song.playing && clk_pos != CLK_START ? clk_pos : pf.ph) % pf.P;   /* the 1/16 in this block (n: none) */
-    bnd = ph0 ? (pf.P - ph0 < n ? pf.P - ph0 : n) : 0u;
+        pf.k.P = div_samples(2);
+    if (!pf.k.P) pf.k.P = 1u;
+    ph0 = (song.playing && clk_pos != CLK_START ? clk_pos : pf.ph) % pf.k.P;   /* the 1/16 in this block (n: none) */
+    bnd = ph0 ? (pf.k.P - ph0 < n ? pf.k.P - ph0 : n) : 0u;
     pf.ph += n;
     pf.act &= held;                                 /* let go: at once */
     pf.act |= held & ~PF_Q;
@@ -397,18 +443,6 @@ static JFX_XIP void perf_pre(const int32_t *ml, const int32_t *mr, const int32_t
     }
 }
 
-/* x towards y by w (Q15, 32768 = y) */
-static inline int32_t pf_mix(int32_t x, int32_t y, int32_t w)
-{
-    return w == 32768 ? y : x + mulq16(y - x, (uint32_t)w << 1);
-}
-/* the loop: frame f of it, both channels (Q15) */
-static inline void pb_put(uint32_t f, int32_t l, int32_t r)
-{
-    int16_t *p = &sl_buf[0][0] + 2u * (f & (PB_FRAMES - 1u));
-    p[0] = (int16_t)clamp(l, -32768, 32767);
-    p[1] = (int16_t)clamp(r, -32768, 32767);
-}
 /* sample s of the frames recorded from 0 (n of them): between two frames on an odd one */
 static inline void pb_at(uint32_t s, uint32_t n, int32_t *l, int32_t *r)
 {
@@ -422,15 +456,6 @@ static inline void pb_at(uint32_t s, uint32_t n, int32_t *l, int32_t *r)
     *l = (3 * p[0] + q[0]) >> 1;
     *r = (3 * p[1] + q[1]) >> 1;
 }
-/* the loop as a ring (GLITCH, TAPE, FREEZE) at the place s (Q16 of a 44.1 kHz sample), between its two frames */
-static JFX_XIP void pb_ring_f(uint32_t s, int32_t *l, int32_t *r)
-{
-    uint32_t f = s >> 17;
-    int32_t fr = (int32_t)((s >> 2) & 0x7FFFu);
-    const int16_t *p = &sl_buf[f & (PB_FRAMES - 1u)][0], *q = &sl_buf[(f + 1u) & (PB_FRAMES - 1u)][0];
-    *l = 2 * (p[0] + (((q[0] - p[0]) * fr) >> 15));
-    *r = 2 * (p[1] + (((q[1] - p[1]) * fr) >> 15));
-}
 /* REPEAT at sample rp of a loop of len, windowed at both ends */
 static inline void pb_loop(uint32_t rp, uint32_t len, uint32_t n, int32_t *l, int32_t *r)
 {
@@ -443,362 +468,7 @@ static inline void pb_loop(uint32_t rp, uint32_t len, uint32_t n, int32_t *l, in
         *r = (*r * (int32_t)e) >> SL_RAMP_LOG2;
     }
 }
-/* record the pair into frame f (the mean, >> 1: headroom) */
-static inline uint32_t pb_rec(uint32_t f, int32_t l, int32_t r)
-{
-    if (!pf.odd) {
-        pf.hl = l;
-        pf.hr = r;
-        pf.odd = 1;
-        return f;
-    }
-    pf.odd = 0;
-    pb_put(f, (pf.hl + l) >> 2, (pf.hr + r) >> 2);
-    return f + 1u;
-}
 
-/* ------------------------------------------------------------------ GLITCH --- */
-static const uint8_t GA_OF[16] = {GA_RPT, GA_RPT, GA_RPT, GA_RPT, GA_RPT, GA_RPT, GA_REV, GA_REV, GA_UP, GA_DN,
-                                  GA_GATE, GA_GATE, GA_SKIP, GA_SKIP, GA_CRU, GA_CRU};
-/* a segment's start: where it reads (Q16) and how fast */
-static JFX_XIP void perf_glt_seg(void)
-{
-    uint32_t a = pf.u.g.a, L = pf.u.g.l, g0 = pf.u.g.g0, s = g0 - L;
-    pf.u.g.rate = 65536;
-    if (a == GA_RPT) {
-        pf.u.g.rate = (int32_t)semi_q16(clamp((int32_t)(pf.u.g.k < 24u ? pf.u.g.k : 24u) * perf_gp[GX_GLT][1], -24, 24));
-    } else if (a == GA_REV) {
-        s = g0 - 1u;
-        pf.u.g.rate = -65536;
-    } else if (a == GA_UP) {
-        s = g0 - 2u * L;
-        pf.u.g.rate = 131072;
-    } else if (a == GA_DN) {
-        pf.u.g.rate = 32768;
-    } else if (a == GA_SKIP) {
-        s = g0 - pf.u.g.sp + pf_hash(pf.gs * 64u + (pf.u.g.k >> 1)) % (pf.u.g.sp - L + 1u);
-    }
-    pf.u.g.src = s << 16;
-}
-/* GLITCH: the next 1/16's slice, by the hash of its place in two bars and VARI */
-static JFX_XIP void perf_glt_step(void)
-{
-    uint32_t h = pf_hash((pf.gs & 31u) + 0x51u + ((uint32_t)(perf_gp[GX_GLT][3] - 1) << 5)), s16 = pf.P ? pf.P : 1u,
-             sp = s16 < GL_SPAN ? s16 : GL_SPAN, d = (uint32_t)clamp(perf_gp[GX_GLT][0], 0, 100),
-             z = (uint32_t)clamp(perf_gp[GX_GLT][2], 0, 3), j = (h >> 12) % 3u, a, L;
-    a = ((h >> 24) * 100u >> 8) < (pf.gs & 3u ? d : d * d / 100u) ? GA_OF[(h >> 8) & 15u] : GA_PASS;
-    pf.u.g.g0 = 2u * pf.wr + pf.odd;                /* (the loop's sample now) */
-    if ((s16 + sp > PB_MAX - 512u || pf.u.g.g0 < sp) && a != GA_GATE && a != GA_CRU)
-        a = GA_PASS;                                /* (too slow: what it would read is gone; or not recorded yet) */
-    L = a == GA_RPT ? sp >> (z + j) : a == GA_GATE ? (s16 / 2u) >> (z / 2u + j % 2u) : a == GA_SKIP ? sp >> (3u + z / 2u + j % 2u)
-      : a == GA_UP ? sp / 2u : a == GA_CRU ? s16 : sp;
-    pf.u.g.a = (uint8_t)a;
-    pf.u.g.l = L < 2u * SL_RAMP ? 2u * SL_RAMP : L;
-    pf.u.g.sp = sp;
-    pf.u.g.h = (uint8_t)(1u + (h >> 14) % 6u);
-    pf.u.g.sh = (uint8_t)(6u + j + (h >> 20) % 2u);
-    pf.u.g.n = 255u;
-    pf.u.g.u = pf.u.g.k = pf.gph = 0;
-    perf_glt_seg();
-}
-/* GLITCH on one sample: 1 = it plays (pf.yl yr), 0 = live */
-static JFX_XIP int perf_glt(int32_t l, int32_t r)
-{
-    uint32_t u = pf.u.g.u, L = pf.u.g.l, a = pf.u.g.a, e = L - 1u - u < u ? L - 1u - u : u, g = 32768u;
-    pf.wr = pb_rec(pf.wr, l, r);
-    if (a != GA_PASS) {
-        if (a == GA_SKIP) {                         /* (each segment windowed; SKIP's edges 0.7 ms: a tick, shaped) */
-            if (e < SL_RAMP / 4u)
-                g = e << (17 - SL_RAMP_LOG2);
-        } else if (e < (uint32_t)SL_RAMP) {
-            g = e << (15 - SL_RAMP_LOG2);
-        }
-        if (a == GA_GATE) {
-            g = pf.u.g.k & 1u ? 0u : g;
-            pf.yl = mulq16(l, g << 1);
-            pf.yr = mulq16(r, g << 1);
-        } else if (a == GA_CRU) {                   /* (live, crushed; windowed as the others) */
-            if (++pf.u.g.n >= pf.u.g.h) {
-                int32_t b = 1 << (pf.u.g.sh - 1u);
-                pf.u.g.n = 0;
-                pf.u.g.cl = ((l + b) >> pf.u.g.sh) << pf.u.g.sh;
-                pf.u.g.cr = ((r + b) >> pf.u.g.sh) << pf.u.g.sh;
-            }
-            pf.yl = mulq16(pf.u.g.cl, g << 1);
-            pf.yr = mulq16(pf.u.g.cr, g << 1);
-        } else {
-            pb_ring_f(pf.u.g.src + (uint32_t)((int32_t)u * (pf.u.g.rate >> 2)) * 4u, &pf.yl, &pf.yr);
-            pf.yl = mulq16(pf.yl, g << 1);
-            pf.yr = mulq16(pf.yr, g << 1);
-        }
-    }
-    if (++pf.u.g.u >= L) {
-        pf.u.g.u = 0;
-        pf.u.g.k++;
-        perf_glt_seg();
-    }
-    if (++pf.gph >= pf.P) {
-        pf.gs++;
-        perf_glt_step();
-    }
-    return a != GA_PASS;
-}
-
-/* --------------------------------------------------------------- TAPE STOP --- */
-static JFX_XIP int perf_tape(int32_t l, int32_t r)
-{
-    uint32_t g;
-    if (!pf.state) {
-        uint32_t xq = pf.u.t.x >> 9, v = (32768u - xq) * (uint32_t)(32768 + ((pf.u.t.c * (int32_t)xq) >> 15)) >> 15;
-        pf.wr = pb_rec(pf.wr, l, r);
-        g = v < 8192u ? v << 2 : 32768u;
-        pb_ring_f(pf.u.t.p, &pf.yl, &pf.yr);
-        pf.u.t.p += v << 1;
-        if ((pf.u.t.x += pf.u.t.dx) >= 1u << 24) { /* stopped: the loop kept, the hand on it */
-            pf.state = 1;
-            pf.u.t.q = pf.u.t.p1 = pf.u.t.p;
-        }
-    } else {
-        uint32_t p0 = pf.u.t.p;
-        int32_t d;
-        pf.u.t.p1 += (uint32_t)((int32_t)(pf.u.t.q - pf.u.t.p1) >> 8);
-        pf.u.t.p += (uint32_t)((int32_t)(pf.u.t.p1 - pf.u.t.p) >> 8);
-        d = (int32_t)(pf.u.t.p - p0);
-        d = d < 0 ? -d : d;                         /* (its speed, Q16: the level up to a quarter of it) */
-        pf.u.t.gn += ((d >= 16384 ? 32768 : d > 1024 ? (d - 1024) << 1 : 0) - pf.u.t.gn) >> 5;
-        g = (uint32_t)pf.u.t.gn;
-        pb_ring_f(pf.u.t.p, &pf.yl, &pf.yr);
-    }
-    pf.yl = mulq16(pf.yl, g << 1);
-    pf.yr = mulq16(pf.yr, g << 1);
-    return 1;
-}
-/* each block, stopped: KNOB 1's detents since the last move the hand 1/48 beat each, within what the loop holds */
-static JFX_XIP void perf_scratch(void)
-{
-    uint32_t b = beat_samples() / 48u;
-    int32_t d = clamp((int32_t)(perf_scr - pf.u.t.sc), -64, 64), r0, r1;
-    r0 = (int32_t)(((pf.u.t.q >> 16) - 2u * pf.wr) & (PB_MAX - 1u)) - (int32_t)PB_MAX;
-    pf.u.t.sc = perf_scr;
-    r1 = clamp(r0 + d * (int32_t)(b < 512u ? b : 512u), -(int32_t)(PB_MAX - 1024u), -4);
-    pf.u.t.q += (uint32_t)(r1 - r0) << 16;
-}
-
-/* ----------------------------------------------------------------- FREEZE --- */
-static const int8_t FZ_JIT[4] = {12, -12, 7, -5};
-static uint32_t frz_ov(void) { return 100u + 2u * (uint32_t)clamp(perf_gp[GX_FRZ][0], 0, 100); }
-static JFX_XIP void perf_frz_grain(void)
-{
-    grain_t *v = &pf.u.f.v[0];
-    uint32_t i, r = pf.u.f.rnd = pf.u.f.rnd * 1664525u + 1013904223u, ov = frz_ov(),
-             sp = (uint32_t)clamp(perf_gp[GX_FRZ][2], 0, 100), len = beat_samples() >> (5u - (uint32_t)clamp(perf_gp[GX_FRZ][3], 0, 4)),
-             span, room, j;
-    int32_t n = perf_gp[GX_FRZ][1], rate;
-    for (i = 1; i < 4u; i++)
-        if (pf.u.f.v[i].x > v->x)
-            v = &pf.u.f.v[i];
-    if (((r >> 24) * 100u >> 8) < sp / 2u)
-        n += FZ_JIT[(r >> 22) & 3u];
-    rate = (int32_t)semi_q16(n);
-    if (len < 256u)
-        len = 256u;
-    pf.u.f.iv = len * 100u / ov;
-    pf.u.f.gain = ov > 150u ? (int32_t)(4915200u / ov) : 32768;
-    if ((len >> 4) * ((uint32_t)rate >> 12) + 64u > pf.u.f.c)
-        len = ((pf.u.f.c - 64u) << 4) / ((uint32_t)rate >> 12);
-    v->dx = 65536u / len;
-    len = 65535u / v->dx + 1u;
-    span = (len >> 4) * ((uint32_t)rate >> 12) + 2u;
-    room = span + 48u < pf.u.f.c ? pf.u.f.c - span - 48u : 0u;
-    j = room * sp / 100u;
-    if (pf.u.f.scan > room)
-        pf.u.f.scan = room;
-    i = pf.u.f.scan + (((r >> 6) & 0xFFFFu) * j >> 16);
-    i = i > j / 2u ? i - j / 2u : 0u;
-    v->pos = (16u + (i < room ? i : room)) << 16;
-    v->rate = (uint32_t)rate;
-    v->x = 0;
-    j = pf.u.f.iv / 8u + 1u;
-    if (pf.u.f.sd > 0)
-        pf.u.f.scan += j;
-    else
-        pf.u.f.scan = pf.u.f.scan > j ? pf.u.f.scan - j : 0u;
-    if (pf.u.f.scan >= room || !pf.u.f.scan)
-        pf.u.f.sd = pf.u.f.scan ? -1 : 1;
-}
-static JFX_XIP void perf_frz_eval(void)
-{
-    uint32_t i;
-    int32_t al = 0, ar = 0;
-    if ((pf.u.f.fs += 2u) >= pf.u.f.iv) {
-        pf.u.f.fs = 0;
-        perf_frz_grain();
-    }
-    for (i = 0; i < 4u; i++) {
-        grain_t *v = &pf.u.f.v[i];
-        if (v->x < 65536u) {
-            int32_t gl, gr, w = (int32_t)((v->x * (65536u - v->x)) >> 15);
-            pb_ring_f(v->pos, &gl, &gr);
-            al += (gl * w) >> 15;
-            ar += (gr * w) >> 15;
-            v->pos += 2u * v->rate;
-            v->x += 2u * v->dx;
-        }
-    }
-    pf.u.f.nl = mulq16(al, (uint32_t)pf.u.f.gain << 1);
-    pf.u.f.nr = mulq16(ar, (uint32_t)pf.u.f.gain << 1);
-}
-static JFX_XIP int perf_frz(int32_t l, int32_t r)
-{
-    if (!pf.state) {
-        uint32_t i, ov;
-        pf.wr = pb_rec(pf.wr, l, r);
-        if (2u * pf.wr < pf.u.f.c)
-            return 0;
-        ov = frz_ov() / 100u;
-        pf.state = 1;                               /* frozen: DENS grains at once, staggered */
-        for (i = 0; i < ov; i++)
-            perf_frz_grain();
-        for (i = 0; i < ov; i++)
-            pf.u.f.v[i].x = i * (6553600u / frz_ov());
-        pf.u.f.fs = 0;
-        pf.u.f.ph = 1;
-        perf_frz_eval();
-    }
-    if ((pf.u.f.ph ^= 1u) != 0u) {
-        int32_t pl = pf.u.f.nl, pr = pf.u.f.nr;
-        perf_frz_eval();
-        pf.yl = (pl + pf.u.f.nl) >> 1;
-        pf.yr = (pr + pf.u.f.nr) >> 1;
-    } else {
-        pf.yl = pf.u.f.nl;
-        pf.yr = pf.u.f.nr;
-    }
-    return 1;
-}
-
-/* ---------------------------------------------------------------- SHUFFLE --- */
-/* ADPCM, 4 bits, IMA's way (its index moves, its codes) with its steps 2^(1/8) apart, 8 .. 29696 */
-static const uint8_t AD_M[8] = {16, 17, 19, 21, 23, 25, 27, 29};
-static const int8_t AD_IDX[8] = {-1, -1, -1, -1, 2, 4, 6, 8};
-static int32_t ad_stp(uint32_t ix) { return (int32_t)((uint32_t)AD_M[ix & 7u] << (ix >> 3)) >> 1; }
-/* the value after code c from p (the coder and the reader alike); codes 0 and 8 move nothing, so silence stays 0 */
-static int32_t ad_next(uint32_t c, int32_t p, uint8_t *ix)
-{
-    int32_t s = ad_stp(*ix), d = c & 7u ? s >> 3 : 0;
-    if (c & 4u) d += s;
-    if (c & 2u) d += s >> 1;
-    if (c & 1u) d += s >> 2;
-    *ix = (uint8_t)clamp((int32_t)*ix + AD_IDX[c & 7u], 0, 95);
-    return clamp(c & 8u ? p - d : p + d, -32768, 32767);
-}
-static void ad_put(int32_t x)
-{
-    uint32_t w = pf.u.s.ew, c = 0;
-    int32_t d = x - pf.u.s.ep, s = ad_stp(pf.u.s.ei);
-    uint8_t *b = (uint8_t *)sl_buf + (w >> 1);
-    if (d < 0) {
-        c = 8u;
-        d = -d;
-    }
-    if (d >= s) { c |= 4u; d -= s; }
-    if (d >= s >> 1) { c |= 2u; d -= s >> 1; }
-    if (d >= s >> 2) c |= 1u;
-    pf.u.s.ep = ad_next(c, pf.u.s.ep, &pf.u.s.ei);
-    *b = (uint8_t)(w & 1u ? (*b & 0x0Fu) | c << 4 : (*b & 0xF0u) | c);
-    pf.u.s.ew = w + 1u < AD_N ? w + 1u : 0u;
-}
-static int32_t shr_out(shr_t *q)
-{
-    int32_t y = q->a + (((q->b - q->a) * (int32_t)(q->fr >> 1)) >> 15);
-    if ((q->fr += q->rate) >= 65536u) {
-        uint32_t w = q->pos;
-        q->fr -= 65536u;
-        q->a = q->b;
-        q->b = (int16_t)ad_next((uint32_t)((const uint8_t *)sl_buf)[w >> 1] >> (w & 1u ? 4 : 0) & 15u, q->b, &q->idx);
-        q->pos = (uint16_t)(w + 1u < AD_N ? w + 1u : 0u);
-    }
-    return 2 * y;
-}
-static JFX_XIP void perf_shuf_go(uint32_t j, uint32_t rate)
-{
-    shr_t *c = &pf.u.s.r[0];
-    const int16_t *t = AD_TBL + 3u * (j & 31u);
-    if (j > 31u && c->live)
-        return;
-    pf.u.s.r[1] = *c;
-    pf.u.s.xn = SL_RAMP;
-    c->live = j > 31u;
-    c->pos = (uint16_t)t[0];
-    c->a = c->b = t[1];
-    c->idx = (uint8_t)t[2];
-    c->fr = 0;
-    c->rate = rate;
-}
-static JFX_XIP void perf_shuf_step(void)
-{
-    uint32_t gs = pf.gs, ch = 4u >> clamp(perf_gp[GX_SHUF][1], 0, 2), s16 = pf.P / 2u ? pf.P / 2u : 1u,
-             A = (uint32_t)clamp(perf_gp[GX_SHUF][0], 0, 100), h, thr, dm, d, k;
-    int16_t *t = AD_TBL + 3u * (gs & 31u);
-    t[0] = (int16_t)pf.u.s.ew;
-    t[1] = (int16_t)pf.u.s.ep;
-    t[2] = (int16_t)pf.u.s.ei;
-    pf.u.s.nrec++;
-    pf.gph = 0;
-    if (gs % ch)
-        return;
-    pf.u.s.cu = 0;
-    h = pf_hash((gs & 31u) + 0x3C7u + ((uint32_t)(perf_gp[GX_SHUF][3] - 1) << 5));
-    thr = !(gs & 15u) ? A * A / 100u * A / 100u : !(gs & 3u) ? A * A / 100u : A;
-    dm = (AD_N - 2048u) / s16;
-    dm = dm > ch + 16u ? 16u : dm > ch ? dm - ch : 0u;
-    dm = dm < pf.u.s.nrec - 1u ? dm : pf.u.s.nrec - 1u;
-    pf.u.s.kind = SK_NORM;
-    if (((h >> 24) * 100u >> 8) >= thr || dm < ch) {
-        perf_shuf_go(32u, 0);
-        return;
-    }
-    d = ch < 4u && dm >= 4u && (h & 0x100u) ? 4u * (1u + (h >> 9) % (dm / 4u)) : ch * (1u + (h >> 9) % (dm / ch));
-    k = (((h >> 16) & 0xFFu) * 100u >> 8) < (uint32_t)clamp(perf_gp[GX_SHUF][2], 0, 100) ? 1u + (h >> 13) % 3u : SK_NORM;
-    pf.u.s.kind = (uint8_t)k;
-    pf.u.s.j0 = (uint8_t)((gs - d) & 31u);
-    pf.u.s.mid = ch * pf.P / 2u;
-    perf_shuf_go(pf.u.s.j0, k == SK_HALF ? 16384u : k == SK_DBL ? 65536u : 32768u);
-}
-static JFX_XIP int perf_shuf(int32_t l, int32_t r)
-{
-    shr_t *c = &pf.u.s.r[0];
-    if (pf.odd) {
-        ad_put(clamp((pf.hl + l + r) >> 3, -32768, 32767));
-        pf.odd = 0;
-    } else {
-        pf.hl = l + r;
-        pf.odd = 1;
-    }
-    if (c->live) {
-        pf.yl = l;
-        pf.yr = r;
-    } else {
-        pf.yl = pf.yr = shr_out(c);
-    }
-    if (pf.u.s.xn) {
-        shr_t *o = &pf.u.s.r[1];
-        int32_t g = (int32_t)pf.u.s.xn--, ol = l, orr = r;
-        if (!o->live)
-            ol = orr = shr_out(o);
-        pf.yl += ((ol - pf.yl) * g) >> SL_RAMP_LOG2;
-        pf.yr += ((orr - pf.yr) * g) >> SL_RAMP_LOG2;
-    }
-    if (++pf.u.s.cu == pf.u.s.mid && pf.u.s.kind >= SK_DBL)
-        perf_shuf_go(pf.u.s.j0, c->rate);
-    if (++pf.gph >= pf.P) {
-        pf.gs++;
-        perf_shuf_step();
-    }
-    return 1;
-}
-
-static int (*const PERF_RING[4])(int32_t, int32_t) = {perf_glt, perf_tape, perf_shuf, perf_frz};
 
 /* (Orange Cat 0.6.0 rev 2) the buffer taken away (jfx.c jfx_sl_lost): the buffer effect out at once, as perf_buf does
  * when it finds no buffer (a new one may come back zeroed in the same block: it must not play on it) */
@@ -806,7 +476,7 @@ static void perf_buf_lost(void)
 {
     pf.mode = BM_NONE;
     pf.next = PF_N;
-    pf.w = 0;
+    pf.k.w = 0;
     sl_lent = 0;
 }
 /* the buffer effect faded out: the next one, or the buffer back */
@@ -823,56 +493,92 @@ static JFX_XIP void perf_buf_done(void)
         }
     }
 }
-/* the buffer effect on one sample: the share pf.w of what it plays, the rest live */
-static JFX_XIP void perf_buf(int32_t *pl, int32_t *pr)
+/* REPEAT on one sample: the share pf.k.w of the loop, the rest live */
+static inline __attribute__((always_inline)) void perf_loop(int32_t *pl, int32_t *pr)
 {
-    int32_t l = *pl, r = *pr, yl = 0, yr = 0, on = 0;
-    if (!sl_buf) {                                  /* (Orange Cat: the memory taken back: out at once) */
-        pf.mode = BM_NONE;
-        pf.w = 0;
-        sl_lent = 0;
-        return;
-    }
-    if (pf.mode == BM_LOOP) {
-        if (!pf.state) {
-            pf.wr = pb_rec(pf.wr, l, r);
-            if (++pf.rp >= pf.len) {
-                pf.state = 1;
-                pf.rp = 0;
-            }
-        } else {
-            pb_loop(pf.rp, pf.len, pf.wr, &yl, &yr);
-            if (pf.xn) {                            /* the loop it switched from, fading out */
-                int32_t ol, orr, g = (int32_t)pf.xn;
-                pb_loop(pf.xrp, pf.xlen, pf.wr, &ol, &orr);
-                yl += (ol * g) >> SL_RAMP_LOG2;
-                yr += (orr * g) >> SL_RAMP_LOG2;
-                pf.xn--;
-                if (++pf.xrp >= pf.xlen)
-                    pf.xrp = 0;
-            }
-            if (++pf.rp >= pf.len)
-                pf.rp = 0;
-            on = 1;
+    int32_t l = *pl, r = *pr, yl = 0, yr = 0, on = 0, tw;
+    if (!pf.k.state) {
+        pf.k.wr = pb_rec(&pf.k, (fx3_buf_t *)sl_buf, pf.k.wr, l, r);
+        if (++pf.rp >= pf.len) {
+            pf.k.state = 1;
+            pf.rp = 0;
         }
     } else {
-        if ((on = PERF_RING[(pf.mode - BM_GLT) & 3u](l, r)) != 0) {
-            yl = pf.yl;
-            yr = pf.yr;
+        pb_loop(pf.rp, pf.len, pf.k.wr, &yl, &yr);
+        if (pf.xn) {                            /* the loop it switched from, fading out */
+            int32_t ol, orr, g = (int32_t)pf.xn;
+            pb_loop(pf.xrp, pf.xlen, pf.k.wr, &ol, &orr);
+            yl += (ol * g) >> SL_RAMP_LOG2;
+            yr += (orr * g) >> SL_RAMP_LOG2;
+            pf.xn--;
+            if (++pf.xrp >= pf.xlen)
+                pf.xrp = 0;
         }
+        if (++pf.rp >= pf.len)
+            pf.rp = 0;
+        on = 1;
     }
-    pf.tw = on && pf.src != PF_N ? 32768 : 0;
-    pf.w += clamp(pf.tw - pf.w, -SL_SLOPE, SL_SLOPE);
-    if (pf.w) {
-        *pl = pf_mix(l, yl, pf.w);
-        *pr = pf_mix(r, yr, pf.w);
+    tw = on && pf.src != PF_N ? 32768 : 0;
+    pf.k.w += clamp(tw - pf.k.w, -SL_SLOPE, SL_SLOPE);
+    if (pf.k.w) {
+        *pl = pf_mix(l, yl, pf.k.w);
+        *pr = pf_mix(r, yr, pf.k.w);
     } else if (pf.src == PF_N) {                    /* faded out: the next one, or the buffer back */
         perf_buf_done();
     }
 }
+/* (step 8b) a ring effect is playing and its kernel is gone (only without the resident copy: the module removed under it): out at once, the buffer back */
+static JFX_XIP void perf_buf_gone(void)
+{
+    pf.mode = BM_NONE;
+    pf.next = PF_N;
+    pf.k.w = 0;
+    if (sl_lent) {
+        sl_lent = 0;
+        perf_drop_slicer();
+    }
+}
+/* the buffer effect over the samples [i, end) of the block, in place; returns where it stopped (end, or earlier when the effect ended or changed: the caller goes on from there).
+ * (step 8b) It was perf_buf, called a sample at a time; REPEAT still is (perf_loop), a ring effect is one call of its kernel's `run` for the whole run of samples */
+static inline __attribute__((always_inline)) uint32_t perf_buf_run(int32_t *bl, int32_t *br, uint32_t i, uint32_t end)
+{
+    if (!sl_buf) {                                  /* (Orange Cat: the memory taken back: out at once) */
+        pf.mode = BM_NONE;
+        pf.k.w = 0;
+        sl_lent = 0;
+        return i;
+    }
+    if (pf.mode == BM_LOOP) {
+        for (; i < end && pf.mode == BM_LOOP; i++)
+            perf_loop(&bl[i], &br[i]);
+        return i;
+    }
+    {
+        uint32_t x = (pf.mode - BM_GLT) & 3u, d;
+        const fx3_kcalls_t *kn = perf_kern(x);
+        fx3_ctx_t c;
+        if (!kn) {
+            perf_buf_gone();
+            return i;
+        }
+        if (kn != PERF_RESIDENT_OF(x) && !fx3_marked)
+            fx3_mark();                             /* (a module registered while the resident copy played this effect: its first call is this one) */
+        perf_ctx(&c, x);
+        c.head = i == 0u;
+        d = kn->run(&c, bl + i, br + i, end - i);
+        if (!d || d > end - i)                      /* (a kernel answers 1 .. n; anything else would stall or overrun the block) */
+            d = end - i;
+        i += d;
+        if (!pf.k.w && pf.src == PF_N)              /* faded out at its last sample: the next one, or the buffer back */
+            perf_buf_done();
+    }
+    return i;
+}
 static void perf_switch(uint32_t a) { perf_buf_select(perf_pick(a)); }
 
-/* after the master level: the buffer effect, CRUSH on l / r (stereo, Q15) */
+/* after the master level: the buffer effect, CRUSH on l / r (stereo, Q15).
+ * (step 8b) The buffer effect runs over the block first (in runs: up to the 1/16's sample, then from it; a run ends early where an effect ends), CRUSH over the result after it: the old loop
+ * did both on each sample in turn, and neither reads the other's state, so the samples are the same (tests/fx_layer_golden.txt, pinned from the old loop) */
 static JFX_XIP void perf_block(int32_t *bl, int32_t *br, uint32_t n)
 {
     uint32_t i, a = pf.act0, sh, hold;
@@ -881,30 +587,36 @@ static JFX_XIP void perf_block(int32_t *bl, int32_t *br, uint32_t n)
     hold = sh - 3u;
     if (pf.split)
         perf_switch(a);
-    if (pf.mode == BM_TAPE && pf.state)
-        perf_scratch();
-    for (i = 0; i < n; i++) {
-        int32_t l = bl[i], r = br[i];
+    for (i = 0; i < n;) {
+        uint32_t end = i < pf.split && pf.split < n ? pf.split : n;
         if (i == pf.split) {
             a = pf.act;
             perf_switch(a);
         }
-        if (pf.mode != BM_NONE)
-            perf_buf(&l, &r);
-        {   /* CRUSH: fewer bits, a held sample (its sweep: both, and its mix) */
-            pf.cw += clamp(ct - pf.cw, -SL_SLOPE, SL_SLOPE);
-            if (pf.cw) {
-                if (++pf.cn >= hold) {
-                    pf.cn = 0;
-                    pf.chl = ((l >> sh) << sh) + (1 << (sh - 1u));
-                    pf.chr = ((r >> sh) << sh) + (1 << (sh - 1u));
-                }
-                l = pf_mix(l, pf.chl, pf.cw);
-                r = pf_mix(r, pf.chr, pf.cw);
-            }
-        }
-        bl[i] = l;
-        br[i] = r;
+        if (pf.mode == BM_NONE)
+            i = end;
+        else
+            i = perf_buf_run(bl, br, i, end);
     }
-    pf.busy = pf.act || pf.mode != BM_NONE || pf.w || pf.cw || pf.td || pf.mute || pf.sw[0] || pf.sw[1];
+    if (ct || pf.cw)                                /* (idle, the share stays 0 and nothing is written: not run) */
+        for (i = 0; i < n; i++) {
+            int32_t l = bl[i], r = br[i];
+            {   /* CRUSH: fewer bits, a held sample (its sweep: both, and its mix) */
+                pf.cw += clamp(ct - pf.cw, -SL_SLOPE, SL_SLOPE);
+                if (pf.cw) {
+                    if (++pf.cn >= hold) {
+                        pf.cn = 0;
+                        pf.chl = ((l >> sh) << sh) + (1 << (sh - 1u));
+                        pf.chr = ((r >> sh) << sh) + (1 << (sh - 1u));
+                    }
+                    l = pf_mix(l, pf.chl, pf.cw);
+                    r = pf_mix(r, pf.chr, pf.cw);
+                }
+            }
+            bl[i] = l;
+            br[i] = r;
+        }
+    pf.busy = pf.act || pf.mode != BM_NONE || pf.k.w || pf.cw || pf.td || pf.mute || pf.sw[0] || pf.sw[1];
 }
+/* the Effects table's `uses` (editor FX_TABLE): 1 while a ring effect plays and its kernel is the module's */
+static uint32_t fx3_modk_uses(void) { uint32_t m = pf.mode; return m >= BM_GLT && fx3_modk[(m - BM_GLT) & 3u].run ? 1u : 0u; }

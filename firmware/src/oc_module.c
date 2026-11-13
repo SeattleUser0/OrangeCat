@@ -566,6 +566,9 @@ static uint32_t oc_fxk_start;                                   /* (round 18) th
 static uint32_t oc_fx2_start;                                   /* (Release 3 step 8a) the start of the module whose kernels the send host (jfx.c: the reverb's modes) holds (valid while fx2_modk_ok()) */
 static void oc_fx2mod_reg(uint32_t i);
 #endif
+#ifdef OC_FX3_HOST
+static void oc_fx3mod_reg(uint32_t i);                          /* (Release 3 step 8b) the master host (jfx_perform.c: the FX layer's ring effects); the start of the module whose kernels it holds is its fx3_mod_start (valid while fx3_modk_ok()) */
+#endif
 static void oc_mod_boot(uint32_t crashed)
 {
     uint32_t models_at = 0;                                     /* starts of MODELS modules to hand to their engine after the window */
@@ -576,6 +579,9 @@ static void oc_mod_boot(uint32_t crashed)
 #endif
 #ifdef OC_FX2_HOST
     uint32_t fx2_was = fx2_modk_ok() ? oc_fx2_start + 1u : 0u; /* (step 8a) the same for the send host's kernels: kept when the same module stands at the same start after the rebuild */
+#endif
+#ifdef OC_FX3_HOST
+    uint32_t fx3_was = fx3_modk_ok() ? fx3_mod_start + 1u : 0u; /* (step 8b) .. and the master host's */
 #endif
     for (e = 0; e < NENGINES; e++)
         if (eng_mod[e])
@@ -654,6 +660,15 @@ static void oc_mod_boot(uint32_t crashed)
         }
     }
 #endif
+#ifdef OC_FX3_HOST
+    {   int fi = oc_fx_find(FX3_MODULE_ID);                     /* (step 8b) the master host's kernels: let go of when the module no longer stands where they point (a banned or refused module is not in the table: the resident copy plays) */
+        if (fx3_modk_ok() && !(fi >= 0 && (uint32_t)oc_mod.fx[fi].start + 1u == fx3_was)) {
+            if (oc_mod_live) fm1_irq_off();
+            fx3_modk_clear();
+            if (oc_mod_live) fm1_irq_on();
+        }
+    }
+#endif
     oc_mod_window();                                            /* (0.10.1) a running session too: the window follows the registered modules (0.11.1: the one helper) */
     {   uint32_t mi;                                              /* (the model picker) the MODELS modules, now that the window covers their code */
         for (mi = 0; mi < OC_MOD_STARTS; mi++) {
@@ -678,6 +693,12 @@ static void oc_mod_boot(uint32_t crashed)
     {   int fi = oc_fx_find(FX2_MODULE_ID);                     /* (step 8a) AFTER the window, as DUB's: the next bus job may call the module */
         if (!fx2_modk_ok() && fi >= 0) oc_fx2mod_reg(oc_mod.fx[fi].start);
         if (fx2_modk_ok()) fx2_marked = 0;                      /* the crash mark was zeroed above: taken again at the next bus start that runs a module mode */
+    }
+#endif
+#ifdef OC_FX3_HOST
+    {   int fi = oc_fx_find(FX3_MODULE_ID);                     /* (step 8b) AFTER the window, as DUB's and the reverb's: the next block may call the module */
+        if (!fx3_modk_ok() && fi >= 0) oc_fx3mod_reg(oc_mod.fx[fi].start);
+        if (fx3_modk_ok()) fx3_marked = 0;                      /* the crash mark was zeroed above: taken again before the module's next call */
     }
 #endif
     /* (0.11.1) the loser of two valid modules is erased now, lazily: only when its rival is the registered one and no old preset pair may still lie in
@@ -1005,6 +1026,28 @@ static void oc_fx2mod_guard(int32_t first, uint32_t n)
     (void)first; (void)n;
 #endif
 }
+/* (Release 3 step 8b) the same for the master host: the FX layer's ring effects run code in the registered module's flash; before any erase of its sectors the host lets go (the resident copy
+ * plays from the next block on, on the same state and buffer). The audio interrupt, the kernels' only caller, is masked for the store */
+static void oc_fx3mod_guard(int32_t first, uint32_t n)
+{
+#ifdef OC_FX3_HOST
+    uint32_t i;
+    int hit = 1;
+    if (!fx3_modk_ok()) return;
+    for (i = 0; i < OC_MOD_STARTS; i++)
+        if (oc_mod.state[i] == MD_OK && oc_mod.kind[i] && oc_mod.mid[i] == FX3_MODULE_ID) {
+            int32_t s0 = OC_MOD_START_SECTOR(i), n0 = (int32_t)oc_mod_nsec(oc_mod.length[i]);
+            hit = first < s0 + n0 && s0 < first + (int32_t)n;
+            break;
+        }
+    if (!hit) return;
+    fm1_irq_off();
+    fx3_modk_clear();
+    fm1_irq_on();
+#else
+    (void)first; (void)n;
+#endif
+}
 /* sectors of the area erased in order from `first` (the header sector first), the watchdog fed between. 0 or the flash's error */
 static int oc_mod_erase_span(int32_t first, uint32_t n)
 {
@@ -1014,6 +1057,7 @@ static int oc_mod_erase_span(int32_t first, uint32_t n)
     if (!oc_span_ok(first, n)) return -1;                       /* (option A, review 10.9 blocker 2) a span outside a place or across a place's end: refused, nothing erased (never clipped, never a silent 0) */
     oc_fxmod_kernel_guard(first, n);
     oc_fx2mod_guard(first, n);                                  /* (step 8a) the reverb module's modes */
+    oc_fx3mod_guard(first, n);                                  /* (step 8b) the FX layer module's effects */
     parked = oc_models_guard(first, n);                         /* (the model picker) a MODELS module in the span: out of its engine first */
     for (s = 0; s < n; s++) {
         int rc;
@@ -1358,6 +1402,45 @@ static void oc_fx2mod_reg(uint32_t i)
         n++;
     }
     if (n) (void)oc_fx2mod_commit(i, d->module_id, d->version, n, r);
+}
+#endif
+#ifdef OC_FX3_HOST
+/* (Release 3 step 8b) the master host takes the registered bank of module FX3_MODULE_ID (kind 3: GLITCH, TAPE STOP, SHUFFLE, FREEZE; the FX layer, jfx_perform.c), as the send host takes the
+ * reverb's. oc_fx3mod_commit is the part that does not depend on the device's 4 byte pointers (a host test drives it): the PC guard's window first, then the host takes the calls (all or none),
+ * then the answer: a refusal is the Effects row's `why` = 0x40 + the host's code (FX3M_VER, FX3M_RANGE), which FX_TABLE sends; the module stays listed and the resident copy plays */
+static int oc_fx3mod_commit(uint32_t i, uint32_t mid, uint32_t version, uint32_t n, const fx3_reg_t *r)
+{
+    uint32_t x;
+    int rc;
+    if (fm1_guard_code_end < oc_mod_link(i) + oc_mod.length[i] - 1u) oc_mod_window();
+    if (oc_mod_live) fm1_irq_off();
+    rc = fx3_modk_set(mid, version, n, r);
+    if (!rc) { fx3_mod_start = (uint8_t)i; fx3_modk_note = oc_fxmod_note_use; }
+    if (oc_mod_live) fm1_irq_on();
+    for (x = 0; x < oc_mod.nfxmod; x++)
+        if (oc_mod.fx[x].start == i) oc_mod.fx[x].why = (uint8_t)(rc ? 0x40u + (uint32_t)rc : 0u);
+    oc_mod.why[i] = (uint8_t)(rc ? 0x40u + (uint32_t)rc : 0u);
+    return rc;
+}
+/* the device's part: the bank read in place out of the module's flash (already checked by fx_desc_check at the scan: every pointer inside the image, the caps blocks, the call tables) */
+static void oc_fx3mod_reg(uint32_t i)
+{
+    const fx_desc_wire_t *d;
+    const fx_entry_wire_t *e;
+    fx3_reg_t r[FX_BANK_MAX];
+    uint32_t k, n = 0;
+    if (sizeof(void *) != 4u || oc_mod.mid[i] != FX3_MODULE_ID || oc_mod.kind[i] != FW_MOD_KIND_MASTER)
+        return;
+    d = (const fx_desc_wire_t *)(uintptr_t)oc_mod_hdr_ptr(i)->engine_ptr;
+    e = (const fx_entry_wire_t *)(uintptr_t)d->entries;
+    for (k = 0; k < d->n && k < FX_BANK_MAX; k++) {
+        const fx_caps_t *c;
+        if (!e[k].pages) continue;                              /* an entry with no kernel */
+        c = (const fx_caps_t *)(uintptr_t)e[k].pages;
+        r[n].effect_id = e[k].effect_id; r[n].caps = c; r[n].calls = (const fx3_kcalls_t *)(uintptr_t)c->kernel;
+        n++;
+    }
+    if (n) (void)oc_fx3mod_commit(i, d->module_id, d->version, n, r);
 }
 #endif
 /* 0 ok; -1 refused (a bad length, id 0, not the planned start); -4 old preset pairs not moved; -5 no start free; else flash */

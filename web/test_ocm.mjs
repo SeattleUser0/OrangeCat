@@ -396,6 +396,95 @@ json.dump(out, sys.stdout)`], { cwd: ROOT, input: JSON.stringify(cases), maxBuff
       console.log("ocm: the real reverb package (build/reverb-" + ver + ".ocm): kind 2, module id 2, three effects, 1 sector, " + o.variants.length + " starts, taken by the installer page's check; FX_INFO's sixth word");
     } else console.log("ocm: (no build/reverb-" + ver + ".ocm: the real reverb package check skipped)");
   }
+  // (Release 3 step 8b) the real FX layer package the build made (tools/build.py --module fxlayer): kind 3 (master), module id 3, a bank of four, TWO sectors. A master effect's caps
+  // block has the master host's convention (firmware/src/fx_master.h): its call table is two words (start, run), and its abi is the firmware's FX3_ABI_ID, which FX_INFO sends as a
+  // seventh word. Then the owner's default set with the REAL packages' sizes: SHAPES, WHEEL, the default models pick, DUB TAPE and the FX layer fill a unit with the tail region exactly
+  // (21 of 21), from an empty unit and from the layout the test unit holds; the reverb module ticked as well has no place, and nothing is taken off for it
+  {
+    const ver = readFileSync(new URL("VERSION", ROOT), "utf8").trim(), f = new URL(`build/fxlayer-${ver}.ocm`, ROOT), gen = new URL("build/gen/fw_api_id.h", ROOT);
+    const { parseFxInfo } = await import(new URL("fm1oc.js", import.meta.url));
+    const { PLACE } = await import(new URL("fm1place.js", import.meta.url));
+    const enc = (v) => [0, 1, 2, 3, 4].map((i) => Math.floor(v / 2 ** (7 * i)) % 128);
+    const three = parseFxInfo([2, 1, 0, 127, 1, ...enc(0x9DCB40AD), ...enc(0xE2B81A6B), ...enc(0x12345678)]);
+    assert.equal(three.abi3, 0x12345678, "FX_INFO's seventh word (5 x 7 bits) is the master host's abi");
+    assert.ok(three.abi === 0x9DCB40AD && three.abi2 === 0xE2B81A6B, "... after the insert host's and the send host's, which are read as before");
+    assert.equal(parseFxInfo([2, 1, 0, 127, 1, ...enc(0x9DCB40AD), ...enc(0xE2B81A6B)]).abi3, undefined, "a reply without it (a firmware with no master host: the Nightly before this one) has none");
+    if (existsSync(f)) {
+      const o = OCM.parse(new Uint8Array(readFileSync(f)));
+      assert.ok(o.ok, "the FX layer package parses (a kind 3 caps block: two call words): " + o.key);
+      assert.equal(o.kind, 3); assert.equal(o.moduleId, 3); assert.equal(o.fxVersion, 0x00010000); assert.equal(o.fxCount, 4); assert.equal(o.fxSectors, 2);
+      const got = o.variants.map((v) => v.start), grid = Array.from({ length: 9 }, (_, i) => 2 * i - 6), area = Array.from({ length: 17 }, (_, i) => i - 6);
+      const tailBuild = JSON.stringify(got) === JSON.stringify([...area, -58, -57]);
+      assert.ok(JSON.stringify(got) === JSON.stringify(grid) || tailBuild, "the FX layer package's starts: the two sector grid, or in a tail build every start of the area that holds two sectors and the tail's two: " + got);
+      if (existsSync(gen)) {
+        const h = readFileSync(gen, "utf8"), m = /#define FX3_ABI_ID (0x[0-9A-Fa-f]+)u/.exec(h), m1 = /#define FX_ABI_ID (0x[0-9A-Fa-f]+)u/.exec(h), m2 = /#define FX2_ABI_ID (0x[0-9A-Fa-f]+)u/.exec(h);
+        assert.ok(m && m1 && m2 && o.fxAbi === Number(m[1]) && o.fxAbi !== Number(m1[1]) && o.fxAbi !== Number(m2[1]), "its abi is the build's FX3_ABI_ID, not FX_ABI_ID (DUB TAPE's) nor FX2_ABI_ID (the reverb module's)");
+      }
+      const unit = { iface: o.iface, apiAddr: o.apiAddr, apiVersion: o.apiVersion, apiSize: o.apiSize, packHash: o.packHash, sectorOf: SECT, starts: SECT.map(() => ({ state: 0, why: 0, engine: 127 })), lowOk: true };
+      const at = (plan, extra = {}) => OCM.fxCheck(o, unit, { plan, inPlace: false, blocker: null, lowOk: true, ...extra });
+      for (let plan = 0; plan < SECT.length; plan++) {
+        if (!got.includes(SECT[plan])) continue;
+        const c = at(plan, { abi: 0x9DCB40AD, abi2: 0xE2B81A6B, abi3: o.fxAbi });
+        assert.ok(c.ok && c.variant.start === SECT[plan], `start ${plan} (sector ${SECT[plan]}) takes the FX layer module: ${JSON.stringify(c.key)}`);
+      }
+      assert.equal(at(0, { abi: 0x9DCB40AD, abi2: 0xE2B81A6B, abi3: (o.fxAbi + 1) >>> 0 }).key, "modWrongFw", "a unit with another FX3_ABI_ID: refused as not for this firmware, before anything is sent");
+      assert.equal(at(0, { abi: 0x9DCB40AD, abi2: o.fxAbi }).key, "modWrongFw", "a unit that sends six words and no seventh has no master host (the Nightly before this one): refused, even if its sixth word happened to equal the module's");
+      assert.equal(at(0, { abi: o.fxAbi }).key, "modWrongFw", "... and a unit that sends five");
+      assert.ok(at(0).ok, "a unit that reports no abi at all (before round 18): not compared (the unit refuses at 123 END)");
+      const dubf = new URL(`build/dub-${ver}.ocm`, ROOT), revf = new URL(`build/reverb-${ver}.ocm`, ROOT), pickf = new URL(`build/plaits-${ver}.ocm`, ROOT), wheelf = new URL(`build/wheel-${ver}.ocm`, ROOT);
+      if (existsSync(dubf) && existsSync(revf)) {
+        const d = OCM.parse(new Uint8Array(readFileSync(dubf))), r = OCM.parse(new Uint8Array(readFileSync(revf)));
+        assert.ok(OCM.fxCheck(d, unit, { plan: 0, inPlace: false, blocker: null, lowOk: true, abi: d.fxAbi, abi2: 1, abi3: 1 }).ok, "DUB TAPE (kind 1) is compared with the fifth word alone: the seventh does not touch it");
+        assert.ok(OCM.fxCheck(r, unit, { plan: 0, inPlace: false, blocker: null, lowOk: true, abi: 1, abi2: r.fxAbi, abi3: 1 }).ok, "the reverb module (kind 2) with the sixth alone");
+        assert.equal(OCM.fxCheck(r, unit, { plan: 0, inPlace: false, blocker: null, lowOk: true, abi: 1, abi2: 1, abi3: r.fxAbi }).key, "modWrongFw", "... and is not taken on the seventh word's account");
+      }
+      console.log("ocm: the real FX layer package (build/fxlayer-" + ver + ".ocm): kind 3, module id 3, four effects, 2 sectors, " + o.variants.length + " starts, taken by the installer page's check; FX_INFO's seventh word");
+      // the default set with the real sizes (a tail build's packages: WHEEL re-cut to one sector)
+      if (tailBuild && existsSync(dubf) && existsSync(revf) && existsSync(pickf) && existsSync(wheelf)) {
+        const d = OCM.parse(new Uint8Array(readFileSync(dubf))), r = OCM.parse(new Uint8Array(readFileSync(revf))), pk = OCM.parse(new Uint8Array(readFileSync(pickf)));
+        const wb = new Uint8Array(readFileSync(wheelf)), wsec = new DataView(wb.buffer, wb.byteOffset).getUint32(52, true);
+        assert.ok(d.ok && r.ok && pk.ok && pk.kind === 4, "the build's DUB TAPE, reverb and default models packages parse");
+        const TAILN = PLACE.OC_TAIL, room = PLACE.OC_AREA + TAILN;
+        const S = { engine: 14, name: "SHAPES" }, W = { engine: 7, name: "WHEEL" }, D = { mid: d.moduleId, sectors: d.fxSectors, name: "DUB TAPE" }, F = { mid: o.moduleId, sectors: o.fxSectors, name: "FX LAYER" },
+          R = { mid: r.moduleId, sectors: r.fxSectors, name: "REVERB MODES" }, P = { mid: pk.moduleId, sectors: pk.fxSectors, name: "MACRO models" };
+        const need = PLACE.ENG_GEO_TAIL[14].sectors + wsec + P.sectors + D.sectors + F.sectors;
+        assert.equal(wsec, PLACE.ENG_GEO_TAIL[7].sectors, "the tail build's WHEEL package is the one sector the page's geometry says");
+        assert.equal(need, room, `the default set with the real sizes (SHAPES ${PLACE.ENG_GEO_TAIL[14].sectors}, WHEEL ${wsec}, the default pick ${P.sectors}, DUB TAPE ${D.sectors}, the FX layer ${F.sectors}) is ${need} sectors of the unit's ${room}`);
+        assert.equal(room, 21);
+        const starts = (a) => a.plan.steps.map((x) => x.mod.name + "@" + x.start).join(" ");
+        const page = [W, S, D, F, P];                          // the page's file order: WHEEL, SHAPES, the effect modules of the ticked box (DUB TAPE, the FX layer), the pick last
+        const e = PLACE.arrange(PLACE.emptyState(true, TAILN), page);
+        assert.ok(e.how === "asis" && e.plan.ok && e.plan.steps.length === 5, "an empty unit with the tail takes the default set, in the goal's order: " + e.how + " " + starts(e));
+        // the layout the test unit holds (round 23's end state): SHAPES at start 1, WHEEL at start 5, the models at start 17 (9 sectors), DUB TAPE at start 18 (the tail)
+        const held = () => {
+          const u = PLACE.emptyState(true, TAILN), FXE = PLACE.OC_FX_ENGINE;
+          u.starts[1] = { state: 7, kind: 0, mid: 0, engine: 14, length: 24160 }; u.starts[5] = { state: 7, kind: 0, mid: 0, engine: 7, length: 2928 };
+          u.starts[17] = { state: 7, kind: 4, mid: P.mid, engine: FXE, length: 9 * 4096 }; u.starts[18] = { state: 7, kind: 1, mid: D.mid, engine: FXE, length: 3 * 4096 }; u.nfxmod = 2;
+          return u;
+        };
+        if (P.sectors === 9) {
+          const a = PLACE.arrange(held(), [{ ...W, current: true }, { ...S, current: true }, { ...D, current: true }, F, P]);
+          assert.ok(a.how === "asis" && a.plan.ok && !a.remove, "the unit as it stands (SHAPES 1, WHEEL 5, the models 17, DUB TAPE 18) takes the FX layer and the pick again with nothing taken off: " + a.how);
+          assert.equal(starts(a), "MACRO models@17 FX LAYER@2", "the pick in place, the FX layer in the area's last free two sectors");
+          const fin = a.plan.final, used = new Set();
+          fin.starts.forEach((x, j) => { if (x.state === 7) for (let q = 0; q < PLACE.sectorsOf(fin, x.kind ? { mid: x.mid, sectors: Math.ceil(x.length / 4096) } : { engine: x.engine }); q++) used.add(PLACE.OC_SECT[j] + q); });
+          assert.equal(used.size, 21, "... and every one of the 21 sectors is then held, none twice");
+          // nothing of the set on the unit is current (a new Nightly's files): the same unit, all five written again: as it stands or after the page's rearrange, never refused
+          const b = PLACE.arrange(held(), [W, S, D, F, P]);
+          assert.ok((b.how === "asis" || b.how === "rearrange") && b.plan.ok && b.plan.steps.length === 5, "the same unit with every file of the set new: it places (" + b.how + (b.remove ? ": " + b.remove.map((m) => m.name).join(", ") + " off and on again" : "") + "): " + starts(b));
+          // the reverb module ticked as well: 22 sectors on 21: no place, as the unit stands or rearranged; nothing is named for removal
+          for (const [what, u, set] of [["an empty unit", PLACE.emptyState(true, TAILN), [W, S, D, F, R, P]], ["the unit as it stands", held(), [{ ...W, current: true }, { ...S, current: true }, { ...D, current: true }, F, R, P]],
+            ["the unit as it stands, every file new", held(), [W, S, D, F, R, P]]]) {
+            const n = PLACE.arrange(u, set);
+            assert.ok(n.how === "none" && !n.plan.ok && !n.remove && !n.blockers, what + ": the default set and the reverb module (22 sectors) has no place: " + n.how);
+            assert.match(PLACE.whyNot(u, n.plan.mods, n.plan), /needs \d+ sectors? in one run; the biggest run the unit's loader can use is \d+\./, "... and the page's words for it are the planner's");
+          }
+          console.log("ocm: the default set with the real packages' sizes (SHAPES 6, WHEEL " + wsec + ", the pick " + P.sectors + ", DUB TAPE " + D.sectors + ", FX LAYER " + F.sectors + "): 21 of 21 sectors; placed on an empty unit (" + starts(e) +
+            ") and on the unit as it stands (" + starts(a) + "; every file new: " + b.how + "); with the reverb module (1 more) refused, nothing taken off");
+        } else console.log("ocm: (the default pick is " + P.sectors + " sectors, not 9: the default set placement check skipped)");
+      } else console.log("ocm: (not a tail build's packages: the default set placement check skipped)");
+    } else console.log("ocm: (no build/fxlayer-" + ver + ".ocm: the real FX layer package check skipped)");
+  }
   // 6. (Release 3, the model picker) a MODELS module (kind 4, firmware/src/fw_models.h): the engine word engine | 4 << 8, the block at engine_ptr (magic "OMDL", size 160, version 1,
   //    the abi word, the engine, n models, each 0 or a 24 byte descriptor inside the code whose start and render are inside the code, three bank words), the module id 0x4D00 | engine,
   //    a span of up to 18 sectors; every rule refused; fxCheck takes it with FX_INFO as an effect module

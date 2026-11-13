@@ -114,7 +114,7 @@ def published(out, name):
 
 
 from struct import error as struct_error
-FX_NAMES = {1: "DUB TAPE", 2: "REVERB MODES", 0x4D08: "MACRO MODELS"}      # (Release 3 step 6) the modules Orange Cat ships by module id (docs/orangecat/MODULE_IDS.md): the installer page names them; (the model picker) 0x4D08 the MODELS module of MACRO (kind 4)
+FX_NAMES = {1: "DUB TAPE", 2: "REVERB MODES", 3: "FX LAYER", 0x4D08: "MACRO MODELS"}      # (Release 3 step 6) the modules Orange Cat ships by module id (docs/orangecat/MODULE_IDS.md): the installer page names them; (the model picker) 0x4D08 the MODELS module of MACRO (kind 4)
 
 
 def fx_info(path):
@@ -146,7 +146,8 @@ def fx_info(path):
 
 
 # (Release 3 step 8a) the effect modules a release offers but the installer page does not tick by default (the owner's decision): the reverb modes SPRING, SHIMMER and RESO (module id 2), whose
-# resident copy is still in the firmware this Nightly. DUB TAPE (1) stays ticked by default
+# resident copy is still in the firmware this Nightly. DUB TAPE (1) stays ticked by default. (Release 3 step 8b, the owner's decision) so is the FX layer module (3: GLITCH, TAPE STOP, SHUFFLE,
+# FREEZE; two sectors): with SHAPES, WHEEL, the default models pick and DUB TAPE it fills the 21 sectors exactly, so ticking the reverb module as well does not fit (the page says so)
 FX_OPTIONAL = {2}
 
 

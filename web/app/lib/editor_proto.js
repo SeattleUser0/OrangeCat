@@ -2874,7 +2874,7 @@ function ocmModelsDesc(img, link) {
  * checks that a legacy slot is below its P_COUNT); `abi` (offset 52) not 0: its value is the firmware's FX_ABI_ID, which the page does not know and the unit compares.
  * (Release 3 step 8a) A send effect (kind 2: the reverb's modes) has the send host's convention (firmware/src/fx_send.h): its call table is ONE word and its abi is the firmware's FX2_ABI_ID. */
 function ocmFxCaps(caps, inside, at, u32, u16, s16, img, kind) {
-  const ncalls = kind === 2 ? 1 : 12;
+  const ncalls = kind === 2 ? 1 : kind === 3 ? 2 : 12;   /* (Release 3 step 8b) a master effect (kind 3: the FX layer's ring effects; firmware/src/fx_master.h): TWO words (start, run), and its abi is the firmware's FX3_ABI_ID */
   if (!inside(caps, 56) || (caps & 3) || u32(caps) !== 0x4B584647 || u16(caps + 4) !== 56 || u16(caps + 6) !== 1 || !u32(caps + 52)) return false;
   const kernel = u32(caps + 8), pages = u32(caps + 12), rows = u32(caps + 24), nrows = img[at(caps + 36)];
   if (u32(caps + 16) || img[at(caps + 35)] || img[at(caps + 37)] || !u16(caps + 38)) return false;
@@ -2971,12 +2971,13 @@ function fxCheck(ocm, info, fx) {
   if (!ocm.kind || !ocm.moduleId) return { ok: false, key: "modWrongFile" };
   if (ocm.iface !== info.iface || ocm.apiAddr !== info.apiAddr || ocm.apiVersion > info.apiVersion || ocm.apiSize > info.apiSize || ocm.packHash !== info.packHash)
     return { ok: false, key: "modWrongFw" };
-  if (fx.abi !== undefined && ocm.fxAbi && ocm.fxAbi !== (ocm.kind === 2 ? fx.abi2 : fx.abi)) return { ok: false, key: "modWrongFw" };   /* (round 18) FX_INFO's abi, when the unit sends it: a module of another host calling convention is refused before it is streamed */
+  if (fx.abi !== undefined && ocm.fxAbi && ocm.fxAbi !== (ocm.kind === 2 ? fx.abi2 : ocm.kind === 3 ? fx.abi3 : fx.abi)) return { ok: false, key: "modWrongFw" };   /* (round 18) FX_INFO's abi, when the unit sends it: a module of another host calling convention is refused before it is streamed */
   /* (round 24) a models module (kind 4) too: its block carries PL_MDL_ABI_ID, and the firmware answers that word for a models id (editor.c FX_INFO) where Nightly 5f894f and before
    * answered the effect host's FX_ABI_ID for every id (round 23's page left kind 4 out of the compare for that reason). A unit still on such a firmware answers a word no models
    * module carries, so a models module is refused here, before a byte is streamed: the page cannot tell the firmware that could load it (5f894f) from the one that has no models
    * at all (e49499), and nothing is written on a guess. Install with the firmware box ticked asks FX_INFO after the firmware is on (runSet: the firmware first), so it is not refused. */
   /* (Release 3 step 8a) a send effect (kind 2) is compared with FX_INFO's sixth word, the unit's FX2_ABI_ID: a firmware that sends its FX_ABI_ID and no second word has no send host and is not given the module */
+  /* (Release 3 step 8b) a master effect (kind 3) is compared with FX_INFO's seventh word, the unit's FX3_ABI_ID: a firmware that does not send it has no master host and is not given the module (nothing is erased before this refusal) */   /* (Release 3 step 8a) a send effect (kind 2) is compared with FX_INFO's sixth word, the unit's FX2_ABI_ID: a firmware that sends its FX_ABI_ID and no second word has no send host and is not given the module */   /* (round 18) FX_INFO's abi, when the unit sends it: a module of another host calling convention is refused before it is streamed */   /* (round 23, found on the unit) not a models module (kind 4): its block carries PL_MDL_ABI_ID and FX_INFO answers the effect host's FX_ABI_ID for every id, so every pick was refused here; the unit's loader compares a models module's own (fw_models_check) */
   const tbl = info.sectorOf || OCM_SECTOR;
   if (fx.plan == null || !(fx.plan < tbl.length) || (tbl[fx.plan] < 0 && tbl[fx.plan] >= -6 && !fx.lowOk)) {   /* a usable module in the way is named, never erased by an install */
     const b = fx.blocker, s = b != null && info.starts ? info.starts[b] : null;

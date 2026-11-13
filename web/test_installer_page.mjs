@@ -228,6 +228,35 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
   assert.equal(none.element("stage-fx-opt").disabled, true, "a release with no optional effect module: the optional box is off");
   assert.equal(none.element("fx-opt-names").textContent, "", "... and names nothing");
 }
+// d3. (Release 3 step 8b, the owner's decision) the FX layer module (kind 3, module id 3: GLITCH, TAPE STOP, SHUFFLE, FREEZE; two sectors) is NOT optional: it is listed under effects
+//     in DUB TAPE's box, which the template ticks; the reverb module stays in the optional box, unticked. Install sends DUB TAPE, then the FX layer, as what the list says they are
+{
+  const REV = {url: "orangecat-reverb-0.15.0.ocm", kind: 2, module_id: 2, name: "REVERB MODES", sectors: 1, optional: true};
+  const FXL = {url: "orangecat-fxlayer-0.15.0.ocm", kind: 3, module_id: 3, name: "FX LAYER", sectors: 2};
+  const FX = {...STANDARD, ocm: [...STANDARD.ocm, {url: "orangecat-dub-0.15.0.ocm", kind: 1, module_id: 1, name: "DUB TAPE", sectors: 3}, REV, FXL]};
+  const page = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...FX, releases: [FX]});
+  await answer(page, "standard.fwsc");
+  page.element("stage-fx").checked = true; page.element("stage-fx").listeners.change();          // (the mock's boxes start unticked: this one as the template has it, the optional one left as it starts)
+  assert.equal(page.element("fx-names").textContent, "(DUB TAPE, FX LAYER)", "the effects box (ticked by default) names DUB TAPE and the FX layer");
+  assert.equal(page.element("fx-opt-names").textContent, "(REVERB MODES)", "the optional box (unticked by default) names the reverb module alone");
+  assert.match(page.element("install-what").textContent, /the SHAPES and WHEEL modules, the effect modules \(0\.15\.0\)$/, "Install names the effect modules, not the optional ones");
+  let click = page.element("go").listeners.click();
+  await page.tick();
+  await answer(page, FX.pak); await answer(page, FX.ocm[0]); await answer(page, "orangecat-dub-0.15.0.ocm"); await answer(page, FXL.url);
+  await click;
+  assert.equal(JSON.stringify(page.runs[0].modules), JSON.stringify([FX.ocm[0], "orangecat-dub-0.15.0.ocm", FXL.url]), "the default ticks: the engine module, DUB TAPE, the FX layer; not the reverb module");
+  assert.equal(JSON.stringify(page.runs[0].want), JSON.stringify([null, {kind: 1, module_id: 1}, {kind: 3, module_id: 3}]), "... the FX layer as what the list says it is: kind 3, module id 3");
+  const two = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...FX, releases: [FX]});
+  await answer(two, "standard.fwsc");
+  two.element("stage-fx").checked = true; two.element("stage-fx").listeners.change();
+  two.element("stage-fx-opt").checked = true; two.element("stage-fx-opt").listeners.change();
+  click = two.element("go").listeners.click();
+  await two.tick();
+  await answer(two, FX.pak); await answer(two, FX.ocm[0]); await answer(two, "orangecat-dub-0.15.0.ocm"); await answer(two, FXL.url); await answer(two, REV.url);
+  await click;
+  assert.equal(JSON.stringify(two.runs[0].modules), JSON.stringify([FX.ocm[0], "orangecat-dub-0.15.0.ocm", FXL.url, REV.url]), "the optional box ticked as well: the reverb module after the two (the unit's planner then says whether the set has a place: test_installer_set.mjs 18)");
+  assert.match(template, /3: "FX LAYER"/, "a module in the way is named FX LAYER by its id");
+}
 // e. (Release 3, the model picker) the MACRO models box: ticked by default, its texts; with a master package in the release list ("ocp") the page lists the models (VA locked),
 //    ticks MACRO's own fourteen by default, remembers the pick, meters the room against the ticked module stages, refuses Install while the pick does not fit, and sends the
 //    packed module after the others with {kind: 4, module_id: 0x4D08}; without a master the box is off

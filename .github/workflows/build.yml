@@ -35,6 +35,9 @@
 #     web/site_check.py proves them unchanged before and after the deploy). A push to main builds Standard and carries the live Nightly forward (rev 24).
 #
 # Revisions:
+#   Rev 29 (Orange Cat, Release 3 step 8b, branch r24-fxl): the FX layer's buffer effects GLITCH, TAPE STOP, SHUFFLE and FREEZE as one effect module (tools/build.py --module fxlayer, kind 3,
+#     two sectors) is built beside DUB TAPE's and the reverb's, its .ocm joins the packages, the set manifest (orangecat-<base>.fxlayer.set.json) and the Nightly (the installer page lists it
+#     under effects, ticked, beside DUB TAPE; the reverb module stays unticked). The Standard site (push to main) leaves it out, as the other effect modules.
 #   Rev 28 (Orange Cat, Release 3 step 8a, branch r24-rev): the reverb modes SPRING, SHIMMER and RESO as one effect module (tools/build.py --module reverb, kind 2, one sector) is built beside
 #     DUB TAPE's, its .ocm joins the packages, the set manifest (orangecat-<base>.reverb.set.json) and the Nightly (web/make_site.py lists it {optional: true}: the installer page offers it in a
 #     box of its own that starts unticked). The Standard site (push to main) leaves it out, as DUB TAPE's.
@@ -144,7 +147,7 @@ jobs:
         modfail=0
         # (rev 27, Release 3, the model picker: docs/candidates/model_picker.md) and the MODELS module of MACRO (--module plaits, kind 4): the master package
         # build/plaits-<version>.ocp (every model, a region each; the installer page packs the user's pick from it) and the default pick build/plaits-<version>.ocm (MACRO's own fourteen)
-        for m in shapes prophet wheel dub reverb plaits sem hades fmbell supersaw dddd; do
+        for m in shapes prophet wheel dub reverb fxlayer plaits sem hades fmbell supersaw dddd; do
           modok=0; python3 tools/build.py --module $m > build/module-report-$m.txt 2>&1 || modok=1
           echo "::notice title=module $m::$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' build/module-report-$m.txt)"
           if [ "$modok" != 0 ]; then echo "::error title=module build failed::see the module $m notice"; modfail=1; fi
@@ -180,7 +183,7 @@ jobs:
           else cp build/melodee.pak "build/orangecat-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.pak"; fi
         fi
         # (rev 11) the module package: orangecat-shapes-<version>-<commit>.ocm; (rev 13) and the Prophet's
-        for m in shapes prophet wheel dub reverb plaits sem hades fmbell supersaw dddd; do
+        for m in shapes prophet wheel dub reverb fxlayer plaits sem hades fmbell supersaw dddd; do
           if [ -f build/$m-"$(tr -d '[:space:]' < VERSION)".ocm ]; then
             cp build/$m-"$(tr -d '[:space:]' < VERSION)".ocm "build/orangecat-$m-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.ocm"
           fi
@@ -196,7 +199,7 @@ jobs:
         # the packages artifact beside the files, and the unit's file browser lists them as "Set" (Install set: the pack, then the module)
         pk=$(ls build/orangecat-*.pak | head -1); base=$(basename "$pk" .pak); fw=$(ls build/orangecat-*.fwsc | head -1)
         python3 tools/oc_manifest.py --set "build/$base.pack.set.json" --pak "$base.pak" --fwsc "$(basename "$fw")"
-        for m in shapes prophet wheel dub reverb plaits sem hades fmbell supersaw dddd; do
+        for m in shapes prophet wheel dub reverb fxlayer plaits sem hades fmbell supersaw dddd; do
           ocm=$(ls build/orangecat-$m-*.ocm 2>/dev/null | head -1)
           if [ -n "$ocm" ]; then python3 tools/oc_manifest.py --set "build/$base.$m.set.json" --pak "$base.pak" --fwsc "$(basename "$fw")" --ocm "$(basename "$ocm")"; fi
         done
@@ -281,7 +284,7 @@ jobs:
         run: |
           python3 tools/orangecat_site.py "$(ls pkg/build/orangecat-*.fwsc | head -1)" "$(tr -d '[:space:]' < VERSION)" site \
             --pak "$(ls pkg/build/orangecat-*.pak | head -1)" --manifest "$(ls pkg/build/orangecat-*.manifest.json | head -1)" \
-            $(for f in pkg/build/orangecat-*.ocm; do case $f in *orangecat-sem-* | *orangecat-hades-* | *orangecat-fmbell-* | *orangecat-supersaw-* | *orangecat-dddd-* | *orangecat-dub-* | *orangecat-reverb-* | *orangecat-plaits-*) ;; *) echo "--ocm $f" ;; esac; done)   # (rev 28: the reverb modes' module is in the Nightly only, as DUB TAPE's) (rev 26: DUB TAPE's module is in the Nightly only; rev 27: the models' too) (rev 8) VERSION, X.Y.Z; (rev 12) the pack and the modules of the build, checked against the manifest
+            $(for f in pkg/build/orangecat-*.ocm; do case $f in *orangecat-sem-* | *orangecat-hades-* | *orangecat-fmbell-* | *orangecat-supersaw-* | *orangecat-dddd-* | *orangecat-dub-* | *orangecat-reverb-* | *orangecat-fxlayer-* | *orangecat-plaits-*) ;; *) echo "--ocm $f" ;; esac; done)   # (rev 29: the FX layer module is in the Nightly only, as the two before it) (rev 28: the reverb modes' module is in the Nightly only, as DUB TAPE's) (rev 26: DUB TAPE's module is in the Nightly only; rev 27: the models' too) (rev 8) VERSION, X.Y.Z; (rev 12) the pack and the modules of the build, checked against the manifest
       - name: The Nightly came through the Standard build unchanged (main)
         if: github.ref == 'refs/heads/main'
         run: |
