@@ -358,6 +358,16 @@ class ControlsLink(unittest.TestCase):
         self.nightly()
         self.assertEqual((self.site / "webapp/installer/index.html").read_bytes(), first)
 
+    def test_standard_over_a_mirrored_nightly_leaves_its_editor(self):
+        """(round 24 review) main's publish runs over the mirrored Nightly pages: an editor published before the marker existed stopped it, and one with the
+        marker was rewritten (the workflow's nightly-before / nightly-after compare fails on that)"""
+        ned = self.site / "webapp/nightly-editor/index.html"
+        for old in ('<a href="../app/controls.html">Controls</a>', '<!--ctl--><a href="../nightly-app/controls.html">Controls</a><!--/ctl-->'):
+            ned.parent.mkdir(parents=True, exist_ok=True)
+            ned.write_text("<!doctype html><title>mirrored</title>" + old, encoding="utf-8")
+            self.stable()
+            self.assertEqual(ned.read_text(encoding="utf-8"), "<!doctype html><title>mirrored</title>" + old)
+
     def test_no_guide_no_link(self):
         import orangecat_site
         self.stable(with_guide=False)

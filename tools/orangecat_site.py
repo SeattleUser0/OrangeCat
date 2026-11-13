@@ -116,7 +116,10 @@ def main(pkg, version, out, pak=None, ocms=(), manifest=None, ocp=None):
         if (WEB / f).exists():
             shutil.copy(WEB / f, ed / f)
     copy_app(out / "webapp" / "app")                     # (0.14.2) the web app beside them
-    link_controls(out, ("webapp/installer/index.html", "webapp/editor/index.html", "webapp/nightly-editor/index.html"))   # (0.16.1) only the guides that are there
+    link_controls(out, ("webapp/installer/index.html", "webapp/editor/index.html"))   # (0.16.1) only the guides that are there. The Nightly's editor is not
+                                                                                      # touched (round 24 review): on main it is the mirrored live page, which may be
+                                                                                      # older than the marker (the publish stopped) and must not change (the workflow
+                                                                                      # compares webapp/nightly-* before and after a Standard publish)
     (out / "index.html").write_text(
         '<!doctype html><meta charset="utf-8"><title>Orange Cat</title>'
         '<meta http-equiv="refresh" content="0; url=webapp/installer/">'
