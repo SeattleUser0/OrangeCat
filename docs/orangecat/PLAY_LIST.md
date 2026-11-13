@@ -1,3 +1,20 @@
+# Orange Cat Nightly v0.16.0-8cb0b1 (Round 24): what changed for you since 5f894f
+
+Written November 13, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. **This Nightly is on the test unit, installed from the live page with the page's defaults.**
+
+1. **A muted row now says MUTE** on the Stage (FROZEN for a frozen phrase), not only gray. Host tested; I cannot read the screen from the PC, so please look.
+2. **A KICK no longer mutes a track.** On the DUB page the DUB keys are DUB's even with ARP, GLO, FX, SCL or SEQ held (checked on the unit: C#4 with each of them mutes nothing there). The price: on the DUB page those held layers lose their black-key functions (GLO + C#4 mutes Track 4 only from the other HOME pages).
+3. **Recording DUB's KICK / HOLD / DIVE / RISE keys is on.** The review finding is fixed and it was reviewed again. To try: on a DUB track, REC + PLAY, press KICK, then play it back. Not checked on the unit by me (no readback): tell me if it does not replay. Design calls made, yours to change: a control note has no step cell and the step editors do not show it; SHIFT and REVERSE leave control notes where they are in time, and block that take's undo until shifted back.
+4. **Effect modules.** The FX layer (GLITCH, TAPE STOP, SCRATCH, SHUFFLE, FREEZE) is a module, ticked by default; the reverb modes (SPRING, SHIMMER, RESO) are a module, offered and unticked. Both still have their built-in copy in this Nightly, so nothing goes missing either way; the built-in copies come out in the next Nightly. On the unit neither module is slower than the built-in copy and no audio half was late. The default set fills the unit exactly (21 of 21 sectors); the reverb module does not fit beside it.
+5. **Track OFF:** no automatic release, as you decided; it is compiled out. The explicit OFF is not built: it waits for Session C's TRKS section.
+6. **Models module:** the firmware now answers the right id for it and the page's stopgap is out. Install with the firmware ticked (a 5f894f unit given only modules would have the models module refused).
+7. **Controls link fixed** (Session D): the installer's Controls link opens the Nightly's guide, https://seattleuser0.github.io/OrangeCat/webapp/nightly-app/controls.html
+8. **PRESETS jumping, still open; I need one thing from you:** turn PRESETS one slow click to the right and tell me what the screen did. From the code, the likeliest cause is the decoder counting a one-frame contact dropout in mid-click as a second click (BUILD.md 7.33 lists every place); I will not change it before the log confirms it.
+9. **Power-on check, one action please:** switch the FM-1 off, wait 10 s, switch it on, and leave it on. The unit now records how it started; I read it next round.
+10. **Image:** 531,488 B, body 527,680 B of the 0x89000 cap: 33,472 B free. **Tested:** full SAN=1 suite green on 8cb0b1fd, the Nightly's own commit (279 jobs). **Your decisions:** should motion and control notes move together on SHIFT; and which one effect module gives way if you want the reverb module in the unit.
+
+---
+
 # Orange Cat Nightly v0.16.0-5f894f (Round 23): what changed for you since e49499
 
 Written November 12, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. **This Nightly is on the test unit, installed from the live page.**
