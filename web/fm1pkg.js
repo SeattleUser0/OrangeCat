@@ -248,19 +248,28 @@ export function logicalImage(fwsc) {
 }
 
 // (Round 26) What a unit running this package's app reports in MOD_INFO's last 15 bytes (firmware/src/editor.c ed_fw_image): the commit marker's body length and body CRC-32
-// (tools/fm1pkg_make.py marker; the boot stub boots a body only with that CRC) and the CRC-32 of the stub (app.bin's first 0xEE0 bytes). The marker is checked here as the stub
-// checks it (magic "CRBM", format 1, its own CRC) and the body against it; {len, crc, stub}, or null for a package without one (a stock or a foreign app): never "current".
+// (tools/fm1pkg_make.py marker; the boot stub boots a body only with that CRC) and (review) one CRC-32 over every other byte the update loader writes (firmware/loader/ldr_core.c:
+// the sector 0x4000 with the directory and the stub, the body's last sector after the body, the marker's sector 0x91000 and the sector 0x92000 with the SDK's cfg_tool and EQ
+// cfg), as the unit reads them through XIP: the package's flash.bin bytes there, decoded with the package's chip key as the flash's SFC decodes them. The marker is checked as the
+// stub checks it, and the body against it. {len, crc, rest}, or null for a package without one (a stock or a foreign app): never "current".
 const PKG_CRC = (() => { const t = new Uint32Array(256); for (let i = 0; i < 256; i++) { let c = i; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[i] = c >>> 0; } return t; })();
-function pkgCrc32(d) { let c = 0xFFFFFFFF; for (let i = 0; i < d.length; i++) c = PKG_CRC[(c ^ d[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
-const APP_STUB = 0xEE0, APP_MARK = 0x91FE0 - 0x4120;
+function pkgCrcAdd(c, d) { for (let i = 0; i < d.length; i++) c = PKG_CRC[(c ^ d[i]) & 0xFF] ^ (c >>> 8); return c >>> 0; }
+const pkgCrc32 = (d) => (pkgCrcAdd(0xFFFFFFFF, d) ^ 0xFFFFFFFF) >>> 0;
+const APP_LO = 0x4000, APP_HI = 0x93000, APP_BODY = 0x5000, APP_MARK_SEC = 0x91000, APP_MARK = 0x91FE0;
 export function firmwareIdentity(fwsc) {
   try {
-    const p = new Package(fwsc), app = p.dec.subarray(p.appOff, p.appOff + p.app.size);
-    if (app.length < APP_MARK + 20) return null;
-    const m = app.subarray(APP_MARK, APP_MARK + 20), len = u32(m, 8), crc = u32(m, 12);
-    if (u32(m, 0) !== 0x4D425243 || u32(m, 4) !== 1 || u32(m, 16) !== pkgCrc32(m.subarray(0, 16)) || !len || (len & 3) || APP_STUB + len > APP_MARK) return null;
-    if (pkgCrc32(app.subarray(APP_STUB, APP_STUB + len)) !== crc) return null;
-    return { len, crc, stub: pkgCrc32(app.subarray(0, APP_STUB)) };
+    const p = new Package(fwsc);
+    if (p.appBase !== APP_LO || p.flash.length < APP_HI || p.chipKey === null) return null;
+    const x = p.flash.slice(APP_LO, APP_HI);                                 // what the loader writes, as stored; then as XIP shows it
+    sfc(x, 0, x.length, 0, p.chipKey);
+    const at = (a) => a - APP_LO, m = x.subarray(at(APP_MARK), at(APP_MARK) + 20), len = u32(m, 8), crc = u32(m, 12);
+    if (u32(m, 0) !== 0x4D425243 || u32(m, 4) !== 1 || u32(m, 16) !== pkgCrc32(m.subarray(0, 16)) || !len || (len & 3) || APP_BODY + len > APP_MARK_SEC) return null;
+    if (pkgCrc32(x.subarray(at(APP_BODY), at(APP_BODY) + len)) !== crc) return null;
+    const end = APP_BODY + ((len + 0xFFF) & ~0xFFF);
+    let c = pkgCrcAdd(0xFFFFFFFF, x.subarray(at(APP_LO), at(APP_BODY)));
+    c = pkgCrcAdd(c, x.subarray(at(APP_BODY + len), at(end)));
+    c = pkgCrcAdd(c, x.subarray(at(APP_MARK_SEC), at(APP_HI)));
+    return { len, crc, rest: (c ^ 0xFFFFFFFF) >>> 0 };
   } catch (_) { return null; }
 }
 

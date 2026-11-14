@@ -107,6 +107,7 @@ export function parsePackInfo(a) {
   const r = new OcReader(a), o = { state: r.b(), banks: r.b() };
   o.trailer = (o.banks & 1) === 1;                       // (round 9) a scene trailer is in the pack area (a firmware with the new interface says so; older ones send 0)
   o.len = r.n3(); o.hash = r.n5(); o.buildLen = r.n3(); o.buildHash = r.n5(); o.area = r.n3();
+  if (r.i + 8 <= a.length) { o.trailerLen = r.n3(); o.trailerCrc = r.n5(); }   // (Round 26) the stored scene trailer's length and the CRC-32 of all of it (0, 0: none; absent: an older firmware)
   return o;
 }
 export function parseModInfo(a) {
@@ -117,10 +118,10 @@ export function parseModInfo(a) {
   if (r.i < a.length) { const c = r.b(); o.sectorOf = Array.from({ length: c }, () => r.b() - 64); }
   o.lowOk = r.i < a.length && r.b() === 1;
   if (r.i < a.length) {                      // (Round 26) appended: per start the code CRC-32 the unit's loader verified (header word 52) and a MODELS module's pick, 0 unless the start is OK (absent: an older firmware)
-    const c = r.b(), crcs = [], picks = [];
-    for (let k = 0; k < c; k++) { crcs.push(r.n5()); picks.push(r.n5()); }
-    o.crcs = crcs; o.picks = picks;
-    if (r.i + 15 <= a.length) o.fw = { len: r.n5(), crc: r.n5(), stub: r.n5() };   // (Round 26) the image the unit runs: the commit marker's body length and CRC, the stub's CRC (0s: no marker)
+    const c = r.b(), crcs = [], pages = [];
+    for (let k = 0; k < c; k++) { crcs.push(r.n5()); pages.push(r.n5()); }
+    o.crcs = crcs; o.pages = pages;                                                // (review) pages: the CRC-32 of each start's whole 256 byte header page as stored
+    if (r.i + 15 <= a.length) o.fw = { len: r.n5(), crc: r.n5(), rest: r.n5() };   // (Round 26) the image the unit runs: the commit marker's body length and CRC, the CRC of the rest the loader writes (0s: no marker)
   }   // the six low sectors (starts 12..17) are usable (the unit's last appended byte; absent: false)   // (Release 3 step 1) the sector of each start, appended by the unit (absent: OCM_SECTOR)   // (0.12.1) the start whose module of another engine is in the way
   o.shapesBuiltIn = !!(o.flags & 1); o.moduleWins = !!(o.flags & 2); o.writing = !!(o.flags & 4); o.inPlace = !!(o.flags & 8);
   return o;
@@ -558,29 +559,23 @@ export async function removeFx(link, id) {
   const r = parseFxWrite(OC_CMD.FX_REMOVE)(a);
   if (r.rc) throw new OcError(modCode(r.rc));
 }
-// (Round 26) A MODELS module's pick as the unit reports it (MOD_INFO's appended picks): bit k set when model k of the block's table is present (a word not 0). img: the image for link.
-function ocmPick(img, link) {
-  const dv = new DataView(img.buffer, img.byteOffset, img.byteLength), desc = dv.getUint32(28, true) - link;
-  if (desc < 0x100 || desc + 160 > img.length) return 0;
-  const n = Math.min(dv.getUint32(desc + 16, true), 32);
-  let m = 0;
-  for (let k = 0; k < n; k++) if (dv.getUint32(desc + 20 + 4 * k, true)) m = (m | (1 << k)) >>> 0;
-  return m >>> 0;
-}
 // (Round 26) Does the unit's start hold this file's image byte for byte? The unit's MOD_INFO (mod, read at the Install: probeUnit) reports for every OK start the code CRC-32 its loader
-// verified (header word 52) and, for a MODELS module, its pick; the page takes its own image for that start (the variant linked there) and compares the CRC, the length and the pick.
-// true / false; null when the unit does not report them (a firmware before Round 26): the caller then decides as before.
+// verified (header word 52: bytes 0x100 .. length) and (review) the CRC-32 of the header page as stored (less hcrc) (every header word: the cost, the state size, hcrc; a models module's
+// pick block at 64 .. 91); the page takes its own image for that start (the variant linked there) and compares both, and the length. true / false; null when the unit does not
+// report them (a firmware before Round 26): the caller then decides as before.
+// the header page's CRC as the unit reports it: bytes 0..55 and 60..255 (hcrc left out: data followed by its own CRC gives one CRC for every data)
+function ocmPageCrc(img) { const b = new Uint8Array(252); b.set(img.subarray(0, 56)); b.set(img.subarray(60, 256), 56); return crc32(b); }
 function ocUnitHolds(ocm, mod, start) {
-  if (!mod || !mod.crcs) return null;
-  if (start == null || !(start < mod.crcs.length) || !mod.crcs[start]) return false;
+  if (!mod || !mod.crcs || !mod.pages) return null;
+  if (start == null || !(start < mod.crcs.length) || !mod.crcs[start] || !mod.pages[start]) return false;
   const tbl = mod.sectorOf || OCM_SECTOR, v = ocm.variants.find((x) => x.start === tbl[start]);
   if (!v || !v.image || v.image.length < 0x100) return false;
   const dv = new DataView(v.image.buffer, v.image.byteOffset, v.image.byteLength);
-  if (dv.getUint32(52, true) !== mod.crcs[start] || (mod.starts && mod.starts[start] && mod.starts[start].length !== v.length)) return false;
-  return ocm.kind === 4 ? ocmPick(v.image, (OCM_LINK0 + v.start * 4096) >>> 0) === mod.picks[start] : true;
+  if (dv.getUint32(52, true) !== mod.crcs[start] || ocmPageCrc(v.image) !== mod.pages[start]) return false;
+  return !(mod.starts && mod.starts[start] && mod.starts[start].length !== v.length);
 }
 // (Release 3 step 4) is this effect module's file already the unit's? (the Effects table: the id, state 7 ok, the same version and sector count; (Round 26) with mod, the unit's
-// MOD_INFO, when it reports the starts' CRCs: the same code CRC, length and (a models module) pick at the module's start too. Without them a models module is never current, as before)
+// MOD_INFO, when it reports the starts' CRCs: the same code CRC, header page CRC and length at the module's start too. Without them a models module is never current, as before)
 export function fxCurrent(ocm, fx, mod) {
   const want = versionTriple(ocm.fxVersion || 0);
   const x = fx && fx.effects.find((e) => e.id === ocm.moduleId && e.state === 7 && !e.resident);
@@ -676,12 +671,24 @@ async function rearrangeCheck(link, probe, ocms, arr) {
   return bad;
 }
 
+// is the pack file already the unit's? This build's tables (state 1, the hash); (round 9) a file with a scene trailer needs one on the unit too; (Round 26) and when the unit reports
+// its trailer's length and CRC (PACK_INFO's appended bytes), the file's trailer must be that: the same length, the file ending with it, the same CRC-32 over all its bytes
+export function packCurrent(bytes, info) {
+  if (!info || info.state !== 1 || info.hash !== info.buildHash) return false;
+  if (bytes.length <= info.buildLen) return true;
+  if (info.trailerCrc === undefined) return info.trailer;                   // a firmware before Round 26: the trailer's presence, as before
+  const at = (info.buildLen + 3) & ~3;
+  if (bytes.length < at + 16) return false;
+  const tl = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(at + 8, true);
+  return !!(info.trailerLen && info.trailerCrc && tl === info.trailerLen && at + tl === bytes.length && crc32(bytes.subarray(at, at + tl)) === info.trailerCrc);
+}
 // (Round 26) does the unit run exactly the image of this package? id: fm1pkg.js firmwareIdentity of the package (null: never); info: the unit's MOD_INFO. The commit marker's body
-// length and CRC-32 (the boot stub boots no body without that CRC) and the stub's CRC-32 must all be there, not 0, and equal: a firmware that does not report them, a stock or
+// length and CRC-32 (the boot stub boots no body without that CRC) and (review) the CRC-32 of every other byte the update loader writes (the directory and the stub, the body's
+// last sector after it, the marker's sector, the SDK's cfg_tool and EQ cfg at 0x92000) must all be there, not 0, and equal: a firmware that does not report them, a stock or
 // foreign app, another build of the same version or a bench build with other switches is written as always.
 export function fwCurrent(id, info) {
   const u = info && info.fw;
-  return !!(id && u && u.len && u.crc && u.stub && id.len === u.len && id.crc === u.crc && id.stub === u.stub);
+  return !!(id && u && u.len && u.crc && u.rest && id.len === u.len && id.crc === u.crc && id.rest === u.rest);
 }
 // The set. ctx: {
 //   stages: {firmware, pack, module}   which stages the user wants
@@ -724,7 +731,7 @@ export async function runSet(ctx) {
         catch (e) { if (e.code === "ocLost") throw e; same = false; }
         finally { l.close(); }
       }
-      log(same ? "firmware: the unit runs this package's image (marker length and CRC, stub CRC): left as it is" : "firmware: the unit's image is not this package's, or it does not say: written");
+      log(same ? "firmware: the unit runs this package's image (the body by its marker, the rest the loader writes by its CRC): left as it is" : "firmware: the unit's image is not this package's, or it does not say: written");
     }
     if (same) sum.firmware = "current";
     else { await ctx.runFirmware(f); sum.firmware = "installed"; }
@@ -744,7 +751,7 @@ export async function runSet(ctx) {
     }
     if (stages.pack) {
       if (!files.pack) sum.pack = "nofile";
-      else if (probe.pack.state === 1 && probe.pack.hash === probe.pack.buildHash && (files.pack.length <= probe.pack.buildLen || probe.pack.trailer)) { sum.pack = "current"; part(weight.pack)(1); }   // (round 9: a pack with a scene trailer is written again when the unit has the tables but not the trailer)
+      else if (packCurrent(files.pack, probe.pack)) { sum.pack = "current"; part(weight.pack)(1); }   // (round 9: a pack with a scene trailer is written again when the unit has the tables but not the trailer)
       else {
         const p = part(weight.pack);
         try { say("packWorking"); await installPack(link, files.pack, probe.pack, p, { sleep }); sum.pack = "installed"; }

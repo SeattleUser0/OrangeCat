@@ -9,6 +9,7 @@ import vm from "node:vm";
 import {MELODEE_LOADER, STOCK_LOADER} from "./fm1ota.js";
 import {PICK} from "./fm1pick.js";
 import {PLACE} from "./fm1place.js";
+import {OCM, fxCurrent} from "./fm1oc.js";
 
 const template = readFileSync(new URL("index_pkg.html", import.meta.url), "utf8");
 
@@ -39,7 +40,7 @@ const NIGHTLY = {version: "v0.16.0-abcdef", product: "FM-1_900", branchName: "li
 const STANDARD = {version: "0.15.0", product: "FM-1_900", pkg: {dual: "standard.fwsc"}, pak: "orangecat-0.15.0.pak", ocm: ["orangecat-shapes-0.15.0.ocm", "orangecat-prophet-0.15.0.ocm"]};
 const META = {...STANDARD, releases: [STANDARD], nightly: NIGHTLY};
 
-function boot(storage, unit = {model: "FM-1", text: "FM-1_710010300"}, meta = META) {
+function boot(storage, unit = {model: "FM-1", text: "FM-1_710010300"}, meta = META, extra = {}) {
   const elements = new Map(), pending = [], installs = [], runs = [], confirms = [], unitReads = {n: 0, data: null};
   const element = (id) => {
     if (!elements.has(id)) elements.set(id, {checked: id === "build-dual" || id === "stage-fw" || id === "stage-pack" || id === "stage-mod", disabled: false, hidden: false,
@@ -74,7 +75,7 @@ function boot(storage, unit = {model: "FM-1", text: "FM-1_710010300"}, meta = ME
     OcLink: class { close() {} },
     listUnit: async () => { unitReads.n++; return unitReads.data; },          // (the review) Install reads the unit before it writes; the test says what the unit holds
     Date: class extends Date { static now() { return (unitReads.clock = (unitReads.clock || 0) + 6000); } },   // the page waits for a unit in steps of a second; here the wait runs out at once
-    PICK, PLACE,                                                 // (the model picker) the packer and the room meter, inlined into the page by make_site.py
+    PICK, PLACE, OCM, fxCurrent, ...extra,                       // (Round 26) extra: a test's own stand-ins; the meter asks whether the unit holds the very pick (index_pkg.html pickStays); (the model picker) the packer and the room meter, inlined into the page by make_site.py
   });
   const script = template.match(/<script type="module">([\s\S]*?)<\/script>/)[1].replace("/*LIB*/", "").replace("/*META*/{}", JSON.stringify(meta));
   vm.runInContext(script, context);
@@ -344,8 +345,8 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
       for (const [st, eng, state, len, fx] of mods) { starts[st] = {state, why: 0, engine: fx ? 127 : eng, length: len}; if (fx) effects.push({id: fx.id, kind: 1, version: [1, 0, 0], count: 1, state, why: 0, start: st, sectors: fx.sectors, resident: false, uses: 0}); else engines.push({num: eng, src: 2, state, start: st}); }
       return {mod: {nstarts, sectors: 18, lowOk: true, starts}, engines: {engines}, fx: {effects}};
     };
-    const fresh = async (unit, {fx = false, bytes = masterBytes, meta = WITH} = {}) => {
-      const pg = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...meta, releases: [meta]});
+    const fresh = async (unit, {fx = false, bytes = masterBytes, meta = WITH, ctx = {}} = {}) => {
+      const pg = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...meta, releases: [meta]}, ctx);
       await answer(pg, "standard.fwsc");
       const i = pg.pending.findIndex((q) => q.url.startsWith("orangecat-plaits-")); const [q] = pg.pending.splice(i, 1); q.resolve({ok: true, arrayBuffer: async () => bytes.buffer}); await pg.tick(); await pg.tick();
       pg.element("stage-models").checked = true; pg.element("stage-models").listeners.change();
@@ -427,6 +428,32 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
     assert.match(blk.element("models-room").textContent, /needs 3 in one run\. ENGINE DUB TAPE INSTALLED AT START 18: REMOVE IT FIRST Install waits until the models fit\.$/, blk.element("models-room").textContent);
     assert.equal(blk.runs.length, 0, "a module that is not of the set is in the way: nothing is written");
     assert.ok(!blk.confirms.length, "and nothing is asked");
+    // (Round 26, the review of 05a1e9f1) a unit with the tail region that holds this very pick at start 17 (sectors -6 .. -4), not where the goal's order puts a 3 sector pick (the
+    // tail, as the empty unit above got it), and reports its CRCs: the meter says it stays and plans nothing for it, Install sends the set, nothing is asked. The test's master is
+    // not a real models module, so the page's OCM.parse and fxCurrent are stand-ins here that tell the pick Install packs (the same bytes as the empty unit's run) from another;
+    // fxCurrent itself and the meter's plan against runSet's are web/test_installer_set.mjs 22c. The same unit without the CRCs (a firmware before Round 26): written, as before
+    {
+      const packed = empty.runs[0].modules[1];
+      const held = (crcs) => {
+        const x = unitOf([[1, 14, 7, 24160]], 21);
+        x.mod.starts[17] = {state: 7, why: 0, engine: 8, length: 3 * 4096};
+        x.fx.effects.push({id: 0x4D08, kind: 4, version: [1, 0, 0], count: 2, state: 7, why: 0, start: 17, sectors: 3, resident: false, uses: 0});
+        if (crcs) { x.mod.crcs = Array(21).fill(0); x.mod.pages = Array(21).fill(0); x.mod.crcs[17] = 1; x.mod.pages[17] = 1; }
+        return x;
+      };
+      const seen = [];
+      const ctx = {OCM: {parse: (b) => ({ok: true, kind: 4, packed: String.fromCharCode(...b)})},
+                   fxCurrent: (o, fx, mod) => { seen.push(1); return o.packed === packed && !!mod.crcs && fx.effects.some((e) => e.id === 0x4D08 && e.start === 17); }};
+      const stay = await fresh(held(true), {bytes: tailMaster, ctx});
+      await press(stay);
+      assert.ok(seen.length, "the meter asked whether the unit holds the pick");
+      assert.match(stay.element("models-room").textContent, /needs 3 in one run\. It is in the unit already and stays as it is\.$/, stay.element("models-room").textContent);
+      assert.equal(stay.runs.length, 1, "Install goes on"); assert.ok(!stay.confirms.length, "nothing asked");
+      const old = await fresh(held(false), {bytes: tailMaster, ctx});
+      await press(old);
+      assert.doesNotMatch(old.element("models-room").textContent, /stays as it is/, "without the CRCs the pick is placed to be written: " + old.element("models-room").textContent);
+      assert.match(old.element("models-room").textContent, /The unit's loader can place it: MACRO models 3/, old.element("models-room").textContent);
+    }
     // (round 24; found on the unit in round 23, where the suite had passed) a build with the tail region ships WHEEL re-cut to one sector (fm1place.js ENG_GEO_TAIL). The page as
     // it opens (the unit not read, the default pick, the boxes of the build ticked: SHAPES and WHEEL, DUB TAPE, the models) counts WHEEL as 1: SHAPES 6, WHEEL 1 and the 9 sector
     // pick in the area, DUB TAPE in the tail. Counted as 4 the pick read "1 too many" and Install stayed locked, so the unit could not even be read. A build without the tail

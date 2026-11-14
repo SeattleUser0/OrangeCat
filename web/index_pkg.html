@@ -432,6 +432,15 @@ const modelsPackPlace = () => {   /* "both": the pick's package carries the tail
   if (!(unitState && unitState.mod)) return "both";
   return PLACE.isTailUnit(unitState.mod) || ($("stage-fw").checked && !$("stage-fw").disabled) ? "both" : null;
 };
+/* (Round 26, review) does the unit hold this very pick? The pick as Install packs it (PICK.pack, the same items and places; packed once per choice) against the unit's MOD_INFO CRCs
+ * (fm1oc.js fxCurrent): then it is not written, and the meter places it where it is, as runSet does. false for a unit that does not report them (it is written, as before) */
+let pickMemo = {key: null, ocm: null};
+function pickStays() {
+  if (!master || !unitState || !unitState.mod || !unitState.mod.crcs || !unitState.fx) return false;
+  const key = JSON.stringify([pickedItems(), modelsPackPlace(), unitState.mod.crcs, unitState.mod.pages]);
+  if (pickMemo.key !== key) { let o = null; try { const pk = PICK.pack(master, pickedItems(), 0, null, modelsPackPlace()); o = pk.error ? null : OCM.parse(pk.ocm); } catch (_) { o = null; } pickMemo = {key, ocm: o}; }
+  return !!(pickMemo.ocm && pickMemo.ocm.ok && fxCurrent(pickMemo.ocm, unitState.fx, unitState.mod));
+}
 const unitHolds = (st, m) => st.starts.some((x) => (x.state === 7 || x.state === 5 || x.state === 6) && (m.engine != null ? !x.kind && x.engine === m.engine : x.kind && x.mid === m.mid));
 const modelsOk = () => modelsLoading ? !$("stage-models").checked : !$("stage-models").checked || $("stage-models").disabled || !master || (!!modelsRoom && modelsRoom.ok);
 /* (round 25, decision B) the build's effect modules: a rearrange may take one that is not of the ticked set off the unit for good when that is what makes the set fit, after a
@@ -457,21 +466,23 @@ function meterFor(items, bad) {
        * then the small modules) on the unit as it stands; if that has no place, the same with the set's own modules taken off and put on again (Install asks first); a module
        * that is not of the ticked set is never taken off silently: (round 25) one of the build's effect modules may be, when that makes the set fit and Install's question
        * names it; any other is named when it is in the way. */
-      const mods = placeMods(room.need, true).map((m, k, a) => ({...m, current: k !== a.length - 1 && unitHolds(st, m)})), a = PLACE.arrange(st, mods, {removable: removableFx()});
+      const stays = pickStays(), isPick = (m) => m.mid === (0x4D00 | (master.manifest.engine & 0xFF));
+      const mods = placeMods(room.need, true).map((m, k, a) => ({...m, current: isPick(m) ? stays : k !== a.length - 1 && unitHolds(st, m)})), a = PLACE.arrange(st, mods, {removable: removableFx()});
       const names = items.map((id) => (master.manifest.items.find((it) => it.id === id) || {name: "?"}).name);
       const placed = (g) => g.steps.map((x) => x.mod.name + " " + PLACE.sectorsOf(st, x.mod) + " (" + (PLACE.placeName(st, x.start) === "tail" ? "tail region" : "module area") + ")").join(", ");
       const fxName = (d) => d.kind ? ({1: "DUB TAPE", 2: "REVERB MODES", 3: "FX LAYER"}[d.mid] || "EFFECT 0x" + (d.mid >>> 0).toString(16).toUpperCase()) : ({14: "SHAPES", 19: "PROPHET", 7: "WHEEL"}[d.engine] || "#" + d.engine);
       const drop = (a.drop || []).map(fxName), dropped = drop.length ? drop.join(", ") + " (in the unit, not ticked) is removed and not put back" : "";
       room.ok = a.how === "asis" || a.how === "rearrange";
       room.text = "Room: 18 sectors in the module area and " + PLACE.OC_TAIL + " in the tail region. This pick (" + names.join(", ") + ") needs " + room.need + " in one run. " +
-        (a.how === "asis" ? "The unit's loader can place it: " + placed(a.plan) + "."
+        (a.how === "asis" && stays ? "It is in the unit already and stays as it is" + (a.plan.steps.length ? "; the unit's loader can place the rest: " + placed(a.plan) : "") + "."
+          : a.how === "asis" ? "The unit's loader can place it: " + placed(a.plan) + "."
           : a.how === "rearrange" && !a.remove.length ? "It fits once " + dropped + " (" + placed(a.plan) + "): Install asks first."
           : a.how === "rearrange" ? "It fits once " + (dropped ? dropped + " and " : "") + a.remove.map((m) => m.name).join(", ") + " are taken off the unit and installed again in an order that fits (" + placed(a.plan) + "): Install asks first."
           : a.how === "blocked" ? a.blockers.map((b) => blockedOne((b.kind === 4 ? b.mid & 0xFF : b.kind ? 127 : b.engine) + ":" + b.start + (b.kind && b.kind !== 4 ? ":" + b.mid : ""))).join(" ")
           : PLACE.whyNot(st, a.plan.mods, a.plan) + " " + (unitState.mod.lowOk ? "" : "(The six low sectors are not usable on this unit yet.) ") + "Leave a model or a wave bank out.");
     }
     else {
-      const mods = placeMods(room.need, true).filter((m, k, a) => k === a.length - 1 || !unitHolds(st, m)), r = PLACE.simulate(st, mods);
+      const stays = pickStays(), mods = placeMods(room.need, true).filter((m, k, a) => k === a.length - 1 ? !stays : !unitHolds(st, m)), r = PLACE.simulate(st, mods);   /* (Round 26) the pick the unit holds is not placed again */
       room.ok = r.ok;
       if (!r.ok) extra = " " + PLACE.whyNot(st, mods, r) + " " + (unitState.mod.lowOk ? "" : "(The six low sectors are not usable on this unit yet.) ") + "Leave a model or a wave bank out.";
       else room.text += " The unit's loader can place it.";

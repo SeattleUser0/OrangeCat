@@ -88,22 +88,20 @@ export const snap = (st) => JSON.stringify(st.starts.map((x) => [x.state, x.kind
 // (round 25) words: FX_INFO's words after the first for an effect id: [] (five words: a firmware with the insert host alone), [FX2_ABI] (six: the send host too, Nightly
 // 5f894f's), [FX2_ABI, FX3_ABI] (seven: the master host too, 8cb0b1's)
 export const FX_ABI = 0x9DCB40AD, MDL_ABI = 1, FX2_ABI = 0xE2B81A6B, FX3_ABI = 0x10C83AF8;
-// (Round 26) crc: the unit is a firmware that appends to MOD_INFO, per start, the code CRC-32 its loader verified and a MODELS module's pick (editor.c): the mock keeps the image
-// each install wrote (the WRITE pieces and the END's header page) and reports what the loader would: the CRC when the code reads back with the header's word 52, the pick from the
-// models table; a start the initial state names reports its `crc` / `pick` (0 when it has none). Without it (a firmware before Round 26) MOD_INFO ends at the low sectors' byte.
+// (Round 26) crc: the unit is a firmware that appends to MOD_INFO, per start, the code CRC-32 its loader verified and the CRC-32 of the stored header page (editor.c): the mock keeps
+// the image each install wrote (the WRITE pieces and the END's header page), or the `image` a start of the initial state holds, and reports what the loader would from it; a start
+// of the initial state without an image reports its `crc` / `page` (0 when it has none). Without it (a firmware before Round 26) MOD_INFO ends at the low sectors' byte.
 // u.pokeCode(start, at): one byte of the module at that start changed under the page (the header kept): the next MOD_INFO reports what the loader finds
-// (Round 26) fw: {len, crc, stub}, the image the unit runs, sent after the CRCs (a unit with crc and without fw: a firmware whose MOD_INFO has the CRCs only); u.fw may be set
+// (Round 26) fw: {len, crc, rest}, the image the unit runs, sent after the CRCs (a unit with crc and without fw: a firmware whose MOD_INFO has the CRCs only); u.fw may be set
 // later (an update changes it). u.flashed counts runFirmware calls a test makes through it (u.flash(id): the unit then runs id)
 export function placedUnit(initial, OcLink, {fail = null, oldFw = false, mdlAbi = MDL_ABI, words = [], crc = false, fw = null} = {}) {
   const u = {st: PLACE.cloneState(initial), sent: [], ops: [], wire: [], begin: null, fail, count: {begin: 0, remove: 0}, oldFw, crc, img: null, fw, flashed: 0};
   u.flash = (id) => { u.flashed++; if (id) u.fw = {...id}; };
-  initial.starts.forEach((x, i) => { u.st.starts[i].ver = x.ver; u.st.starts[i].crc = x.crc; u.st.starts[i].pick = x.pick; u.st.starts[i].image = x.image; });
-  const verified = (x) => { if (!x.image) return [x.crc || 0, x.pick || 0]; const dv = new DataView(x.image.buffer, x.image.byteOffset, x.image.byteLength), c = dv.getUint32(52, true);
-    if (bkCrc(x.image.subarray(0x100)) !== c) return [0, 0];
-    if (x.kind !== 4) return [c, 0];
-    const d = dv.getUint32(28, true) - ((LINK0 + PLACE.OC_SECT[u.st.starts.indexOf(x)] * 4096) >>> 0), n = dv.getUint32(d + 16, true);
-    let m = 0; for (let k = 0; k < n && k < 32; k++) if (dv.getUint32(d + 20 + 4 * k, true)) m = (m | 1 << k) >>> 0;
-    return [c, m]; };
+  initial.starts.forEach((x, i) => { u.st.starts[i].ver = x.ver; u.st.starts[i].crc = x.crc; u.st.starts[i].page = x.page; u.st.starts[i].image = x.image; });
+  // what the loader reports for a start: the code CRC when the stored code reads back with word 52, and then the CRC-32 of the stored header page (review: every header word, the
+  // pick block); from the image the unit holds (written by an install, or put there by the test), never from the file the page has
+  const verified = (x) => { if (!x.image) return [x.crc || 0, x.page || 0]; const dv = new DataView(x.image.buffer, x.image.byteOffset, x.image.byteLength), c = dv.getUint32(52, true);
+    if (bkCrc(x.image.subarray(0x100)) !== c) return [0, 0]; const pg = new Uint8Array(252); pg.set(x.image.subarray(0, 56)); pg.set(x.image.subarray(60, 256), 56); return [c, bkCrc(pg)]; };
   u.pokeCode = (start, at) => { const x = u.st.starts[start]; x.image = x.image.slice(); x.image[at] ^= 1; };
   const input = {state: "connected", onmidimessage: null};
   const reply = (cmd, data) => setImmediate(() => input.onmidimessage && input.onmidimessage({data: Uint8Array.from([240, 125, 70, 76, cmd, ...data, 247])}));
@@ -122,7 +120,7 @@ export function placedUnit(initial, OcLink, {fail = null, oldFw = false, mdlAbi 
       const inPlace = c >= 0 && over(c, geo(args[0]).sectors, (x) => !x.kind && x.engine === args[0]);
       reply(120, [nst(), 18, inPlace ? 8 : 0, 1, 120, ...n5(IFACE), ...n5(API), ...n5(PHASH), c < 0 ? 127 : c,
         ...u.st.starts.flatMap((x) => [x.state, 0, x.kind === 4 ? x.mid & 0xFF : x.kind ? 127 : x.engine, ...n3(x.length)]), 127, nst(), ...SECT().map((sc) => sc + 64), u.st.lowOk ? 1 : 0,
-        ...(u.crc ? [nst(), ...u.st.starts.flatMap((x) => { const [c, p] = x.state === 7 ? verified(x) : [0, 0]; return [...n5(c), ...n5(p)]; }), ...(u.fw ? [...n5(u.fw.len), ...n5(u.fw.crc), ...n5(u.fw.stub)] : [])] : [])]);
+        ...(u.crc ? [nst(), ...u.st.starts.flatMap((x) => { const [c, p] = x.state === 7 ? verified(x) : [0, 0]; return [...n5(c), ...n5(p)]; }), ...(u.fw ? [...n5(u.fw.len), ...n5(u.fw.crc), ...n5(u.fw.rest)] : [])] : [])]);
     } else if (cmd === 125) {
       const eng = [];
       for (let e = 0; e < 20; e++) { const j = u.st.starts.findIndex((x) => x.state === 7 && !x.kind && x.engine === e && x.length); eng.push(...(j >= 0 ? [2, 7, 0, j, ...tri(u.st.starts[j].ver), ...n3(u.st.starts[j].length), 0] : [1, 7, 0, 127, 0, 0, 0, ...n3(0), 0])); }
@@ -157,7 +155,7 @@ export function placedUnit(initial, OcLink, {fail = null, oldFw = false, mdlAbi 
         u.st = PLACE.apply(u.st, b.engine != null ? {engine: b.engine} : {mid: b.mid, sectors: Math.ceil(b.len / 4096)}, b.start);
         const x = u.st.starts[b.start];
         x.ver = ver; if (b.engine != null) x.length = b.len; else if (((b.mid & ~0xFF) >>> 0) === 0x4D00) x.kind = 4;
-        if (u.img) { u.img.set(page.subarray(0, 256), 0); x.image = u.img; x.crc = x.pick = undefined; }
+        if (u.img) { u.img.set(page.subarray(0, 256), 0); x.image = u.img; x.crc = x.page = undefined; }
       }
       u.img = null;
       u.begin = null; reply(123, [b ? 0 : 1, ...n3(b ? b.len : 0)]);

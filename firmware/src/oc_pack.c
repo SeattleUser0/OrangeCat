@@ -276,6 +276,23 @@ static int pk_trailer_ok(void)
         return ~crc == want;
     }
 }
+/* (Round 26) a whole scene trailer (pk_trailer_ok) as stored: *tl its length, the CRC-32 of its bytes 0 .. tl (header and all, as the installer page's file has them);
+ * 0 and *tl 0 when there is none */
+static uint32_t pk_trailer_crc(uint32_t *tl)
+{
+    uint8_t b[256];
+    uint32_t at = (OC_PACK_LEN + 3u) & ~3u, n, off, crc = 0xFFFFFFFFu;
+    *tl = 0;
+    if (!pk_trailer_ok() || st_read(OC_PACK_LO + at, b, 16u)) return 0;
+    n = pk_rd32(b + 8);
+    for (off = 0; off < n; off += sizeof b) {
+        uint32_t k = n - off > sizeof b ? sizeof b : n - off;
+        if (st_read(OC_PACK_LO + at + off, b, k)) return 0;
+        crc = ocs_crc_add(crc, b, k);
+    }
+    *tl = n;
+    return ~crc;
+}
 #endif
 /* the area erased: no pack. 0 ok; -4 the move of the old preset pairs has not finished; else flash */
 static int oc_pack_erase(void)

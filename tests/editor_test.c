@@ -16,8 +16,8 @@ static unsigned char host_samples[3][0x14000];
 #define MELODEE_FLASH 0
 #define MELODEE_VERSION "TEST"
 #define OC_MODULE_WINS 1                  /* (Orange Cat 0.10.0) the module commands are tested with a module that takes the slot (the build default is 0; the Orange Cat set turns it on) */
-static unsigned char host_app[0x92000u - 0x4120u];   /* (Round 26) app.bin as the unit's XIP shows it: the stub, the body, the commit marker (MOD_INFO's image report) */
-#define OC_APP_XIP(off) (host_app + ((off) - 0x4120u))
+static unsigned char host_app[0x93000u - 0x4000u];   /* (Round 26) the app area as the unit's XIP shows it: the directory, the stub, the body, the commit marker, cfg_tool (MOD_INFO's image report) */
+#define OC_APP_XIP(off) (host_app + ((off) - 0x4000u))
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
@@ -1059,6 +1059,30 @@ static int pack_protocol(void)
     request(ED_PACK_INFO, 0, 0);
     bad += check("PACK_INFO: this build's pack, its stored length", host_wire[5] == 1 && (host_wire[7] | host_wire[8] << 7 | host_wire[9] << 14) == OC_PACK_LEN);
     bad += check("the flash holds the pack byte for byte", !memcmp(host_pack, pak, len));
+    bad += check("PACK_INFO (Round 26): appended, the scene trailer's length and CRC: none, 0 and 0", host_wire_n == 35u &&
+                 (host_wire[26] | host_wire[27] << 7 | host_wire[28] << 14) == 0 && (host_wire[29] | host_wire[30] | host_wire[31] | host_wire[32] | host_wire[33]) == 0);
+#if OC_HOME_PIC
+    {   /* a whole trailer after the tables, as the page's file carries it: "OCSC", version 1, its length, the CRC of its bytes 16 .. length */
+        uint32_t at = (OC_PACK_LEN + 3u) & ~3u, tl = 600u, c, w;
+        uint8_t *t = host_pack + at;
+        for (i = 16u; i < tl; i++) t[i] = (uint8_t)(i * 29u + 1u);
+        memset(t, 0, 16); t[0] = 'O'; t[1] = 'C'; t[2] = 'S'; t[3] = 'C'; t[4] = 1;
+        for (i = 0; i < 4u; i++) t[8 + i] = (uint8_t)(tl >> (8u * i));
+        c = ocs_crc32(t + 16, tl - 16u); for (i = 0; i < 4u; i++) t[12 + i] = (uint8_t)(c >> (8u * i));
+        request(ED_PACK_INFO, 0, 0);
+        w = host_wire[29] | host_wire[30] << 7 | host_wire[31] << 14 | (uint32_t)host_wire[32] << 21 | (uint32_t)host_wire[33] << 28;
+        bad += check("PACK_INFO: a whole scene trailer: its length and the CRC-32 of all its bytes (its header too)",
+                     host_wire[6] == 1 && (host_wire[26] | host_wire[27] << 7 | host_wire[28] << 14) == tl && w == ocs_crc32(t, tl));
+        t[100] ^= 1u; c = ocs_crc32(t + 16, tl - 16u); for (i = 0; i < 4u; i++) t[12 + i] = (uint8_t)(c >> (8u * i));
+        request(ED_PACK_INFO, 0, 0);
+        bad += check("PACK_INFO: another trailer of the same length (a byte changed, its CRC right): another CRC",
+                     (host_wire[29] | host_wire[30] << 7 | host_wire[31] << 14 | (uint32_t)host_wire[32] << 21 | (uint32_t)host_wire[33] << 28) == ocs_crc32(t, tl) && ocs_crc32(t, tl) != w);
+        t[100] ^= 1u;
+        request(ED_PACK_INFO, 0, 0);
+        bad += check("PACK_INFO: a damaged trailer (its CRC wrong): 0 and 0", host_wire[6] == 0 && (host_wire[26] | host_wire[27] | host_wire[28] | host_wire[29]) == 0);
+        memset(t, 0xFF, tl);
+    }
+#endif
     a[0] = 0; request(ED_PACK_ERASE, a, 1);
     bad += check("PACK_ERASE: the area blank, no pack", host_wire[5] == 0 && host_pack[0] == 0xFF && pk.state == PK_MISSING);
     request(ED_PACK_ERASE, 0, 0);
@@ -1483,7 +1507,8 @@ static int fx_protocol(void)
 static uint32_t rep_u35(uint32_t at) { return host_wire[at] | host_wire[at + 1] << 7 | host_wire[at + 2] << 14 | (uint32_t)host_wire[at + 3] << 21 | (uint32_t)host_wire[at + 4] << 28; }
 #define REP0 (MODBLK + 3u + OC_MOD_STARTS)                /* the count's byte: after the blocker, the sector count, the sectors and the low sectors' byte */
 static uint32_t rep_crc(uint32_t s) { return rep_u35(REP0 + 1u + 10u * s); }
-static uint32_t rep_pick(uint32_t s) { return rep_u35(REP0 + 6u + 10u * s); }
+static uint32_t rep_hpg(uint32_t s) { return rep_u35(REP0 + 6u + 10u * s); }   /* (review) the CRC-32 of the header page as stored, less hcrc */
+static uint32_t page_crc(const uint8_t *pg) { return ~ocs_crc_add(ocs_crc_add(0xFFFFFFFFu, pg, 56u), pg + 60, 196u); }
 static uint8_t rimg[3u * 4096u];
 static uint32_t rep_place(uint32_t start, uint32_t len)   /* rimg into the flash at start, a boot: the header's crc */
 {
@@ -1536,31 +1561,48 @@ static void rep_models(uint32_t start, uint32_t n, uint32_t leave_out, uint32_t 
 #define FWR (REP0 + 1u + 10u * OC_MOD_STARTS)
 static void app_marker(uint32_t len, uint32_t crc, int bad)   /* the 20 bytes tools/fm1pkg_make.py marker writes, at flash 0x91FE0 */
 {
-    uint8_t *m = host_app + (0x91FE0u - 0x4120u);
+    uint8_t *m = host_app + (0x91FE0u - 0x4000u);
     uint32_t w[4] = { 0x4D425243u, 1u, len, crc }, c, i;
     for (i = 0; i < 16u; i++) m[i] = (uint8_t)(w[i / 4u] >> (8u * (i % 4u)));
     c = ocs_crc32(m, 16u) ^ (bad ? 1u : 0u);
     for (i = 0; i < 4u; i++) m[16u + i] = (uint8_t)(c >> (8u * i));
 }
+static uint32_t app_rest(uint32_t len)   /* what the loader writes besides the body: 0x4000..0x4FFF, the body's last sector after it, 0x91000..0x92FFF */
+{
+    uint32_t end = 0x5000u + ((len + 0xFFFu) & ~0xFFFu), c = ocs_crc_add(0xFFFFFFFFu, host_app, 0x1000u);
+    c = ocs_crc_add(c, host_app + 0x1000u + len, end - (0x5000u + len));
+    return ~ocs_crc_add(c, host_app + (0x91000u - 0x4000u), 0x2000u);
+}
 static int fw_report(void)
 {
     int bad = 0;
-    uint32_t i, len = 0x40000u, crc, stub;
+    uint32_t i, len = 0x40004u, crc, rest;
     reset();
     memset(host_app, 0xFF, sizeof host_app);
     request(ED_MOD_INFO, 0, 0);
-    bad += check("MOD_INFO's image report (Round 26): no commit marker (erased flash): length, body CRC and stub CRC 0",
+    bad += check("MOD_INFO's image report (Round 26): no commit marker (erased flash): length, body CRC and the rest's CRC 0",
                  host_wire_n == FWR + 16u && rep_u35(FWR) == 0 && rep_u35(FWR + 5u) == 0 && rep_u35(FWR + 10u) == 0 && host_wire[FWR + 15u] == 0xF7);
-    for (i = 0; i < 0xEE0u + len; i++) host_app[i] = (uint8_t)(i * 13u + (i >> 9));
-    crc = ocs_crc32(host_app + 0xEE0u, len); stub = ocs_crc32(host_app, 0xEE0u);
+    for (i = 0; i < 0x1000u + len; i++) host_app[i] = (uint8_t)(i * 13u + (i >> 9));
+    for (i = 0x92000u - 0x4000u; i < 0x92800u - 0x4000u; i++) host_app[i] = (uint8_t)(i * 7u);   /* cfg_tool and the EQ cfg */
+    crc = ocs_crc32(host_app + 0x1000u, len);
     app_marker(len, crc, 0);
+    rest = app_rest(len);
     request(ED_MOD_INFO, 0, 0);
-    bad += check("MOD_INFO's image report: the marker's body length and CRC as the build wrote them, and the stub's CRC (app.bin's first 0xEE0 bytes)",
-                 rep_u35(FWR) == len && rep_u35(FWR + 5u) == crc && rep_u35(FWR + 10u) == stub && crc && stub);
-    host_app[5] ^= 1u;
-    request(ED_MOD_INFO, 0, 0);
-    bad += check("MOD_INFO's image report: another stub, the same body: the stub's CRC differs", rep_u35(FWR + 10u) != stub && rep_u35(FWR + 5u) == crc);
-    host_app[5] ^= 1u;
+    bad += check("MOD_INFO's image report: the marker's body length and CRC as the build wrote them, and one CRC over the rest the loader writes (directory and stub, the body's last sector after it, the marker's sector and 0x92000)",
+                 rep_u35(FWR) == len && rep_u35(FWR + 5u) == crc && rep_u35(FWR + 10u) == rest && crc && rest);
+    {   static const uint32_t at[] = { 0x10u, 0x500u, 0x1000u + 0x40004u + 8u, 0x92000u - 0x4000u + 0x100u, 0x91000u - 0x4000u + 0x40u };
+        int z = 1;
+        for (i = 0; i < 5u; i++) {
+            host_app[at[i]] ^= 1u;
+            request(ED_MOD_INFO, 0, 0);
+            z &= rep_u35(FWR + 10u) != rest && rep_u35(FWR + 5u) == crc;
+            host_app[at[i]] ^= 1u;
+        }
+        bad += check("MOD_INFO's image report: a byte changed in the directory, the stub, the body's last sector past the body, cfg_tool, the marker's sector: the rest's CRC differs", z);
+        host_app[(0x8E000u - 0x4000u) + 5u] ^= 1u;                       /* the tail region (modules: never written by the loader) */
+        request(ED_MOD_INFO, 0, 0);
+        bad += check("MOD_INFO's image report: the tail region's modules are not in it", rep_u35(FWR + 10u) == rest);
+    }
     app_marker(len, crc, 1);
     request(ED_MOD_INFO, 0, 0);
     bad += check("MOD_INFO's image report: a marker whose own CRC is wrong: all 0", rep_u35(FWR) == 0 && rep_u35(FWR + 5u) == 0 && rep_u35(FWR + 10u) == 0);
@@ -1580,45 +1622,61 @@ static int mod_report(void)
     song.playing = 0; host_progress = 1;
     request(ED_MOD_INFO, 0, 0);
     ok = host_wire_n == REP0 + 1u + 10u * OC_MOD_STARTS + 15u + 1u && host_wire[REP0] == OC_MOD_STARTS && host_wire[host_wire_n - 1u] == 0xF7;
-    for (s = 0; s < OC_MOD_STARTS; s++) ok &= rep_crc(s) == 0 && rep_pick(s) == 0;
-    bad += check("MOD_INFO's report (Round 26): appended after the low sectors' byte, the count of starts and 10 bytes a start; an empty area: every CRC and pick 0", ok);
+    for (s = 0; s < OC_MOD_STARTS; s++) ok &= rep_crc(s) == 0 && rep_hpg(s) == 0;
+    bad += check("MOD_INFO's report (Round 26): appended after the low sectors' byte, the count of starts and 10 bytes a start; an empty area: every CRC 0", ok);
     c = install_image(ENGI_SHAPES, 0, 3000u);
     request(ED_MOD_INFO, 0, 0);
-    ok = c == 0 && oc_mod.state[0] == MD_OK && rep_crc(0) == ((const fw_mod_hdr_t *)im)->crc && rep_crc(0) != 0 && rep_pick(0) == 0;
-    for (s = 1; s < OC_MOD_STARTS; s++) ok &= rep_crc(s) == 0 && rep_pick(s) == 0;
-    bad += check("MOD_INFO's report: an engine module installed through the commands: its start's CRC is the image's header word 52 at once (no reboot), pick 0; the other starts 0", ok);
+    ok = c == 0 && oc_mod.state[0] == MD_OK && rep_crc(0) == ((const fw_mod_hdr_t *)im)->crc && rep_crc(0) != 0 && rep_hpg(0) == page_crc(im);
+    for (s = 1; s < OC_MOD_STARTS; s++) ok &= rep_crc(s) == 0 && rep_hpg(s) == 0;
+    bad += check("MOD_INFO's report: an engine module installed through the commands: its start's CRC is the image's header word 52 and the header page's CRC its first 256 bytes, at once (no reboot); the other starts 0", ok);
     {   uint32_t want = ((const fw_mod_hdr_t *)im)->crc;
         memset(&oc_mod, 0, sizeof oc_mod); oc_mod_boot(0);
         request(ED_MOD_INFO, 0, 0);
-        bad += check("MOD_INFO's report: the same after a boot", rep_crc(0) == want);
+        bad += check("MOD_INFO's report: the same after a boot", rep_crc(0) == want && rep_hpg(0) == page_crc(im));
         host_mod[oc_mod_flash(0) - 0xC8000u + 0x400u] ^= 0x10u;        /* one code byte flipped: the loader's CRC check fails */
         memset(&oc_mod, 0, sizeof oc_mod); oc_mod_boot(0);
         request(ED_MOD_INFO, 0, 0);
         bad += check("MOD_INFO's report: a damaged module (a code byte flipped): state BAD_CRC and its CRC reported 0, never the header's word",
-                     oc_mod.state[0] == MD_BAD_CRC && host_wire[26] == MD_BAD_CRC && rep_crc(0) == 0);
+                     oc_mod.state[0] == MD_BAD_CRC && host_wire[26] == MD_BAD_CRC && rep_crc(0) == 0 && rep_hpg(0) == 0);
     }
     memset(host_mod, 0xFF, sizeof host_mod);
     rep_fx(3, 0x00ABCDEFu, len);
     c = rep_place(3, len);
     request(ED_MOD_INFO, 0, 0);
     bad += check("MOD_INFO's report: an effect module (kind 1) at start 3: its CRC, pick 0; start 0 (empty) 0",
-                 oc_mod.state[3] == MD_OK && rep_crc(3) == c && c != 0 && rep_pick(3) == 0 && rep_crc(0) == 0);
+                 oc_mod.state[3] == MD_OK && rep_crc(3) == c && c != 0 && rep_hpg(3) == page_crc(rimg) && rep_crc(0) == 0);
+    {   /* (review) a header page that differs where word 52 does not look: the cost word (40, resealed: hcrc changes), and bytes past the header (the pick block's place) */
+        uint32_t h0 = rep_hpg(3);
+        memset(host_mod, 0xFF, sizeof host_mod);
+        rep_fx(3, 0x00ABCDEFu, len); rimg[40] = 7u;
+        ((fw_mod_hdr_t *)rimg)->hcrc = ocs_crc32(rimg, FW_MOD_HDR_BYTES - 4u);
+        c = rep_place(3, len);
+        request(ED_MOD_INFO, 0, 0);
+        bad += check("MOD_INFO's report: another cost word (header word 40), the same code: the code CRC is the same, the header page's CRC is not",
+                     oc_mod.state[3] == MD_OK && rep_crc(3) == c && rep_hpg(3) != h0 && rep_hpg(3) == page_crc(rimg));
+        memset(host_mod, 0xFF, sizeof host_mod);
+        rep_fx(3, 0x00ABCDEFu, len); rimg[70] = 0x5Au;
+        c = rep_place(3, len);
+        request(ED_MOD_INFO, 0, 0);
+        bad += check("MOD_INFO's report: a byte at 70 of the header page (past hcrc's 56: the models' pick block's place): the header page's CRC differs",
+                     oc_mod.state[3] == MD_OK && rep_crc(3) == c && rep_hpg(3) != h0 && rep_hpg(3) == page_crc(rimg));
+    }
     memset(host_mod, 0xFF, sizeof host_mod);
     rep_models(0, 6, 1u << 1 | 1u << 4, len);                       /* models 0 2 3 5 of a table of 6 */
     c = rep_place(0, len);
     request(ED_MOD_INFO, 0, 0);
-    bad += check("MOD_INFO's report: a MODELS module (kind 4, MACRO): its CRC and its pick (models 0, 2, 3, 5 of 6: 0x2D)",
-                 oc_mod.state[0] == MD_OK && oc_mod.kind[0] == FW_MOD_KIND_MODELS && rep_crc(0) == c && rep_pick(0) == 0x2Du);
+    bad += check("MOD_INFO's report: a MODELS module (kind 4, MACRO): its CRC and its header page's",
+                 oc_mod.state[0] == MD_OK && oc_mod.kind[0] == FW_MOD_KIND_MODELS && rep_crc(0) == c && rep_hpg(0) == page_crc(rimg));
     {   uint32_t c1 = c;
         memset(host_mod, 0xFF, sizeof host_mod);
         rep_models(0, 6, 1u << 1, len);                             /* another pick of the same table, version and length */
         c = rep_place(0, len);
         request(ED_MOD_INFO, 0, 0);
-        bad += check("MOD_INFO's report: another pick of the same table length, version and image length: another CRC and pick (0x3D)", rep_crc(0) == c && c != c1 && rep_pick(0) == 0x3Du);
+        bad += check("MOD_INFO's report: another pick of the same table length, version and image length: another code CRC", rep_crc(0) == c && c != c1);
         host_mod[oc_mod_flash(0) - 0xC8000u + 0x1000u] ^= 0x01u;       /* a byte of the models module's code: BAD_CRC, nothing reported */
         memset(&oc_mod, 0, sizeof oc_mod); oc_mod_boot(0);
         request(ED_MOD_INFO, 0, 0);
-        bad += check("MOD_INFO's report: a damaged MODELS module: CRC and pick 0", oc_mod.state[0] == MD_BAD_CRC && rep_crc(0) == 0 && rep_pick(0) == 0);
+        bad += check("MOD_INFO's report: a damaged MODELS module: both CRCs 0", oc_mod.state[0] == MD_BAD_CRC && rep_crc(0) == 0 && rep_hpg(0) == 0);
     }
     memset(host_mod, 0xFF, sizeof host_mod);
     memset(&oc_mod, 0, sizeof oc_mod); memset(&oc_modguard, 0, sizeof oc_modguard);
