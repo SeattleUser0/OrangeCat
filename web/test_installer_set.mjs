@@ -816,7 +816,7 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
 {
   const T = await import("./test_placed_unit.mjs"), {arrangementOf} = await import("./fm1oc.js");
   const {SHAPES, WHEEL, DUB, MODELS, engOcm, fxOcm, modelsOcm, sectsFor, AREA, unitState, nightly, placedUnit, snap, FX_ABI, FX2_ABI, FX3_ABI} = T;
-  const FXL = 3, REV = 2, MODS = {module: true}, want4 = {kind: 4, module_id: MODELS}, RM = [{mid: DUB}, {mid: FXL}, {mid: REV}];
+  const FXL = 3, REV = 2, MODS = {module: true}, want4 = {kind: 4, module_id: MODELS}, RM = [{mid: REV}];   // (review of 5e7f2a40) what the page passes: the optional module (the reverb modes) while its box is not ticked
   const shapes = engOcm(SHAPES, [0, 6]), wheel = engOcm(WHEEL, AREA), dub = fxOcm(DUB, 3, sectsFor(3)), pick9 = modelsOcm(9, [-6, 0, 3]);
   // (the tail's starts too, as a tail build's packages have them; a format 1 package holds at most 18 variants, so a few area starts the tests never name are left out)
   const FXS = sectsFor(2).filter((x) => x !== 10), REVS = sectsFor(1).filter((x) => x > -4 || x < -50);
@@ -868,8 +868,10 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
   // the first removal refused (the transport runs): nothing removed, the unit's own reason; a later failure stops, Install again finishes
   u = placedUnit(heldRev(), OcLink, {fail: (op, k) => (op === "remove" && k === 0 ? 2 : 0)}); r = await go(u, SET5);
   assert.ok(r.sum.module.every((m) => m.error === "modStop") && snap(u.st) === before, "nothing removed");
+  // (review of 5e7f2a40) after a drop alone nothing of the set was moved: a refused install is that module's own failure, not "the rearrangement stopped ... not back yet"
   u = placedUnit(heldRev(), OcLink, {fail: (op, k) => (op === "begin" && k === 1 ? 2 : 0)}); r = await go(u, SET5);
-  assert.equal(r.sum.rearrange, "stopped"); assert.deepEqual(r.sum.dropped, ["REVERB MODES"]);
+  assert.ok(!r.sum.rearrange, "no rearrange to report: " + r.sum.rearrange); assert.deepEqual(r.sum.dropped, ["REVERB MODES"]);
+  assert.deepEqual(r.sum.module, ["current", "current", "current", {error: "modStop"}, "installed"], "the pick written, the FX layer refused with the unit's reason: " + JSON.stringify(r.sum.module));
   u.fail = null; u.ops.length = 0; r = await go(u, SET5);
   assert.ok(!r.asked.length && !holds(u.st, REV) && full(u.st) === 21, "the second Install finishes, unasked");
   // without ctx.removable (a caller of round 24): named, never removed
@@ -885,16 +887,18 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
   // A. 22 sectors: the owner's choice of the module that gives way; the page sends the set without it
   for (const [gone, fx] of [[FXL, [[dub, DUB], [rev, REV]]], [REV, [[dub, DUB], [fxl, FXL]]], [DUB, [[fxl, FXL], [rev, REV]]]]) {
     const name = {[DUB]: "DUB TAPE", [FXL]: "FX LAYER", [REV]: "REVERB MODES"}[gone];
-    u = placedUnit(unitState(true), OcLink); r = await go(u, setOf(fx));
+    u = placedUnit(unitState(true), OcLink); r = await go(u, setOf(fx), {removable: []});   // (the reverb box is ticked: nothing is removable)
     assert.ok(r.sum.module.every((m) => m === "installed") && !r.asked.length, name + " gives way, an empty unit: the five go on as it stands: " + JSON.stringify(r.sum.module));
     assert.ok(!holds(u.st, gone) && fx.every(([, id]) => holds(u.st, id)) && full(u.st) === 22 - {[DUB]: 3, [FXL]: 2, [REV]: 1}[gone], name + ": " + full(u.st) + " sectors held");
     // the unit as round 24 left it, with the FX layer at start 2 (21 of 21)
     const h = PLACE.apply(held(), {mid: FXL, sectors: 2}, 2); h.starts[2].kind = 3; h.starts.forEach((x, i) => { if (x.ver == null) x.ver = held().starts[i].ver; });
-    u = placedUnit(h, OcLink); r = await go(u, setOf(fx));
+    // (review of 5e7f2a40) a module that gives way and is on the unit stays there untouched: it is ticked, so never removed. Left in place, the rest does not fit beside it
+    // (the page does not offer that choice): named, nothing asked, removed or written
+    const hb = snap(h);
+    u = placedUnit(h, OcLink); r = await go(u, setOf(fx), {removable: []});
     assert.ok(!r.error, r.error && r.error.message);
-    if (gone === REV) assert.ok(!r.asked.length && !u.ops.some((o) => o.startsWith("remove")), "the reverb module gives way: the default set is the unit's, nothing removed");
-    else assert.deepEqual(r.asked, [" | " + name], name + " gives way and is on the unit: the question names it, nothing of the set is moved");
-    assert.ok(!holds(u.st, gone) && fx.every(([, id]) => holds(u.st, id)), name + " is not on the unit, the others are");
+    if (gone === REV) assert.ok(!r.asked.length && !u.ops.some((o) => o.startsWith("remove")) && fx.every(([, id]) => holds(u.st, id)), "the reverb module gives way: the default set is the unit's, nothing removed");
+    else assert.ok(r.sum.module.every((m) => m.error === "modBlocked") && !r.asked.length && !u.ops.length && snap(u.st) === hb && holds(u.st, gone), name + " gives way and is on the unit: kept, never erased: " + JSON.stringify(r.sum.module));
   }
   // C. the six-word unit: the send host's abi (sixth word), no master host's (seventh). The reverb module (kind 2, abi FX2) goes on; the FX layer (kind 3, abi FX3) is refused as not
   //    for this firmware before a byte of it is streamed; DUB TAPE (kind 1) is compared with the fifth word alone

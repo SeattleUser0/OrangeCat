@@ -675,7 +675,7 @@ export async function runSet(ctx) {
   }
   if (!stages.pack && !stages.module) { sum.module = mods.map(() => "off"); return sum; }
   say("unitWait");
-  let link = await ctx.openUnit(), askFx = anyFx, rearranging = false, redo = false;
+  let link = await ctx.openUnit(), askFx = anyFx, rearranging = false, redo = false, dropped = false;
   if (!link) { sum.pack = stages.pack ? "nounit" : "off"; sum.module = mods.map(() => (stages.module ? "nounit" : "off")); return sum; }
   try {
     say("unitProbe");
@@ -733,7 +733,7 @@ export async function runSet(ctx) {
             return sum;
           }
           say("rearrangeWorking");
-          rearranging = true;                           // from here a lost link is modRearrangeLost: the page says that Install finishes the job
+          rearranging = arr.remove.length > 0;   // (review) a drop alone puts nothing back: a lost link is the plain ocLost then;                          // from here a lost link is modRearrangeLost: the page says that Install finishes the job
           let gone = 0;
           // (round 25) the modules not of the set first (taken off for good: the question named them), then the small modules of the set, SHAPES last: every one of
           // those is in the set and is written again below
@@ -748,8 +748,9 @@ export async function runSet(ctx) {
           }
           probe = await probeUnit(link, { fx: true });
           if (!probe.mod || !probe.fx) throw new OcError("ocLost");
-          redo = true;
-          if (arr.remove.length) sum.rearrange = "done";     // (round 25) a drop alone moves nothing of the set: sum.dropped says what went
+          dropped = arr.drop.length > 0;
+          // (round 25) a drop alone moves nothing of the set: sum.dropped says what went, and the set is installed as any set is (a failure is that module's, not "not back yet")
+          if (arr.remove.length) { redo = true; sum.rearrange = "done"; }
         }
       }
       const added = [], res = [];                        // added: effect modules this run put on a unit that had none of that id: taken out again if a later module fails for want of room
@@ -778,7 +779,7 @@ export async function runSet(ctx) {
       }
       sum.module = res;
       const noRoom = sum.module.some((m) => m && m.error && (m.error === "modNoFree" || m.error === "modBlocked"));
-      if (noRoom && added.length && !redo) {   // (review) a module found no place after others were put on the unit: those are taken out again, so the unit is as it was (not after a rearrange: what it put back stays)
+      if (noRoom && added.length && !redo && !dropped) {   // (review) a module found no place after others were put on the unit: those are taken out again, so the unit is as it was (not after a rearrange: what it put back stays)
         sum.rolledBack = [];
         for (const id of added.reverse()) { try { await removeFx(link, id); sum.rolledBack.push(id); } catch (e) { if (e.code === "ocLost") throw e; sum.rollbackFailed = true; } }
         log(`rolled back: ${sum.rolledBack.map((i) => "0x" + (i >>> 0).toString(16)).join(", ")}`);

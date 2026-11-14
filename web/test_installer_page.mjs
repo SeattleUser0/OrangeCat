@@ -408,16 +408,12 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
     no.unitReads.rearrange = ["SHAPES", "DUB TAPE"]; no.unitReads.answer = false;
     await press(no, true);
     assert.match(no.element("status").textContent, /Not rearranged, so nothing was written: the unit is as it was\.$/, no.element("status").textContent);
-    // the effects box unticked: the two effect modules are not of the set. (round 25, decision B) DUB TAPE is one of the build's effect modules: the page may take it off for good
-    // when that makes the set fit, and Install's question names it. The meter says so; the question is the page's (the set logic is test_installer_set.mjs 19)
+    // the effects box unticked: the two effect modules are not of the set; the pick would fit without the one in the tail, which is named (the first that the set cannot
+    // stand beside, the others kept); nothing is written. (review of 5e7f2a40) DUB TAPE is not optional: an unticked box means "leave it alone", it is never taken off
     const blk0 = await fresh(tfrag(), {bytes: tailMaster});
-    blk0.unitReads.rearrange = []; blk0.unitReads.drop = ["DUB TAPE"];
     await press(blk0);
-    assert.match(blk0.element("models-room").textContent, /needs 3 in one run\. It fits once DUB TAPE \(in the unit, not ticked\) is removed and not put back \(MACRO models 3 \(module area\)\): Install asks first\.$/, blk0.element("models-room").textContent);
-    assert.equal(blk0.runs.length, 1); assert.equal(JSON.stringify(blk0.runs[0].removable), JSON.stringify([{mid: 1}]), "the build's effect modules are the ones a rearrange may take off");
-    assert.equal(blk0.confirms[0], "The set you ticked does not fit beside the modules in the FM-1 now. DUB TAPE is in the FM-1 but not in the set you ticked: the page removes it to make room and does not put it back " +
-      "(tick it and install it again if you want it back). Nothing else is moved. Remove DUB TAPE and install the set?");
-    assert.match(blk0.element("status").textContent, /Removed to make room, not put back \(not in the set you ticked\): DUB TAPE\.$/, blk0.element("status").textContent);
+    assert.match(blk0.element("models-room").textContent, /needs 3 in one run\. ENGINE EFFECT 0x1234 INSTALLED AT START 18: REMOVE IT FIRST Install waits until the models fit\.$/, blk0.element("models-room").textContent);
+    assert.equal(blk0.runs.length, 0); assert.ok(!blk0.confirms.length);
     // a module the build does not offer is never taken off: named, nothing written (the first that the set cannot stand beside, the others kept)
     const two = unitOf([[0, 14, 7, 24160], [7, 0, 7, 12288, {id: 0x1234, sectors: 3}], [18, 0, 7, 12288, {id: 0x5678, sectors: 3}]], 21); two.mod.lowOk = false;
     const blk1 = await fresh(two, {bytes: tailMaster});
@@ -495,18 +491,62 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
       for (const [id, name, url, kind] of [[3, "FX LAYER", FXLO.url, 3], [2, "REVERB MODES", REVO.url, 2], [1, "DUB TAPE", DUBO.url, 1]]) {
         const p = await open();
         p.element("gw-" + id).checked = true; p.element("gw-" + id).listeners.change();
-        assert.ok(p.element("models-room").textContent.startsWith(name + " gives way: it is not installed this time. Room: "), p.element("models-room").textContent);
+        assert.ok(p.element("models-room").textContent.startsWith(name + " gives way: it is not installed this time (if it is in the FM-1, it stays there as it is). Room: "), p.element("models-room").textContent);
         assert.doesNotMatch(p.element("models-room").textContent, /Install waits/, "the chosen set fits");
-        assert.match(p.element("install-what").textContent, new RegExp("\\. " + name + " gives way: it is not installed this time\\.$"), p.element("install-what").textContent);
+        assert.ok(p.element("install-what").textContent.endsWith(". " + name + " gives way: it is not installed this time (if it is in the FM-1, it stays there as it is)."), p.element("install-what").textContent);
         assert.equal(p.element("go").disabled, false, name + " chosen: Install is ready");
-        p.unitReads.data = unitOf([], 21);            // Install reads the unit (empty, with the tail): the planner's meter, the same choice
+        // (review of 5e7f2a40) Install reads the unit (empty, with the tail): the unit as read is not the one the choice was made for, so the choice is cleared and asked again
+        p.unitReads.data = unitOf([], 21);
+        await go(p);
+        assert.equal(p.runs.length, 0, "the first Install reads the unit and asks again"); assert.ok(![1, 2, 3].some((k) => p.element("gw-" + k).checked), "nothing chosen for the owner");
+        assert.match(p.element("status").textContent, /Install waits until you choose\.$/, p.element("status").textContent);
+        p.element("gw-" + id).checked = true; p.element("gw-" + id).listeners.change();
         await go(p);
         assert.equal(p.runs.length, 1, name + ": " + p.element("status").textContent);
         assert.ok(!p.runs[0].modules.includes(url) && p.runs[0].modules.length === 5, name + " is left out: " + p.runs[0].modules.map((m) => m.slice(0, 30)));
         assert.ok(!p.runs[0].want.some((w) => w && w.kind === kind), "... and not in what the list says is sent");
-        assert.ok(p.element("models-room").textContent.startsWith(name + " gives way: it is not installed this time. Room: 18 sectors in the module area and 3 in the tail region. This pick (WAVSHP, FM, GRAIN) needs 9 in one run. The unit's loader can place it: SHAPES 6 (module area), MACRO models 9 (module area), WHEEL 1 (module area), "),
+        assert.ok(p.element("models-room").textContent.startsWith(name + " gives way: it is not installed this time (if it is in the FM-1, it stays there as it is). Room: 18 sectors in the module area and 3 in the tail region. This pick (WAVSHP, FM, GRAIN) needs 9 in one run. The unit's loader can place it: SHAPES 6 (module area), MACRO models 9 (module area), WHEEL 1 (module area), "),
           p.element("models-room").textContent);
         assert.ok(!p.element("models-room").textContent.includes(name + " " + {1: 3, 2: 1, 3: 2}[id] + " ("), "the meter places the set without it: " + p.element("models-room").textContent);
+      }
+      // (review of 5e7f2a40) a choice belongs to the ticks it was made for: unticking and ticking the reverb box again clears it
+      pg.element("gw-3").checked = true; pg.element("gw-3").listeners.change();
+      assert.equal(pg.element("go").disabled, false);
+      pg.element("stage-fx-opt").checked = false; pg.element("stage-fx-opt").listeners.change();
+      pg.element("stage-fx-opt").checked = true; pg.element("stage-fx-opt").listeners.change();
+      assert.ok(![1, 2, 3].some((k) => pg.element("gw-" + k).checked) && pg.element("go").disabled, "the choice is gone after the ticks changed: Install waits again");
+      assert.doesNotMatch(pg.element("install-what").textContent, /gives way/);
+      // ... and a choice never applies while it is not shown: the models box unticked, the set fits, the chooser is hidden and Install sends every ticked effect module
+      {
+        const h = await open();
+        h.element("gw-3").checked = true; h.element("gw-3").listeners.change();
+        h.element("stage-models").checked = false; h.element("stage-models").listeners.change();
+        assert.equal(h.element("give-way").hidden, true, "no choice to make: hidden"); assert.doesNotMatch(h.element("install-what").textContent, /gives way/);
+        h.unitReads.data = unitOf([], 21); await go(h);
+        assert.equal(h.runs.length, 1); assert.ok([FXLO.url, REVO.url, DUBO.url].every((x) => h.runs[0].modules.includes(x)), "nothing is left out: " + h.runs[0].modules.map((m) => m.slice(0, 30)));
+      }
+      assert.ok(!template.match(/<div id="models-pick"[^]*?<\/div>/)[0].includes('id="give-way"'), "the choice is not inside the models list (hidden when the box is unticked)");
+      // (review of 5e7f2a40) a unit at 21 of 21 (the default set, the FX layer at start 2) with every box ticked: DUB TAPE and the FX layer are in the unit and ticked; if one of them
+      // gave way it would stay there untouched and the rest would not fit beside it, so only the reverb modes are offered; nothing is ever erased for a choice
+      {
+        const full = unitOf([[1, 14, 7, 24160], [5, 7, 7, 4096], [17, 0, 7, 36864, {id: 0x4D08, sectors: 9}], [18, 0, 7, 12288, {id: 1, sectors: 3}], [2, 0, 7, 8192, {id: 3, sectors: 2}]], 21);
+        const f = await open();
+        f.element("gw-3").checked = true; f.element("gw-3").listeners.change();   // (chosen on the count before the unit is read; the read clears it)
+        f.unitReads.data = full; await go(f);
+        assert.equal(f.runs.length, 0, f.element("models-room").textContent);
+        assert.ok(f.element("give-way").innerHTML.includes('id="gw-2"') && !f.element("give-way").innerHTML.includes('id="gw-1"') && !f.element("give-way").innerHTML.includes('id="gw-3"'), "only the reverb modes: " + f.element("give-way").innerHTML);
+        f.element("gw-2").checked = true; f.element("gw-2").listeners.change();
+        await go(f);
+        assert.equal(f.runs.length, 1); assert.equal(JSON.stringify(f.runs[0].removable), "[]", "every effect module is ticked: none may be taken off");
+        assert.ok(!f.runs[0].modules.includes(REVO.url) && !f.confirms.length);
+        // the effects box unticked, the reverb modes ticked: DUB TAPE and the FX layer are left alone (named), never offered for removal
+        const n = await open();
+        n.element("stage-fx").checked = false; n.element("stage-fx").listeners.change();
+        n.unitReads.data = full; await go(n);
+        assert.equal(n.runs.length, 0); assert.ok(!n.confirms.length);
+        assert.match(n.element("models-room").textContent, /INSTALLED AT START \d+: REMOVE IT FIRST/, n.element("models-room").textContent);
+        assert.doesNotMatch(n.element("models-room").textContent, /removed and not put back/);
+        assert.ok(!/id="gw-[13]"/.test(n.element("give-way").innerHTML), "DUB TAPE and the FX layer are not ticked: never offered (the reverb modes may give way instead): " + n.element("give-way").innerHTML);
       }
       // the reverb box unticked again: 21 of 21, no question, nothing gives way
       pg.element("stage-fx-opt").checked = false; pg.element("stage-fx-opt").listeners.change();
@@ -518,7 +558,7 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
       b.unitReads.data = held; b.unitReads.rearrange = []; b.unitReads.drop = ["REVERB MODES"];
       await go(b);
       assert.match(b.element("models-room").textContent, /needs 9 in one run\. It fits once REVERB MODES \(in the unit, not ticked\) is removed and not put back \(MACRO models 9 \(module area\), FX LAYER 2 \(module area\)\): Install asks first\.$/, b.element("models-room").textContent);
-      assert.equal(b.runs.length, 1); assert.equal(JSON.stringify(b.runs[0].removable), JSON.stringify([{mid: 1}, {mid: 3}, {mid: 2}]), "the build's effect modules may be taken off");
+      assert.equal(b.runs.length, 1); assert.equal(JSON.stringify(b.runs[0].removable), JSON.stringify([{mid: 2}]), "the optional module, not ticked, is the only one that may be taken off");
       assert.ok(!b.runs[0].modules.includes(REVO.url), "the reverb module is not of the set");
       assert.equal(b.confirms[0], "The set you ticked does not fit beside the modules in the FM-1 now. REVERB MODES is in the FM-1 but not in the set you ticked: the page removes it to make room and does not put it back " +
         "(tick it and install it again if you want it back). Nothing else is moved. Remove REVERB MODES and install the set?");
