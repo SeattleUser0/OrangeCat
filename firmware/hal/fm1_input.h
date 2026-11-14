@@ -109,6 +109,11 @@ static volatile struct {
     uint8_t enc_rest[FM1_NENC];  /* the detent state (0..3) */
     uint16_t enc_still[FM1_NENC]; /* frames since the last state change */
     int8_t enc_sub[FM1_NENC];    /* net transitions since the last rest state */
+    /* (Round 25, the owner's PRESETS knob: one slow click counted twice) a probation after the knob leaves a mid-click state it sat in */
+    uint8_t enc_dwell[FM1_NENC]; /* frames the decoded state has lasted (saturates) */
+    uint8_t enc_prob[FM1_NENC], enc_anchor[FM1_NENC], enc_page[FM1_NENC];   /* on probation, from which state, frames since */
+    int8_t enc_asub[FM1_NENC], enc_pend[FM1_NENC];   /* sub when it left the anchor; steps counted on probation, not given yet */
+    int8_t enc_pnet[FM1_NENC];   /* the plain transitions since the anchor, net (a jump adds none: its direction is a guess) */
     int16_t enc_steps[FM1_NENC]; /* + = clockwise */
     uint32_t frames;
 } fm1_in;
@@ -344,6 +349,40 @@ static void fm1_input_scan(void)
     fm1__frame();
 }
 
+#ifndef FM1_ANCHOR_FRAMES
+#define FM1_ANCHOR_FRAMES 3u /* (Round 25) a mid-click state the knob sat in this many frames (~3.3 ms) or more: an anchor */
+#endif
+#ifndef FM1_PROBATION
+#define FM1_PROBATION 9u     /* (Round 25) frames after leaving an anchor in which a return to it (sitting there FM1_ANCHOR_FRAMES) undoes everything since */
+#endif
+/* (Round 25) The owner's PRESETS knob counted one slow click twice now and then. In mid-click the encoder's common contact can lift: both lines
+ * read open, the detent's own state when the detent is both open, and the decoder counted the click on that false landing and again on the real
+ * one. A and B are read on two scan columns about 100 us apart, so the dropout often shows one line a frame early (3 2 0 3, 3 0 1 3): the raw
+ * states of a dropout are those of a quick turn, and only what follows tells them apart. So: when the knob leaves a mid-click state it sat in
+ * (an anchor), the steps it counts are held for FM1_PROBATION + FM1_ANCHOR_FRAMES frames (~13 ms); if it comes back to the anchor's state within
+ * that time with less than a whole click of plain transitions on the way (|net| < 4: so it has not gone round), it was a dropout: everything
+ * since is undone. A real click that comes round to the same state has four plain transitions and stands. Otherwise the steps are given, late
+ * by at most that time. A fast turn makes no anchor (its states
+ * last a frame or two) and a turn from the detent starts from none, so both decode exactly as before. Not told apart, and counted as a click:
+ * a dropout whose staggered states go all the way round at a click's pace (3 2 0 1 3, two frames each), and a dropout at the detent itself
+ * when the detent is both closed: both are a whole click's states. The other way round, and counted short by one: a click that skips a state
+ * and comes back to the state the knob had paused in within the window (3 2 1 3 after a pause on 3): a dropout's states (review, Round 25). */
+static void fm1__emit(uint32_t e, volatile int8_t *sub)   /* back on the detent: whole cycles, a lost transition or two forgiven (one click = 4 transitions) */
+{
+    int32_t n = *sub < 0 ? -*sub : *sub;
+    n = n >= 2 ? (n + 2) / 4 : 0;
+    if (fm1_in.enc_prob[e])
+        fm1_in.enc_pend[e] = (int8_t)(fm1_in.enc_pend[e] + (*sub < 0 ? -n : n));
+    else
+        fm1_in.enc_steps[e] = (int16_t)(fm1_in.enc_steps[e] + (*sub < 0 ? -n : n));
+    *sub = 0;
+}
+static void fm1__release(uint32_t e)               /* the probation is over: it was a turn */
+{
+    fm1_in.enc_steps[e] = (int16_t)(fm1_in.enc_steps[e] + fm1_in.enc_pend[e]);
+    fm1_in.enc_pend[e] = 0;
+    fm1_in.enc_prob[e] = 0;
+}
 #if OC_SFC_PROBE
 static struct { uint32_t w; uint32_t e[256]; } fm1_enc_log;      /* (Round 22, test builds only) the encoders' raw transitions, a ring (editor command 109 mode 5) */
 #endif
@@ -374,39 +413,65 @@ static void fm1__frame(void)
              * slow turn taught the mid states and the knob went dead */
             fm1_in.enc_rest[e] = (uint8_t)cur;
             *sub = 0;
+            if (fm1_in.enc_prob[e])
+                fm1__release(e);
         }
-        if (cur == fm1_in.enc_prev[e])
-            continue;
-        idx = (uint32_t)fm1_in.enc_prev[e] << 2 | cur;
-        if ((0x4182u >> idx) & 1u) {
-            (*sub)++;
-            fm1_in_stat.enc_moves[e]++;
-        } else if ((0x2814u >> idx) & 1u) {
-            (*sub)--;
-            fm1_in_stat.enc_moves[e]++;
-        } else {                                   /* two states in one sample: a fast turn, */
-            fm1_in_stat.enc_lost[e]++;             /* the way it was going */
-            if (*sub > 0)
-                *sub = (int8_t)(*sub + 2);
-            else if (*sub < 0)
-                *sub = (int8_t)(*sub - 2);
-        }
+        if (cur == fm1_in.enc_prev[e]) {
+            if (fm1_in.enc_dwell[e] < 0xFFu)
+                fm1_in.enc_dwell[e]++;
+        } else {
+            if (fm1_in.enc_prev[e] != fm1_in.enc_rest[e] && fm1_in.enc_dwell[e] >= FM1_ANCHOR_FRAMES) {
+                if (fm1_in.enc_prob[e])            /* (Round 25) it sat somewhere new: what came before was a turn */
+                    fm1__release(e);
+                fm1_in.enc_prob[e] = 1;            /* leaving an anchor: on probation */
+                fm1_in.enc_anchor[e] = fm1_in.enc_prev[e];
+                fm1_in.enc_asub[e] = *sub;
+                fm1_in.enc_page[e] = 0;
+                fm1_in.enc_pnet[e] = 0;
+            }
+            fm1_in.enc_dwell[e] = 1;
+            idx = (uint32_t)fm1_in.enc_prev[e] << 2 | cur;
+            if ((0x4182u >> idx) & 1u) {
+                (*sub)++;
+                fm1_in.enc_pnet[e]++;
+                fm1_in_stat.enc_moves[e]++;
+            } else if ((0x2814u >> idx) & 1u) {
+                (*sub)--;
+                fm1_in.enc_pnet[e]--;
+                fm1_in_stat.enc_moves[e]++;
+            } else {                               /* two states in one sample: a fast turn, */
+                fm1_in_stat.enc_lost[e]++;         /* the way it was going */
+                if (*sub > 0)
+                    *sub = (int8_t)(*sub + 2);
+                else if (*sub < 0)
+                    *sub = (int8_t)(*sub - 2);
+            }
 #if OC_SFC_PROBE
-        {   /* (Round 22, test builds only: the owner's PRESETS knob) every accepted or lost transition of every encoder, as decoded: the frame (16 bits, about 1.1 ms each),
-             * the encoder (3 bits), the state before and after (2 + 2), the net transitions since the detent after this one (8, signed), bit 31: this one was a 2-state jump */
-            uint32_t jump = !((0x4182u >> idx) & 1u) && !((0x2814u >> idx) & 1u);
-            fm1_enc_log.e[fm1_enc_log.w++ & 255u] = (fm1_in.frames & 0xFFFFu) | (uint32_t)e << 16 | (uint32_t)(idx >> 2) << 19 | (uint32_t)cur << 21 |
-                                                    ((uint32_t)(uint8_t)*sub & 0xFFu) << 23 | jump << 31;
-        }
+            {   /* (Round 22, test builds only: the owner's PRESETS knob) every accepted or lost transition of every encoder, as decoded: the frame (16 bits, about 1.1 ms each),
+                 * the encoder (3 bits), the state before and after (2 + 2), the net transitions since the detent after this one (8, signed), bit 31: this one was a 2-state jump */
+                uint32_t jump = !((0x4182u >> idx) & 1u) && !((0x2814u >> idx) & 1u);
+                fm1_enc_log.e[fm1_enc_log.w++ & 255u] = (fm1_in.frames & 0xFFFFu) | (uint32_t)e << 16 | (uint32_t)(idx >> 2) << 19 | (uint32_t)cur << 21 |
+                                                        ((uint32_t)(uint8_t)*sub & 0xFFu) << 23 | jump << 31;
+            }
 #endif
-        fm1_in.enc_prev[e] = (uint8_t)cur;
-        if (*sub > 100 || *sub < -100)
-            *sub = 0;                              /* (never off the detent that long) */
-        if (cur == fm1_in.enc_rest[e]) {          /* back on the detent: whole cycles, a lost transition */
-            int32_t n = *sub < 0 ? -*sub : *sub;   /* or two forgiven (one click = 4 transitions) */
-            n = n >= 2 ? (n + 2) / 4 : 0;
-            fm1_in.enc_steps[e] = (int16_t)(fm1_in.enc_steps[e] + (*sub < 0 ? -n : n));
-            *sub = 0;
+            fm1_in.enc_prev[e] = (uint8_t)cur;
+            if (*sub > 100 || *sub < -100)
+                *sub = 0;                          /* (never off the detent that long) */
+            if (cur == fm1_in.enc_rest[e])         /* back on the detent */
+                fm1__emit(e, sub);
+        }
+        if (fm1_in.enc_prob[e]) {
+            if (cur == fm1_in.enc_anchor[e] && fm1_in.enc_dwell[e] == 1u &&
+                fm1_in.enc_pnet[e] > -4 && fm1_in.enc_pnet[e] < 4) {
+                *sub = fm1_in.enc_asub[e];         /* (Round 25) back on the anchor's state, not gone round: a dropout; as if it never happened */
+                fm1_in.enc_pend[e] = 0;
+                fm1_in.enc_prob[e] = 0;
+#if OC_SFC_PROBE
+                fm1_enc_log.e[fm1_enc_log.w++ & 255u] = (fm1_in.frames & 0xFFFFu) | 7u << 16 | cur << 19 | cur << 21 | ((uint32_t)(uint8_t)*sub & 0xFFu) << 23;   /* encoder field 7: undone */
+#endif
+            } else if (++fm1_in.enc_page[e] > FM1_PROBATION + FM1_ANCHOR_FRAMES) {
+                fm1__release(e);
+            }
         }
     }
     fm1_in.frames++;
