@@ -35,16 +35,16 @@ const seal = (a, word, stateSize, sc, version, desc = 0x180) => {
   return a;
 };
 // an engine module's package (SHAPES: sectors 0 and 6; WHEEL re-cut for a unit with the tail: every sector of the area)
-export const engOcm = (engine, sects, {version = VER, imgLen = 0x400} = {}) => pack1(engine, 1234, sects, (sc) => {
+export const engOcm = (engine, sects, {version = VER, imgLen = 0x400, seed = 0} = {}) => pack1(engine, 1234, sects, (sc) => {   // (Round 26) seed: other code, the same version and size
   const a = new Uint8Array(imgLen);
-  for (let k = 0x100; k < imgLen; k++) a[k] = (k * 7 + sc + engine) & 255;
+  for (let k = 0x100; k < imgLen; k++) a[k] = (k * 7 + sc + engine + seed) & 255;
   return seal(a, engine, 1234, sc, version);
 });
 // an effect module's package: `sectors` long, one effect, a variant at each sector of `sects`. (round 25) abi: the effect carries a caps block (fw_fx.h fx_caps_t) whose abi word is
 // this, so the page compares it with FX_INFO's word for its kind (the fifth for kind 1, the sixth for kind 2, the seventh for kind 3); without it the page does not compare
-export const fxOcm = (mid, sectors, sects, {kind = 1, version = FXVER, abi = 0} = {}) => pack1(kind << 8, 0, sects, (sc) => {
+export const fxOcm = (mid, sectors, sects, {kind = 1, version = FXVER, abi = 0, seed = 0} = {}) => pack1(kind << 8, 0, sects, (sc) => {   // (Round 26) seed: other code, the same version and size
   const a = new Uint8Array(sectors * 4096), h = new DataView(a.buffer), link = (LINK0 + sc * 4096) >>> 0;
-  for (let k = 0x400; k < a.length; k++) a[k] = (k * 3 + sc) & 255;
+  for (let k = 0x400; k < a.length; k++) a[k] = (k * 3 + sc + seed) & 255;
   [[0x180, 1], [0x184, mid], [0x188, version], [0x18C, link + 0x200], [0x190, 0]].forEach(([o, v]) => h.setUint32(o, v >>> 0, true));
   a[0x200] = 7; a[0x201] = kind;
   if (abi) {                                                       // the caps block at 0x240 (56 B), its call table at 0x280 (every call to link + 0x300)
@@ -56,11 +56,12 @@ export const fxOcm = (mid, sectors, sects, {kind = 1, version = FXVER, abi = 0} 
   return seal(a, kind << 8, 0, sc, version);
 });
 // a models module's package (kind 4, MACRO's: id 0x4D08): a pick of `sectors`
-export const modelsOcm = (sectors, sects, {version = FXVER} = {}) => pack1(8 | 4 << 8, 600, sects, (sc) => {
+// (Round 26) models: the table's entries, true a model present (default two, both present); another pick of the same length, version and size is another image
+export const modelsOcm = (sectors, sects, {version = FXVER, models = [true, true]} = {}) => pack1(8 | 4 << 8, 600, sects, (sc) => {
   const a = new Uint8Array(sectors * 4096), h = new DataView(a.buffer), link = (LINK0 + sc * 4096) >>> 0, DESC = 0x180, TAB = 0x300;
   for (let k = 0x800; k < a.length; k++) a[k] = (k * 5 + sc) & 255;
-  h.setUint32(DESC, 0x4C444D4F, true); h.setUint16(DESC + 4, 160, true); h.setUint16(DESC + 6, 1, true); h.setUint32(DESC + 8, 1, true); h.setUint32(DESC + 12, 8, true); h.setUint32(DESC + 16, 2, true);
-  for (let i = 0; i < 2; i++) { const d = TAB + 24 * i; h.setUint32(DESC + 20 + 4 * i, link + d, true); h.setUint32(d, 100, true); a[d + 7] = 1; h.setUint32(d + 16, link + 0x600, true); h.setUint32(d + 20, link + 0x640, true); }
+  h.setUint32(DESC, 0x4C444D4F, true); h.setUint16(DESC + 4, 160, true); h.setUint16(DESC + 6, 1, true); h.setUint32(DESC + 8, 1, true); h.setUint32(DESC + 12, 8, true); h.setUint32(DESC + 16, models.length, true);
+  for (let i = 0; i < models.length; i++) { if (!models[i]) continue; const d = TAB + 24 * i; h.setUint32(DESC + 20 + 4 * i, link + d, true); h.setUint32(d, 100, true); a[d + 7] = 1; h.setUint32(d + 16, link + 0x600, true); h.setUint32(d + 20, link + 0x640, true); }
   return seal(a, 8 | 4 << 8, 600, sc, version);
 });
 const fits = (n) => (sc) => (sc >= -6 && sc + n <= 12) || (sc >= PLACE.OC_TAIL_REL && sc + n <= PLACE.OC_TAIL_REL + PLACE.OC_TAIL);
@@ -87,9 +88,20 @@ export const snap = (st) => JSON.stringify(st.starts.map((x) => [x.state, x.kind
 // (round 25) words: FX_INFO's words after the first for an effect id: [] (five words: a firmware with the insert host alone), [FX2_ABI] (six: the send host too, Nightly
 // 5f894f's), [FX2_ABI, FX3_ABI] (seven: the master host too, 8cb0b1's)
 export const FX_ABI = 0x9DCB40AD, MDL_ABI = 1, FX2_ABI = 0xE2B81A6B, FX3_ABI = 0x10C83AF8;
-export function placedUnit(initial, OcLink, {fail = null, oldFw = false, mdlAbi = MDL_ABI, words = []} = {}) {
-  const u = {st: PLACE.cloneState(initial), sent: [], ops: [], wire: [], begin: null, fail, count: {begin: 0, remove: 0}, oldFw};
-  initial.starts.forEach((x, i) => { u.st.starts[i].ver = x.ver; });
+// (Round 26) crc: the unit is a firmware that appends to MOD_INFO, per start, the code CRC-32 its loader verified and a MODELS module's pick (editor.c): the mock keeps the image
+// each install wrote (the WRITE pieces and the END's header page) and reports what the loader would: the CRC when the code reads back with the header's word 52, the pick from the
+// models table; a start the initial state names reports its `crc` / `pick` (0 when it has none). Without it (a firmware before Round 26) MOD_INFO ends at the low sectors' byte.
+// u.pokeCode(start, at): one byte of the module at that start changed under the page (the header kept): the next MOD_INFO reports what the loader finds
+export function placedUnit(initial, OcLink, {fail = null, oldFw = false, mdlAbi = MDL_ABI, words = [], crc = false} = {}) {
+  const u = {st: PLACE.cloneState(initial), sent: [], ops: [], wire: [], begin: null, fail, count: {begin: 0, remove: 0}, oldFw, crc, img: null};
+  initial.starts.forEach((x, i) => { u.st.starts[i].ver = x.ver; u.st.starts[i].crc = x.crc; u.st.starts[i].pick = x.pick; u.st.starts[i].image = x.image; });
+  const verified = (x) => { if (!x.image) return [x.crc || 0, x.pick || 0]; const dv = new DataView(x.image.buffer, x.image.byteOffset, x.image.byteLength), c = dv.getUint32(52, true);
+    if (bkCrc(x.image.subarray(0x100)) !== c) return [0, 0];
+    if (x.kind !== 4) return [c, 0];
+    const d = dv.getUint32(28, true) - ((LINK0 + PLACE.OC_SECT[u.st.starts.indexOf(x)] * 4096) >>> 0), n = dv.getUint32(d + 16, true);
+    let m = 0; for (let k = 0; k < n && k < 32; k++) if (dv.getUint32(d + 20 + 4 * k, true)) m = (m | 1 << k) >>> 0;
+    return [c, m]; };
+  u.pokeCode = (start, at) => { const x = u.st.starts[start]; x.image = x.image.slice(); x.image[at] ^= 1; };
   const input = {state: "connected", onmidimessage: null};
   const reply = (cmd, data) => setImmediate(() => input.onmidimessage && input.onmidimessage({data: Uint8Array.from([240, 125, 70, 76, cmd, ...data, 247])}));
   const nst = () => u.st.starts.length, SECT = () => PLACE.OC_SECT.slice(0, nst());
@@ -106,7 +118,8 @@ export function placedUnit(initial, OcLink, {fail = null, oldFw = false, mdlAbi 
       const c = args.length ? PLACE.planEngine(u.st, args[0]) : -1;
       const inPlace = c >= 0 && over(c, geo(args[0]).sectors, (x) => !x.kind && x.engine === args[0]);
       reply(120, [nst(), 18, inPlace ? 8 : 0, 1, 120, ...n5(IFACE), ...n5(API), ...n5(PHASH), c < 0 ? 127 : c,
-        ...u.st.starts.flatMap((x) => [x.state, 0, x.kind === 4 ? x.mid & 0xFF : x.kind ? 127 : x.engine, ...n3(x.length)]), 127, nst(), ...SECT().map((sc) => sc + 64), u.st.lowOk ? 1 : 0]);
+        ...u.st.starts.flatMap((x) => [x.state, 0, x.kind === 4 ? x.mid & 0xFF : x.kind ? 127 : x.engine, ...n3(x.length)]), 127, nst(), ...SECT().map((sc) => sc + 64), u.st.lowOk ? 1 : 0,
+        ...(u.crc ? [nst(), ...u.st.starts.flatMap((x) => { const [c, p] = x.state === 7 ? verified(x) : [0, 0]; return [...n5(c), ...n5(p)]; })] : [])]);
     } else if (cmd === 125) {
       const eng = [];
       for (let e = 0; e < 20; e++) { const j = u.st.starts.findIndex((x) => x.state === 7 && !x.kind && x.engine === e && x.length); eng.push(...(j >= 0 ? [2, 7, 0, j, ...tri(u.st.starts[j].ver), ...n3(u.st.starts[j].length), 0] : [1, 7, 0, 127, 0, 0, 0, ...n3(0), 0])); }
@@ -119,7 +132,7 @@ export function placedUnit(initial, OcLink, {fail = null, oldFw = false, mdlAbi 
       } else if (n === 3) {                                      // FX_BEGIN: id (5), start, length (3)
         const b = {mid: id5(a), start: a[5], len: a[6] | a[7] << 7 | a[8] << 14}, rc = gate("begin");
         u.ops.push("begin:0x" + b.mid.toString(16) + "@" + b.start);
-        u.begin = rc ? null : b; reply(0, [3, rc, ...n3(256)]);
+        u.begin = rc ? null : b; u.img = rc ? null : new Uint8Array(b.len); reply(0, [3, rc, ...n3(256)]);
       } else if (n === 4) {                                      // FX_REMOVE: id (5)
         const mid = id5(a), rc = gate("remove");
         u.ops.push("remove:0x" + mid.toString(16));
@@ -129,15 +142,21 @@ export function placedUnit(initial, OcLink, {fail = null, oldFw = false, mdlAbi 
     } else if (cmd === 121) {                                    // MOD_BEGIN: engine, start, length (3)
       const b = {engine: args[0], start: args[1], len: args[2] | args[3] << 7 | args[4] << 14}, rc = gate("begin");
       u.ops.push("begin:" + b.engine + "@" + b.start);
-      u.begin = rc ? null : b; reply(121, [rc, ...n3(0)]);
-    } else if (cmd === 122) reply(122, [0, ...n3(args[0] | args[1] << 7 | args[2] << 14)]);
+      u.begin = rc ? null : b; u.img = rc ? null : new Uint8Array(b.len); reply(121, [rc, ...n3(0)]);
+    } else if (cmd === 122) {
+      const off = args[0] | args[1] << 7 | args[2] << 14;
+      if (u.img && off < u.img.length) u.img.set(bkUnpack(args.slice(3), Math.min(256, u.img.length - off)), off);
+      reply(122, [0, ...n3(off)]);
+    }
     else if (cmd === 123) {                                      // MOD_END: the header page; the module is on the unit, where the unit's planner put it
       const b = u.begin, page = bkUnpack(args, 256), ver = new DataView(Uint8Array.from(page).buffer).getUint32(44, true);
       if (b) {
         u.st = PLACE.apply(u.st, b.engine != null ? {engine: b.engine} : {mid: b.mid, sectors: Math.ceil(b.len / 4096)}, b.start);
         const x = u.st.starts[b.start];
         x.ver = ver; if (b.engine != null) x.length = b.len; else if (((b.mid & ~0xFF) >>> 0) === 0x4D00) x.kind = 4;
+        if (u.img) { u.img.set(page.subarray(0, 256), 0); x.image = u.img; x.crc = x.pick = undefined; }
       }
+      u.img = null;
       u.begin = null; reply(123, [b ? 0 : 1, ...n3(b ? b.len : 0)]);
     } else if (cmd === 124) {                                    // MOD_REMOVE: engine
       const rc = gate("remove");

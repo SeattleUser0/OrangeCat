@@ -413,7 +413,7 @@ function modelsPlaces(area) {
 }
 /* (review of the picker) the modules of this install in the order Install writes them (engine modules, the effect modules, the models last), as the loader's planner
  * takes them (web/fm1place.js, held equal to the C planner by web/test_place.mjs). A module the unit already holds is not rewritten here (the run decides that with the
- * files in hand, fm1oc.js placementOf); the models module is always written. (round 23) On a unit that reports the tail region the planner takes them in the goal's
+ * files in hand, fm1oc.js placementOf); (Round 26) on a unit that reports its modules' CRCs the models module too is left as it is when the unit holds this pick, else it is written. (round 23) On a unit that reports the tail region the planner takes them in the goal's
  * order instead (SHAPES, the models, then the small modules: PLACE.arrange / PLACE.goalOrder, as fm1oc.js runSet installs them there). */
 function placeMods(pickSectors, locked = false) {   /* locked (round 23, the unit with the tail region): a box counts while the page is locked for an Install too (its box is disabled then, which is not "not offered") */
   const engNum = (u) => /orangecat-wheel-/.test(u) ? 7 : /orangecat-prophet-/.test(u) ? 19 : 14;
