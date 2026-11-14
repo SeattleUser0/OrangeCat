@@ -235,7 +235,7 @@ static struct {
     uint32_t mid[OC_MOD_STARTS];                               /* the effect module's id (0 for an engine) */
     uint8_t nfx[OC_MOD_STARTS];                                /* effects in its bank */
     uint32_t crc[OC_MOD_STARTS];                               /* (Round 26) the header's code CRC-32 (word 52), set once the code read back with it (oc_mod_check), else 0: MOD_INFO reports it */
-    uint32_t pick[OC_MOD_STARTS];                              /* (Round 26) a MODELS module's pick: bit k set when model k of its table is present (oc_mod_check), else 0 */
+    uint32_t hpg[OC_MOD_STARTS];                               /* (Round 26, review) the CRC-32 of the 256 byte header page as stored, less hcrc (bytes 0..55, 60..255: every header word, a MODELS module's pick block at 64..91), set with crc, else 0 */
     oc_fx_t fx[OC_FX_TABLE];                                   /* the Effects table: effect modules registered at boot, keyed by module id; there are no resident effects */
     uint8_t nfxmod;
 } oc_mod;
@@ -410,7 +410,7 @@ static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
     uint32_t crc = 0xFFFFFFFFu, off, len, link = oc_mod_link(i);
     int rc;
     memset(h, 0, sizeof *h);
-    oc_mod.crc[i] = oc_mod.pick[i] = 0;
+    oc_mod.crc[i] = oc_mod.hpg[i] = 0;
     if (!oc_mod_start_ok(i))
         return MD_EMPTY;                                        /* (Release 3) a sector the record store may still hold a part in: not looked at as a module */
     if (st_read(oc_mod_flash(i), h, sizeof *h))
@@ -444,16 +444,15 @@ static uint32_t oc_mod_check(uint32_t i, fw_mod_hdr_t *h)
     }
     if (~crc != h->crc)
         return MD_BAD_CRC;
-    oc_mod.crc[i] = h->crc;                                     /* (Round 26) what is stored, as read back: the page compares it with its own image's word 52 */
+    if (st_read(oc_mod_flash(i), buf, 256u))
+        return MD_BAD_CRC;
+    oc_mod.crc[i] = h->crc;                                     /* (Round 26) what is stored, as read back: the page compares it with its own image's word 52 ... */
+    oc_mod.hpg[i] = ~ocs_crc_add(ocs_crc_add(0xFFFFFFFFu, buf, 56u), buf + 60, 196u);   /* ... and the header page, which word 52 does not cover (the cost and state words, the
+                                                                 * pick block): bytes 0..55 and 60..255. Not hcrc's 56..59: a CRC over data followed by its own CRC is the same for
+                                                                 * every data, so with hcrc in it every sealed page of zeros after 60 would give one value */
     if (FW_MOD_KIND(h) == FW_MOD_KIND_MODELS) {                  /* (Release 3, the model picker) the models block, every descriptor in the image; the state size */
         if (oc_models_check(i, h, &oc_mod.mid[i], &oc_mod.nfx[i]))
             return MD_BAD_HDR;
-        if (!st_read(oc_mod_flash(i) + (h->engine_ptr - link) + 16u, buf, 4u + 4u * FW_MODELS_MAX)) {   /* (Round 26) the pick: the table's length, then its words (checked above) */
-            uint32_t k, cnt = fwp_u32(buf), m = 0;
-            for (k = 0; k < cnt && k < FW_MODELS_MAX; k++)
-                if (fwp_u32(buf + 4u + 4u * k)) m |= 1u << k;
-            oc_mod.pick[i] = m;
-        }
     } else if (FW_MOD_KIND(h) != FW_MOD_KIND_ENGINE) {          /* (Release 3 step 4) the descriptor, every pointer in the image */
         if (oc_fx_desc_check(i, h, &oc_mod.mid[i], 0, &oc_mod.nfx[i]))
             return MD_BAD_HDR;

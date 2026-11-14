@@ -487,29 +487,47 @@ static int ed_kit_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
 }
 
 #if OC_MODULES && (MELODEE_FLASH || defined(OC_PACK_HOST))
-/* (Round 26) the image the unit runs, for the installer page's "the firmware is already current" (web/EDITOR_PROTOCOL.md 120 MOD_INFO): the commit marker the boot stub
- * checked before it started this body (tools/fm1pkg_make.py marker: "CRBM", format 1, the body's length from flash 0x5000, its CRC-32, the marker's own CRC; the stub
- * refuses to boot a body whose CRC is not the marker's, firmware/stub/stub_core.h), and the CRC-32 of the stub itself (app.bin's first 0xEE0 bytes, flash 0x4120), read
- * through XIP as the stub reads them. 15 bytes: length, body CRC, stub CRC (5 x 7 bits each); all 0 when the marker does not read as one. */
+/* (Round 26) the image the unit runs, for the installer page's "the firmware is already current" (web/EDITOR_PROTOCOL.md 120 MOD_INFO). The update loader writes four
+ * parts of the flash (firmware/loader/ldr_core.c): the sector 0x4000 (the app area's directory and the boot stub), the body from 0x5000 to the end of its last sector,
+ * the commit marker's sector 0x91000 and the sector 0x92000 (the SDK's cfg_tool and EQ cfg). The body is the marker's: "CRBM", format 1, its length from 0x5000, its
+ * CRC-32 and the marker's own CRC (tools/fm1pkg_make.py marker); the boot stub starts no body whose CRC is not the marker's (firmware/stub/stub_core.h), so the length
+ * and CRC are those of the body running. The rest is read here through XIP, as the app reads its flash: one CRC-32 over 0x4000..0x4FFF, the body's last sector after
+ * the body, 0x91000..0x92FFF. 15 bytes: length, body CRC, the rest's CRC (5 x 7 bits each); all 0 when the marker does not read as one. */
 #ifndef OC_APP_XIP
 #define OC_APP_XIP(off) ((const uint8_t *)(uintptr_t)FL_XIP(off))
 #endif
-#define OC_APP_OFF 0x4120u                                   /* app.bin in the flash (the stub first) */
-#define OC_APP_STUB 0xEE0u                                   /* the stub's length: the body from flash 0x5000 */
+#define OC_APP_DIR 0x4000u                                   /* the app area's first sector: the directory and the stub */
+#define OC_APP_BODY 0x5000u                                  /* the body */
+#define OC_APP_MARK_SEC 0x91000u                             /* the commit marker's sector, then 0x92000, the app area's last */
 #define OC_APP_MARK 0x91FE0u                                 /* the commit marker (stub_core.h STUB_MARK_OFF) */
+#define OC_APP_HI 0x93000u
 static uint32_t ed_rd32(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
-static void ed_fw_image(void)
+/* (Round 26, re-review) the three values never change while an image runs (an update restarts the unit): read at the first request, then sent from here. ed_fw_forget: a
+ * host test that puts another image under the same run */
+static struct { uint8_t done; uint32_t len, crc, rest; } ed_fw;
+static __attribute__((unused)) void ed_fw_forget(void) { ed_fw.done = 0; }
+static void ed_fw_read(void)
 {
     uint8_t mk[20];
-    uint32_t len = 0, crc = 0, stub = 0, k;
+    uint32_t len = 0, crc = 0, rest = 0, end;
     memcpy(mk, OC_APP_XIP(OC_APP_MARK), sizeof mk);
-    if (ed_rd32(mk) == 0x4D425243u && ed_rd32(mk + 4) == 1u && ed_rd32(mk + 16) == ocs_crc32(mk, 16u) && ed_rd32(mk + 8)) {
+    if (ed_rd32(mk) == 0x4D425243u && ed_rd32(mk + 4) == 1u && ed_rd32(mk + 16) == ocs_crc32(mk, 16u) && ed_rd32(mk + 8) &&
+        !(ed_rd32(mk + 8) & 3u) && ed_rd32(mk + 8) <= OC_APP_MARK_SEC - OC_APP_BODY) {
         len = ed_rd32(mk + 8); crc = ed_rd32(mk + 12);
-        stub = ocs_crc32(OC_APP_XIP(OC_APP_OFF), OC_APP_STUB);
+        end = OC_APP_BODY + ((len + 0xFFFu) & ~0xFFFu);
+        rest = ocs_crc_add(0xFFFFFFFFu, OC_APP_XIP(OC_APP_DIR), OC_APP_BODY - OC_APP_DIR);
+        rest = ocs_crc_add(rest, OC_APP_XIP(OC_APP_BODY + len), end - (OC_APP_BODY + len));
+        rest = ~ocs_crc_add(rest, OC_APP_XIP(OC_APP_MARK_SEC), OC_APP_HI - OC_APP_MARK_SEC);
     }
-    for (k = 0; k < 5u; k++) ed_b(len >> (7u * k));
-    for (k = 0; k < 5u; k++) ed_b(crc >> (7u * k));
-    for (k = 0; k < 5u; k++) ed_b(stub >> (7u * k));
+    ed_fw.len = len; ed_fw.crc = crc; ed_fw.rest = rest; ed_fw.done = 1;
+}
+static void ed_fw_image(void)
+{
+    uint32_t k;
+    if (!ed_fw.done) ed_fw_read();
+    for (k = 0; k < 5u; k++) ed_b(ed_fw.len >> (7u * k));
+    for (k = 0; k < 5u; k++) ed_b(ed_fw.crc >> (7u * k));
+    for (k = 0; k < 5u; k++) ed_b(ed_fw.rest >> (7u * k));
 }
 /* (Release 3 step 4) the effect modules, by module id. Arguments: module id (5 x 7 bits).
  *   FX_INFO   id, sectors (1 .. 8; a models module's id FW_MODELS_ID: 1 .. 18) -> plan (the start an install of that many sectors goes to, 127 none), flags (1 the install is in place: the old module of the id is erased
@@ -1397,7 +1415,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                                                             * hash (5 x 7 bits), this build's length (3 x 7), its hash (5 x 7), the area (3 x 7) */
         uint32_t len, hash, st = oc_pack_info(&len, &hash);
 #if OC_HOME_PIC
-        ed_b(st); ed_b(st == 1u && pk_trailer_ok() ? 1u : 0u);       /* (round 9) the second byte: bit 0 a whole scene trailer is in the area (the installer page writes the pack again when its file has one and this is 0) */
+        ed_b(st); ed_b(st == 1u && pk_tr.ok ? 1u : 0u);   /* (Round 26) as the last scan found it (oc_pack.c pk_tr) */       /* (round 9) the second byte: bit 0 a whole scene trailer is in the area (the installer page writes the pack again when its file has one and this is 0) */
 #else
         ed_b(st); ed_b(0);
 #endif
@@ -1406,6 +1424,13 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(OC_PACK_LEN); ed_b(OC_PACK_LEN >> 7); ed_b(OC_PACK_LEN >> 14);
         for (i = 0; i < 5u; i++) ed_b(OC_PACK_HASH >> (7u * i));
         ed_b(OC_PACK_AREA); ed_b(OC_PACK_AREA >> 7); ed_b(OC_PACK_AREA >> 14);
+        {   uint32_t tl = 0, tc = 0;                            /* (Round 26) appended: the scene trailer's length and the CRC-32 of all of it (its header too) as stored, 0 and 0 with none */
+#if OC_HOME_PIC
+            if (st == 1u && pk_tr.ok) { tl = pk_tr.len; tc = pk_tr.crc; }
+#endif
+            ed_b(tl); ed_b(tl >> 7); ed_b(tl >> 14);
+            for (i = 0; i < 5u; i++) ed_b(tc >> (7u * i));
+        }
         break;
     }
     case ED_PACK_BEGIN: case ED_PACK_WRITE: case ED_PACK_END: case ED_PACK_ERASE: {
@@ -1454,14 +1479,14 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(OC_MOD_STARTS);                                /* (Release 3 step 1) appended: the sector of every start from 0xC8000, +64 (-6 .. 11 -> 58 .. 75), and the area's low sectors' state (1 usable, 0 the record store may still hold a part there) */
         for (i = 0; i < OC_MOD_STARTS; i++) ed_b((uint32_t)(OC_MOD_START_REL(i) + 64));
         ed_b(OC_MOD_LOW_OK() ? 1u : 0u);
-        ed_b(OC_MOD_STARTS);                                /* (Round 26) appended: per start the code CRC-32 the loader verified (header word 52) and a MODELS module's pick (bit k: model k present),
+        ed_b(OC_MOD_STARTS);                                /* (Round 26) appended: per start the code CRC-32 the loader verified (header word 52) and the CRC-32 of the header page as stored (bytes 0..55 and 60..255),
                                                              * 5 x 7 bits each, both 0 unless the start's state is OK: the installer page writes a module only when these differ from its own image's */
         for (i = 0; i < OC_MOD_STARTS; i++) {
-            uint32_t mok = oc_mod.state[i] == MD_OK, mcrc = mok ? oc_mod.crc[i] : 0u, mpick = mok ? oc_mod.pick[i] : 0u, k;
+            uint32_t mok = oc_mod.state[i] == MD_OK, mcrc = mok ? oc_mod.crc[i] : 0u, mpick = mok ? oc_mod.hpg[i] : 0u, k;
             for (k = 0; k < 5u; k++) ed_b(mcrc >> (7u * k));
             for (k = 0; k < 5u; k++) ed_b(mpick >> (7u * k));
         }
-        ed_fw_image();                                      /* (Round 26) and the image the unit runs: the commit marker's body length and CRC, the stub's CRC */
+        ed_fw_image();                                      /* (Round 26) and the image the unit runs: the commit marker's body length and CRC, the CRC of the rest the loader writes */
         break;
     }
     case ED_ENGINES: {                                     /* (0.11.0) -> nengines, then per engine number: source (0 not available: retired, or a module's number with none registered; 1 built in;

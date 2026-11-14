@@ -60,13 +60,14 @@ function makeOcm({iface = IFACE, packHash = PHASH, engine = ENGINE, version = VE
 // the mocked unit: opts {noPack, noMod, noEngines, pack: 'none'|'current', module: false|true, beginRc: [..], modRc: n, plan}
 function makeUnit(opts = {}) {
   const u = {sent: [], packState: opts.pack === "current" ? 1 : 0, packHash: opts.pack === "current" ? PHASH : 0, module: !!opts.module, beginRc: [...(opts.beginRc || [])],
-             writes: {117: 0, 122: 0}, tries: [], modDone: 0, packTries: [], packDone: 512, plan: opts.plan ?? 0, packLen: 0};
+             writes: {117: 0, 122: 0}, tries: [], modDone: 0, packTries: [], packDone: 512, plan: opts.plan ?? 0, packLen: 0, tcrc: opts.tcrc, tlen: opts.tlen};
   const reply = (cmd, data) => setImmediate(() => input.onmidimessage({data: Uint8Array.from([240, 125, 70, 76, cmd, ...data, 247])}));
   const later = (f) => (opts.beginDelay ? setTimeout(f, opts.beginDelay) : f());   // (0.13.5) a unit that erases before it answers BEGIN
   const input = {state: "connected", onmidimessage: null};
   const output = {state: "connected", send(m) {
     const cmd = m[4], args = m.slice(5, -1); u.sent.push(cmd);
-    if (cmd === 115 && !opts.noPack) reply(115, [u.packState, opts.trailer === false ? 0 : 1, ...n3(u.packLen), ...n5(u.packHash), ...n3(PLEN), ...n5(PHASH), ...n3(opts.area || 4096)]);
+    if (cmd === 115 && !opts.noPack) reply(115, [u.packState, opts.trailer === false ? 0 : 1, ...n3(u.packLen), ...n5(u.packHash), ...n3(PLEN), ...n5(PHASH), ...n3(opts.area || 4096),
+        ...(u.tcrc !== undefined ? [...n3(u.tlen), ...n5(u.tcrc)] : [])]);   // (Round 26) opts.tcrc / tlen: the stored scene trailer's CRC and length, as a Round 26 firmware appends them
     else if (cmd === 120 && !opts.noMod) reply(120, [2, 12, opts.flags || 0, 1, 120, ...n5(IFACE), ...n5(API), ...n5(u.packState ? PHASH : 0), u.plan,
         ...[0, 1].flatMap((i) => [u.module && i === 0 ? 7 : 0, 0, u.module && i === 0 ? ENGINE : 127, ...n3(u.module && i === 0 ? 0x400 : 0)])]);
     else if (cmd === 125 && !opts.noEngines) {
@@ -955,10 +956,10 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
   assert.deepEqual(r.sum.module, ["installed", "installed", "installed", "installed", "installed"], "the first Install writes the set: " + JSON.stringify(r.sum.module));
   {
     const m = parseModInfo(await u.link().ask([120, []]));
-    assert.ok(m.crcs && m.crcs.length === 21 && m.picks.length === 21, "the unit reports a CRC and a pick for each of its 21 starts");
+    assert.ok(m.crcs && m.crcs.length === 21 && m.pages.length === 21, "the unit reports a code CRC and a header page CRC for each of its 21 starts");
     const held = m.starts.map((x, i) => [x, i]).filter(([x]) => x.state === 7);
     assert.equal(held.length, 5); assert.ok(held.every(([, i]) => m.crcs[i] !== 0), "every OK start has its CRC");
-    assert.ok(held.every(([x, i]) => (x.engine === 8) === (m.picks[i] === 3)), "the models start's pick is its two models (0b11), every other start's pick 0");
+    assert.ok(held.every(([, i]) => m.pages[i] !== 0) && m.starts.every((x, i) => x.state === 7 || (!m.crcs[i] && !m.pages[i])), "every OK start has its header page's CRC, every other start 0");
   }
   const st1 = snap(u.st), n1 = u.wire.length;
   r = await go(u, SET);
@@ -978,7 +979,10 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
   assert.deepEqual(r.sum.module, ["current", "current", "current", "current", "installed"], "another pick is written, the rest is current: " + JSON.stringify(r.sum.module));
   assert.equal(u.ops.slice(-1)[0], "begin:0x4d08@17", "the pick written in its own place");
   assert.equal(r.inPlace.length, 1, "in place: the question, as always for that");
-  assert.equal(parseModInfo(await u.link().ask([120, []])).picks[17], 1, "the unit's pick is now model 0 alone");
+  {
+    const v = OCM.parse(pickB).variants.find((x) => x.start === PLACE.OC_SECT[17]).image;
+    assert.equal(parseModInfo(await u.link().ask([120, []])).crcs[17], new DataView(v.buffer, v.byteOffset).getUint32(52, true), "the unit now holds the other pick");
+  }
   const n3w = u.wire.length;
   r = await go(u, SETB);
   assert.deepEqual(r.sum.module, ["current", "current", "current", "current", "current"]); assert.deepEqual(writes(u, n3w), [], "a third Install of that pick writes nothing"); assert.ok(!r.inPlace.length);
@@ -1008,25 +1012,25 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
     const rc = await uc.link().ask([120, []]), ro = await uo.link().ask([120, []]);
     assert.equal(rc.length, ro.length + 1 + 10 * 21, "the new reply is the old one and the appended block: the count and 10 bytes a start");
     const pc = parseModInfo(rc), po = parseModInfo(ro);
-    assert.ok(po.crcs === undefined && po.picks === undefined, "an older firmware's reply: no CRCs (the page decides as before)");
-    delete pc.crcs; delete pc.picks;
+    assert.ok(po.crcs === undefined && po.pages === undefined, "an older firmware's reply: no CRCs (the page decides as before)");
+    delete pc.crcs; delete pc.pages;
     assert.deepEqual(pc, po, "every field of the old reply is read the same");
     const E = await import("./app/lib/editor_proto.js");
     assert.deepEqual(E.parse[E.CMD.MOD_INFO](rc), E.parse[E.CMD.MOD_INFO](ro), "the editor's parse (a page that does not know the field) reads the new reply as the old one");
   }
   console.log("installer set: round 26: the unit's CRCs and pick: two installs in a row write nothing the second time (models too), another pick and other content of one version are written, a unit without them as before passed");
 }
-// 21. (Round 26) the firmware stage: the page asks the unit first (MOD_INFO's image report: the commit marker's body length and CRC, the stub's CRC) and leaves the firmware
+// 21. (Round 26) the firmware stage: the page asks the unit first (MOD_INFO's image report: the commit marker's body length and CRC, the CRC of the rest the loader writes) and leaves the firmware
 //     when the unit runs exactly the package's image; anything else is flashed as always
 //     a. two installs in a row of the whole set (firmware, pack, modules): the second flashes nothing, writes nothing, asks nothing: "Firmware: already current"
-//     b. another build of the same version (another body CRC), another stub, a bench build of another length: flashed
+//     b. another build of the same version (another body CRC), another directory, stub or cfg (the rest's CRC), a bench build of another length: flashed
 //     c. a firmware without the report (the CRCs only, or neither), a unit that does not answer, a package without a marker (no id): flashed
 //     d. the identity the page computes from a built .fwsc is the marker tools/fm1pkg_make.py wrote over build/melodee.bin (when a build is there)
 {
   const T = await import("./test_placed_unit.mjs");
   const {SHAPES, WHEEL, DUB, MODELS, engOcm, fxOcm, modelsOcm, sectsFor, AREA, unitState, placedUnit} = T;
   const {fwCurrent, parseModInfo} = await import("./fm1oc.js");
-  const ID = {len: 0x80F00, crc: 0x1234ABCD, stub: 0x0BADF00D}, OLD = {len: 0x80F00, crc: 0x1234ABCE, stub: 0x0BADF00D};
+  const ID = {len: 0x80F00, crc: 0x1234ABCD, rest: 0x0BADF00D}, OLD = {len: 0x80F00, crc: 0x1234ABCE, rest: 0x0BADF00D};
   const W = [null, null, {kind: 1, module_id: DUB}, {kind: 4, module_id: MODELS}];
   const SET = {modules: [engOcm(WHEEL, AREA), engOcm(SHAPES, [0, 6]), fxOcm(DUB, 3, sectsFor(3)), modelsOcm(9, [-6, 0, 3])], want: W};
   const ALLS = {firmware: true, pack: true, module: true};
@@ -1052,14 +1056,14 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
   assert.deepEqual(writes(u, n), [], "the second Install writes nothing at all: no pack or module BEGIN, WRITE, END, ERASE or REMOVE");
   assert.deepEqual(r.asked, [], "and asks nothing");
   // b.
-  for (const [what, other] of [["another build of the same version (another body CRC)", {...ID, crc: ID.crc ^ 0x10}], ["another stub", {...ID, stub: ID.stub + 1}],
+  for (const [what, other] of [["another build of the same version (another body CRC)", {...ID, crc: ID.crc ^ 0x10}], ["another directory, stub, marker sector or cfg_tool / EQ cfg (the rest)", {...ID, rest: ID.rest + 1}],
                                ["a bench build of another length", {...ID, len: ID.len + 4}]]) {
     u = placedUnit(unitState(true), OcLink, {crc: true, fw: other}); r = await go(u, ID, {firmware: true});
     assert.ok(r.sum.firmware === "installed" && u.flashed === 1, what + ": flashed");
   }
   // c.
   for (const [what, opts, extra] of [["a firmware with the CRCs and no image report", {crc: true}, {}], ["a firmware before Round 26 (neither)", {}, {}],
-                                     ["a marker that did not read (all 0)", {crc: true, fw: {len: 0, crc: 0, stub: 0}}, {}],
+                                     ["a marker that did not read (all 0)", {crc: true, fw: {len: 0, crc: 0, rest: 0}}, {}],
                                      ["a unit that does not come to the editor port (stock firmware, update mode)", {crc: true, fw: ID}, {peekUnit: async () => null}]]) {
     u = placedUnit(unitState(true), OcLink, opts); r = await go(u, ID, {firmware: true}, extra);
     assert.ok(!r.error && r.sum.firmware === "installed" && u.flashed === 1, what + ": flashed: " + JSON.stringify(r.sum));
@@ -1078,18 +1082,93 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
   }
   // d.
   {
-    const {readdirSync, existsSync} = await import("node:fs");
+    const {readdirSync, existsSync, statSync} = await import("node:fs");
     const {firmwareIdentity} = await import("./fm1pkg.js");
     const dir = new URL("../build/", import.meta.url), bin = new URL("melodee.bin", dir);
     const pkgs = existsSync(dir) ? readdirSync(dir).filter((f) => /^orangecat-.*\.fwsc$|^melodee(-nightly)?\.fwsc$/.test(f)) : [];
     if (existsSync(bin) && pkgs.length) {
       const app = new Uint8Array(readFileSync(bin)), body = app.subarray(0xEE0), padded = new Uint8Array(body.length + (-body.length & 3)).fill(0xFF);
       padded.set(body);
-      const id = firmwareIdentity(new Uint8Array(readFileSync(new URL(pkgs.sort().at(-1), dir))));
-      assert.deepEqual(id, {len: padded.length, crc: bkCrc(padded), stub: bkCrc(app.subarray(0, 0xEE0))}, "the page's identity of the built package is the marker over build/melodee.bin and its stub");
+      const newest = pkgs.map((f) => [statSync(new URL(f, dir)).mtimeMs, f]).sort((x, y) => x[0] - y[0]).at(-1)[1];   // the package of the last build: the one build/melodee.bin is
+      const id = firmwareIdentity(new Uint8Array(readFileSync(new URL(newest, dir))));
+      // the rest by another implementation: tools/fm1pkg_make.py's own flash image of build/melodee.bin (with the SDK's files), decoded with its sfc over 0x4000 .. 0x93000
+      const {spawnSync} = await import("node:child_process");
+      const py = spawnSync("python3", ["-c", `import sys, zlib; sys.path.insert(0, "tools"); import fm1pkg_make as m
+img = open("build/melodee.bin", "rb").read(); f = m.flash_image(img, m.KEY); x = bytearray(f[0x4000:0x93000]); m.sfc(x, 0, len(x), 0, m.KEY)
+body = img[0xEE0:]; body += b"\\xff" * (-len(body) % 4); n = len(body); end = 0x5000 + ((n + 0xFFF) & ~0xFFF)
+r = x[0:0x1000] + x[0x1000 + n:end - 0x4000] + x[0x91000 - 0x4000:]
+print(n, zlib.crc32(body), zlib.crc32(r))`], {cwd: new URL("..", import.meta.url), encoding: "utf8"});
+      if (py.status === 0) {
+        const [n, c, rest] = py.stdout.trim().split(" ").map(Number);
+        assert.deepEqual(id, {len: n, crc: c, rest}, "the page's identity of the built package: the marker over build/melodee.bin and the rest as fm1pkg_make.py lays it out and the SFC decodes it");
+        assert.equal(n, padded.length); assert.equal(c, bkCrc(padded));
+      } else console.log("installer set: 21d's rest skipped (no SDK for fm1pkg_make.py): " + (py.stderr || "").split("\n").slice(-2).join(" "));
       assert.equal(firmwareIdentity(new Uint8Array(100)), null, "not a package: no identity");
     } else console.log("installer set: 21d skipped: no firmware build in build/");
   }
-  console.log("installer set: round 26: the firmware left as it is when the unit runs the package's image; another build, stub or length, an old firmware, no reply, no marker: flashed passed");
+  console.log("installer set: round 26: the firmware left as it is when the unit runs the package's image; another build, rest or length, an old firmware, no reply, no marker: flashed passed");
+}
+// 22. (Round 26, the review of 05a1e9f1) what "current" compares beyond the code:
+//     a. a module whose stored header page differs from the file's where the code CRC (word 52) does not look: the cost word (40, hcrc resealed) of an engine module, the pick
+//        block (bytes 64 .. 91, outside hcrc) of the models module: written; the unit holding the file's own images: nothing written. The unit's images are put there by the
+//        test (the mock reports from them, never from what the page wrote)
+//     b. the pack's scene trailer: current only when the unit's trailer has the file's length and CRC; another trailer of the same length is written; an older firmware (no
+//        length and CRC) keeps the presence rule
+//     c. a unit with the tail region whose models module is current at a start that is not the goal order's: it stays there (not written, not moved), the rest is placed around
+//        it, nothing asked; the plan the page shows (the meter's PLACE.arrange with the pick current) is the one runSet carries out
+{
+  const T = await import("./test_placed_unit.mjs");
+  const {SHAPES, WHEEL, DUB, MODELS, VER, FXVER, engOcm, fxOcm, modelsOcm, sectsFor, AREA, unitState, placedUnit, snap} = T;
+  const {packCurrent, arrangementOf, fxCurrent} = await import("./fm1oc.js");
+  const imgAt = (bytes, sector) => OCM.parse(bytes).variants.find((v) => v.start === sector).image.slice();
+  const reseal = (a) => { new DataView(a.buffer).setUint32(56, bkCrc(a.subarray(0, 56)), true); return a; };
+  const go = async (u, files) => { const asked = []; const sum = await runSet({stages: {module: true}, files, openUnit: async () => u.link(), sleep: async () => {},
+    confirmInPlace: () => { asked.push("inPlace"); return true; }, confirmRearrange: () => { asked.push("rearrange"); return true; }}); return {sum, asked}; };
+  const shapes = engOcm(SHAPES, [0, 6]), pick9 = modelsOcm(9, [-6, 0, 3]), W2 = [null, {kind: 4, module_id: MODELS}];
+  // a.
+  const holding = (sImg, mImg) => { const s0 = unitState(true, [[1, {engine: SHAPES}, 0x400, VER], [17, {mid: MODELS, sectors: 9, kind: 4}, 9 * 4096, FXVER]]);
+    s0.starts[1].image = sImg; s0.starts[17].image = mImg; return s0; };
+  let u = placedUnit(holding(imgAt(shapes, 6), imgAt(pick9, -6)), OcLink, {crc: true}), r = await go(u, {modules: [shapes, pick9], want: W2});
+  assert.deepEqual(r.sum.module, ["current", "current"], "the unit holds the file's own images: current: " + JSON.stringify(r.sum.module));
+  assert.equal(u.ops.length, 0);
+  const sCost = imgAt(shapes, 6); new DataView(sCost.buffer).setUint32(40, 77, true); reseal(sCost);        // another cost word (the voice units voice.c reads), the same code
+  const mPick = imgAt(pick9, -6); mPick[70] ^= 0x20;                                                          // a byte of the pick block: in no CRC of the header (hcrc ends at 56)
+  for (const [what, sImg, mImg, want] of [["another cost word", sCost, imgAt(pick9, -6), ["installed", "current"]], ["another pick block", imgAt(shapes, 6), mPick, ["current", "installed"]]]) {
+    assert.equal(new DataView((sImg === sCost ? sCost : mImg).buffer).getUint32(52, true), new DataView((sImg === sCost ? imgAt(shapes, 6) : imgAt(pick9, -6)).buffer).getUint32(52, true), what + ": the code CRC is the file's");
+    u = placedUnit(holding(sImg, mImg), OcLink, {crc: true}); r = await go(u, {modules: [shapes, pick9], want: W2});
+    assert.deepEqual(r.sum.module, want, what + ": the header page differs where word 52 does not look: written: " + JSON.stringify(r.sum.module));
+  }
+  // b.
+  const trailer = (seed) => { const tl = 64, t = new Uint8Array(tl), dv = new DataView(t.buffer); for (let i = 16; i < tl; i++) t[i] = (i * 31 + seed) & 255;
+    t.set([0x4F, 0x43, 0x53, 0x43], 0); t[4] = 1; dv.setUint32(8, tl, true); dv.setUint32(12, bkCrc(t.subarray(16)), true); return t; };
+  const withT = (t) => { const p = makePack(), at = (PLEN + 3) & ~3, f = new Uint8Array(at + t.length).fill(255); f.set(p); f.set(t, at); return f; };
+  const tA = trailer(1), tB = trailer(2), fileA = withT(tA);
+  assert.ok(packCurrent(fileA, {state: 1, hash: PHASH, buildHash: PHASH, buildLen: PLEN, trailer: true, trailerLen: 64, trailerCrc: bkCrc(tA)}), "the unit's trailer is the file's: current");
+  for (const [what, opts, want] of [["the same trailer", {tcrc: bkCrc(tA), tlen: 64}, "current"], ["another trailer of the same length", {tcrc: bkCrc(tB), tlen: 64}, "installed"],
+                                    ["no trailer on the unit (0, 0)", {tcrc: 0, tlen: 0, trailer: false}, "installed"], ["an older firmware: the presence alone", {}, "current"]]) {
+    const pu = makeUnit({pack: "current", area: 8192, ...opts});
+    const {sum} = await run(pu, {pack: true}, {pack: fileA, modules: []});
+    assert.equal(sum.pack, want, what + ": " + JSON.stringify(sum));
+    assert.equal(pu.sent.includes(116), want === "installed", what + ": BEGIN sent only when written");
+  }
+  // c.
+  const wheel = engOcm(WHEEL, AREA), dub = fxOcm(DUB, 3, sectsFor(3)), SETC = {modules: [wheel, dub, pick9], want: [null, {kind: 1, module_id: DUB}, {kind: 4, module_id: MODELS}]};
+  const off = unitState(true, [[5, {mid: MODELS, sectors: 9, kind: 4}, 9 * 4096, FXVER]]);           // the pick at start 5 (sectors 3 .. 11); the goal's order puts it at 17
+  off.starts[5].image = imgAt(pick9, 3);
+  u = placedUnit(off, OcLink, {crc: true});
+  const probe = await probeUnit(u.link(), {fx: true});
+  const ocms = SETC.modules.map((b) => OCM.parse(b)), arr = arrangementOf(probe, ocms);
+  assert.ok(fxCurrent(ocms[2], probe.fx, probe.mod), "the pick at start 5 is current");
+  assert.equal(arr.how, "asis", "the set fits around it: " + arr.text);
+  const meter = PLACE.arrange(PLACE.fromUnit(probe), [{engine: WHEEL, name: "WHEEL"}, {mid: DUB, sectors: 3, name: "DUB TAPE"}, {mid: MODELS, sectors: 9, name: "MACRO models", current: true}], {removable: []});   // as the page's meter now takes it (index_pkg.html pickStays)
+  assert.equal(meter.how, arr.how); assert.deepEqual(meter.plan.steps.map((x) => [x.mod.name, x.start]), arr.plan.steps.map((x) => [x.mod.name, x.start]), "the meter's plan is runSet's");
+  const before = snap(u.st);
+  r = await go(u, SETC);
+  assert.deepEqual(r.sum.module, ["installed", "installed", "current"], JSON.stringify(r.sum.module));
+  assert.ok(!r.asked.length && !r.sum.rearrange, "nothing asked, nothing rearranged");
+  assert.ok(!u.ops.some((o) => o.includes("0x4d08")), "the pick is neither removed nor written: " + u.ops.join(" "));
+  assert.equal(u.ops.join(" "), arr.plan.steps.map((x) => "begin:" + (x.mod.engine != null ? x.mod.engine : "0x" + x.mod.mid.toString(16)) + "@" + x.start).join(" "), "runSet writes what the plan says");
+  assert.equal(u.st.starts[5].kind, 4, "the pick still at start 5"); assert.notEqual(snap(u.st), before);
+  console.log("installer set: round 26 review: header pages (cost word, pick block) compared, the pack's trailer by length and CRC, a current pick off the goal order stays and the meter's plan is runSet's passed");
 }
 console.log("installer set: stages, skips, old firmware, retry, refusals and the shared .ocm reader, effect modules by module id, a models module by its id passed");
