@@ -11,9 +11,11 @@ typedef struct {
     motion_store_t motion;
     int16_t timing[4];
     uint32_t pattern_gen, signature;
+    uint32_t level_serial;       /* (Round 25 review) ui.c undo_serial at the capture: the track's undo levels newer than it hold the bank as this take left it */
     uint8_t valid, active, redo, track, bank, engine;
 } recording_undo_t;
 static recording_undo_t *recording_undo_ptr;
+static uint32_t undo_serial;     /* (Round 25 review) ui.c: the undo levels pushed (and loads taken) so far; a level keeps its own (undo_t.serial) */
 
 static recording_undo_t *recording_undo_state(void)
 {
@@ -64,6 +66,7 @@ static void recording_undo_capture(track_t *t)
     motion_snapshot_track(t,&u->motion);
     u->track=(uint8_t)trk_index(t);u->bank=t->pattern;u->pattern_gen=t->pattern_gen;u->engine=t->eng_req;
     u->signature=recording_undo_signature(t);
+    u->level_serial=undo_serial;
     u->valid=u->active=1;u->redo=0;
     recording_undo_active=bit;
     /* Motion-only takes also supersede earlier manual note transactions. */

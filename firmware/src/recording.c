@@ -1044,35 +1044,68 @@ static int recording_holds(uint32_t owner, uint32_t ctl)
 /* (Round 25, the owner's decision: SHIFT moves everything in the phrase) the SEQ tools' move of the bank's control notes, with the steps and the motion (seq_tools.c):
  * dir 1 a step later, -1 a step earlier, round the loop as the steps wrap; dir 0 REVERSE, as a step note with its ties: a control note spans the steps from its onset's
  * step to the one its gate ends in (l steps), and lands on step len - a - l, its onset as far into that step as it was (its length kept). Only the notes inside LEN move
- * (the steps and the motion past LEN stay too). Every move is a bijection of the step byte, so SHIFT then the other SHIFT, REVERSE twice and the undo (ui.c undo_level:
- * the inverse) give the bytes back exactly, and the take's undo signature (recording_undo.c) with them. The rounding bits (64: the cell after its step; 128: that cell
- * wrapped to step 1) are carried as the note move of NOTES writes them (ui_input.c), XOR what the note had beyond that (a bank doubled leaves a 128 the rule would
- * not set): a control note owns no cell, so they never decide where it plays. A sounding one is ended (its trigger released), a held one sealed where it is.
- * Caller: audio interrupts paused. The number moved. */
-static uint32_t recording_ctl_move(track_t *t, uint32_t len, int dir)
+ * (the steps and the motion past LEN stay too). Every move is a bijection of the step byte, so SHIFT then the other SHIFT, LEN shifts, REVERSE twice and the undo
+ * (ui.c undo_level: the inverse) give the bytes back exactly, and the take's undo signature (recording_undo.c) with them.
+ * The rounding bits (64: the cell after its step; 128: that cell wrapped to step 1) never decide where a control note plays (it owns no cell). They are carried as a
+ * pair: late (bit 64) and odd, the 128 the rule of NOTES' move (ui_input.c: 128 on a late note on step LEN) would not have given it (a doubled bank leaves such a 128).
+ * Step 64 (index 63) cannot hold a late note without 128 (its cell would be past the row): there late + odd is written 128 alone, which no other note on step 64 can be;
+ * the one pair that has no byte there, a note not late with a stray 128 (no writer makes one), refuses the whole move (apply 0 asks first). (Round 25 review: a forced
+ * 128 there lost the odd bit: 0xFE shifted right and back came back 0x7E.)
+ * A sounding one is ended (its trigger released), a held one sealed where it is; it plays at its new place this pass if that is still ahead. Caller: audio interrupts paused. apply 0: 1 when every note can move, nothing changed;
+ * apply 1: moves them (none when one cannot), 1 when it did. (Round 25) apply 1 moves the bank's ordinary recorded notes too, with their cells (map: recording_note_target below) */
+static uint32_t recording_ctl_canon(uint32_t a, uint32_t len, uint32_t late) { return late && len > 1u && a == len - 1u; }
+static uint32_t recording_ctl_target(const recorded_note_t *r, uint32_t len, int dir, uint32_t *bits)
 {
-    uint32_t owner = recording_owner(t), n = 0;
+    uint32_t a = r->step & 63u, l64 = (r->step >> 6) & 1u, b128 = (r->step >> 7) & 1u, late, odd, b;
+    if (a == 63u && !l64 && b128) late = odd = 1u;
+    else { late = l64; odd = b128 ^ recording_ctl_canon(a, len, late); }
+    if (dir) b = (a + (dir > 0 ? 1u : len - 1u)) % len;
+    else {
+        uint32_t end = r->on + ((uint32_t)r->duration << (r->owner >> 5));   /* (at most 65535 + 65535 << 7) */
+        uint32_t l = (end + RECORD_UNIT - 1u) / RECORD_UNIT;
+        b = (2u * len - a - (l ? l : 1u) % len) % len;
+    }
+    if (b == 63u && odd) {
+        if (!late) return 0;                                /* (no byte for it on step 64) */
+        *bits = 128u;
+    } else *bits = (late << 6) | ((recording_ctl_canon(b, len, late) ^ odd) << 7);
+    *bits |= b;
+    return 1;
+}
+/* (Round 25, the owner: everything in the phrase moves together) an ordinary recorded note goes with the cell it is recorded in, which the steps' own move takes to
+ * map[c] (seq_tools.c seq_tool_map: c + 1, c - 1 round the loop, or REVERSE's place of the cell's note with its ties): its onset as far into its step as it was, its
+ * gate, the rounding to the cell after its step (bit 64) kept, the 128 of a cell wrapped to step 1 as recording writes it. A note whose cell is not the one its onset
+ * rounds to (a bank doubled leaves one viewing step 1) goes with the cell its onset rounds to, and is written as recording writes it from then on */
+static uint32_t recording_note_target(const recorded_note_t *r, uint32_t len, const uint8_t *map)
+{
+    uint32_t a = r->step & 63u, late = (r->step >> 6) & 1u, c = (a + late) % len, v = map[c] % len, b = (v + len - late) % len;
+    return b | (late << 6) | (late && !v && b ? 128u : 0u);
+}
+static uint32_t recording_ctl_move(track_t *t, uint32_t len, int dir, const uint8_t *map, int apply)
+{
+    uint32_t owner = recording_owner(t), n = 0, bits, i;
     if (len < 1u || len > NSTEP) return 0;
-    for (uint32_t i = 0; i < RECORD_MAX; i++) {
+    for (i = 0; i < RECORD_MAX; i++) {
+        const recorded_note_t *r = &recording[i];
+        if (r->vel && (r->owner & 31u) == owner && recording_ctl(r) && (r->step & 63u) < len && !recording_ctl_target(r, len, dir, &bits)) return 0;
+    }
+    if (!apply) return 1;
+    for (i = 0; i < RECORD_MAX; i++) {
         recorded_note_t *r = &recording[i];
-        uint32_t a = r->step & 63u, late = r->step & 64u, b, odd;
-        if (!r->vel || (r->owner & 31u) != owner || !recording_ctl(r) || a >= len) continue;
+        if (!r->vel || (r->owner & 31u) != owner || (r->step & 63u) >= len) continue;
+        if (!recording_ctl(r) && recording_view(t, r) >= len) continue;   /* (a cell past LEN: the steps there stay, and so does it) */
         if (recording_flags[i] & 1u) recording_finish(i);
         recording_end(t, i);
-        odd = (r->step & 128u) ^ (late && len > 1u && a == len - 1u ? 128u : 0u);
-        if (dir) b = (a + (dir > 0 ? 1u : len - 1u)) % len;
-        else {
-            uint32_t end = r->on + ((uint32_t)r->duration << (r->owner >> 5));   /* (at most 65535 + 65535 << 7) */
-            uint32_t l = (end + RECORD_UNIT - 1u) / RECORD_UNIT;
-            b = (2u * len - a - (l ? l : 1u) % len) % len;
-        }
-        r->step = (uint8_t)(b | late | ((late && len > 1u && b == len - 1u ? 128u : 0u) ^ odd));
-        if (!(r->step & 128u) && b + (late != 0u) >= NSTEP) r->step |= 128u;   /* (never a cell past the row: only a note the rule would not have written) */
+        if (recording_ctl(r)) recording_ctl_target(r, len, dir, &bits);
+        else bits = recording_note_target(r, len, map);
+        r->step = (uint8_t)bits;
         memset(&recording_run[i], 0, sizeof recording_run[i]);
+        recording_rep_drop(i);
+        recording_flags[i] &= (uint8_t)~4u;                 /* (Round 25 review) not yet played at its new place: it plays there this pass when the playhead is still before it, as a moved step does */
         n++;
     }
     if (n) recording_reindex();
-    return n;
+    return 1;
 }
 static void recording_release_x(track_t *t, uint32_t note, uint32_t ctl)   /* (Round 24) ctl: the control note's key, never an ordinary note of its number (and the reverse) */
 {

@@ -772,9 +772,11 @@ typedef struct {
     uint8_t link;                /* (ui-fix2 2) bit 0: the level pushed just before this one belongs to the same gesture (GLO's clear of four tracks): one
                                   * undo, one redo takes the whole group; bit 1: the group's note history is the one GLO took (note_transaction.group); bit 2:
                                   * that history owns this track's motion (a byte of the padding before `user`) */
-    uint8_t ctl_tool, ctl_len;   /* (Round 25) a SEQ tool (seq_tools.c) moved the bank's control notes: 1 + ST_SHIFT_R / ST_SHIFT_L / ST_REVERSE, and the LEN it moved
-                                  * them in; the undo moves them back (the inverse), the redo again. 0: none (every other level) */
+    uint8_t ctl_tool, ctl_len;   /* (Round 25) a SEQ tool moved the bank's recorded notes (control and ordinary): 1 + ST_SHIFT_R / ST_SHIFT_L / ST_REVERSE, with the
+                                  * LEN it moved them in; the undo moves them back (the inverse), the redo again. 0: every other level */
     uint16_t user;
+    uint32_t serial;             /* (Round 25 review) undo_serial when it was pushed or last took a load: a take's undo applied drops this track's levels newer than its
+                                  * capture (recording_history), which hold the bank as the take left it */
     uint8_t fm6[FP_SIZE + 1u];   /* the track's complete patch */
     cz_patch_t cz;
     p5_patch_t p5;
@@ -890,6 +892,7 @@ static void load_begin(track_t *t, uint32_t what)
     u = undo_last();
     if (undo_top && u->keep && u->pattern_gen == t->pattern_gen && u->trk == i + 1u && track_sig(t) == u->after) {
         u->what |= (uint8_t)what;                 /* browsing on: the copy from before the first load stays */
+        u->serial = ++undo_serial;                /* (Round 25 review) it holds this load now */
         if(!designer_on())motion_reset(t);
         return;
     }
@@ -906,6 +909,7 @@ static void load_begin(track_t *t, uint32_t what)
     u->keep = 0;
     u->link = 0;
     u->ctl_tool = 0;
+    u->serial = ++undo_serial;
     u->pattern_gen = t->pattern_gen;
     u->what = (uint8_t)what;
     u->eng = t->eng_req;
@@ -948,12 +952,14 @@ static void load_extend(track_t *t)
 static int param_kept(uint32_t i);
 static int note_clear_history(int redo);
 static int note_history_group(void);                     /* (round 13, note_tools.c) the note history is GLO's clear of every track */
+static void undo_drop_after(uint32_t track, uint32_t serial);   /* (Round 25 review, below) */
 static int recording_history(int redo)
 {
     uint32_t f=motion_guard();
     int result=recording_undo_apply(redo);
     motion_unguard(f);
     if(!result)return 0;
+    if(result==1&&!redo)undo_drop_after(trk_index(TSEL),recording_undo_state()->level_serial);   /* (Round 25 review) */
     if(result==1){
         ui.note_pick=0;ui.note_generation=recording_generation;
         ui.hot_t=0;ui.force=1;
@@ -986,11 +992,48 @@ static void undo_step(int redo)
 #endif
     undo_level(redo);
 }
+/* (Round 25) the direction a level's control notes move: the tool's (redo) or its inverse (undo) */
+static int undo_ctl_dir(const undo_t *u, int redo)
+{
+    int dir = (u->ctl_tool & 3u) == 3u ? 0 : (u->ctl_tool & 3u) == 1u ? 1 : -1;
+    return redo ? dir : -dir;
+}
+/* (Round 25 review) the take's undo was applied: this track's levels newer than its capture (serial) hold the bank as the take left it, so swapping one in would bring
+ * back part of the take (a SHIFT taken back by hand: the phrase a step over, the take's motion back, its control notes not). They go, with the levels linked to them
+ * (a group goes whole); older levels, other tracks' and the redoable ones (the take's redo is always first) stay. Undo stays whole */
+static void undo_drop_after(uint32_t track, uint32_t serial)
+{
+    uint8_t drop[UNDO_LV_MAX];
+    uint32_t i, n, top, more = 1;
+    for (i = 0; i < undo_cnt; i++) drop[i] = i < undo_top && undo_lv[i].trk == track + 1u && undo_lv[i].serial > serial;   /* (a level already undone stays: the take's redo comes first, then it is whole again) */
+    while (more) {
+        more = 0;
+        for (i = 0; i < undo_cnt; i++) {
+            uint32_t prev = i && drop[i] && (undo_lv[i].link & 1u) && !drop[i - 1u], next = drop[i] && i + 1u < undo_cnt && (undo_lv[i + 1u].link & 1u) && !drop[i + 1u];
+            if (prev) drop[i - 1u] = 1;
+            if (next) drop[i + 1u] = 1;
+            more |= prev | next;
+        }
+    }
+    for (i = n = top = 0; i < undo_cnt; i++) {
+        if (drop[i]) continue;
+        if (n != i) memcpy(&undo_lv[n], &undo_lv[i], sizeof *undo_lv);
+        top += i < undo_top;
+        n++;
+    }
+    if (n == undo_cnt) return;
+    undo_top = (uint8_t)top; undo_cnt = (uint8_t)n;
+    if (!n) undo_clear();
+    else if (undo_top) undo_lv[undo_top - 1u].keep = 0;
+}
+static void seq_tool_map(const step_t *s, uint32_t len, uint32_t kind, uint8_t *map);   /* (Round 25, seq_tools.c) */
+static void seq_tool_apply(track_t *t, uint32_t len, uint32_t kind, uint8_t *map);
 static void undo_level(int redo)
 {
+    static uint8_t map[NSTEP];
     track_t *t;
     undo_t *u;
-    uint32_t i;
+    uint32_t i, xf = 0, kd = 0;
     char b[4] = {'T', 0, 0, 0};
     if (redo ? undo_top >= undo_cnt : !undo_top) {
         ui_message(redo ? "NOTHING TO REDO" : "NOTHING TO UNDO");
@@ -999,7 +1042,20 @@ static void undo_level(int redo)
     u = &undo_lv[redo ? undo_top : undo_top - 1u];
     t = &trk[(u->trk - 1u) % NTRK];
     if (u->pattern_gen != t->pattern_gen) { undo_clear(); ui_message(redo ? "NOTHING TO REDO" : "NOTHING TO UNDO"); return; }
-    if (!(u->link & 4u)) {                        /* (ui-fix2 2: bit 2: GLO's note history owns this track's motion) */
+    /* (Round 25) a SEQ tool's level: the recorded notes go back (or again) with their cells, by the map of the steps as they are now (the inverse of the tool's:
+     * seq_tools.c seq_tool_map), built before the steps are swapped. Only a control note with no place to go (no writer makes one) stops it, nothing changed */
+    if ((u->ctl_tool & 3u) && !recording_ctl_move(t, u->ctl_len, undo_ctl_dir(u, redo), map, 0)) { ui_message("CONTROL NOTE CANNOT MOVE"); return; }
+    if (u->ctl_tool & 3u) {
+        kd = undo_ctl_dir(u, redo) > 0 ? 0u : undo_ctl_dir(u, redo) < 0 ? 1u : 2u;   /* (ST_SHIFT_R, ST_SHIFT_L, ST_REVERSE) */
+        seq_tool_map(t->step, (uint32_t)clamp(u->ctl_len, 1, NSTEP), kd, map);
+        /* (Round 25, the owner: undo stays whole) the bank changed after the tool (a take wrote a cell, a step was edited): swapping the copy in would lose that, so the
+         * inverse tool (the redo: the tool) moves the steps and the motion as they are, and the copy takes them as they were; otherwise the copy, byte for byte */
+        xf = track_sig(t) != u->after;
+    }
+    if (xf) {
+        motion_restore(t);
+        motion_snapshot_track(t, &u->motion_backup);
+    } else if (!(u->link & 4u)) {                 /* (ui-fix2 2: bit 2: GLO's note history owns this track's motion) */
         motion_restore(t);
         motion_store_t current_motion;
         motion_snapshot_track(t, &current_motion);
@@ -1041,15 +1097,16 @@ static void undo_level(int redo)
             t->p[i] = u->p[i];
             u->p[i] = v;
         }
-        for (i = 0; i < NSTEP; i++) {
+        if (xf) {
+            step_snapshot_save(u->step, t->step);
+            seq_tool_apply(t, (uint32_t)clamp(u->ctl_len, 1, NSTEP), kd, map);
+        } else for (i = 0; i < NSTEP; i++) {
             step_t s = t->step[i];
             t->step[i] = step_snapshot_get(&u->step[i]);
             step_snapshot_put(&u->step[i], &s);
         }
-        if (u->ctl_tool) {                        /* (Round 25) the tool's control notes: back (the undo of SHIFT RIGHT is a step left; REVERSE is its own inverse) or again */
-            int dir = u->ctl_tool == 3u ? 0 : u->ctl_tool == 1u ? 1 : -1;
-            recording_ctl_move(t, u->ctl_len, redo ? dir : -dir);
-        }
+        if (u->ctl_tool & 3u)                     /* (Round 25) the tool's recorded notes: back (the undo of SHIFT RIGHT is a step left) or again */
+            recording_ctl_move(t, u->ctl_len, undo_ctl_dir(u, redo), map, 1);
     }
     if (u->what & UNDO_FX) {                    /* (ui-fix2 2) the track's own effects: the swap param_kept keeps out of UNDO_SOUND's */
         for (i = 0; i < P_COUNT; i++)
@@ -1078,6 +1135,7 @@ static void undo_level(int redo)
         { cz_patch_t cp = cz_patch[tr]; cz_patch[tr] = u->cz; u->cz = cp; if (MELODEE_CZ) cz_track_accept(t); }   /* (Orange Cat: MELODEE_CZ) */
 
     }
+    if (u->ctl_tool & 3u) u->after = track_sig(t);   /* (Round 25) the bank as this level left it: the next undo or redo of it swaps the copy when it is still so */
     u->keep = 0;                                /* the next load copies the track as it is now */
     undo_top = (uint8_t)(redo ? undo_top + 1u : undo_top - 1u);
     if (undo_top) undo_lv[undo_top - 1u].keep = 0;
