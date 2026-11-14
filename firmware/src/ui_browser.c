@@ -30,7 +30,7 @@ static int browser_shown_fav(void)                      /* the sound shown is a 
     uint32_t k, src;
     if (!browse_pending())
         return preset_favorite();
-    src = preset_at(brw.n, &k);
+    src = browse_shown(&k);
     return favorite_has(src, k);
 }
 static int browser_can_back(void) { return browse_loads != browse_mark || browse_pending(); }
