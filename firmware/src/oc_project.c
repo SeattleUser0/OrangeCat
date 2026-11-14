@@ -436,7 +436,7 @@ static int ocj_read(uint32_t slot, uint8_t *raw)
             if (id > OCP_N) return -1;
             if (id) {
                 if (ocp_check(id - 1u, k, &pr, &rd, &p, &notes_at)) return -1;
-                if (nmot + p.mot.count > MOTION_MAX || nnote + p.nnotes > RECORD_MAX) return -1;
+                if (nmot + p.mot.count > MOTION_MAX || nnote + p.nkeep > RECORD_MAX) return -1;   /* (Round 25) the notes it keeps */
                 for (i = 0; i < p.mot.count; i++) {
                     q->motion.event[nmot] = p.mot.event[i];
                     raw[BANK_MOTION_OFF + nmot++] = (uint8_t)b;
@@ -446,6 +446,7 @@ static int ocj_read(uint32_t slot, uint8_t *raw)
                     for (i = 0; i < p.nnotes; i++) {
                         recorded_note_t v;
                         if (ocp_rd(&rd, &v, OCP_NOTE)) return -1;
+                        if (!ocp_note_rule(&v, p.ver)) continue;   /* (Round 25) an older build's event: dropped, the project loads (ocp_check refused every other) */
                         v.owner = (uint8_t)((v.owner & 224u) | (k * NPAT + b));
                         q->recording[nnote++] = v;
                     }

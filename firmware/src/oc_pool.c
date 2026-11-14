@@ -425,7 +425,7 @@ static int ocp_step_ok(const step_t *s)
 typedef struct {
     pattern_t pat;
     motion_store_t mot;                        /* (its events' places carry the track's bits) */
-    uint32_t nnotes, flags, ver;
+    uint32_t nnotes, nkeep, flags, ver;        /* (Round 25) nkeep: the notes a load places (ocp_note_rule 1; the others it drops) */
 } ocp_parsed_t;
 
 static int ocp_parse(ocp_rd_t *rd, uint32_t k, ocp_parsed_t *p)
@@ -499,7 +499,9 @@ static int ocp_check(uint32_t id, uint32_t k, ocs_rec_t *r, ocp_rd_t *rd, ocp_pa
     *notes_at = rd->off - (rd->n - rd->pos);  /* (where the notes start, to read them again) */
     for (uint32_t n = 0; n < p->nnotes; n++) {    /* every note checks before anything changes */
         recorded_note_t v;
-        if (ocp_rd(rd, &v, OCP_NOTE) || ocp_note_rule(&v, p->ver) < 0) return 1;
+        int rule;
+        if (ocp_rd(rd, &v, OCP_NOTE) || (rule = ocp_note_rule(&v, p->ver)) < 0) return 1;
+        p->nkeep += rule > 0;
     }
     return rd->off != rd->end || rd->pos != rd->n;
 }
@@ -522,7 +524,7 @@ static int ocp_load(uint32_t id, uint32_t k, uint32_t bank, int apply)
     if (chain.running || chain.armed) { motion_unguard(f); return 1; }
     for (i = 0, n = 0; i < motion.count; i++) n += (motion.event[i].place >> 6) == k && motion_pattern[i] == bank;
     for (i = 0; i < RECORD_MAX; i++) free += !recording[i].vel || (recording[i].owner & 31u) == owner;
-    if (motion.count - n + p.mot.count > MOTION_MAX || p.nnotes > free) { motion_unguard(f); return 2; }
+    if (motion.count - n + p.mot.count > MOTION_MAX || p.nkeep > free) { motion_unguard(f); return 2; }
     if (!apply) { motion_unguard(f); return 0; }
     /* the bank's notes and motion out, the pattern's steps and motion in */
     recording_drop(t, owner);

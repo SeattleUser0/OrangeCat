@@ -175,6 +175,29 @@ int main(void)
         q2.recording[idx].pitch = 30; q2.sum = proj_sum(&q2);
         vc("P8 a project_t with a 0x7F event and a pitch out of range is refused", !proj_ok(&q2));
     }
+    /* R: the project store on the unit (oc_project.c ocj_read): a slot whose bank phrase holds an older build's 0x7F event loads, the event dropped (the review of e1b0f3d5:
+     * ocj_read copied every phrase note into the project and proj_pack refused it) */
+    setup();
+    vc("R0 the project saves to slot 0", project_save(0) == 0);
+    {
+        uint32_t id = proj_pid[0][2], nr;
+        vc("R1 bank 2 of track 0 is a pool phrase", id >= 1u && id <= OCP_N);
+        id = id ? id - 1u : 0u;
+        n = ocs_read(OCS_POOL, id / OCP_PER, rec, sizeof rec);
+        at = notes_off(rec, id % OCP_PER, &nn);
+        for (i = 0; i < nn && !(rec[at + i * OCP_NOTE + offsetof(recorded_note_t, step)] == 15u && rec[at + i * OCP_NOTE + offsetof(recorded_note_t, note)] == 61u); i++)
+            ;
+        vc("R2 the phrase has the event of step 15", n > 0 && i < nn);
+        rec[at + i * OCP_NOTE + offsetof(recorded_note_t, step)] = 0x7Fu;
+        vc("R3 the phrase as an older build wrote it is stored", ocs_write(OCS_POOL, id / OCP_PER, rec, (uint32_t)n) == 0);
+        vc("R4 the slot reads (proj_read_slot)", proj_read_slot(0) == (int)BANK_STORE_SIZE);
+        project_load(0);
+        nr = count_of(2, &bad);
+        {   uint32_t has7f = 0;
+            for (i = 0; i < RECORD_MAX; i++) has7f |= recording[i].vel && recording[i].step == 0x7Fu;
+            vc("R5 ... and loads: the five other events of the bank, no 0x7F event", nr == 5u && !bad && !has7f);
+        }
+    }
     printf("pool valid: %s\n", vbad ? "FAILED" : "all checks passed");
     return vbad != 0;
 }
