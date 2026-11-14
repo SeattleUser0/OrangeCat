@@ -401,7 +401,8 @@ static void browse_fix(void)
     if (pos < total)
         brw.n = (uint16_t)pos;
     else
-        brw.on = 0;
+        brw.on = 0;                                    /* (its entry is no longer listed: the loaded sound shows again) */
+    ui.force = 1;                                      /* (review: redraw now, not at the next change) */
 }
 static uint32_t preset_at(uint32_t n, uint32_t *k);
 static void brw_take(void)                                 /* the pending place's entry, at brw.n (set first) */
