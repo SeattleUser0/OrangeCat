@@ -826,7 +826,7 @@
         },
         {
           "label": "SOUND",
-          "what": "The sound in the list (the same as the PRESETS encoder). A fast turn loads when it rests."
+          "what": "The sound in the list (the same as the PRESETS encoder). One sound a click; it wraps at both ends. Only sounds that can play are listed: a user or MACRO sound whose engine or model module is not installed is hidden, and comes back when the module is installed. A fast turn loads when it rests."
         },
         {
           "label": "FAV",

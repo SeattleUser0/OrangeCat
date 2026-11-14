@@ -572,7 +572,7 @@ SAVE tapped opens PROJECT. Tapped again: USER. SELECT inside the family steps PR
 Only through SELECT inside the SAVE family (PROJECT, then PRESETS, then USER). A SAVE tap goes to PROJECT. The PRESETS encoder on HOME browses sounds without this page.
 
 - KNOB 1: LIST (All, Faves, Recent, then Bass, Lead, Pad, Keys, Organ, Strings, Brass, Wind, Pluck, Bells, Drums, FX, Other). The list to browse. No wrap.
-- KNOB 2: SOUND. The sound in the list (the same as the PRESETS encoder). A fast turn loads when it rests.
+- KNOB 2: SOUND. The sound in the list (the same as the PRESETS encoder). One sound a click; it wraps at both ends. Only sounds that can play are listed: a user or MACRO sound whose engine or model module is not installed is hidden, and comes back when the module is installed. A fast turn loads when it rests.
 - KNOB 3: FAV (right marks, left unmarks). The shown sound's favourite star.
 - KNOB 4: ENGINE. Next or previous engine; it loads that engine's first sound.
 
