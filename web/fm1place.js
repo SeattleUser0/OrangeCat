@@ -172,7 +172,12 @@ const placeName = (s, c) => place(s, sec(c)) === 1 ? "tail" : "area";
 //                                     and never removes (found by putting each of them back in turn: the ones the set cannot stand beside)
 //   {how: "none", order, plan}        no place: plan is the failed plan of the unit as it stands (whyNot's input)
 // plan is simulate()'s answer for the modules in `mods` of it (plan.mods: the modules simulated, in order).
-function arrange(s, mods) {
+// (round 25, the owner's decision B) opts.removable: [{engine} | {mid}], modules that are not of the set which the page MAY take off for good when that is what makes the set fit
+// (the page passes its build's effect modules: a unit holding the reverb module gets the default set in one click). Only when the set's own rearrange alone does not fit; a
+// "rearrange" answer then carries drop [{start, engine, kind, mid}] (taken off, NOT put back: the page's question names them), the fewest of them (each is put back in turn,
+// lowest start first, and stays when the set still fits), and remove may be empty (the set fits as the unit stands once they are off: nothing of the set is moved). A module
+// that is not in removable is never dropped; a module of the set is never dropped (it is in `remove` and is put back).
+function arrange(s, mods, opts = {}) {
   const order = goalOrder(s, mods), all = order.map((i) => mods[i]), todo = all.filter((m) => !m.current);
   const run = (t, list) => ({ ...simulate(t, list), mods: list });
   const asis = run(s, todo);
@@ -181,14 +186,32 @@ function arrange(s, mods) {
   const same = (x, m) => m.engine != null ? !x.kind && x.engine === m.engine : !!x.kind && x.mid === m.mid;
   const own = (j) => usable(s, j) && all.some((m) => same(s.starts[j], m));
   const foreign = s.starts.map((_, j) => j).filter((j) => usable(s, j) && !own(j));
-  const cleared = (keep) => {                          // the unit without the set's own modules, and without the foreign ones that are not in keep
+  const strip = (off) => {                             // the unit without the modules at the starts of `off`
     const t = cloneState(s), gone = new Set();
-    for (let j = 0; j < nst(s); j++) if (own(j) || (usable(s, j) && !keep.has(j))) { if (s.starts[j].kind) gone.add(s.starts[j].mid); t.starts[j] = { state: 0, kind: 0, mid: 0, engine: 0, length: 0 }; }
+    for (const j of off) { if (s.starts[j].kind) gone.add(s.starts[j].mid); t.starts[j] = { state: 0, kind: 0, mid: 0, engine: 0, length: 0 }; }
     t.nfxmod = Math.max(0, s.nfxmod - gone.size);
     return t;
   };
+  const ownAt = s.starts.map((_, j) => j).filter(own);
+  const cleared = (keep) => strip([...ownAt, ...foreign.filter((j) => !keep.has(j))]);   // the unit without the set's own modules, and without the foreign ones that are not in keep
+  const removeOf = () => all.filter((m) => s.starts.some((x, j) => usable(s, j) && same(x, m)));
   const re = run(cleared(new Set(foreign)), all);
-  if (re.ok) return { how: "rearrange", order, plan: re, remove: all.filter((m) => s.starts.some((x, j) => usable(s, j) && same(x, m))) };
+  if (re.ok) return { how: "rearrange", order, plan: re, remove: removeOf(), drop: [] };
+  const may = (opts.removable || []), droppable = foreign.filter((j) => may.some((m) => same(s.starts[j], m)));
+  if (droppable.length) {
+    const fewest = (fits) => { const off = new Set(droppable); for (const j of droppable) { off.delete(j); if (!fits(off)) off.add(j); } return droppable.filter((j) => off.has(j)); };
+    const info = (j) => ({ start: j, engine: s.starts[j].engine, kind: s.starts[j].kind, mid: s.starts[j].mid });
+    // the set as the unit stands once some of them are off (nothing of the set moves), then the set's own rearrange with some of them off
+    if (simulate(strip(droppable), todo).ok) {
+      const off = fewest((o) => simulate(strip([...o]), todo).ok);
+      return { how: "rearrange", order, plan: run(strip(off), todo), remove: [], drop: off.map(info) };
+    }
+    const keepOf = (o) => new Set(foreign.filter((j) => !o.has(j)));
+    if (simulate(cleared(keepOf(new Set(droppable))), all).ok) {
+      const off = fewest((o) => simulate(cleared(keepOf(o)), all).ok);
+      return { how: "rearrange", order, plan: run(cleared(keepOf(new Set(off))), all), remove: removeOf(), drop: off.map(info) };
+    }
+  }
   if (!foreign.length || !simulate(cleared(new Set()), all).ok) return { how: "none", order, plan: asis };
   const keep = new Set();
   for (const j of foreign) { keep.add(j); if (!simulate(cleared(keep), all).ok) keep.delete(j); }

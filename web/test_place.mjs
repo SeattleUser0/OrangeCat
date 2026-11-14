@@ -190,6 +190,34 @@ console.log("place: " + cases.length + " unit states x " + q.length + " modules 
     say("a unit whose low six sectors are not usable: SHAPES, WHEEL and the 9 sector pick have no place (12 usable sectors in the area), rearranged or not", l.how === "none");
     const l2 = PLACE.arrange(lo, [W, S, { mid: 0x4D08, sectors: 5, name: "MACRO models" }]);
     say("... the same unit takes a 5 sector pick (" + l2.how + ")", l2.how === "asis" || l2.how === "rearrange");
+    // (round 25, the owner's decision B) a unit holding the reverb module beside the default set (SHAPES 1, WHEEL 5, the models 17, DUB TAPE 18, the reverb at start 2): the
+    // default set with the FX layer fits once the reverb module is off; it is dropped only when it is in opts.removable, the fewest that make the set fit, and never one of the set
+    const held = () => {
+      const u = emptyState(true, TAIL);
+      u.starts[1] = { state: 7, kind: 0, mid: 0, engine: 14, length: 24160 }; u.starts[5] = { state: 7, kind: 0, mid: 0, engine: 7, length: 2928 };
+      u.starts[17] = { state: 7, kind: 4, mid: 0x4D08, engine: OC_FX_ENGINE, length: 9 * 4096 }; u.starts[18] = { state: 7, kind: 1, mid: 0x1001, engine: OC_FX_ENGINE, length: 3 * 4096 };
+      u.starts[2] = { state: 7, kind: 2, mid: 0x1003, engine: OC_FX_ENGINE, length: 4096 }; u.nfxmod = 3;
+      return u;
+    };
+    const set5 = [{ ...W, current: true }, { ...S, current: true }, { ...D, current: true }, F, P], RM = [{ mid: 0x1001 }, { mid: 0x1002 }, { mid: 0x1003 }];
+    const kept = PLACE.arrange(held(), set5);
+    say("the reverb module's unit, nothing removable: the reverb module is named (" + kept.how + ")", kept.how === "blocked" && kept.blockers.map((x) => x.start).join() === "2");
+    const dr = PLACE.arrange(held(), set5, { removable: RM });
+    say("... the build's effect modules removable: the reverb module is dropped, nothing of the set moves (starts " + st(dr) + ")",
+      dr.how === "rearrange" && dr.remove.length === 0 && dr.drop.map((x) => x.start).join() === "2" && st(dr) === "17 2" && dr.plan.ok);
+    const fo = PLACE.arrange(held(), set5, { removable: [{ mid: 0x1002 }] });
+    say("... a removable list without the reverb module's id: named, not dropped (" + fo.how + ")", fo.how === "blocked");
+    const n2 = nightly(); n2.starts[9] = { state: 7, kind: 2, mid: 0x1003, engine: OC_FX_ENGINE, length: 4096 }; n2.nfxmod = 2;
+    const both = PLACE.arrange(n2, [W, { ...S, current: true }, F, { ...D, current: true }, P], { removable: RM });
+    say("the Nightly's unit with the reverb module too: the reverb module dropped and the set's own rearranged (take off " + (both.remove || []).map((m) => m.name).join(", ") + ")",
+      both.how === "rearrange" && both.remove.map((m) => m.name).join() === "SHAPES,WHEEL,DUB TAPE" && both.drop.map((x) => x.start).join() === "9" && st(both) === "1 17 5 2 18");
+    const tick6 = PLACE.arrange(held(), [{ ...W, current: true }, { ...S, current: true }, { ...D, current: true }, F, { ...R, current: true }, P], { removable: RM });
+    say("the reverb module ticked as well (22 sectors): never dropped, no place (" + tick6.how + ")", tick6.how === "none" && !tick6.drop);
+    // (decision A) the 22 sector set less each effect module in turn (the one the owner chose to give way) places on an empty unit
+    for (const [name, less] of [["FX", [W, S, D, R, P]], ["REVERB", [W, S, F, D, P]], ["DUB TAPE", [W, S, F, R, P]]]) {
+      const g = PLACE.arrange(emptyState(true, TAIL), less);
+      say("the 22 sector set, " + name + " giving way: placed as an empty unit stands (starts " + st(g) + ")", g.how === "asis" && g.plan.ok);
+    }
   }
 }
 { /* (Round 23 review) a tail unit for the page is exactly its own 21 starts: any other count above 18, or another table, is planned as the area alone and never rearranged */
