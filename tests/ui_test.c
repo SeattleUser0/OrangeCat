@@ -6653,17 +6653,17 @@ static int test_rev_module_missing(void)
         song.g[G_RTYPE] = (int16_t)ty;
         ui.msg_t = 0; ui.msg[0] = 0;
         pack_boot_notice(0);
-        ok &= (ty >= 1u && ty <= 3u) == (msg_is("MODULE MISSING") != 0);
+        ok &= (ty >= 1u && ty <= 3u) == (msg_is("REVERB MODULE MISSING") != 0) && !msg_is("MODULE MISSING");
         ok &= (ty >= 1u && ty <= 3u) == (jfx_rev_missing() != 0);
         ok &= !strcmp(pv_fx_full_text(4u), ty >= 1u && ty <= 3u ? "MODULE MISSING: dry" : "FX FULL: no memory, dry");
     }
-    bad += check("no reverb module: TYPE SPRING, SHIMMER or RESO with a track sending: MODULE MISSING at boot and \"MODULE MISSING: dry\" on the REVERB pages; ROOM and CLOUD: neither", ok);
+    bad += check("no reverb module: TYPE SPRING, SHIMMER or RESO with a track sending: REVERB MODULE MISSING at boot and \"MODULE MISSING: dry\" on the REVERB pages; ROOM and CLOUD: neither", ok);
     for (ty = 1, ok = 1; ty <= 3u; ty++) fx2_modk[ty].process = rev_dummy;   /* (as a registered module: the loader's fx2_modk_set) */
     for (ty = 0; ty <= 4u; ty++) {
         song.g[G_RTYPE] = (int16_t)ty;
         ui.msg_t = 0; ui.msg[0] = 0;
         pack_boot_notice(0);
-        ok &= !msg_is("MODULE MISSING") && !jfx_rev_missing() && !strcmp(pv_fx_full_text(4u), "FX FULL: no memory, dry");
+        ok &= !msg_is("REVERB MODULE MISSING") && !jfx_rev_missing() && !strcmp(pv_fx_full_text(4u), "FX FULL: no memory, dry");
     }
     fx2_modk_clear();
     bad += check("  the module registered: nothing said, at boot or on the pages, for any TYPE", ok);
@@ -6671,7 +6671,14 @@ static int test_rev_module_missing(void)
     trk[1].p[P_REV] = 0;
     ui.msg_t = 0; ui.msg[0] = 0;
     pack_boot_notice(0);
-    bad += check("  SHIMMER with no track sending to the reverb: nothing said at boot (nothing would sound)", !msg_is("MODULE MISSING"));
+    bad += check("  SHIMMER with no track sending to the reverb: nothing said at boot (nothing would sound)", !msg_is("REVERB MODULE MISSING"));
+    trk[1].p[P_REV] = 90;
+    oc_pack_good = 0; set_engine_of(&trk[0], ENGI_MACRO);
+    ui.msg_t = 0; ui.msg[0] = 0;
+    pack_boot_notice(0);
+    bad += check("  SHIMMER sent to, no reverb module, and the pack missing for a MACRO track: MODULE + PACK MISSING", msg_is("MODULE + PACK MISSING"));
+    oc_pack_good = 1; set_engine_of(&trk[0], 0);
+    trk[1].p[P_REV] = 0;
     bad += check("  the stored TYPE is left as it is", song.g[G_RTYPE] == 2);
     song.g[G_RTYPE] = 0;
     return bad;
