@@ -536,6 +536,8 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
         assert.equal(f.runs.length, 0, f.element("models-room").textContent);
         assert.ok(f.element("give-way").innerHTML.includes('id="gw-2"') && !f.element("give-way").innerHTML.includes('id="gw-1"') && !f.element("give-way").innerHTML.includes('id="gw-3"'), "only the reverb modes: " + f.element("give-way").innerHTML);
         f.element("gw-2").checked = true; f.element("gw-2").listeners.change();
+        // (re-review) the unit read again at Install with only its effects' use and a start's state changed: the same modules, so the choice stands
+        f.unitReads.data = JSON.parse(JSON.stringify(full)); f.unitReads.data.fx.effects.forEach((e) => { e.uses = 3; e.why = 1; }); f.unitReads.data.mod.starts[2].state = 5;
         await go(f);
         assert.equal(f.runs.length, 1); assert.equal(JSON.stringify(f.runs[0].removable), "[]", "every effect module is ticked: none may be taken off");
         assert.ok(!f.runs[0].modules.includes(REVO.url) && !f.confirms.length);

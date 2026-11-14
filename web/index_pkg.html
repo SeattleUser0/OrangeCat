@@ -440,7 +440,9 @@ const modelsOk = () => modelsLoading ? !$("stage-models").checked : !$("stage-mo
  * stays in the unit untouched, it is only not written this time), and DUB TAPE and the FX layer (an unticked box means "leave it alone") are never taken off; they are named */
 const removableFx = () => { const ticked = new Set(fxTicked(true).map((x) => x.module_id)); return fxOpt().filter((x) => !ticked.has(x.module_id)).map((x) => ({mid: x.module_id})); };
 const giveWayKey = () => JSON.stringify([fxTicked(true).map((x) => x.module_id), pickedItems(), ["stage-mod", "stage-prophet", "stage-models"].map((id) => $(id).checked),
-  unitState && unitState.mod ? [unitState.mod.starts, unitState.fx ? unitState.fx.effects : null] : null]);
+  /* (re-review) the unit by what makes its modules different (start, engine, sectors; an effect's start, kind, id, sectors, version), not by state, why or uses, which change between reads */
+  unitState && unitState.mod ? [unitState.mod.starts.map((x, i) => x.state ? [i, x.engine, Math.ceil((x.length || 0) / 4096)] : null),
+    unitState.fx ? unitState.fx.effects.map((e) => [e.start, e.kind, e.id, e.sectors, e.version]) : null] : null]);
 /* the room and the placement of the set the boxes tick, less the module that gives way (fxPick): {room (PICK.room's answer, ok and text as the meter shows them), extra} */
 function meterFor(items, bad) {
   const area = unitState && unitState.mod ? unitState.mod.sectors : 18, places = modelsPlaces(area);
