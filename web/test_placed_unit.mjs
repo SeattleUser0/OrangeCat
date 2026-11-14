@@ -92,8 +92,11 @@ export const FX_ABI = 0x9DCB40AD, MDL_ABI = 1, FX2_ABI = 0xE2B81A6B, FX3_ABI = 0
 // each install wrote (the WRITE pieces and the END's header page) and reports what the loader would: the CRC when the code reads back with the header's word 52, the pick from the
 // models table; a start the initial state names reports its `crc` / `pick` (0 when it has none). Without it (a firmware before Round 26) MOD_INFO ends at the low sectors' byte.
 // u.pokeCode(start, at): one byte of the module at that start changed under the page (the header kept): the next MOD_INFO reports what the loader finds
-export function placedUnit(initial, OcLink, {fail = null, oldFw = false, mdlAbi = MDL_ABI, words = [], crc = false} = {}) {
-  const u = {st: PLACE.cloneState(initial), sent: [], ops: [], wire: [], begin: null, fail, count: {begin: 0, remove: 0}, oldFw, crc, img: null};
+// (Round 26) fw: {len, crc, stub}, the image the unit runs, sent after the CRCs (a unit with crc and without fw: a firmware whose MOD_INFO has the CRCs only); u.fw may be set
+// later (an update changes it). u.flashed counts runFirmware calls a test makes through it (u.flash(id): the unit then runs id)
+export function placedUnit(initial, OcLink, {fail = null, oldFw = false, mdlAbi = MDL_ABI, words = [], crc = false, fw = null} = {}) {
+  const u = {st: PLACE.cloneState(initial), sent: [], ops: [], wire: [], begin: null, fail, count: {begin: 0, remove: 0}, oldFw, crc, img: null, fw, flashed: 0};
+  u.flash = (id) => { u.flashed++; if (id) u.fw = {...id}; };
   initial.starts.forEach((x, i) => { u.st.starts[i].ver = x.ver; u.st.starts[i].crc = x.crc; u.st.starts[i].pick = x.pick; u.st.starts[i].image = x.image; });
   const verified = (x) => { if (!x.image) return [x.crc || 0, x.pick || 0]; const dv = new DataView(x.image.buffer, x.image.byteOffset, x.image.byteLength), c = dv.getUint32(52, true);
     if (bkCrc(x.image.subarray(0x100)) !== c) return [0, 0];
@@ -119,7 +122,7 @@ export function placedUnit(initial, OcLink, {fail = null, oldFw = false, mdlAbi 
       const inPlace = c >= 0 && over(c, geo(args[0]).sectors, (x) => !x.kind && x.engine === args[0]);
       reply(120, [nst(), 18, inPlace ? 8 : 0, 1, 120, ...n5(IFACE), ...n5(API), ...n5(PHASH), c < 0 ? 127 : c,
         ...u.st.starts.flatMap((x) => [x.state, 0, x.kind === 4 ? x.mid & 0xFF : x.kind ? 127 : x.engine, ...n3(x.length)]), 127, nst(), ...SECT().map((sc) => sc + 64), u.st.lowOk ? 1 : 0,
-        ...(u.crc ? [nst(), ...u.st.starts.flatMap((x) => { const [c, p] = x.state === 7 ? verified(x) : [0, 0]; return [...n5(c), ...n5(p)]; })] : [])]);
+        ...(u.crc ? [nst(), ...u.st.starts.flatMap((x) => { const [c, p] = x.state === 7 ? verified(x) : [0, 0]; return [...n5(c), ...n5(p)]; }), ...(u.fw ? [...n5(u.fw.len), ...n5(u.fw.crc), ...n5(u.fw.stub)] : [])] : [])]);
     } else if (cmd === 125) {
       const eng = [];
       for (let e = 0; e < 20; e++) { const j = u.st.starts.findIndex((x) => x.state === 7 && !x.kind && x.engine === e && x.length); eng.push(...(j >= 0 ? [2, 7, 0, j, ...tri(u.st.starts[j].ver), ...n3(u.st.starts[j].length), 0] : [1, 7, 0, 127, 0, 0, 0, ...n3(0), 0])); }

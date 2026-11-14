@@ -1899,7 +1899,7 @@ async function stockRestore() {
         if (bytes.length !== 1 || bytes[0] !== 1) throw Error("Not the selected file");
         return {product:"FM-1_015", image:bytes, head:HEAD};
       },
-      productOf:() => "FM-1_9010", logicalImage:bytes => bytes,
+      productOf:() => "FM-1_9010", logicalImage:bytes => bytes, firmwareIdentity:() => null,
       URL:{createObjectURL:() => "blob:test", revokeObjectURL() {}}, Blob, setTimeout:() => 0,
       confirm:(message) => { calls.push("confirm"); calls.push(message); return confirm; },
       Updater:class {
@@ -2020,7 +2020,7 @@ async function installerBuilds() {
     document:{documentElement:{}, querySelectorAll:() => [], getElementById:element, createElement:() => ({})},
     window:{addEventListener() {}}, runSet:OC.runSet, OcLink:OC.OcLink,
     fetch:async (url) => { fetched.push(url); return {ok:true, arrayBuffer:async () => new Uint8Array(Buffer.from(url)).buffer}; },
-    productOf:(pkg) => /-rc\./.test(String.fromCharCode(...pkg)) ? "FM-1_91040" : /nightly/.test(String.fromCharCode(...pkg)) ? "FM-1_900" : "FM-1_91002", logicalImage:(pkg) => String.fromCharCode(...pkg),
+    productOf:(pkg) => /-rc\./.test(String.fromCharCode(...pkg)) ? "FM-1_91040" : /nightly/.test(String.fromCharCode(...pkg)) ? "FM-1_900" : "FM-1_91002", logicalImage:(pkg) => String.fromCharCode(...pkg), firmwareIdentity:() => null,
     MELODEE_LOADER, STOCK_LOADER,
     Updater:class { async find() { return null; } async install(image, product, step, loader) { installed.push([image, product, loader]); } },
   });
@@ -2071,7 +2071,7 @@ async function installerBuildRaces() {
     document:{documentElement:{},querySelectorAll:()=>[],getElementById:element,createElement:()=>({})},window:{addEventListener(){}}, runSet:OC.runSet, OcLink:OC.OcLink,
     fetch:url=>new Promise(resolve=>pending.set(url,resolve)),
     productOf:pkg=>String.fromCharCode(...pkg)==="older"?"FM-1_91001":"FM-1_91002",
-    logicalImage:pkg=>String.fromCharCode(...pkg), MELODEE_LOADER, STOCK_LOADER,
+    logicalImage:pkg=>String.fromCharCode(...pkg), firmwareIdentity:() => null, MELODEE_LOADER, STOCK_LOADER,
     Updater:class { async find(){ return null; } async install(img){installed=img;await new Promise(resolve=>installDone=resolve);} }
   });
   const finish = url => pending.get(url)({ok:true,arrayBuffer:async()=>Uint8Array.from(Buffer.from(url)).buffer});

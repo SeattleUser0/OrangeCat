@@ -16,6 +16,8 @@ static unsigned char host_samples[3][0x14000];
 #define MELODEE_FLASH 0
 #define MELODEE_VERSION "TEST"
 #define OC_MODULE_WINS 1                  /* (Orange Cat 0.10.0) the module commands are tested with a module that takes the slot (the build default is 0; the Orange Cat set turns it on) */
+static unsigned char host_app[0x92000u - 0x4120u];   /* (Round 26) app.bin as the unit's XIP shows it: the stub, the body, the commit marker (MOD_INFO's image report) */
+#define OC_APP_XIP(off) (host_app + ((off) - 0x4120u))
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
@@ -1530,6 +1532,42 @@ static void rep_models(uint32_t start, uint32_t n, uint32_t leave_out, uint32_t 
     }
     rep_seal(start, ENGI_MACRO | FW_MOD_KIND_MODELS << 8, pl_need(100u, 0), len);
 }
+/* (Round 26) the image report, MOD_INFO's last 15 bytes: the commit marker's body length and CRC, the stub's CRC (5 x 7 bits each), 0 without a valid marker */
+#define FWR (REP0 + 1u + 10u * OC_MOD_STARTS)
+static void app_marker(uint32_t len, uint32_t crc, int bad)   /* the 20 bytes tools/fm1pkg_make.py marker writes, at flash 0x91FE0 */
+{
+    uint8_t *m = host_app + (0x91FE0u - 0x4120u);
+    uint32_t w[4] = { 0x4D425243u, 1u, len, crc }, c, i;
+    for (i = 0; i < 16u; i++) m[i] = (uint8_t)(w[i / 4u] >> (8u * (i % 4u)));
+    c = ocs_crc32(m, 16u) ^ (bad ? 1u : 0u);
+    for (i = 0; i < 4u; i++) m[16u + i] = (uint8_t)(c >> (8u * i));
+}
+static int fw_report(void)
+{
+    int bad = 0;
+    uint32_t i, len = 0x40000u, crc, stub;
+    reset();
+    memset(host_app, 0xFF, sizeof host_app);
+    request(ED_MOD_INFO, 0, 0);
+    bad += check("MOD_INFO's image report (Round 26): no commit marker (erased flash): length, body CRC and stub CRC 0",
+                 host_wire_n == FWR + 16u && rep_u35(FWR) == 0 && rep_u35(FWR + 5u) == 0 && rep_u35(FWR + 10u) == 0 && host_wire[FWR + 15u] == 0xF7);
+    for (i = 0; i < 0xEE0u + len; i++) host_app[i] = (uint8_t)(i * 13u + (i >> 9));
+    crc = ocs_crc32(host_app + 0xEE0u, len); stub = ocs_crc32(host_app, 0xEE0u);
+    app_marker(len, crc, 0);
+    request(ED_MOD_INFO, 0, 0);
+    bad += check("MOD_INFO's image report: the marker's body length and CRC as the build wrote them, and the stub's CRC (app.bin's first 0xEE0 bytes)",
+                 rep_u35(FWR) == len && rep_u35(FWR + 5u) == crc && rep_u35(FWR + 10u) == stub && crc && stub);
+    host_app[5] ^= 1u;
+    request(ED_MOD_INFO, 0, 0);
+    bad += check("MOD_INFO's image report: another stub, the same body: the stub's CRC differs", rep_u35(FWR + 10u) != stub && rep_u35(FWR + 5u) == crc);
+    host_app[5] ^= 1u;
+    app_marker(len, crc, 1);
+    request(ED_MOD_INFO, 0, 0);
+    bad += check("MOD_INFO's image report: a marker whose own CRC is wrong: all 0", rep_u35(FWR) == 0 && rep_u35(FWR + 5u) == 0 && rep_u35(FWR + 10u) == 0);
+    memset(host_app, 0xFF, sizeof host_app);
+    reset();
+    return bad;
+}
 static int mod_report(void)
 {
     int bad = 0, ok;
@@ -1541,7 +1579,7 @@ static int mod_report(void)
     oc_mod_boot(0);
     song.playing = 0; host_progress = 1;
     request(ED_MOD_INFO, 0, 0);
-    ok = host_wire_n == REP0 + 1u + 10u * OC_MOD_STARTS + 1u && host_wire[REP0] == OC_MOD_STARTS && host_wire[host_wire_n - 1u] == 0xF7;
+    ok = host_wire_n == REP0 + 1u + 10u * OC_MOD_STARTS + 15u + 1u && host_wire[REP0] == OC_MOD_STARTS && host_wire[host_wire_n - 1u] == 0xF7;
     for (s = 0; s < OC_MOD_STARTS; s++) ok &= rep_crc(s) == 0 && rep_pick(s) == 0;
     bad += check("MOD_INFO's report (Round 26): appended after the low sectors' byte, the count of starts and 10 bytes a start; an empty area: every CRC and pick 0", ok);
     c = install_image(ENGI_SHAPES, 0, 3000u);
@@ -1867,7 +1905,7 @@ static int arrange_protocol(void)
 
 int main(void)
 {
-    int bad = kit_protocol() + arrange_protocol() + module_protocol() + module_overlaps() + fx_protocol() + mod_report() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + reply_counters() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
+    int bad = kit_protocol() + arrange_protocol() + module_protocol() + module_overlaps() + fx_protocol() + mod_report() + fw_report() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + reply_counters() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
               native_protocol() + shared_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + device_settings() + scale_catalogue() + project_scale_protocol() + web_wire_rule();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;

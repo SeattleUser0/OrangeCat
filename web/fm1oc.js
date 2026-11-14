@@ -120,6 +120,7 @@ export function parseModInfo(a) {
     const c = r.b(), crcs = [], picks = [];
     for (let k = 0; k < c; k++) { crcs.push(r.n5()); picks.push(r.n5()); }
     o.crcs = crcs; o.picks = picks;
+    if (r.i + 15 <= a.length) o.fw = { len: r.n5(), crc: r.n5(), stub: r.n5() };   // (Round 26) the image the unit runs: the commit marker's body length and CRC, the stub's CRC (0s: no marker)
   }   // the six low sectors (starts 12..17) are usable (the unit's last appended byte; absent: false)   // (Release 3 step 1) the sector of each start, appended by the unit (absent: OCM_SECTOR)   // (0.12.1) the start whose module of another engine is in the way
   o.shapesBuiltIn = !!(o.flags & 1); o.moduleWins = !!(o.flags & 2); o.writing = !!(o.flags & 4); o.inPlace = !!(o.flags & 8);
   return o;
@@ -675,11 +676,20 @@ async function rearrangeCheck(link, probe, ocms, arr) {
   return bad;
 }
 
+// (Round 26) does the unit run exactly the image of this package? id: fm1pkg.js firmwareIdentity of the package (null: never); info: the unit's MOD_INFO. The commit marker's body
+// length and CRC-32 (the boot stub boots no body without that CRC) and the stub's CRC-32 must all be there, not 0, and equal: a firmware that does not report them, a stock or
+// foreign app, another build of the same version or a bench build with other switches is written as always.
+export function fwCurrent(id, info) {
+  const u = info && info.fw;
+  return !!(id && u && u.len && u.crc && u.stub && id.len === u.len && id.crc === u.crc && id.stub === u.stub);
+}
 // The set. ctx: {
 //   stages: {firmware, pack, module}   which stages the user wants
 //   files: {pack: bytes|null, modules: [bytes], want: [{kind, module_id} | null]}      fetched before anything is written; want (Release 3 step 4, optional): what the
 //                                                    manifest says each module is, checked against the file's header and descriptor ("modManifest" when not)
 //   runFirmware(): the page's own update; resolves when the unit is back
+//   firmwareId (Round 26, optional): the package's {len, crc, stub} (fm1pkg.js firmwareIdentity); with it the unit is asked first (peekUnit(), else openUnit()) and the firmware
+//                                     is left as it is (sum.firmware "current") when the unit runs that image (fwCurrent); without it, or in any doubt, it is written
 //   openUnit(): the unit's editor port as an OcLink, or null (the page looks for up to a minute)
 //   say(key, arg), progress(fraction 0..1), log(text), sleep(ms), confirmInPlace()
 //   confirmRearrange(names, drop) (round 23): asked, on a unit with the tail region, before the set's own modules (names) are taken off and put on again in the goal's order;
@@ -706,8 +716,18 @@ export async function runSet(ctx) {
   const part = (w) => { const b = base; base += w; return (f) => progress((b + w * Math.max(0, Math.min(1, f))) / total); };
   if (stages.firmware) {
     const f = part(weight.firmware);
-    await ctx.runFirmware(f);
-    sum.firmware = "installed";
+    let same = false;
+    if (ctx.firmwareId) {                                // (Round 26) the unit asked first: the image it runs against the package's (fwCurrent); any doubt flashes
+      const l = await (ctx.peekUnit || ctx.openUnit)();
+      if (l) {
+        try { const m = await l.ask(ocReq.modInfo(), { timeout: 300, retries: 1 }); same = fwCurrent(ctx.firmwareId, m ? parseModInfo(m) : null); }
+        catch (e) { if (e.code === "ocLost") throw e; same = false; }
+        finally { l.close(); }
+      }
+      log(same ? "firmware: the unit runs this package's image (marker length and CRC, stub CRC): left as it is" : "firmware: the unit's image is not this package's, or it does not say: written");
+    }
+    if (same) sum.firmware = "current";
+    else { await ctx.runFirmware(f); sum.firmware = "installed"; }
     f(1);
   }
   if (!stages.pack && !stages.module) { sum.module = mods.map(() => "off"); return sum; }

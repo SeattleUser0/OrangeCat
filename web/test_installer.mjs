@@ -28,6 +28,7 @@ const context = vm.createContext({
   window: {addEventListener: () => {}},
   fetch: url => new Promise(resolve => pending.push({url, resolve})),
   logicalImage: bytes => bytes,
+  firmwareIdentity: () => null,                 // (Round 26) fm1pkg.js: the stub packages carry no marker
   productOf: bytes => ["new", "old", "rc"][bytes[0]],
   Uint8Array,
 });

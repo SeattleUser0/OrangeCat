@@ -557,7 +557,8 @@ function stageNote() {
 }
 const ready = () => { lastKey = "ready"; $("status").textContent = `Orange Cat ${selection().channel.version} (${t(build() + "Tag")})`; };
 const log = (t) => { const box = $("log"); box.textContent += t + "\n"; box.scrollTop = box.scrollHeight; };
-let image = null;
+let image = null, imageId = null;
+const fwIds = {};
 const meta = /*META*/{};
 function releaseOptions() {
   const selected = $("release").value || meta.version;
@@ -617,7 +618,7 @@ async function choose() {
   const {kind, channel, key} = selection(), epoch = ++buildEpoch;
   stageNote(); installWhat();
   const cacheKey = kind + ":" + (channel?.version || "") + ":" + (channel?.commit || "");
-  image = null; $("go").disabled = true;
+  image = null; imageId = null; $("go").disabled = true;
   modelsLoad();                                       /* (the model picker) the build's master package, beside the firmware's */
   try {
     if (!images[cacheKey]) {
@@ -627,9 +628,10 @@ async function choose() {
       const pkg = new Uint8Array(await r.arrayBuffer());
       if (productOf(pkg) !== channel.product) { if (epoch === buildEpoch) sayK("badpkg"); return; }
       images[cacheKey] = logicalImage(pkg);
+      fwIds[cacheKey] = firmwareIdentity(pkg);      /* (Round 26) what a unit running this package reports (MOD_INFO): Install leaves the firmware when it is that */
     }
     if (epoch !== buildEpoch) return;
-    image = images[cacheKey]; if (!writing) ready(); lockInstaller(writing);
+    image = images[cacheKey]; imageId = fwIds[cacheKey] || null; if (!writing) ready(); lockInstaller(writing);
   } catch (e) { if (epoch === buildEpoch) sayK("loadfail", e.message); }
 }
 buildIds.forEach(k => $("build-" + k).addEventListener("change", () => { if (build() === "dual" || build() === "nightly-dual") remember(build()); return choose(); }));
@@ -782,6 +784,7 @@ $("go").addEventListener("click", async () => {
     const sum = await runSet({
       stages, files, log,
       runFirmware: (f) => flashFirmware(midi, product, f),
+      firmwareId: imageId, peekUnit: () => openUnit(midi, 5000),   /* (Round 26) the firmware is left as it is when the unit runs this package's image */
       openUnit: () => openUnit(midi),
       say: (k) => sayK(k),
       progress: (x) => { $("bar").value = x * 100; },
@@ -792,7 +795,7 @@ $("go").addEventListener("click", async () => {
     const lines = summaryText(sum);
     if (sum.fx) showUnit({fx: sum.fx});
     lines.forEach((l) => log(l));
-    if (stages.pack || stages.module) say(t("sumTitle") + lines.join(" | "));
+    if (stages.pack || stages.module || sum.firmware === "current") say(t("sumTitle") + lines.join(" | "));
     else sayK("done");
     $("bar").value = 100;
   } catch (e) {

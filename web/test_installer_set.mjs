@@ -1016,4 +1016,80 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
   }
   console.log("installer set: round 26: the unit's CRCs and pick: two installs in a row write nothing the second time (models too), another pick and other content of one version are written, a unit without them as before passed");
 }
+// 21. (Round 26) the firmware stage: the page asks the unit first (MOD_INFO's image report: the commit marker's body length and CRC, the stub's CRC) and leaves the firmware
+//     when the unit runs exactly the package's image; anything else is flashed as always
+//     a. two installs in a row of the whole set (firmware, pack, modules): the second flashes nothing, writes nothing, asks nothing: "Firmware: already current"
+//     b. another build of the same version (another body CRC), another stub, a bench build of another length: flashed
+//     c. a firmware without the report (the CRCs only, or neither), a unit that does not answer, a package without a marker (no id): flashed
+//     d. the identity the page computes from a built .fwsc is the marker tools/fm1pkg_make.py wrote over build/melodee.bin (when a build is there)
+{
+  const T = await import("./test_placed_unit.mjs");
+  const {SHAPES, WHEEL, DUB, MODELS, engOcm, fxOcm, modelsOcm, sectsFor, AREA, unitState, placedUnit} = T;
+  const {fwCurrent, parseModInfo} = await import("./fm1oc.js");
+  const ID = {len: 0x80F00, crc: 0x1234ABCD, stub: 0x0BADF00D}, OLD = {len: 0x80F00, crc: 0x1234ABCE, stub: 0x0BADF00D};
+  const W = [null, null, {kind: 1, module_id: DUB}, {kind: 4, module_id: MODELS}];
+  const SET = {modules: [engOcm(WHEEL, AREA), engOcm(SHAPES, [0, 6]), fxOcm(DUB, 3, sectsFor(3)), modelsOcm(9, [-6, 0, 3])], want: W};
+  const ALLS = {firmware: true, pack: true, module: true};
+  const go = async (u, id, stages = ALLS, extra = {}) => {
+    const asked = [];
+    let sum = null, error = null;
+    try { sum = await runSet({stages, files: {pack: makePack(), ...SET}, firmwareId: id, runFirmware: async () => u.flash(id), openUnit: async () => u.link(), sleep: async () => {},
+                              confirmInPlace: () => { asked.push("inPlace"); return true; }, confirmRearrange: () => { asked.push("rearrange"); return true; }, ...extra}); } catch (e) { error = e; }
+    return {sum, error, asked};
+  };
+  const writes = (u, from) => u.wire.slice(from).filter((m) => [116, 117, 118, 119, 121, 122, 123, 124].includes(m[4]) || (m[4] === 0 && [3, 4].includes(m[5])));
+  // a.
+  let u = placedUnit(unitState(true), OcLink, {crc: true, fw: OLD}), r = await go(u, ID);
+  assert.ok(!r.error, r.error && r.error.message);
+  assert.equal(r.sum.firmware, "installed"); assert.equal(u.flashed, 1, "the unit ran another image: flashed");
+  assert.deepEqual(r.sum.module, ["installed", "installed", "installed", "installed"]);
+  const n = u.wire.length;
+  r = await go(u, ID);
+  assert.ok(!r.error, r.error && r.error.message);
+  assert.equal(r.sum.firmware, "current", "the second Install: the unit runs this image: the firmware is left as it is");
+  assert.equal(u.flashed, 1, "... not flashed again");
+  assert.equal(r.sum.pack, "current"); assert.deepEqual(r.sum.module, ["current", "current", "current", "current"]);
+  assert.deepEqual(writes(u, n), [], "the second Install writes nothing at all: no pack or module BEGIN, WRITE, END, ERASE or REMOVE");
+  assert.deepEqual(r.asked, [], "and asks nothing");
+  // b.
+  for (const [what, other] of [["another build of the same version (another body CRC)", {...ID, crc: ID.crc ^ 0x10}], ["another stub", {...ID, stub: ID.stub + 1}],
+                               ["a bench build of another length", {...ID, len: ID.len + 4}]]) {
+    u = placedUnit(unitState(true), OcLink, {crc: true, fw: other}); r = await go(u, ID, {firmware: true});
+    assert.ok(r.sum.firmware === "installed" && u.flashed === 1, what + ": flashed");
+  }
+  // c.
+  for (const [what, opts, extra] of [["a firmware with the CRCs and no image report", {crc: true}, {}], ["a firmware before Round 26 (neither)", {}, {}],
+                                     ["a marker that did not read (all 0)", {crc: true, fw: {len: 0, crc: 0, stub: 0}}, {}],
+                                     ["a unit that does not come to the editor port (stock firmware, update mode)", {crc: true, fw: ID}, {peekUnit: async () => null}]]) {
+    u = placedUnit(unitState(true), OcLink, opts); r = await go(u, ID, {firmware: true}, extra);
+    assert.ok(!r.error && r.sum.firmware === "installed" && u.flashed === 1, what + ": flashed: " + JSON.stringify(r.sum));
+  }
+  u = placedUnit(unitState(true), OcLink, {crc: true, fw: ID}); r = await go(u, null, {firmware: true});
+  assert.ok(r.sum.firmware === "installed" && u.flashed === 1, "a package without a marker (no identity): flashed, the unit not even asked");
+  assert.ok(!fwCurrent(ID, null) && !fwCurrent(null, {fw: ID}) && fwCurrent(ID, {fw: {...ID}}), "fwCurrent: both sides, every field");
+  // the reply: the old fields and the CRCs read as before, the image after them
+  {
+    const uc = placedUnit(unitState(true), OcLink, {crc: true, fw: ID}), un = placedUnit(unitState(true), OcLink, {crc: true});
+    const a = await uc.link().ask([120, []]), b = await un.link().ask([120, []]), pa = parseModInfo(a), pb = parseModInfo(b);
+    assert.equal(a.length, b.length + 15); assert.deepEqual(pa.fw, ID); assert.equal(pb.fw, undefined);
+    delete pa.fw; assert.deepEqual(pa, pb, "everything before the image report is read the same");
+    const E = await import("./app/lib/editor_proto.js");
+    assert.deepEqual(E.parse[E.CMD.MOD_INFO](a), E.parse[E.CMD.MOD_INFO](b), "the editor's parse ignores it");
+  }
+  // d.
+  {
+    const {readdirSync, existsSync} = await import("node:fs");
+    const {firmwareIdentity} = await import("./fm1pkg.js");
+    const dir = new URL("../build/", import.meta.url), bin = new URL("melodee.bin", dir);
+    const pkgs = existsSync(dir) ? readdirSync(dir).filter((f) => /^orangecat-.*\.fwsc$|^melodee(-nightly)?\.fwsc$/.test(f)) : [];
+    if (existsSync(bin) && pkgs.length) {
+      const app = new Uint8Array(readFileSync(bin)), body = app.subarray(0xEE0), padded = new Uint8Array(body.length + (-body.length & 3)).fill(0xFF);
+      padded.set(body);
+      const id = firmwareIdentity(new Uint8Array(readFileSync(new URL(pkgs.sort().at(-1), dir))));
+      assert.deepEqual(id, {len: padded.length, crc: bkCrc(padded), stub: bkCrc(app.subarray(0, 0xEE0))}, "the page's identity of the built package is the marker over build/melodee.bin and its stub");
+      assert.equal(firmwareIdentity(new Uint8Array(100)), null, "not a package: no identity");
+    } else console.log("installer set: 21d skipped: no firmware build in build/");
+  }
+  console.log("installer set: round 26: the firmware left as it is when the unit runs the package's image; another build, stub or length, an old firmware, no reply, no marker: flashed passed");
+}
 console.log("installer set: stages, skips, old firmware, retry, refusals and the shared .ocm reader, effect modules by module id, a models module by its id passed");
