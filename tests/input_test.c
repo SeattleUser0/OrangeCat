@@ -343,6 +343,53 @@ int main(void)
         for (f = 0; f < 8u; f++)
             enc_frame(m, 0);
         check("a one-frame glitch at rest: no step", fm1_in.enc_steps[0] == 0);
+
+        /* (Round 25, the owner's PRESETS knob: one slow click counted twice) contact dropouts in mid-click, replayed as raw frames, each a slow click
+         * (6 frames a state) both ways; every pattern is one step. DROPS[k]: the frames of one click from the detent (0) back to it */
+        {
+            static const struct { const char *what; uint8_t n; uint8_t st[8], fr[8]; } DROPS[] = {   /* states and their frames (a slow click: 6 a state) */
+                {"plain", 4, {1, 3, 2, 0}, {6, 6, 6, 6}},
+                {"both lines open for a frame at the far state (3 -> 0 -> 3)", 6, {1, 3, 0, 3, 2, 0}, {6, 3, 1, 3, 6, 6}},
+                {"both lines open for two frames at the far state", 6, {1, 3, 0, 3, 2, 0}, {6, 3, 2, 3, 6, 6}},
+                {"two dropouts in one click", 8, {1, 3, 0, 3, 0, 3, 2, 0}, {6, 2, 1, 2, 1, 2, 6, 6}},
+                {"a diagonal bounce away from the detent (1 -> 2 -> 1)", 6, {1, 2, 1, 3, 2, 0}, {3, 1, 3, 6, 6, 6}},
+                {"a dropout at the far state, then a diagonal bounce (2 -> 1 -> 2)", 8, {1, 3, 0, 3, 2, 1, 2, 0}, {6, 3, 1, 3, 3, 1, 3, 6}},
+            };
+            uint32_t k, j, ok = 1;
+            for (k = 0; k < sizeof DROPS / sizeof DROPS[0]; k++)
+                for (dir = 1; dir >= -1; dir -= 2) {
+                    reset();
+                    for (f = 0; f < 8u; f++)
+                        enc_frame(m, 0);
+                    for (j = 0; j < DROPS[k].n; j++) {
+                        uint32_t st = DROPS[k].st[j];
+                        if (dir < 0)
+                            st = st == 1u ? 2u : st == 2u ? 1u : st;   /* the other way round: the lines swap roles */
+                        for (f = 0; f < DROPS[k].fr[j]; f++)
+                            enc_frame(m, st);
+                    }
+                    for (f = 0; f < 8u; f++)
+                        enc_frame(m, 0);
+                    printf("encoder 0: one slow click, %s, %s -> %d\n", DROPS[k].what, dir > 0 ? "cw" : "ccw", (int)fm1_in.enc_steps[0]);
+                    ok &= fm1_in.enc_steps[0] == one * dir;
+                }
+            check("one slow click with a contact dropout or a bounce in it: one step (Round 25)", ok);
+
+            /* a real flick that lands on the detent by a jump (3 -> 0 in one frame) still counts, once it stands, and at once if the knob moves on */
+            reset();
+            for (f = 0; f < 8u; f++)
+                enc_frame(m, 0);
+            enc_frame(m, 1); enc_frame(m, 3); enc_frame(m, 0);
+            ok = fm1_in.enc_steps[0] == 0;                       /* not yet: it waits FM1_JUMP_FRAMES */
+            for (f = 0; f < 8u; f++)
+                enc_frame(m, 0);
+            ok &= fm1_in.enc_steps[0] == one;
+            enc_frame(m, 1); enc_frame(m, 3); enc_frame(m, 0); enc_frame(m, 1); enc_frame(m, 3); enc_frame(m, 2); enc_frame(m, 0);
+            for (f = 0; f < 8u; f++)
+                enc_frame(m, 0);
+            ok &= fm1_in.enc_steps[0] == 3 * one;
+            check("a flick that lands by a jump: counted once it stands or the knob moves on (Round 25)", ok);
+        }
     }
 
     {   /* (Orange Cat 0.13.8) the test surface's keys (OC_HW_TEST, command 108): a held id is a closed contact to the same debounce, every key */

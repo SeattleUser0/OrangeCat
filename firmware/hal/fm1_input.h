@@ -109,6 +109,9 @@ static volatile struct {
     uint8_t enc_rest[FM1_NENC];  /* the detent state (0..3) */
     uint16_t enc_still[FM1_NENC]; /* frames since the last state change */
     int8_t enc_sub[FM1_NENC];    /* net transitions since the last rest state */
+    uint8_t enc_jv[FM1_NENC];    /* (Round 25) 1: the last transition was a two-state jump, from enc_jfrom, with enc_jsub before it, enc_jage frames ago */
+    uint8_t enc_jfrom[FM1_NENC], enc_jage[FM1_NENC], enc_hold[FM1_NENC];   /* enc_hold: that jump landed on the detent; its steps wait FM1_JUMP_FRAMES */
+    int8_t enc_jsub[FM1_NENC];
     int16_t enc_steps[FM1_NENC]; /* + = clockwise */
     uint32_t frames;
 } fm1_in;
@@ -347,6 +350,19 @@ static void fm1_input_scan(void)
 #if OC_SFC_PROBE
 static struct { uint32_t w; uint32_t e[256]; } fm1_enc_log;      /* (Round 22, test builds only) the encoders' raw transitions, a ring (editor command 109 mode 5) */
 #endif
+#ifndef FM1_JUMP_FRAMES
+#define FM1_JUMP_FRAMES 3u   /* (Round 25, the PRESETS double count) a two-state jump undone by the jump straight back within this many frames (~3.3 ms) is a
+                              * contact dropout, not a turn: both are forgotten. A jump that lands on the detent waits as long before it counts, so a dropout
+                              * in mid-click (both lines open for a frame: the detent's state when the detent is both open) no longer counts the click twice:
+                              * once on the false landing, once on the real one. No hand turns a click in two frames, so a real flick loses nothing */
+#endif
+static void fm1__emit(uint32_t e, volatile int8_t *sub)   /* back on the detent: whole cycles, a lost transition or two forgiven (one click = 4 transitions) */
+{
+    int32_t n = *sub < 0 ? -*sub : *sub;
+    n = n >= 2 ? (n + 2) / 4 : 0;
+    fm1_in.enc_steps[e] = (int16_t)(fm1_in.enc_steps[e] + (*sub < 0 ? -n : n));
+    *sub = 0;
+}
 static void fm1__frame(void)
 {
     uint32_t e;
@@ -374,10 +390,35 @@ static void fm1__frame(void)
              * slow turn taught the mid states and the knob went dead */
             fm1_in.enc_rest[e] = (uint8_t)cur;
             *sub = 0;
+            fm1_in.enc_jv[e] = fm1_in.enc_hold[e] = 0;
+        }
+        if (fm1_in.enc_jv[e] && fm1_in.enc_jage[e] < 0xFFu && ++fm1_in.enc_jage[e] > FM1_JUMP_FRAMES) {
+            fm1_in.enc_jv[e] = 0;                  /* the jump stood: it was a turn */
+            if (fm1_in.enc_hold[e]) {
+                fm1_in.enc_hold[e] = 0;
+                fm1__emit(e, sub);
+            }
         }
         if (cur == fm1_in.enc_prev[e])
             continue;
         idx = (uint32_t)fm1_in.enc_prev[e] << 2 | cur;
+        if (!((0x4182u >> idx) & 1u) && !((0x2814u >> idx) & 1u) && fm1_in.enc_jv[e] && cur == fm1_in.enc_jfrom[e]) {
+            *sub = fm1_in.enc_jsub[e];             /* (Round 25) a jump and straight back: a dropout; as if neither happened */
+            fm1_in.enc_jv[e] = 0;
+            fm1_in.enc_hold[e] = 0;
+            fm1_in_stat.enc_lost[e]++;
+#if OC_SFC_PROBE
+            fm1_enc_log.e[fm1_enc_log.w++ & 255u] = (fm1_in.frames & 0xFFFFu) | (uint32_t)e << 16 | (uint32_t)(idx >> 2) << 19 | (uint32_t)cur << 21 |
+                                                    ((uint32_t)(uint8_t)*sub & 0xFFu) << 23 | 1u << 31;
+#endif
+            fm1_in.enc_prev[e] = (uint8_t)cur;
+            continue;
+        }
+        if (fm1_in.enc_hold[e]) {                  /* the knob moves on from a jump's landing: that landing was real */
+            fm1_in.enc_hold[e] = 0;
+            fm1__emit(e, sub);
+        }
+        fm1_in.enc_jv[e] = 0;
         if ((0x4182u >> idx) & 1u) {
             (*sub)++;
             fm1_in_stat.enc_moves[e]++;
@@ -386,6 +427,7 @@ static void fm1__frame(void)
             fm1_in_stat.enc_moves[e]++;
         } else {                                   /* two states in one sample: a fast turn, */
             fm1_in_stat.enc_lost[e]++;             /* the way it was going */
+            fm1_in.enc_jv[e] = 1; fm1_in.enc_jfrom[e] = fm1_in.enc_prev[e]; fm1_in.enc_jsub[e] = *sub; fm1_in.enc_jage[e] = 0;
             if (*sub > 0)
                 *sub = (int8_t)(*sub + 2);
             else if (*sub < 0)
@@ -402,11 +444,11 @@ static void fm1__frame(void)
         fm1_in.enc_prev[e] = (uint8_t)cur;
         if (*sub > 100 || *sub < -100)
             *sub = 0;                              /* (never off the detent that long) */
-        if (cur == fm1_in.enc_rest[e]) {          /* back on the detent: whole cycles, a lost transition */
-            int32_t n = *sub < 0 ? -*sub : *sub;   /* or two forgiven (one click = 4 transitions) */
-            n = n >= 2 ? (n + 2) / 4 : 0;
-            fm1_in.enc_steps[e] = (int16_t)(fm1_in.enc_steps[e] + (*sub < 0 ? -n : n));
-            *sub = 0;
+        if (cur == fm1_in.enc_rest[e]) {          /* back on the detent */
+            if (fm1_in.enc_jv[e])
+                fm1_in.enc_hold[e] = 1;            /* (Round 25) landed by a jump: count it once it stands */
+            else
+                fm1__emit(e, sub);
         }
     }
     fm1_in.frames++;
