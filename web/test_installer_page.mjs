@@ -63,11 +63,11 @@ function boot(storage, unit = {model: "FM-1", text: "FM-1_710010300"}, meta = ME
       async resume() { return true; }
     },
     runSet: async (ctx) => {                              // the page's one run: the firmware first, then the pack and the module (the set logic is fm1oc.js runSet, tested in test_installer_set.mjs)
-      runs.push({stages: ctx.stages, pack: ctx.files.pack && String.fromCharCode(...ctx.files.pack), modules: ctx.files.modules.map((m) => String.fromCharCode(...m)), want: ctx.files.want});
+      runs.push({stages: ctx.stages, pack: ctx.files.pack && String.fromCharCode(...ctx.files.pack), modules: ctx.files.modules.map((m) => String.fromCharCode(...m)), want: ctx.files.want, removable: ctx.removable});
       if (ctx.stages.firmware) await ctx.runFirmware(() => {});
       if (unitReads.rearrange) {                          // (round 23) the set logic asks before a rearrange: here the page's question is what is under test
-        const yes = await ctx.confirmRearrange(unitReads.rearrange);
-        return {firmware: "off", pack: "off", module: ctx.files.modules.map(() => (yes ? "installed" : {error: "modRearrangeDeclined"})), rearrange: yes ? "done" : "declined"};
+        const drop = unitReads.drop || [], yes = await ctx.confirmRearrange(unitReads.rearrange, drop);   // (round 25) drop: modules not of the set taken off for good
+        return {firmware: "off", pack: "off", module: ctx.files.modules.map(() => (yes ? "installed" : {error: "modRearrangeDeclined"})), rearrange: yes ? (unitReads.rearrange.length ? "done" : undefined) : "declined", ...(yes && drop.length ? {dropped: drop} : {})};
       }
       return {firmware: ctx.stages.firmware ? "installed" : "off", pack: ctx.stages.pack ? "installed" : "off", module: ctx.files.modules.map(() => "installed")};
     },
@@ -344,8 +344,8 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
       for (const [st, eng, state, len, fx] of mods) { starts[st] = {state, why: 0, engine: fx ? 127 : eng, length: len}; if (fx) effects.push({id: fx.id, kind: 1, version: [1, 0, 0], count: 1, state, why: 0, start: st, sectors: fx.sectors, resident: false, uses: 0}); else engines.push({num: eng, src: 2, state, start: st}); }
       return {mod: {nstarts, sectors: 18, lowOk: true, starts}, engines: {engines}, fx: {effects}};
     };
-    const fresh = async (unit, {fx = false, bytes = masterBytes} = {}) => {
-      const pg = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...WITH, releases: [WITH]});
+    const fresh = async (unit, {fx = false, bytes = masterBytes, meta = WITH} = {}) => {
+      const pg = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...meta, releases: [meta]});
       await answer(pg, "standard.fwsc");
       const i = pg.pending.findIndex((q) => q.url.startsWith("orangecat-plaits-")); const [q] = pg.pending.splice(i, 1); q.resolve({ok: true, arrayBuffer: async () => bytes.buffer}); await pg.tick(); await pg.tick();
       pg.element("stage-models").checked = true; pg.element("stage-models").listeners.change();
@@ -408,14 +408,25 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
     no.unitReads.rearrange = ["SHAPES", "DUB TAPE"]; no.unitReads.answer = false;
     await press(no, true);
     assert.match(no.element("status").textContent, /Not rearranged, so nothing was written: the unit is as it was\.$/, no.element("status").textContent);
-    // the effects box unticked: the two effect modules are not of the set; the pick would fit without the one in the tail, which is named (the first that the set cannot
-    // stand beside, the others kept); nothing is written. The same with DUB TAPE in the tail: named by its name
+    // the effects box unticked: the two effect modules are not of the set. (round 25, decision B) DUB TAPE is one of the build's effect modules: the page may take it off for good
+    // when that makes the set fit, and Install's question names it. The meter says so; the question is the page's (the set logic is test_installer_set.mjs 19)
     const blk0 = await fresh(tfrag(), {bytes: tailMaster});
+    blk0.unitReads.rearrange = []; blk0.unitReads.drop = ["DUB TAPE"];
     await press(blk0);
-    assert.match(blk0.element("models-room").textContent, /needs 3 in one run\. ENGINE EFFECT 0x1234 INSTALLED AT START 18: REMOVE IT FIRST Install waits until the models fit\.$/, blk0.element("models-room").textContent);
-    assert.equal(blk0.runs.length, 0);
+    assert.match(blk0.element("models-room").textContent, /needs 3 in one run\. It fits once DUB TAPE \(in the unit, not ticked\) is removed and not put back \(MACRO models 3 \(module area\)\): Install asks first\.$/, blk0.element("models-room").textContent);
+    assert.equal(blk0.runs.length, 1); assert.equal(JSON.stringify(blk0.runs[0].removable), JSON.stringify([{mid: 1}]), "the build's effect modules are the ones a rearrange may take off");
+    assert.equal(blk0.confirms[0], "The set you ticked does not fit beside the modules in the FM-1 now. DUB TAPE is in the FM-1 but not in the set you ticked: the page removes it to make room and does not put it back " +
+      "(tick it and install it again if you want it back). Nothing else is moved. Remove DUB TAPE and install the set?");
+    assert.match(blk0.element("status").textContent, /Removed to make room, not put back \(not in the set you ticked\): DUB TAPE\.$/, blk0.element("status").textContent);
+    // a module the build does not offer is never taken off: named, nothing written (the first that the set cannot stand beside, the others kept)
+    const two = unitOf([[0, 14, 7, 24160], [7, 0, 7, 12288, {id: 0x1234, sectors: 3}], [18, 0, 7, 12288, {id: 0x5678, sectors: 3}]], 21); two.mod.lowOk = false;
+    const blk1 = await fresh(two, {bytes: tailMaster});
+    await press(blk1);
+    assert.match(blk1.element("models-room").textContent, /needs 3 in one run\. ENGINE EFFECT 0x5678 INSTALLED AT START 18: REMOVE IT FIRST Install waits until the models fit\.$/, blk1.element("models-room").textContent);
+    assert.equal(blk1.runs.length, 0); assert.ok(!blk1.confirms.length);
+    // ... and DUB TAPE in the tail on a build that does not offer it: named by its name
     const swapped = unitOf([[0, 14, 7, 24160], [7, 0, 7, 12288, {id: 0x1234, sectors: 3}], [18, 0, 7, 12288, {id: 1, sectors: 3}]], 21); swapped.mod.lowOk = false;
-    const blk = await fresh(swapped, {bytes: tailMaster});
+    const blk = await fresh(swapped, {bytes: tailMaster, meta: {...WITH, ocm: STANDARD.ocm}});
     await press(blk);
     assert.match(blk.element("models-room").textContent, /needs 3 in one run\. ENGINE DUB TAPE INSTALLED AT START 18: REMOVE IT FIRST Install waits until the models fit\.$/, blk.element("models-room").textContent);
     assert.equal(blk.runs.length, 0, "a module that is not of the set is in the way: nothing is written");
@@ -447,6 +458,81 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
       const nt = await open(null);
       assert.match(nt.element("models-room").textContent, /^Room: 18 sectors; WHEEL 4, SHAPES 6, DUB TAPE 3 take 13; 5 left\. This pick \(WAVSHP, FM, GRAIN\) needs 9: 4 too many\./, "a build without the tail region: WHEEL is 4 sectors, as its package is: " + nt.element("models-room").textContent);
       assert.equal(nt.element("go").disabled, true);
+    }
+    // (round 25, the owner's decisions A and B) the build offers DUB TAPE 3 and the FX layer 2 (the effects box) and the reverb modes 1 (the optional box); SHAPES 6, WHEEL 1 and the
+    // default pick 9 (GRAIN cut to 28,000 B as above): 22 sectors with every box ticked, on 21.
+    //   A. the page offers the ticked effect modules whose absence lets the rest fit; nothing is chosen for the owner (Install waits); the choice is shown in the meter and in what
+    //      Install writes, and Install leaves that module out (each of the three in turn), on the unit as it is read too
+    //   B. a unit holding the reverb module beside the default set: the meter says the reverb module is removed and not put back, Install asks with its name
+    {
+      const REVO = {url: "orangecat-reverb-0.15.0.ocm", kind: 2, module_id: 2, name: "REVERB MODES", sectors: 1, optional: true};
+      const FXLO = {url: "orangecat-fxlayer-0.15.0.ocm", kind: 3, module_id: 3, name: "FX LAYER", sectors: 2}, DUBO = WITH.ocm.at(-1);
+      const FULL = {...WITH, ocm: ["orangecat-shapes-0.15.0.ocm", "orangecat-wheel-0.15.0.ocm", DUBO, FXLO, REVO]};
+      const grain9 = regions.flatMap((r) => (r.name === "mdl_grain" ? [{...r, end: r.start + 28000 - 16}, {name: "rest", start: r.start + 28000, end: r.end}] : [r]));
+      const tm = masterOf({...manifest, regions: grain9, places: [{name: "area", first: -6, last: 12}, {name: "tail", first: -58, last: -55}]});
+      const open = async ({rev = true} = {}) => {
+        const pg = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...FULL, releases: [FULL]});
+        await answer(pg, "standard.fwsc");
+        const i = pg.pending.findIndex((q) => q.url.startsWith("orangecat-plaits-")); const [q] = pg.pending.splice(i, 1); q.resolve({ok: true, arrayBuffer: async () => tm.buffer}); await pg.tick(); await pg.tick();
+        pg.element("stage-models").checked = true; pg.element("stage-models").listeners.change();
+        pg.element("stage-fx").checked = true; pg.element("stage-fx").listeners.change();
+        pg.element("stage-fx-opt").checked = rev; pg.element("stage-fx-opt").listeners.change();
+        return pg;
+      };
+      const go = async (pg) => {                        // Install, every fetch answered with its url's bytes
+        let done = false; const c = pg.element("go").listeners.click(); c.then(() => { done = true; });
+        for (let k = 0; k < 40 && !done; k++) { while (pg.pending.length) { const p = pg.pending.shift(); p.resolve({ok: true, arrayBuffer: async () => Uint8Array.from(Buffer.from(p.url)).buffer}); } await pg.tick(); }
+        await c;
+      };
+      const pg = await open();
+      const gw = pg.element("give-way");
+      assert.equal(gw.hidden, false, "22 of 21: the page asks which effect module gives way");
+      assert.ok(gw.innerHTML.startsWith("The modules you ticked need more room than the FM-1 has. Choose the effect module that gives way: it is left out of this install, and the rest goes in."), gw.innerHTML);
+      for (const [id, txt] of [[1, "DUB TAPE (3 sectors)"], [3, "FX LAYER (2 sectors)"], [2, "REVERB MODES (1 sector)"]]) assert.ok(gw.innerHTML.includes(`id="gw-${id}"> ${txt}`), txt + " is offered: " + gw.innerHTML);
+      assert.ok(![1, 2, 3].some((id) => pg.element("gw-" + id).checked), "nothing is chosen for the owner");
+      assert.match(pg.element("models-room").textContent, / Install waits until you choose\.$/, pg.element("models-room").textContent);
+      assert.equal(pg.element("go").disabled, true, "Install waits for the choice");
+      for (const [id, name, url, kind] of [[3, "FX LAYER", FXLO.url, 3], [2, "REVERB MODES", REVO.url, 2], [1, "DUB TAPE", DUBO.url, 1]]) {
+        const p = await open();
+        p.element("gw-" + id).checked = true; p.element("gw-" + id).listeners.change();
+        assert.ok(p.element("models-room").textContent.startsWith(name + " gives way: it is not installed this time. Room: "), p.element("models-room").textContent);
+        assert.doesNotMatch(p.element("models-room").textContent, /Install waits/, "the chosen set fits");
+        assert.match(p.element("install-what").textContent, new RegExp("\\. " + name + " gives way: it is not installed this time\\.$"), p.element("install-what").textContent);
+        assert.equal(p.element("go").disabled, false, name + " chosen: Install is ready");
+        p.unitReads.data = unitOf([], 21);            // Install reads the unit (empty, with the tail): the planner's meter, the same choice
+        await go(p);
+        assert.equal(p.runs.length, 1, name + ": " + p.element("status").textContent);
+        assert.ok(!p.runs[0].modules.includes(url) && p.runs[0].modules.length === 5, name + " is left out: " + p.runs[0].modules.map((m) => m.slice(0, 30)));
+        assert.ok(!p.runs[0].want.some((w) => w && w.kind === kind), "... and not in what the list says is sent");
+        assert.ok(p.element("models-room").textContent.startsWith(name + " gives way: it is not installed this time. Room: 18 sectors in the module area and 3 in the tail region. This pick (WAVSHP, FM, GRAIN) needs 9 in one run. The unit's loader can place it: SHAPES 6 (module area), MACRO models 9 (module area), WHEEL 1 (module area), "),
+          p.element("models-room").textContent);
+        assert.ok(!p.element("models-room").textContent.includes(name + " " + {1: 3, 2: 1, 3: 2}[id] + " ("), "the meter places the set without it: " + p.element("models-room").textContent);
+      }
+      // the reverb box unticked again: 21 of 21, no question, nothing gives way
+      pg.element("stage-fx-opt").checked = false; pg.element("stage-fx-opt").listeners.change();
+      assert.equal(pg.element("give-way").hidden, true); assert.equal(pg.element("go").disabled, false);
+      assert.doesNotMatch(pg.element("install-what").textContent, /gives way/);
+      // B. the unit as round 24 left it, with the reverb module at start 2 (sector 4) in place of the FX layer
+      const held = unitOf([[1, 14, 7, 24160], [5, 7, 7, 4096], [17, 0, 7, 36864, {id: 0x4D08, sectors: 9}], [18, 0, 7, 12288, {id: 1, sectors: 3}], [2, 0, 7, 4096, {id: 2, sectors: 1}]], 21);
+      const b = await open({rev: false});
+      b.unitReads.data = held; b.unitReads.rearrange = []; b.unitReads.drop = ["REVERB MODES"];
+      await go(b);
+      assert.match(b.element("models-room").textContent, /needs 9 in one run\. It fits once REVERB MODES \(in the unit, not ticked\) is removed and not put back \(MACRO models 9 \(module area\), FX LAYER 2 \(module area\)\): Install asks first\.$/, b.element("models-room").textContent);
+      assert.equal(b.runs.length, 1); assert.equal(JSON.stringify(b.runs[0].removable), JSON.stringify([{mid: 1}, {mid: 3}, {mid: 2}]), "the build's effect modules may be taken off");
+      assert.ok(!b.runs[0].modules.includes(REVO.url), "the reverb module is not of the set");
+      assert.equal(b.confirms[0], "The set you ticked does not fit beside the modules in the FM-1 now. REVERB MODES is in the FM-1 but not in the set you ticked: the page removes it to make room and does not put it back " +
+        "(tick it and install it again if you want it back). Nothing else is moved. Remove REVERB MODES and install the set?");
+      assert.match(b.element("status").textContent, /Removed to make room, not put back \(not in the set you ticked\): REVERB MODES\.$/, b.element("status").textContent);
+      // with a rearrange of the set's own modules as well: the question names both
+      const c2 = await open({rev: false});
+      c2.unitReads.data = held; c2.unitReads.rearrange = ["SHAPES", "WHEEL", "DUB TAPE"]; c2.unitReads.drop = ["REVERB MODES"];
+      await go(c2);
+      assert.equal(c2.confirms[0], "The set you ticked does not fit beside the modules as they sit in the FM-1 now. REVERB MODES is in the FM-1 but not in the set you ticked: the page removes it to make room and does not put it back " +
+        "(tick it and install it again if you want it back). The page also takes SHAPES, WHEEL, DUB TAPE off the FM-1 and installs them again in an order that fits. It takes about a minute, and until it is done the FM-1 plays " +
+        "without those engines and effects. If it is interrupted, press Install again and it finishes the job. Remove REVERB MODES and rearrange the modules?");
+      for (const k of ["rearrangeDropConfirm", "dropConfirm", "droppedDone", "giveWayAsk", "giveWayWait", "giveWayChosen", "sectorsWord", "sectorWord"])
+        assert.equal((template.match(new RegExp("\\b" + k + ":", "g")) || []).length, 2, k + " in ja and en");
+      assert.equal([...template.matchAll(/(rearrangeDropConfirm|dropConfirm): "[^"]*\{drop\}[^"]*\{drop\}[^"]*"/g)].length, 4, "the questions name the module that is removed, in both languages");
     }
   }
   const plain = boot(store());

@@ -40,12 +40,19 @@ export const engOcm = (engine, sects, {version = VER, imgLen = 0x400} = {}) => p
   for (let k = 0x100; k < imgLen; k++) a[k] = (k * 7 + sc + engine) & 255;
   return seal(a, engine, 1234, sc, version);
 });
-// an effect module's package: `sectors` long, one effect, a variant at each sector of `sects`
-export const fxOcm = (mid, sectors, sects, {kind = 1, version = FXVER} = {}) => pack1(kind << 8, 0, sects, (sc) => {
+// an effect module's package: `sectors` long, one effect, a variant at each sector of `sects`. (round 25) abi: the effect carries a caps block (fw_fx.h fx_caps_t) whose abi word is
+// this, so the page compares it with FX_INFO's word for its kind (the fifth for kind 1, the sixth for kind 2, the seventh for kind 3); without it the page does not compare
+export const fxOcm = (mid, sectors, sects, {kind = 1, version = FXVER, abi = 0} = {}) => pack1(kind << 8, 0, sects, (sc) => {
   const a = new Uint8Array(sectors * 4096), h = new DataView(a.buffer), link = (LINK0 + sc * 4096) >>> 0;
   for (let k = 0x400; k < a.length; k++) a[k] = (k * 3 + sc) & 255;
   [[0x180, 1], [0x184, mid], [0x188, version], [0x18C, link + 0x200], [0x190, 0]].forEach(([o, v]) => h.setUint32(o, v >>> 0, true));
   a[0x200] = 7; a[0x201] = kind;
+  if (abi) {                                                       // the caps block at 0x240 (56 B), its call table at 0x280 (every call to link + 0x300)
+    const C = 0x240;
+    h.setUint32(0x20C, link + C, true); h.setUint32(C, 0x4B584647, true); h.setUint16(C + 4, 56, true); h.setUint16(C + 6, 1, true); h.setUint32(C + 8, link + 0x280, true);
+    h.setUint16(C + 38, 88, true); h.setUint32(C + 52, abi >>> 0, true);
+    for (let i = 0; i < 12; i++) h.setUint32(0x280 + 4 * i, link + 0x300, true);
+  }
   return seal(a, kind << 8, 0, sc, version);
 });
 // a models module's package (kind 4, MACRO's: id 0x4D08): a pick of `sectors`
@@ -77,8 +84,10 @@ export const snap = (st) => JSON.stringify(st.starts.map((x) => [x.state, x.kind
 // (the send throws, as a port that is gone), anything else the unit doing it. u.ops: what the unit was asked to do, in order; u.wire: every request, byte for byte.
 // (round 24) FX_INFO's abi word, as the firmware answers it (editor.c): MDL_ABI for a models module's id (0x4D00 + engine: what modelsOcm's block carries), FX_ABI for any other
 // id. u.oldFw (the option, or set later: a firmware install changes it): the unit answers FX_ABI for every id, as Nightly 5f894f and before did.
-export const FX_ABI = 0x9DCB40AD, MDL_ABI = 1;
-export function placedUnit(initial, OcLink, {fail = null, oldFw = false, mdlAbi = MDL_ABI} = {}) {
+// (round 25) words: FX_INFO's words after the first for an effect id: [] (five words: a firmware with the insert host alone), [FX2_ABI] (six: the send host too, Nightly
+// 5f894f's), [FX2_ABI, FX3_ABI] (seven: the master host too, 8cb0b1's)
+export const FX_ABI = 0x9DCB40AD, MDL_ABI = 1, FX2_ABI = 0xE2B81A6B, FX3_ABI = 0x10C83AF8;
+export function placedUnit(initial, OcLink, {fail = null, oldFw = false, mdlAbi = MDL_ABI, words = []} = {}) {
   const u = {st: PLACE.cloneState(initial), sent: [], ops: [], wire: [], begin: null, fail, count: {begin: 0, remove: 0}, oldFw};
   initial.starts.forEach((x, i) => { u.st.starts[i].ver = x.ver; });
   const input = {state: "connected", onmidimessage: null};
@@ -106,7 +115,7 @@ export function placedUnit(initial, OcLink, {fail = null, oldFw = false, mdlAbi 
       const n = args[0], a = args.slice(1);
       if (n === 2) {                                             // FX_INFO: id (5), sectors
         const mid = id5(a), ns = a[5], c = PLACE.planFx(u.st, mid, ns);
-        reply(0, [2, c < 0 ? 127 : c, c >= 0 && over(c, ns, (x) => x.kind && x.mid === mid) ? 1 : 0, 127, u.st.lowOk ? 1 : 0, ...n5(!u.oldFw && ((mid & ~0xFF) >>> 0) === 0x4D00 ? mdlAbi : FX_ABI)]);
+        reply(0, [2, c < 0 ? 127 : c, c >= 0 && over(c, ns, (x) => x.kind && x.mid === mid) ? 1 : 0, 127, u.st.lowOk ? 1 : 0, ...n5(!u.oldFw && ((mid & ~0xFF) >>> 0) === 0x4D00 ? mdlAbi : FX_ABI), ...(((mid & ~0xFF) >>> 0) === 0x4D00 ? [] : words.flatMap(n5))]);
       } else if (n === 3) {                                      // FX_BEGIN: id (5), start, length (3)
         const b = {mid: id5(a), start: a[5], len: a[6] | a[7] << 7 | a[8] << 14}, rc = gate("begin");
         u.ops.push("begin:0x" + b.mid.toString(16) + "@" + b.start);

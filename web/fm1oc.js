@@ -593,22 +593,27 @@ export async function removeModule(link, engine) {
 // order (indices into ocms, the files without a part last), remove (the modules to take off, with their names), text (the page's words when it is not "asis"), or null when
 // the unit's start table could not be read. On a unit with 18 starts the order is the page's and the answer is "asis" or "none", as placementOf's.
 const OC_FX_NAMES = { 1: "DUB TAPE", 2: "REVERB MODES", 3: "FX LAYER" }, OC_ENG_NAMES = { 14: "SHAPES", 7: "WHEEL", 19: "PROPHET" };
-export function arrangementOf(probe, ocms) {
+// (round 25, decision B) opts.removable: [{engine} | {mid}] the modules that are not of the set which the page may take off for good when that is what makes the set fit (PLACE.arrange);
+// the answer's drop then names them ({start, engine, kind, mid, name}), and the page's question says they are removed and not put back.
+const moduleName = (x) => x.kind === 4 ? "MACRO models" : x.kind ? OC_FX_NAMES[x.mid] || "effect module 0x" + (x.mid >>> 0).toString(16).toUpperCase() : OC_ENG_NAMES[x.engine] || "engine " + x.engine;
+export function arrangementOf(probe, ocms, opts = {}) {
   const st = PLACE.fromUnit(probe);
   if (!st) return null;
   const at = [], mods = [];
   ocms.forEach((ocm, i) => {
     if (!ocm || !ocm.ok) return;
     at.push(i);
-    if (ocm.kind) mods.push({ mid: ocm.moduleId, sectors: ocm.fxSectors, current: fxCurrent(ocm, probe.fx), name: ocm.kind === 4 ? "MACRO models" : OC_FX_NAMES[ocm.moduleId] || "effect module 0x" + ocm.moduleId.toString(16).toUpperCase() });
-    else mods.push({ engine: ocm.engine, current: moduleCurrent(ocm, probe.engines), name: OC_ENG_NAMES[ocm.engine] || "engine " + ocm.engine });
+    if (ocm.kind) mods.push({ mid: ocm.moduleId, sectors: ocm.fxSectors, current: fxCurrent(ocm, probe.fx), file: i, name: moduleName({ kind: ocm.kind, mid: ocm.moduleId }) });
+    else mods.push({ engine: ocm.engine, current: moduleCurrent(ocm, probe.engines), file: i, name: moduleName({ kind: 0, engine: ocm.engine }) });
   });
-  const a = PLACE.arrange(st, mods), order = a.order.map((k) => at[k]);
+  const a = PLACE.arrange(st, mods, { removable: opts.removable || [] }), order = a.order.map((k) => at[k]);
   ocms.forEach((_, i) => { if (!order.includes(i)) order.push(i); });
   const blockers = (a.blockers || []).map((b) => ({ ...b, detail: (b.kind === 4 ? b.mid & 0xFF : b.kind ? 127 : b.engine) + ":" + b.start + (b.kind && b.kind !== 4 ? ":" + b.mid : "") }));
-  const text = a.how === "asis" ? "" : a.how === "rearrange" ? "The set fits once " + a.remove.map((m) => m.name).join(", ") + " are taken off the unit and installed again in order."
+  const drop = (a.drop || []).map((d) => ({ ...d, name: moduleName(d) }));
+  const text = a.how === "asis" ? "" : a.how === "rearrange" ? "The set fits once " + [...(drop.length ? [drop.map((d) => d.name).join(", ") + " (not of the set) " + (drop.length > 1 ? "are" : "is") + " removed"] : []),
+      ...(a.remove.length ? [a.remove.map((m) => m.name).join(", ") + " are taken off the unit and installed again in order"] : [])].join(" and ") + "."
     : PLACE.whyNot(st, a.plan.mods, a.plan);
-  return { ...a, order, at, blockers, text, st };
+  return { ...a, order, at, blockers, drop, text, st };
 }
 // (round 23) before a rearrange takes anything off the unit: every file of the set against the unit and the start the plan gives it, the way the install will check it (the
 // firmware's numbers, an image for that start, its inner header and CRC, the sector tails; an effect module's calling convention from FX_INFO), so that nothing is removed
@@ -616,7 +621,7 @@ export function arrangementOf(probe, ocms) {
 async function rearrangeCheck(link, probe, ocms, arr) {
   const info = probe.mod, tbl = info.sectorOf || OCM_SECTOR, bad = {};
   for (let k = 0; k < arr.plan.steps.length; k++) {
-    const ocm = ocms[arr.order[k]], start = arr.plan.steps[k].start;     // (a rearrange plans every file that has a part, in the order: step k is file order[k])
+    const file = arr.plan.steps[k].mod.file, ocm = ocms[file], start = arr.plan.steps[k].start;     // (round 25) the step's own file: a plan after a drop alone holds only the files that are written
     let key = "";
     if (ocm.iface !== info.iface || ocm.apiAddr !== info.apiAddr || ocm.apiVersion > info.apiVersion || ocm.apiSize > info.apiSize || ocm.packHash !== info.packHash) key = "modWrongFw";
     else {
@@ -628,7 +633,7 @@ async function rearrangeCheck(link, probe, ocms, arr) {
         else { const fx = parseFxInfo(fa); if (fx.abi !== undefined && ocm.fxAbi && ocm.fxAbi !== (ocm.kind === 2 ? fx.abi2 : ocm.kind === 3 ? fx.abi3 : fx.abi)) key = "modWrongFw"; }   // (as fxCheck: kind 2 with the sixth word; round 24: a models module too, with the word the unit answers for its id)
       }
     }
-    if (key) bad[arr.order[k]] = key;
+    if (key) bad[file] = key;
   }
   return bad;
 }
@@ -640,11 +645,15 @@ async function rearrangeCheck(link, probe, ocms, arr) {
 //   runFirmware(): the page's own update; resolves when the unit is back
 //   openUnit(): the unit's editor port as an OcLink, or null (the page looks for up to a minute)
 //   say(key, arg), progress(fraction 0..1), log(text), sleep(ms), confirmInPlace()
-//   confirmRearrange(names) (round 23): asked, on a unit with the tail region, before the set's own modules (names) are taken off and put on again in the goal's order;
-//                                       without it, or when it says no, nothing is removed
+//   confirmRearrange(names, drop) (round 23): asked, on a unit with the tail region, before the set's own modules (names) are taken off and put on again in the goal's order;
+//                                       without it, or when it says no, nothing is removed. (round 25) drop: the names of modules that are not of the set and are taken off
+//                                       for good (they are not put back); names may then be empty (nothing of the set moves)
+//   removable (round 25, decision B): [{engine} | {mid}] the modules not of the set that a rearrange may take off for good, when that is what makes the set fit (the page: its
+//                                       build's effect modules); without it a module that is not of the set is only named (modBlocked), as before
 // }
 // -> {firmware, pack, module: [...]}: each "installed", "current" (skipped: already the unit's), "off" (the user left it out), "nofile" (this build offers none),
 //    "oldfw" (the firmware has no such commands), "nounit" (the unit did not come back on its editor port), or {error: code}
+//    (round 25) dropped: the names of the modules not of the set that were taken off for good (after the question that named them)
 //    (round 23) rearrange: "done" (the set's modules were taken off and all put on again), "declined" (the question was answered no: nothing removed), "stopped" (a removal or
 //    an install failed part way: the modules not yet back say modRearrangeLeft, and the next run finishes the job); a lost link in the middle throws modRearrangeLost
 export async function runSet(ctx) {
@@ -666,7 +675,7 @@ export async function runSet(ctx) {
   }
   if (!stages.pack && !stages.module) { sum.module = mods.map(() => "off"); return sum; }
   say("unitWait");
-  let link = await ctx.openUnit(), askFx = anyFx, rearranging = false;
+  let link = await ctx.openUnit(), askFx = anyFx, rearranging = false, redo = false;
   if (!link) { sum.pack = stages.pack ? "nounit" : "off"; sum.module = mods.map(() => (stages.module ? "nounit" : "off")); return sum; }
   try {
     say("unitProbe");
@@ -706,7 +715,7 @@ export async function runSet(ctx) {
           if (f) { try { probe.fx = parseFxTable(f); } catch (_) { probe.fx = null; } }
         }
         const ocms = mods.map((b, i) => { const o = ocmParse(b), w = want[i]; return o.ok && w && ((w.kind || 0) !== o.kind || (o.kind && w.module_id !== o.moduleId)) ? { ok: false } : o; });   // (a file the manifest does not agree with has no part in the plan: the loop below says so)
-        const arr = arrangementOf(probe, ocms);
+        const arr = arrangementOf(probe, ocms, { removable: ctx.removable || [] });
         if (arr) order = arr.order;
         if (arr && arr.how !== "asis" && ctx.preflight !== false) {
           log(`placement: ${arr.how}: ${arr.text}`);
@@ -719,15 +728,17 @@ export async function runSet(ctx) {
           if (arr.how !== "rearrange" || ocms.some((o) => !o.ok)) return refuse();
           const bad = await rearrangeCheck(link, probe, ocms, arr);
           if (Object.keys(bad).length) return refuse(bad);
-          if (!(ctx.confirmRearrange && await ctx.confirmRearrange(arr.remove.map((m) => m.name)))) {
+          if (!(ctx.confirmRearrange && await ctx.confirmRearrange(arr.remove.map((m) => m.name), arr.drop.map((d) => d.name)))) {
             sum.rearrange = "declined"; sum.module = mods.map(() => ({ error: "modRearrangeDeclined" }));
             return sum;
           }
           say("rearrangeWorking");
           rearranging = true;                           // from here a lost link is modRearrangeLost: the page says that Install finishes the job
           let gone = 0;
-          for (const m of [...arr.remove].reverse()) {  // the small modules first, SHAPES last: every one is in the set and is written again below
-            try { if (m.engine != null) await removeModule(link, m.engine); else await removeFx(link, m.mid); gone++; log(`rearrange: ${m.name} taken off`); }
+          // (round 25) the modules not of the set first (taken off for good: the question named them), then the small modules of the set, SHAPES last: every one of
+          // those is in the set and is written again below
+          for (const m of [...arr.drop.map((d) => ({ ...d, engine: d.kind ? null : d.engine, drop: true })), ...[...arr.remove].reverse()]) {
+            try { if (m.engine != null) await removeModule(link, m.engine); else await removeFx(link, m.mid); gone++; if (m.drop) (sum.dropped = sum.dropped || []).push(m.name); log(`rearrange: ${m.name} taken off${m.drop ? " (not of the set: not put back)" : ""}`); }
             catch (e) {
               if (e.code === "ocLost") throw e;
               if (gone) sum.rearrange = "stopped";       // some are off, this one is not: the next run plans from what the unit holds then
@@ -737,7 +748,8 @@ export async function runSet(ctx) {
           }
           probe = await probeUnit(link, { fx: true });
           if (!probe.mod || !probe.fx) throw new OcError("ocLost");
-          sum.rearrange = "done";
+          redo = true;
+          if (arr.remove.length) sum.rearrange = "done";     // (round 25) a drop alone moves nothing of the set: sum.dropped says what went
         }
       }
       const added = [], res = [];                        // added: effect modules this run put on a unit that had none of that id: taken out again if a later module fails for want of room
@@ -755,18 +767,18 @@ export async function runSet(ctx) {
           try { say("modWorking"); await installFx(link, ocm, p, { sleep, confirmInPlace: ctx.confirmInPlace }); res[i] = "installed"; if (!existed) added.push(ocm.moduleId); }
           catch (e) { if (e.code === "ocLost") throw e; res[i] = e.detail ? { error: e.code || "modFail", detail: e.detail } : { error: e.code || "modFail" }; }
           probe = await probeUnit(link, { fx: askFx });
-          if (sum.rearrange === "done" && res[i] !== "installed") sum.rearrange = "stopped";
+          if (redo && res[i] !== "installed") sum.rearrange = "stopped";
           continue;
         }
         if (moduleCurrent(ocm, probe.engines)) { res[i] = "current"; p(1); continue; }
         try { say("modWorking"); await installModule(link, ocm, p, { sleep, confirmInPlace: ctx.confirmInPlace }); res[i] = "installed"; }
         catch (e) { if (e.code === "ocLost") throw e; res[i] = e.detail ? { error: e.code || "modFail", detail: e.detail } : { error: e.code || "modFail" }; }
         probe = await probeUnit(link, { fx: askFx });
-        if (sum.rearrange === "done" && res[i] !== "installed") sum.rearrange = "stopped";
+        if (redo && res[i] !== "installed") sum.rearrange = "stopped";
       }
       sum.module = res;
       const noRoom = sum.module.some((m) => m && m.error && (m.error === "modNoFree" || m.error === "modBlocked"));
-      if (noRoom && added.length && !sum.rearrange) {   // (review) a module found no place after others were put on the unit: those are taken out again, so the unit is as it was (not after a rearrange: what it put back stays)
+      if (noRoom && added.length && !redo) {   // (review) a module found no place after others were put on the unit: those are taken out again, so the unit is as it was (not after a rearrange: what it put back stays)
         sum.rolledBack = [];
         for (const id of added.reverse()) { try { await removeFx(link, id); sum.rolledBack.push(id); } catch (e) { if (e.code === "ocLost") throw e; sum.rollbackFailed = true; } }
         log(`rolled back: ${sum.rolledBack.map((i) => "0x" + (i >>> 0).toString(16)).join(", ")}`);

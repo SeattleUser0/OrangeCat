@@ -331,6 +331,27 @@ json.dump(out, sys.stdout)`], { cwd: ROOT, input: JSON.stringify(cases), maxBuff
         assert.equal(parseFxInfo([2, 1, 0, 127, 1, ...enc]).abi, v, "FX_INFO's abi (5 x 7 bits) is read");
         assert.equal(parseFxInfo([2, 1, 0, 127, 1]).abi, undefined, "a reply of four words (before round 18) has none");
     }
+    // (round 25; the Round 24 review: the six- and seven-word checks sat only in blocks that skip without the build's packages) made packages of kind 1, 2 and 3 with caps blocks,
+    // against FX_INFO replies of five, six and seven words as the page parses them: a kind 1 module with the fifth word, kind 2 (the send host) with the sixth, kind 3 (the master
+    // host) with the seventh; a reply without that word is a firmware without that host, and the module is refused before it is streamed
+    {
+      const { parseFxInfo } = await import(new URL("fm1oc.js", import.meta.url)), enc = (v) => [0, 1, 2, 3, 4].map((i) => Math.floor(v / 2 ** (7 * i)) % 128);
+      const A1 = 0x9DCB40AD, A2 = 0xE2B81A6B, A3 = 0x10C83AF8, head = [2, 1, 0, 127, 1];
+      const five = parseFxInfo([...head, ...enc(A1)]), six = parseFxInfo([...head, ...enc(A1), ...enc(A2)]), seven = parseFxInfo([...head, ...enc(A1), ...enc(A2), ...enc(A3)]);
+      assert.ok(five.abi === A1 && five.abi2 === undefined && six.abi2 === A2 && six.abi3 === undefined && seven.abi3 === A3 && seven.plan === 1, "five, six and seven words parsed");
+      const made = (kind, abi) => OCM.parse(pkg(fxImage({ kind, mut: (dv, a) => caps(dv, a, { abi }) }), [0, 6], { extra: capSites }));
+      const k1 = made(1, A1), k2 = made(2, A2), k3 = made(3, A3);
+      assert.ok([k1, k2, k3].every((o, i) => o.ok && o.kind === i + 1) && k2.fxAbi === A2 && k3.fxAbi === A3, "the made kind 1, 2 and 3 packages parse with their abi words: " + [k1, k2, k3].map((o) => o.key));
+      const key = (o, f) => OCM.fxCheck(o, info, f).key || "ok";
+      assert.deepEqual([five, six, seven].map((f) => key(k1, f)), ["ok", "ok", "ok"], "kind 1: the fifth word, whatever follows");
+      assert.deepEqual([five, six, seven].map((f) => key(k2, f)), ["modWrongFw", "ok", "ok"], "kind 2: the sixth word; five words (no send host): refused");
+      assert.deepEqual([five, six, seven].map((f) => key(k3, f)), ["modWrongFw", "modWrongFw", "ok"], "kind 3: the seventh word; five or six words (no master host, Nightly 5f894f's firmware): refused");
+      assert.equal(key(k2, { ...six, abi2: (A2 + 1) >>> 0 }), "modWrongFw", "another send host's abi: refused");
+      assert.equal(key(k3, { ...seven, abi3: (A3 + 1) >>> 0 }), "modWrongFw", "another master host's abi: refused");
+      assert.equal(key(k2, { ...six, abi: A2, abi2: A1 }), "modWrongFw", "kind 2 is not taken on the fifth word's account");
+      assert.equal(key(k1, { ...seven, abi: 1, abi2: A1, abi3: A1 }), "modWrongFw", "kind 1 is not taken on the sixth or seventh word's account");
+      console.log("ocm: FX_INFO of five, six and seven words against made kind 1, 2 and 3 packages: each kind compared with its own word");
+    }
     const rej = (what, o) => assert.equal(OCM.parse(good(o)).key, "modHdrBad", what);
     rej("the magic", { magic: 0 }); rej("the version", { ver: 2 }); rej("the old 52 byte size", { size: 52 }); rej("an abi of 0", { abi: 0 }); rej("a hot set", { hot: 0x500 + LINK0 }); rej("nhot", { nhot: 1 }); rej("the padding", { pad: 1 });
     rej("a snapshot size of 0", { pbytes: 0 }); rej("a call table past the image", { kernel: 0x7F8 }); rej("a call table unaligned", { kernel: CALLS + 2 });
