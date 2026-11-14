@@ -487,6 +487,30 @@ static int ed_kit_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
 }
 
 #if OC_MODULES && (MELODEE_FLASH || defined(OC_PACK_HOST))
+/* (Round 26) the image the unit runs, for the installer page's "the firmware is already current" (web/EDITOR_PROTOCOL.md 120 MOD_INFO): the commit marker the boot stub
+ * checked before it started this body (tools/fm1pkg_make.py marker: "CRBM", format 1, the body's length from flash 0x5000, its CRC-32, the marker's own CRC; the stub
+ * refuses to boot a body whose CRC is not the marker's, firmware/stub/stub_core.h), and the CRC-32 of the stub itself (app.bin's first 0xEE0 bytes, flash 0x4120), read
+ * through XIP as the stub reads them. 15 bytes: length, body CRC, stub CRC (5 x 7 bits each); all 0 when the marker does not read as one. */
+#ifndef OC_APP_XIP
+#define OC_APP_XIP(off) ((const uint8_t *)(uintptr_t)FL_XIP(off))
+#endif
+#define OC_APP_OFF 0x4120u                                   /* app.bin in the flash (the stub first) */
+#define OC_APP_STUB 0xEE0u                                   /* the stub's length: the body from flash 0x5000 */
+#define OC_APP_MARK 0x91FE0u                                 /* the commit marker (stub_core.h STUB_MARK_OFF) */
+static uint32_t ed_rd32(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
+static void ed_fw_image(void)
+{
+    uint8_t mk[20];
+    uint32_t len = 0, crc = 0, stub = 0, k;
+    memcpy(mk, OC_APP_XIP(OC_APP_MARK), sizeof mk);
+    if (ed_rd32(mk) == 0x4D425243u && ed_rd32(mk + 4) == 1u && ed_rd32(mk + 16) == ocs_crc32(mk, 16u) && ed_rd32(mk + 8)) {
+        len = ed_rd32(mk + 8); crc = ed_rd32(mk + 12);
+        stub = ocs_crc32(OC_APP_XIP(OC_APP_OFF), OC_APP_STUB);
+    }
+    for (k = 0; k < 5u; k++) ed_b(len >> (7u * k));
+    for (k = 0; k < 5u; k++) ed_b(crc >> (7u * k));
+    for (k = 0; k < 5u; k++) ed_b(stub >> (7u * k));
+}
 /* (Release 3 step 4) the effect modules, by module id. Arguments: module id (5 x 7 bits).
  *   FX_INFO   id, sectors (1 .. 8; a models module's id FW_MODELS_ID: 1 .. 18) -> plan (the start an install of that many sectors goes to, 127 none), flags (1 the install is in place: the old module of the id is erased
  *             first), blocker (the start whose usable module stands in the way when no start can take it, else 127), low (1 the six sectors below 0xC8000 are the module area's),
@@ -1430,6 +1454,14 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(OC_MOD_STARTS);                                /* (Release 3 step 1) appended: the sector of every start from 0xC8000, +64 (-6 .. 11 -> 58 .. 75), and the area's low sectors' state (1 usable, 0 the record store may still hold a part there) */
         for (i = 0; i < OC_MOD_STARTS; i++) ed_b((uint32_t)(OC_MOD_START_REL(i) + 64));
         ed_b(OC_MOD_LOW_OK() ? 1u : 0u);
+        ed_b(OC_MOD_STARTS);                                /* (Round 26) appended: per start the code CRC-32 the loader verified (header word 52) and a MODELS module's pick (bit k: model k present),
+                                                             * 5 x 7 bits each, both 0 unless the start's state is OK: the installer page writes a module only when these differ from its own image's */
+        for (i = 0; i < OC_MOD_STARTS; i++) {
+            uint32_t mok = oc_mod.state[i] == MD_OK, mcrc = mok ? oc_mod.crc[i] : 0u, mpick = mok ? oc_mod.pick[i] : 0u, k;
+            for (k = 0; k < 5u; k++) ed_b(mcrc >> (7u * k));
+            for (k = 0; k < 5u; k++) ed_b(mpick >> (7u * k));
+        }
+        ed_fw_image();                                      /* (Round 26) and the image the unit runs: the commit marker's body length and CRC, the stub's CRC */
         break;
     }
     case ED_ENGINES: {                                     /* (0.11.0) -> nengines, then per engine number: source (0 not available: retired, or a module's number with none registered; 1 built in;

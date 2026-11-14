@@ -923,4 +923,173 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
   }
   console.log("installer set: round 25: a module the owner chose gives way (each of the three), the reverb module taken off in one click (named in the question, not put back; declined, refused, not offered: kept), six- and seven-word FX_INFO units: passed");
 }
+// 20. (Round 26, the owner's item: a module is written only when it changed) a unit whose MOD_INFO reports, per start, the code CRC-32 its loader verified (header word 52) and a
+//     MODELS module's pick (editor.c; web/EDITOR_PROTOCOL.md "120 MOD_INFO"). The page compares them with the image it would write for that start, read at the Install:
+//     a. two installs in a row: the second writes nothing (no BEGIN, WRITE, END or REMOVE), asks nothing, and every module of the set (SHAPES, WHEEL, DUB TAPE, the FX layer,
+//        the models) is "current"; the unit as it was
+//     b. another pick of the same length, version and sectors: written (in place: the question as always); a third Install of that pick: nothing
+//     c. the same version, other content: written, for an engine module and an effect module; a module whose code was changed under the page (the loader's CRC no longer
+//        matches: the unit reports 0): written
+//     d. a unit without the field (a firmware before Round 26): today's behaviour (the pick written again in place, after the question; the others current by version and size)
+//     e. the reply's parse: the old fields unchanged, the new ones read; the editor's own parse (web/app/lib/editor_proto.js, a page that does not know the field) reads the
+//        new reply as it reads the old one
+{
+  const T = await import("./test_placed_unit.mjs");
+  const {SHAPES, WHEEL, DUB, MODELS, engOcm, fxOcm, modelsOcm, sectsFor, AREA, unitState, placedUnit, snap} = T;
+  const {parseModInfo} = await import("./fm1oc.js");
+  const FXL = 3, MODS = {module: true}, want4 = {kind: 4, module_id: MODELS};
+  const shapes = engOcm(SHAPES, [0, 6]), wheel = engOcm(WHEEL, AREA), dub = fxOcm(DUB, 3, sectsFor(3)), fxl = fxOcm(FXL, 2, sectsFor(2).slice(0, 18), {kind: 3}), pick9 = modelsOcm(9, [-6, 0, 3]);
+  const W = [null, null, {kind: 1, module_id: DUB}, {kind: 3, module_id: FXL}, want4];
+  const SET = {modules: [wheel, shapes, dub, fxl, pick9], want: W};
+  const go = async (u, files) => {
+    const asked = [], inPlace = [];
+    let sum = null, error = null;
+    try { sum = await runSet({stages: MODS, files, openUnit: async () => u.link(), sleep: async () => {}, confirmInPlace: () => { inPlace.push(1); return true; },
+                              confirmRearrange: (names) => { asked.push(names.join(", ")); return true; }}); } catch (e) { error = e; }
+    return {sum, error, asked, inPlace};
+  };
+  const writes = (u, from = 0) => u.wire.slice(from).filter((m) => [121, 122, 123, 124].includes(m[4]) || (m[4] === 0 && [3, 4].includes(m[5])));
+  // a.
+  let u = placedUnit(unitState(true), OcLink, {crc: true}), r = await go(u, SET);
+  assert.ok(!r.error, r.error && r.error.message);
+  assert.deepEqual(r.sum.module, ["installed", "installed", "installed", "installed", "installed"], "the first Install writes the set: " + JSON.stringify(r.sum.module));
+  {
+    const m = parseModInfo(await u.link().ask([120, []]));
+    assert.ok(m.crcs && m.crcs.length === 21 && m.picks.length === 21, "the unit reports a CRC and a pick for each of its 21 starts");
+    const held = m.starts.map((x, i) => [x, i]).filter(([x]) => x.state === 7);
+    assert.equal(held.length, 5); assert.ok(held.every(([, i]) => m.crcs[i] !== 0), "every OK start has its CRC");
+    assert.ok(held.every(([x, i]) => (x.engine === 8) === (m.picks[i] === 3)), "the models start's pick is its two models (0b11), every other start's pick 0");
+  }
+  const st1 = snap(u.st), n1 = u.wire.length;
+  r = await go(u, SET);
+  assert.ok(!r.error, r.error && r.error.message);
+  assert.deepEqual(r.sum.module, ["current", "current", "current", "current", "current"], "the second Install: every module already current, the models too: " + JSON.stringify(r.sum.module));
+  assert.deepEqual(writes(u, n1), [], "the second Install sends no BEGIN, WRITE, END or REMOVE: nothing is erased or written");
+  assert.ok(!r.inPlace.length && !r.asked.length && !r.sum.rearrange, "and asks nothing: no in-place question, no rearrange");
+  assert.equal(snap(u.st), st1, "the unit is as the first Install left it");
+  // b.
+  const pickB = modelsOcm(9, [-6, 0, 3], {models: [true, false]});
+  {
+    const a = OCM.parse(pick9), b = OCM.parse(pickB);
+    assert.ok(a.ok && b.ok && a.fxSectors === b.fxSectors && a.fxVersion === b.fxVersion && a.variants[0].length === b.variants[0].length, "the two picks match in sectors, version and length (the FX table cannot tell them apart)");
+  }
+  const SETB = {modules: [wheel, shapes, dub, fxl, pickB], want: W}, n2 = u.wire.length;
+  r = await go(u, SETB);
+  assert.deepEqual(r.sum.module, ["current", "current", "current", "current", "installed"], "another pick is written, the rest is current: " + JSON.stringify(r.sum.module));
+  assert.equal(u.ops.slice(-1)[0], "begin:0x4d08@17", "the pick written in its own place");
+  assert.equal(r.inPlace.length, 1, "in place: the question, as always for that");
+  assert.equal(parseModInfo(await u.link().ask([120, []])).picks[17], 1, "the unit's pick is now model 0 alone");
+  const n3w = u.wire.length;
+  r = await go(u, SETB);
+  assert.deepEqual(r.sum.module, ["current", "current", "current", "current", "current"]); assert.deepEqual(writes(u, n3w), [], "a third Install of that pick writes nothing"); assert.ok(!r.inPlace.length);
+  // c.
+  const shapes2 = engOcm(SHAPES, [0, 6], {seed: 1}), dub2 = fxOcm(DUB, 3, sectsFor(3), {seed: 1});
+  assert.equal(OCM.parse(shapes2).variants[0].length, OCM.parse(shapes).variants[0].length);
+  r = await go(u, {modules: [wheel, shapes2, dub2, fxl, pickB], want: W});
+  assert.deepEqual(r.sum.module, ["current", "installed", "installed", "current", "current"], "the same version and size, other content: SHAPES and DUB TAPE written: " + JSON.stringify(r.sum.module));
+  const before = snap(u.st), wheelAt = u.st.starts.findIndex((x) => x.state === 7 && !x.kind && x.engine === WHEEL);
+  u.pokeCode(wheelAt, 0x200);
+  const n4 = u.wire.length;
+  r = await go(u, {modules: [wheel, shapes2, dub2, fxl, pickB], want: W});
+  assert.deepEqual(r.sum.module, ["installed", "current", "current", "current", "current"], "WHEEL's code changed under the page (the unit reports CRC 0): written again: " + JSON.stringify(r.sum.module));
+  assert.ok(writes(u, n4).length > 0 && snap(u.st) === before);
+  // d.
+  u = placedUnit(unitState(true), OcLink); r = await go(u, SET);
+  assert.deepEqual(r.sum.module, ["installed", "installed", "installed", "installed", "installed"]);
+  r = await go(u, SET);
+  assert.deepEqual(r.sum.module, ["current", "current", "current", "current", "installed"], "a unit without the CRCs: today's behaviour, the pick written again in place");
+  assert.equal(r.inPlace.length, 1, "... after the question");
+  r = await go(u, {modules: [wheel, shapes2, dub2, fxl, pick9], want: W});
+  assert.deepEqual(r.sum.module, ["current", "current", "current", "current", "installed"], "... and other content of the same version and size is current by version and size, as before");
+  // e.
+  {
+    const uc = placedUnit(unitState(true), OcLink, {crc: true}), uo = placedUnit(unitState(true), OcLink);
+    await go(uc, SET); await go(uo, SET);
+    const rc = await uc.link().ask([120, []]), ro = await uo.link().ask([120, []]);
+    assert.equal(rc.length, ro.length + 1 + 10 * 21, "the new reply is the old one and the appended block: the count and 10 bytes a start");
+    const pc = parseModInfo(rc), po = parseModInfo(ro);
+    assert.ok(po.crcs === undefined && po.picks === undefined, "an older firmware's reply: no CRCs (the page decides as before)");
+    delete pc.crcs; delete pc.picks;
+    assert.deepEqual(pc, po, "every field of the old reply is read the same");
+    const E = await import("./app/lib/editor_proto.js");
+    assert.deepEqual(E.parse[E.CMD.MOD_INFO](rc), E.parse[E.CMD.MOD_INFO](ro), "the editor's parse (a page that does not know the field) reads the new reply as the old one");
+  }
+  console.log("installer set: round 26: the unit's CRCs and pick: two installs in a row write nothing the second time (models too), another pick and other content of one version are written, a unit without them as before passed");
+}
+// 21. (Round 26) the firmware stage: the page asks the unit first (MOD_INFO's image report: the commit marker's body length and CRC, the stub's CRC) and leaves the firmware
+//     when the unit runs exactly the package's image; anything else is flashed as always
+//     a. two installs in a row of the whole set (firmware, pack, modules): the second flashes nothing, writes nothing, asks nothing: "Firmware: already current"
+//     b. another build of the same version (another body CRC), another stub, a bench build of another length: flashed
+//     c. a firmware without the report (the CRCs only, or neither), a unit that does not answer, a package without a marker (no id): flashed
+//     d. the identity the page computes from a built .fwsc is the marker tools/fm1pkg_make.py wrote over build/melodee.bin (when a build is there)
+{
+  const T = await import("./test_placed_unit.mjs");
+  const {SHAPES, WHEEL, DUB, MODELS, engOcm, fxOcm, modelsOcm, sectsFor, AREA, unitState, placedUnit} = T;
+  const {fwCurrent, parseModInfo} = await import("./fm1oc.js");
+  const ID = {len: 0x80F00, crc: 0x1234ABCD, stub: 0x0BADF00D}, OLD = {len: 0x80F00, crc: 0x1234ABCE, stub: 0x0BADF00D};
+  const W = [null, null, {kind: 1, module_id: DUB}, {kind: 4, module_id: MODELS}];
+  const SET = {modules: [engOcm(WHEEL, AREA), engOcm(SHAPES, [0, 6]), fxOcm(DUB, 3, sectsFor(3)), modelsOcm(9, [-6, 0, 3])], want: W};
+  const ALLS = {firmware: true, pack: true, module: true};
+  const go = async (u, id, stages = ALLS, extra = {}) => {
+    const asked = [];
+    let sum = null, error = null;
+    try { sum = await runSet({stages, files: {pack: makePack(), ...SET}, firmwareId: id, runFirmware: async () => u.flash(id), openUnit: async () => u.link(), sleep: async () => {},
+                              confirmInPlace: () => { asked.push("inPlace"); return true; }, confirmRearrange: () => { asked.push("rearrange"); return true; }, ...extra}); } catch (e) { error = e; }
+    return {sum, error, asked};
+  };
+  const writes = (u, from) => u.wire.slice(from).filter((m) => [116, 117, 118, 119, 121, 122, 123, 124].includes(m[4]) || (m[4] === 0 && [3, 4].includes(m[5])));
+  // a.
+  let u = placedUnit(unitState(true), OcLink, {crc: true, fw: OLD}), r = await go(u, ID);
+  assert.ok(!r.error, r.error && r.error.message);
+  assert.equal(r.sum.firmware, "installed"); assert.equal(u.flashed, 1, "the unit ran another image: flashed");
+  assert.deepEqual(r.sum.module, ["installed", "installed", "installed", "installed"]);
+  const n = u.wire.length;
+  r = await go(u, ID);
+  assert.ok(!r.error, r.error && r.error.message);
+  assert.equal(r.sum.firmware, "current", "the second Install: the unit runs this image: the firmware is left as it is");
+  assert.equal(u.flashed, 1, "... not flashed again");
+  assert.equal(r.sum.pack, "current"); assert.deepEqual(r.sum.module, ["current", "current", "current", "current"]);
+  assert.deepEqual(writes(u, n), [], "the second Install writes nothing at all: no pack or module BEGIN, WRITE, END, ERASE or REMOVE");
+  assert.deepEqual(r.asked, [], "and asks nothing");
+  // b.
+  for (const [what, other] of [["another build of the same version (another body CRC)", {...ID, crc: ID.crc ^ 0x10}], ["another stub", {...ID, stub: ID.stub + 1}],
+                               ["a bench build of another length", {...ID, len: ID.len + 4}]]) {
+    u = placedUnit(unitState(true), OcLink, {crc: true, fw: other}); r = await go(u, ID, {firmware: true});
+    assert.ok(r.sum.firmware === "installed" && u.flashed === 1, what + ": flashed");
+  }
+  // c.
+  for (const [what, opts, extra] of [["a firmware with the CRCs and no image report", {crc: true}, {}], ["a firmware before Round 26 (neither)", {}, {}],
+                                     ["a marker that did not read (all 0)", {crc: true, fw: {len: 0, crc: 0, stub: 0}}, {}],
+                                     ["a unit that does not come to the editor port (stock firmware, update mode)", {crc: true, fw: ID}, {peekUnit: async () => null}]]) {
+    u = placedUnit(unitState(true), OcLink, opts); r = await go(u, ID, {firmware: true}, extra);
+    assert.ok(!r.error && r.sum.firmware === "installed" && u.flashed === 1, what + ": flashed: " + JSON.stringify(r.sum));
+  }
+  u = placedUnit(unitState(true), OcLink, {crc: true, fw: ID}); r = await go(u, null, {firmware: true});
+  assert.ok(r.sum.firmware === "installed" && u.flashed === 1, "a package without a marker (no identity): flashed, the unit not even asked");
+  assert.ok(!fwCurrent(ID, null) && !fwCurrent(null, {fw: ID}) && fwCurrent(ID, {fw: {...ID}}), "fwCurrent: both sides, every field");
+  // the reply: the old fields and the CRCs read as before, the image after them
+  {
+    const uc = placedUnit(unitState(true), OcLink, {crc: true, fw: ID}), un = placedUnit(unitState(true), OcLink, {crc: true});
+    const a = await uc.link().ask([120, []]), b = await un.link().ask([120, []]), pa = parseModInfo(a), pb = parseModInfo(b);
+    assert.equal(a.length, b.length + 15); assert.deepEqual(pa.fw, ID); assert.equal(pb.fw, undefined);
+    delete pa.fw; assert.deepEqual(pa, pb, "everything before the image report is read the same");
+    const E = await import("./app/lib/editor_proto.js");
+    assert.deepEqual(E.parse[E.CMD.MOD_INFO](a), E.parse[E.CMD.MOD_INFO](b), "the editor's parse ignores it");
+  }
+  // d.
+  {
+    const {readdirSync, existsSync} = await import("node:fs");
+    const {firmwareIdentity} = await import("./fm1pkg.js");
+    const dir = new URL("../build/", import.meta.url), bin = new URL("melodee.bin", dir);
+    const pkgs = existsSync(dir) ? readdirSync(dir).filter((f) => /^orangecat-.*\.fwsc$|^melodee(-nightly)?\.fwsc$/.test(f)) : [];
+    if (existsSync(bin) && pkgs.length) {
+      const app = new Uint8Array(readFileSync(bin)), body = app.subarray(0xEE0), padded = new Uint8Array(body.length + (-body.length & 3)).fill(0xFF);
+      padded.set(body);
+      const id = firmwareIdentity(new Uint8Array(readFileSync(new URL(pkgs.sort().at(-1), dir))));
+      assert.deepEqual(id, {len: padded.length, crc: bkCrc(padded), stub: bkCrc(app.subarray(0, 0xEE0))}, "the page's identity of the built package is the marker over build/melodee.bin and its stub");
+      assert.equal(firmwareIdentity(new Uint8Array(100)), null, "not a package: no identity");
+    } else console.log("installer set: 21d skipped: no firmware build in build/");
+  }
+  console.log("installer set: round 26: the firmware left as it is when the unit runs the package's image; another build, stub or length, an old firmware, no reply, no marker: flashed passed");
+}
 console.log("installer set: stages, skips, old firmware, retry, refusals and the shared .ocm reader, effect modules by module id, a models module by its id passed");

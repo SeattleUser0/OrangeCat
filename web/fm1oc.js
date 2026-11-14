@@ -28,6 +28,9 @@
 //           the goal's order (PLACE.goalOrder: SHAPES, the models, then the small modules); when it does not fit as the unit stands but would with the set's own modules taken
 //           off and put on again in that order, the page asks (ctx.confirmRearrange) and does that (arrangementOf, removeModule / removeFx, then the installs); a module that is
 //           not of the set is never removed: it is named (modBlocked). A unit with 18 starts gets the requests it always got.
+//   Round 26 (the owner's item: a module is written only when it changed): MOD_INFO's appended block (each start's code CRC-32 the unit's loader verified, and a MODELS module's
+//           pick) is read with the probe at the Install; fxCurrent and moduleCurrent compare it with the file's image for the module's start (ocUnitHolds), every kind, the models too. A
+//           unit that does not send it gets today's decision (version and size; a models module always written).
 
 import { bkPack, bkCrc } from "./fm1backup.js";
 import { PLACE } from "./fm1place.js";
@@ -112,7 +115,13 @@ export function parseModInfo(a) {
   o.starts = Array.from({ length: o.nstarts }, () => ({ state: r.b(), why: r.b(), engine: r.b(), length: r.n3() }));
   o.blocker = r.i < a.length ? r.b() : 127; if (o.blocker === 127) o.blocker = null;
   if (r.i < a.length) { const c = r.b(); o.sectorOf = Array.from({ length: c }, () => r.b() - 64); }
-  o.lowOk = r.i < a.length && r.b() === 1;   // the six low sectors (starts 12..17) are usable (the unit's last appended byte; absent: false)   // (Release 3 step 1) the sector of each start, appended by the unit (absent: OCM_SECTOR)   // (0.12.1) the start whose module of another engine is in the way
+  o.lowOk = r.i < a.length && r.b() === 1;
+  if (r.i < a.length) {                      // (Round 26) appended: per start the code CRC-32 the unit's loader verified (header word 52) and a MODELS module's pick, 0 unless the start is OK (absent: an older firmware)
+    const c = r.b(), crcs = [], picks = [];
+    for (let k = 0; k < c; k++) { crcs.push(r.n5()); picks.push(r.n5()); }
+    o.crcs = crcs; o.picks = picks;
+    if (r.i + 15 <= a.length) o.fw = { len: r.n5(), crc: r.n5(), stub: r.n5() };   // (Round 26) the image the unit runs: the commit marker's body length and CRC, the stub's CRC (0s: no marker)
+  }   // the six low sectors (starts 12..17) are usable (the unit's last appended byte; absent: false)   // (Release 3 step 1) the sector of each start, appended by the unit (absent: OCM_SECTOR)   // (0.12.1) the start whose module of another engine is in the way
   o.shapesBuiltIn = !!(o.flags & 1); o.moduleWins = !!(o.flags & 2); o.writing = !!(o.flags & 4); o.inPlace = !!(o.flags & 8);
   return o;
 }
@@ -549,18 +558,47 @@ export async function removeFx(link, id) {
   const r = parseFxWrite(OC_CMD.FX_REMOVE)(a);
   if (r.rc) throw new OcError(modCode(r.rc));
 }
-// (Release 3 step 4) is this effect module's file already the unit's? (the Effects table: the id, state 7 ok, the same version and sector count)
-export function fxCurrent(ocm, fx) {
-  const want = versionTriple(ocm.fxVersion || 0);
-  if (ocm.kind === 4) return false;                                        /* (the model picker) a pick of models is always written: the Effects table does not say which models a models module holds */
-  return !!(fx && fx.effects.some((x) => x.id === ocm.moduleId && x.state === 7 && !x.resident && x.sectors === ocm.fxSectors && x.version.every((v, i) => v === want[i])));
+// (Round 26) A MODELS module's pick as the unit reports it (MOD_INFO's appended picks): bit k set when model k of the block's table is present (a word not 0). img: the image for link.
+function ocmPick(img, link) {
+  const dv = new DataView(img.buffer, img.byteOffset, img.byteLength), desc = dv.getUint32(28, true) - link;
+  if (desc < 0x100 || desc + 160 > img.length) return 0;
+  const n = Math.min(dv.getUint32(desc + 16, true), 32);
+  let m = 0;
+  for (let k = 0; k < n; k++) if (dv.getUint32(desc + 20 + 4 * k, true)) m = (m | (1 << k)) >>> 0;
+  return m >>> 0;
 }
-// is the module of this file already the registered one for its engine? (ENGINES: source a module, state 7 ok, the same version word and a size of one of the file's images)
-export function moduleCurrent(ocm, engines) {
+// (Round 26) Does the unit's start hold this file's image byte for byte? The unit's MOD_INFO (mod, read at the Install: probeUnit) reports for every OK start the code CRC-32 its loader
+// verified (header word 52) and, for a MODELS module, its pick; the page takes its own image for that start (the variant linked there) and compares the CRC, the length and the pick.
+// true / false; null when the unit does not report them (a firmware before Round 26): the caller then decides as before.
+function ocUnitHolds(ocm, mod, start) {
+  if (!mod || !mod.crcs) return null;
+  if (start == null || !(start < mod.crcs.length) || !mod.crcs[start]) return false;
+  const tbl = mod.sectorOf || OCM_SECTOR, v = ocm.variants.find((x) => x.start === tbl[start]);
+  if (!v || !v.image || v.image.length < 0x100) return false;
+  const dv = new DataView(v.image.buffer, v.image.byteOffset, v.image.byteLength);
+  if (dv.getUint32(52, true) !== mod.crcs[start] || (mod.starts && mod.starts[start] && mod.starts[start].length !== v.length)) return false;
+  return ocm.kind === 4 ? ocmPick(v.image, (OCM_LINK0 + v.start * 4096) >>> 0) === mod.picks[start] : true;
+}
+// (Release 3 step 4) is this effect module's file already the unit's? (the Effects table: the id, state 7 ok, the same version and sector count; (Round 26) with mod, the unit's
+// MOD_INFO, when it reports the starts' CRCs: the same code CRC, length and (a models module) pick at the module's start too. Without them a models module is never current, as before)
+export function fxCurrent(ocm, fx, mod) {
+  const want = versionTriple(ocm.fxVersion || 0);
+  const x = fx && fx.effects.find((e) => e.id === ocm.moduleId && e.state === 7 && !e.resident);
+  if (!x || x.sectors !== ocm.fxSectors || !x.version.every((v, i) => v === want[i])) return false;
+  const u = ocUnitHolds(ocm, mod, x.start);
+  if (u !== null) return u;
+  return ocm.kind !== 4;                                                   /* (the model picker) a pick of models is always written: without the CRCs the unit does not say which models it holds */
+}
+// is the module of this file already the registered one for its engine? (ENGINES: source a module, state 7 ok, the same version word and a size of one of the file's images;
+// (Round 26) with mod reporting the CRCs: the same code CRC and length at its start)
+export function moduleCurrent(ocm, engines, mod) {
   const x = engines && engines.engines[ocm.engine];
   if (!x || x.src !== 2 || x.state !== 7) return false;
   const want = versionTriple(ocmVersion(ocm));
-  return x.version.every((v, i) => v === want[i]) && ocm.variants.some((v) => v.length === x.size);
+  if (!x.version.every((v, i) => v === want[i])) return false;
+  const u = ocUnitHolds(ocm, mod, x.start);
+  if (u !== null) return u;
+  return ocm.variants.some((v) => v.length === x.size);
 }
 
 // (the model picker review) Where the unit's loader will put each module of this set, computed with the loader's own planner (fm1place.js, tested against the C functions
@@ -573,8 +611,8 @@ export function placementOf(probe, ocms) {
   const mods = [];
   for (const ocm of ocms) {
     if (!ocm || !ocm.ok) continue;
-    if (ocm.kind) { if (fxCurrent(ocm, probe.fx)) continue; mods.push({ mid: ocm.moduleId, sectors: ocm.fxSectors, name: ocm.kind === 4 ? "MACRO models" : "effect module 0x" + ocm.moduleId.toString(16).toUpperCase() }); }
-    else { if (moduleCurrent(ocm, probe.engines)) continue; mods.push({ engine: ocm.engine, name: { 14: "SHAPES", 7: "WHEEL", 19: "PROPHET" }[ocm.engine] || "engine " + ocm.engine }); }
+    if (ocm.kind) { if (fxCurrent(ocm, probe.fx, probe.mod)) continue; mods.push({ mid: ocm.moduleId, sectors: ocm.fxSectors, name: ocm.kind === 4 ? "MACRO models" : "effect module 0x" + ocm.moduleId.toString(16).toUpperCase() }); }
+    else { if (moduleCurrent(ocm, probe.engines, probe.mod)) continue; mods.push({ engine: ocm.engine, name: { 14: "SHAPES", 7: "WHEEL", 19: "PROPHET" }[ocm.engine] || "engine " + ocm.engine }); }
   }
   const r = PLACE.simulate(st, mods);
   return { ok: r.ok, mods, steps: r.steps, text: r.ok ? "" : PLACE.whyNot(st, mods, r) };
@@ -603,8 +641,8 @@ export function arrangementOf(probe, ocms, opts = {}) {
   ocms.forEach((ocm, i) => {
     if (!ocm || !ocm.ok) return;
     at.push(i);
-    if (ocm.kind) mods.push({ mid: ocm.moduleId, sectors: ocm.fxSectors, current: fxCurrent(ocm, probe.fx), file: i, name: moduleName({ kind: ocm.kind, mid: ocm.moduleId }) });
-    else mods.push({ engine: ocm.engine, current: moduleCurrent(ocm, probe.engines), file: i, name: moduleName({ kind: 0, engine: ocm.engine }) });
+    if (ocm.kind) mods.push({ mid: ocm.moduleId, sectors: ocm.fxSectors, current: fxCurrent(ocm, probe.fx, probe.mod), file: i, name: moduleName({ kind: ocm.kind, mid: ocm.moduleId }) });
+    else mods.push({ engine: ocm.engine, current: moduleCurrent(ocm, probe.engines, probe.mod), file: i, name: moduleName({ kind: 0, engine: ocm.engine }) });
   });
   const a = PLACE.arrange(st, mods, { removable: opts.removable || [] }), order = a.order.map((k) => at[k]);
   ocms.forEach((_, i) => { if (!order.includes(i)) order.push(i); });
@@ -638,11 +676,20 @@ async function rearrangeCheck(link, probe, ocms, arr) {
   return bad;
 }
 
+// (Round 26) does the unit run exactly the image of this package? id: fm1pkg.js firmwareIdentity of the package (null: never); info: the unit's MOD_INFO. The commit marker's body
+// length and CRC-32 (the boot stub boots no body without that CRC) and the stub's CRC-32 must all be there, not 0, and equal: a firmware that does not report them, a stock or
+// foreign app, another build of the same version or a bench build with other switches is written as always.
+export function fwCurrent(id, info) {
+  const u = info && info.fw;
+  return !!(id && u && u.len && u.crc && u.stub && id.len === u.len && id.crc === u.crc && id.stub === u.stub);
+}
 // The set. ctx: {
 //   stages: {firmware, pack, module}   which stages the user wants
 //   files: {pack: bytes|null, modules: [bytes], want: [{kind, module_id} | null]}      fetched before anything is written; want (Release 3 step 4, optional): what the
 //                                                    manifest says each module is, checked against the file's header and descriptor ("modManifest" when not)
 //   runFirmware(): the page's own update; resolves when the unit is back
+//   firmwareId (Round 26, optional): the package's {len, crc, stub} (fm1pkg.js firmwareIdentity); with it the unit is asked first (peekUnit(), else openUnit()) and the firmware
+//                                     is left as it is (sum.firmware "current") when the unit runs that image (fwCurrent); without it, or in any doubt, it is written
 //   openUnit(): the unit's editor port as an OcLink, or null (the page looks for up to a minute)
 //   say(key, arg), progress(fraction 0..1), log(text), sleep(ms), confirmInPlace()
 //   confirmRearrange(names, drop) (round 23): asked, on a unit with the tail region, before the set's own modules (names) are taken off and put on again in the goal's order;
@@ -669,8 +716,18 @@ export async function runSet(ctx) {
   const part = (w) => { const b = base; base += w; return (f) => progress((b + w * Math.max(0, Math.min(1, f))) / total); };
   if (stages.firmware) {
     const f = part(weight.firmware);
-    await ctx.runFirmware(f);
-    sum.firmware = "installed";
+    let same = false;
+    if (ctx.firmwareId) {                                // (Round 26) the unit asked first: the image it runs against the package's (fwCurrent); any doubt flashes
+      const l = await (ctx.peekUnit || ctx.openUnit)();
+      if (l) {
+        try { const m = await l.ask(ocReq.modInfo(), { timeout: 300, retries: 1 }); same = fwCurrent(ctx.firmwareId, m ? parseModInfo(m) : null); }
+        catch (e) { if (e.code === "ocLost") throw e; same = false; }
+        finally { l.close(); }
+      }
+      log(same ? "firmware: the unit runs this package's image (marker length and CRC, stub CRC): left as it is" : "firmware: the unit's image is not this package's, or it does not say: written");
+    }
+    if (same) sum.firmware = "current";
+    else { await ctx.runFirmware(f); sum.firmware = "installed"; }
     f(1);
   }
   if (!stages.pack && !stages.module) { sum.module = mods.map(() => "off"); return sum; }
@@ -763,7 +820,7 @@ export async function runSet(ctx) {
         if (w && ((w.kind || 0) !== ocm.kind || (ocm.kind && w.module_id !== ocm.moduleId))) { res[i] = { error: "modManifest" }; continue; }
         if (ocm.kind) {                                 // (Release 3 step 4) an effect module: by its module id
           if (!probe.fx) { res[i] = "oldfw"; continue; }
-          if (fxCurrent(ocm, probe.fx)) { res[i] = "current"; p(1); continue; }
+          if (fxCurrent(ocm, probe.fx, probe.mod)) { res[i] = "current"; log(`${moduleName({ kind: ocm.kind, mid: ocm.moduleId })}: ${probe.mod && probe.mod.crcs ? "the unit's CRC and pick are the file's" : "the same version and size"}: left as it is`); p(1); continue; }
           const existed = !!(probe.fx && probe.fx.effects.some((x) => x.id === ocm.moduleId && !x.resident));
           try { say("modWorking"); await installFx(link, ocm, p, { sleep, confirmInPlace: ctx.confirmInPlace }); res[i] = "installed"; if (!existed) added.push(ocm.moduleId); }
           catch (e) { if (e.code === "ocLost") throw e; res[i] = e.detail ? { error: e.code || "modFail", detail: e.detail } : { error: e.code || "modFail" }; }
@@ -771,7 +828,7 @@ export async function runSet(ctx) {
           if (redo && res[i] !== "installed") sum.rearrange = "stopped";
           continue;
         }
-        if (moduleCurrent(ocm, probe.engines)) { res[i] = "current"; p(1); continue; }
+        if (moduleCurrent(ocm, probe.engines, probe.mod)) { res[i] = "current"; log(`${moduleName({ kind: 0, engine: ocm.engine })}: ${probe.mod && probe.mod.crcs ? "the unit's CRC is the file's" : "the same version and size"}: left as it is`); p(1); continue; }
         try { say("modWorking"); await installModule(link, ocm, p, { sleep, confirmInPlace: ctx.confirmInPlace }); res[i] = "installed"; }
         catch (e) { if (e.code === "ocLost") throw e; res[i] = e.detail ? { error: e.code || "modFail", detail: e.detail } : { error: e.code || "modFail" }; }
         probe = await probeUnit(link, { fx: askFx });

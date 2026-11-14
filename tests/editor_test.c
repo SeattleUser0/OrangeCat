@@ -16,6 +16,8 @@ static unsigned char host_samples[3][0x14000];
 #define MELODEE_FLASH 0
 #define MELODEE_VERSION "TEST"
 #define OC_MODULE_WINS 1                  /* (Orange Cat 0.10.0) the module commands are tested with a module that takes the slot (the build default is 0; the Orange Cat set turns it on) */
+static unsigned char host_app[0x92000u - 0x4120u];   /* (Round 26) app.bin as the unit's XIP shows it: the stub, the body, the commit marker (MOD_INFO's image report) */
+#define OC_APP_XIP(off) (host_app + ((off) - 0x4120u))
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
@@ -91,10 +93,25 @@ static int st_erase(uint32_t off)
 #define OC_MOD_HOST_XIP 1                 /* (0.10.0) a registered header is read from the simulated flash, not from an XIP address */
 struct fw_mod_hdr;
 static const struct fw_mod_hdr *oc_mod_hdr_ptr(uint32_t i);
+static const void *ed_test_xip(uint32_t a);    /* (Round 26) a MODELS module's table as host pointers into the simulated flash (as tests/fx_module_test.c's) */
+#define OC_MOD_XIP_PTR(a) ed_test_xip(a)
 #include "../firmware/src/storage.c"
 #include "../firmware/src/upreset.c"
 #include "../firmware/src/project.c"
 static const fw_mod_hdr_t *oc_mod_hdr_ptr(uint32_t i) { return (const fw_mod_hdr_t *)(host_mod + oc_mod_flash(i) - 0xC8000u); }
+static const void *ed_test_xip(uint32_t a)
+{
+    static const void *tabs[2][FW_MODELS_MAX];
+    static uint32_t k;
+    const void **tab = tabs[k++ & 1u];
+    uint32_t i, base = oc_mod_link(0);
+    for (i = 0; i < FW_MODELS_MAX; i++) {
+        uint32_t w = 0, off = a - base + 4u * i;
+        if (off + 4u <= sizeof host_mod) memcpy(&w, host_mod + off, 4);
+        tab[i] = w >= base && w < base + sizeof host_mod ? (const void *)(host_mod + (w - base)) : 0;
+    }
+    return tab;
+}
 
 static uint32_t flash_ok = 1;
 static void audio_silence(void) {}
@@ -1461,6 +1478,155 @@ static int fx_protocol(void)
     return bad;
 }
 
+/* (Round 26) MOD_INFO's appended report: after the low sectors' byte, the count of starts, then per start the code CRC-32 the loader verified (header word 52) and a MODELS
+ * module's pick (bit k: model k of its table present), 5 x 7 bits each, both 0 unless the start is OK. The installer page writes a module only when they differ from its image's. */
+static uint32_t rep_u35(uint32_t at) { return host_wire[at] | host_wire[at + 1] << 7 | host_wire[at + 2] << 14 | (uint32_t)host_wire[at + 3] << 21 | (uint32_t)host_wire[at + 4] << 28; }
+#define REP0 (MODBLK + 3u + OC_MOD_STARTS)                /* the count's byte: after the blocker, the sector count, the sectors and the low sectors' byte */
+static uint32_t rep_crc(uint32_t s) { return rep_u35(REP0 + 1u + 10u * s); }
+static uint32_t rep_pick(uint32_t s) { return rep_u35(REP0 + 6u + 10u * s); }
+static uint8_t rimg[3u * 4096u];
+static uint32_t rep_place(uint32_t start, uint32_t len)   /* rimg into the flash at start, a boot: the header's crc */
+{
+    memcpy(host_mod + (oc_mod_flash(start) - 0xC8000u), rimg, len);
+    memset(&oc_mod, 0, sizeof oc_mod); memset(&oc_modguard, 0, sizeof oc_modguard);
+    oc_mod_boot(0);
+    return ((const fw_mod_hdr_t *)rimg)->crc;
+}
+static void rep_w32(uint32_t o, uint32_t v) { rimg[o] = (uint8_t)v; rimg[o + 1] = (uint8_t)(v >> 8); rimg[o + 2] = (uint8_t)(v >> 16); rimg[o + 3] = (uint8_t)(v >> 24); }
+static void rep_seal(uint32_t start, uint32_t word, uint32_t state, uint32_t len)
+{
+    fw_mod_hdr_t h;
+    uint32_t link = oc_mod_link(start);
+    memset(&h, 0, sizeof h);
+    h.magic = FW_MOD_MAGIC; h.iface = FW_API_IFACE; h.api_size = sizeof(fw_api_t); h.api_version = FW_API_VERSION; h.api_addr = FW_API_ADDR;
+    h.engine = word; h.state_size = state; h.engine_ptr = link + 0x200u; h.link_addr = link; h.pack_hash = OC_PACK_HASH; h.length = len; h.version = 0x00010000u;
+    h.crc = ocs_crc32(rimg + FW_MOD_CODE_OFF, len - FW_MOD_CODE_OFF);
+    h.hcrc = ocs_crc32((const uint8_t *)&h, FW_MOD_HDR_BYTES - 4u);
+    memcpy(rimg, &h, sizeof h);
+}
+static void rep_fx(uint32_t start, uint32_t id, uint32_t len)   /* a one effect insert module (kind 1) linked for start */
+{
+    uint32_t link = oc_mod_link(start), i, d = 0x200, e = 0x214, pp = 0x300;
+    memset(rimg, 0, sizeof rimg);
+    for (i = FW_MOD_CODE_OFF; i < len; i++) rimg[i] = (uint8_t)(i * 5u + 1u);
+    memset(rimg + 0x200, 0, 0x300);
+    rep_w32(d, 1); rep_w32(d + 4, id); rep_w32(d + 8, 0x00010000u); rep_w32(d + 12, link + e); rep_w32(d + 16, 0);
+    rimg[e] = 7; rimg[e + 1] = 1; rimg[e + 4] = 1; rep_w32(e + 8, link + pp);
+    rimg[pp] = 10; rimg[pp + 1] = 0; rimg[pp + 2] = 0xFF; rimg[pp + 3] = 0xFF; rimg[pp + 6] = 127; rimg[pp + 8] = 64;
+    rep_seal(start, FW_MOD_KIND_INSERT << 8, 0, len);
+}
+static void rep_models(uint32_t start, uint32_t n, uint32_t leave_out, uint32_t len)   /* MACRO's models (kind 4): n models, the ids in leave_out's bits not in the pick */
+{
+    uint32_t link = oc_mod_link(start), i, d = 0x200;
+    memset(rimg, 0, sizeof rimg);
+    for (i = FW_MOD_CODE_OFF; i < len; i++) rimg[i] = (uint8_t)(i * 31u + 7u);
+    memset(rimg + d, 0, 0x400u);
+    rep_w32(d, FW_MODELS_MAGIC); rimg[d + 4] = FW_MODELS_WIRE; rimg[d + 5] = 0; rimg[d + 6] = FW_MODELS_VERSION; rimg[d + 7] = 0;
+    rep_w32(d + 8, PL_MDL_ABI_ID); rep_w32(d + 12, ENGI_MACRO); rep_w32(d + 16, n);
+    for (i = 0; i < n; i++) {
+        uint32_t m = 0x300u + PL_MDL_WIRE * i;
+        if ((leave_out >> i) & 1u) continue;
+        rep_w32(d + FW_MODELS_AT + 4u * i, link + m);
+        rep_w32(m + PL_MDL_STATE_AT, 100u); rimg[m + PL_MDL_BIG_AT] = 0; rimg[m + PL_MDL_UNITS_AT] = 1;
+        rep_w32(m + PL_MDL_START_AT, link + 0x600u); rep_w32(m + PL_MDL_RENDER_AT, link + 0x640u);
+    }
+    rep_seal(start, ENGI_MACRO | FW_MOD_KIND_MODELS << 8, pl_need(100u, 0), len);
+}
+/* (Round 26) the image report, MOD_INFO's last 15 bytes: the commit marker's body length and CRC, the stub's CRC (5 x 7 bits each), 0 without a valid marker */
+#define FWR (REP0 + 1u + 10u * OC_MOD_STARTS)
+static void app_marker(uint32_t len, uint32_t crc, int bad)   /* the 20 bytes tools/fm1pkg_make.py marker writes, at flash 0x91FE0 */
+{
+    uint8_t *m = host_app + (0x91FE0u - 0x4120u);
+    uint32_t w[4] = { 0x4D425243u, 1u, len, crc }, c, i;
+    for (i = 0; i < 16u; i++) m[i] = (uint8_t)(w[i / 4u] >> (8u * (i % 4u)));
+    c = ocs_crc32(m, 16u) ^ (bad ? 1u : 0u);
+    for (i = 0; i < 4u; i++) m[16u + i] = (uint8_t)(c >> (8u * i));
+}
+static int fw_report(void)
+{
+    int bad = 0;
+    uint32_t i, len = 0x40000u, crc, stub;
+    reset();
+    memset(host_app, 0xFF, sizeof host_app);
+    request(ED_MOD_INFO, 0, 0);
+    bad += check("MOD_INFO's image report (Round 26): no commit marker (erased flash): length, body CRC and stub CRC 0",
+                 host_wire_n == FWR + 16u && rep_u35(FWR) == 0 && rep_u35(FWR + 5u) == 0 && rep_u35(FWR + 10u) == 0 && host_wire[FWR + 15u] == 0xF7);
+    for (i = 0; i < 0xEE0u + len; i++) host_app[i] = (uint8_t)(i * 13u + (i >> 9));
+    crc = ocs_crc32(host_app + 0xEE0u, len); stub = ocs_crc32(host_app, 0xEE0u);
+    app_marker(len, crc, 0);
+    request(ED_MOD_INFO, 0, 0);
+    bad += check("MOD_INFO's image report: the marker's body length and CRC as the build wrote them, and the stub's CRC (app.bin's first 0xEE0 bytes)",
+                 rep_u35(FWR) == len && rep_u35(FWR + 5u) == crc && rep_u35(FWR + 10u) == stub && crc && stub);
+    host_app[5] ^= 1u;
+    request(ED_MOD_INFO, 0, 0);
+    bad += check("MOD_INFO's image report: another stub, the same body: the stub's CRC differs", rep_u35(FWR + 10u) != stub && rep_u35(FWR + 5u) == crc);
+    host_app[5] ^= 1u;
+    app_marker(len, crc, 1);
+    request(ED_MOD_INFO, 0, 0);
+    bad += check("MOD_INFO's image report: a marker whose own CRC is wrong: all 0", rep_u35(FWR) == 0 && rep_u35(FWR + 5u) == 0 && rep_u35(FWR + 10u) == 0);
+    memset(host_app, 0xFF, sizeof host_app);
+    reset();
+    return bad;
+}
+static int mod_report(void)
+{
+    int bad = 0, ok;
+    uint32_t s, c, len = 3u * 4096u - 0x100u;
+    reset();
+    memset(host_mod, 0xFF, sizeof host_mod); host_mod_erases = 0;
+    memset(&oc_mod, 0, sizeof oc_mod); memset(&oc_modguard, 0, sizeof oc_modguard);
+    ocs_resv = SMP_LEGACY_MASK;
+    oc_mod_boot(0);
+    song.playing = 0; host_progress = 1;
+    request(ED_MOD_INFO, 0, 0);
+    ok = host_wire_n == REP0 + 1u + 10u * OC_MOD_STARTS + 15u + 1u && host_wire[REP0] == OC_MOD_STARTS && host_wire[host_wire_n - 1u] == 0xF7;
+    for (s = 0; s < OC_MOD_STARTS; s++) ok &= rep_crc(s) == 0 && rep_pick(s) == 0;
+    bad += check("MOD_INFO's report (Round 26): appended after the low sectors' byte, the count of starts and 10 bytes a start; an empty area: every CRC and pick 0", ok);
+    c = install_image(ENGI_SHAPES, 0, 3000u);
+    request(ED_MOD_INFO, 0, 0);
+    ok = c == 0 && oc_mod.state[0] == MD_OK && rep_crc(0) == ((const fw_mod_hdr_t *)im)->crc && rep_crc(0) != 0 && rep_pick(0) == 0;
+    for (s = 1; s < OC_MOD_STARTS; s++) ok &= rep_crc(s) == 0 && rep_pick(s) == 0;
+    bad += check("MOD_INFO's report: an engine module installed through the commands: its start's CRC is the image's header word 52 at once (no reboot), pick 0; the other starts 0", ok);
+    {   uint32_t want = ((const fw_mod_hdr_t *)im)->crc;
+        memset(&oc_mod, 0, sizeof oc_mod); oc_mod_boot(0);
+        request(ED_MOD_INFO, 0, 0);
+        bad += check("MOD_INFO's report: the same after a boot", rep_crc(0) == want);
+        host_mod[oc_mod_flash(0) - 0xC8000u + 0x400u] ^= 0x10u;        /* one code byte flipped: the loader's CRC check fails */
+        memset(&oc_mod, 0, sizeof oc_mod); oc_mod_boot(0);
+        request(ED_MOD_INFO, 0, 0);
+        bad += check("MOD_INFO's report: a damaged module (a code byte flipped): state BAD_CRC and its CRC reported 0, never the header's word",
+                     oc_mod.state[0] == MD_BAD_CRC && host_wire[26] == MD_BAD_CRC && rep_crc(0) == 0);
+    }
+    memset(host_mod, 0xFF, sizeof host_mod);
+    rep_fx(3, 0x00ABCDEFu, len);
+    c = rep_place(3, len);
+    request(ED_MOD_INFO, 0, 0);
+    bad += check("MOD_INFO's report: an effect module (kind 1) at start 3: its CRC, pick 0; start 0 (empty) 0",
+                 oc_mod.state[3] == MD_OK && rep_crc(3) == c && c != 0 && rep_pick(3) == 0 && rep_crc(0) == 0);
+    memset(host_mod, 0xFF, sizeof host_mod);
+    rep_models(0, 6, 1u << 1 | 1u << 4, len);                       /* models 0 2 3 5 of a table of 6 */
+    c = rep_place(0, len);
+    request(ED_MOD_INFO, 0, 0);
+    bad += check("MOD_INFO's report: a MODELS module (kind 4, MACRO): its CRC and its pick (models 0, 2, 3, 5 of 6: 0x2D)",
+                 oc_mod.state[0] == MD_OK && oc_mod.kind[0] == FW_MOD_KIND_MODELS && rep_crc(0) == c && rep_pick(0) == 0x2Du);
+    {   uint32_t c1 = c;
+        memset(host_mod, 0xFF, sizeof host_mod);
+        rep_models(0, 6, 1u << 1, len);                             /* another pick of the same table, version and length */
+        c = rep_place(0, len);
+        request(ED_MOD_INFO, 0, 0);
+        bad += check("MOD_INFO's report: another pick of the same table length, version and image length: another CRC and pick (0x3D)", rep_crc(0) == c && c != c1 && rep_pick(0) == 0x3Du);
+        host_mod[oc_mod_flash(0) - 0xC8000u + 0x1000u] ^= 0x01u;       /* a byte of the models module's code: BAD_CRC, nothing reported */
+        memset(&oc_mod, 0, sizeof oc_mod); oc_mod_boot(0);
+        request(ED_MOD_INFO, 0, 0);
+        bad += check("MOD_INFO's report: a damaged MODELS module: CRC and pick 0", oc_mod.state[0] == MD_BAD_CRC && rep_crc(0) == 0 && rep_pick(0) == 0);
+    }
+    memset(host_mod, 0xFF, sizeof host_mod);
+    memset(&oc_mod, 0, sizeof oc_mod); memset(&oc_modguard, 0, sizeof oc_modguard);
+    oc_mod_boot(0);
+    reset();
+    return bad;
+}
+
 static int module_overlaps(void)
 {
     static const struct { uint8_t first, start, second; } cases[] = {
@@ -1739,7 +1905,7 @@ static int arrange_protocol(void)
 
 int main(void)
 {
-    int bad = kit_protocol() + arrange_protocol() + module_protocol() + module_overlaps() + fx_protocol() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + reply_counters() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
+    int bad = kit_protocol() + arrange_protocol() + module_protocol() + module_overlaps() + fx_protocol() + mod_report() + fw_report() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + reply_counters() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
               native_protocol() + shared_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + device_settings() + scale_catalogue() + project_scale_protocol() + web_wire_rule();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;

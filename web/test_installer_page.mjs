@@ -56,7 +56,7 @@ function boot(storage, unit = {model: "FM-1", text: "FM-1_710010300"}, meta = ME
     localStorage: storage,
     confirm: (m) => { confirms.push(m); return unitReads.answer !== false; },
     fetch: (url) => new Promise((resolve) => pending.push({url, resolve})),
-    productOf: () => "FM-1_900", logicalImage: (b) => String.fromCharCode(...b), MELODEE_LOADER, STOCK_LOADER,
+    productOf: () => "FM-1_900", logicalImage: (b) => String.fromCharCode(...b), firmwareIdentity: () => null, MELODEE_LOADER, STOCK_LOADER,
     Updater: class {
       async find(filter) { return filter({model: unit.model, text: unit.text}) ? {id: {model: unit.model, text: unit.text}, link: {close() {}}} : null; }
       async install(image, product, step, loader) { installs.push({image, product, loader, unit: unit.text}); step("done"); }
