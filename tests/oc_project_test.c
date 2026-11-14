@@ -460,6 +460,51 @@ static int test_stack_escape(void)
     return check(what, ok && damaged > 0);
 }
 
+/* (Release 3, the owner's decision: a track gives its memory back only when it is turned OFF) the OFF bits are saved with the project and come back:
+ * through SAVE, a reboot and a load; a project saved with none reads as none; another slot keeps its own; a project record of before (zeros in the word's place)
+ * reads as none; a bank record as the editor and the backup carry it (the same project part) keeps them; a track removed takes its bit with it */
+static int test_off(void)
+{
+    int ok = 1;
+    reset();
+    fill_all(5, 2);
+    trk_off_bits = 0;
+    ok &= project_save_as(0, "NO OFF") == 0;
+    trk_off_set(1, 1); trk_off_set(3, 1);
+    ok &= project_save_as(1, "TWO OFF") == 0;
+    trk_off_bits = 0;
+    reboot();
+    project_load(1);
+    ok &= trk_off_bits == 0x0Au && trk_off(1) && trk_off(3) && !trk_off(0) && !trk_off(2);
+    project_load(0);
+    ok &= trk_off_bits == 0;                      /* the slot saved with none: loading it turns them on again */
+    trk_off_bits = 0x0Fu;
+    project_load(1);
+    ok &= trk_off_bits == 0x0Au;                  /* a load sets the bits, it does not or them */
+    {   /* the word is in the project part the editor and the backup carry: the same bytes restore them */
+        static uint8_t raw[BANK_STORE_SIZE];
+        ok &= ocj_read(1, raw) == (int)BANK_STORE_SIZE;
+        trk_off_bits = 0; wipe_runtime();
+        ok &= ocj_write(2, raw, BANK_STORE_SIZE) == 0;
+        reboot();
+        project_load(2);
+        ok &= trk_off_bits == 0x0Au;
+        {   /* a record of before: the word's bytes are zeros */
+            project_store_t *ps = (project_store_t *)(raw + 8u);
+            uint32_t sum;
+            ps->raw[PROJ_OFF_WIRE] = ps->raw[PROJ_OFF_WIRE + 1u] = 0;
+            sum = proj_hash(ps->raw, PROJ_STORE_SIZE - 4u); memcpy(ps->raw + PROJ_STORE_SIZE - 4u, &sum, 4);
+            bank_checksum(raw);
+            ok &= ocj_write(3, raw, BANK_STORE_SIZE) == 0;
+            reboot();
+            trk_off_bits = 0x0Fu;
+            project_load(3);
+            ok &= trk_off_bits == 0;
+        }
+    }
+    return check("OFF: saved with the project, read back after a reboot, set (not or-ed) by a load, restored from a bank record, none from a record of before", ok);
+}
+
 #ifndef OC_PROJECT_NO_MAIN
 int main(void)
 {
@@ -469,6 +514,7 @@ int main(void)
     bad |= test_fbkk();
     bad |= test_cuts();
     bad |= test_stack_escape();
+    bad |= test_off();
     printf(bad ? "oc project: FAILED\n" : "oc project: all passed\n");
     return bad ? 1 : 0;
 }

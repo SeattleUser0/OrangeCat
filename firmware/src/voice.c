@@ -556,9 +556,17 @@ static int eng_state_take(track_t *t);                   /* (round 10, below: th
 static uint8_t eng_rel[NPART], eng_keep[NPART];
 static uint32_t eng_releases, eng_release_bytes, eng_retakes, eng_note_takes;   /* counts: the host tests and the console */
 static int trk_wanted(const track_t *t);                 /* seq.c: the track has something to play, or may at once (selected, armed, staged) */
-/* the explicit OFF of a track (design item 2): NOT BUILT. It is a bit saved with the project (the format revision's TRKS section); when it exists this
- * returns it, and an OFF track is released as soon as its voices have ended whatever its steps hold (trk_wanted asks here first) */
-static inline int trk_off(uint32_t k) { (void)k; return 0; }
+/* the explicit OFF of a track (design item 2; the owner: a track gives its memory back only when he turns it OFF). The bit is saved with the project: in the
+ * project record's tagged word PROJ_OFF_WIRE (project.c; the TRKS section's flags bit 0 in the Release 3 format, PROJECT_FORMAT_R3.md 4) and set from there by
+ * proj_apply. trk_off() returns it; an OFF track is released as soon as its voices have ended whatever its steps hold (trk_wanted asks here first, when
+ * OC_TRK_RELEASE is on). Nothing here turns it on or off but the project load and trk_off_set (Session A: the engine side and the screen). */
+static uint8_t trk_off_bits;                             /* bit k: track k is OFF (main loop writes it with the audio interrupt off, as a project load does) */
+static inline int trk_off(uint32_t k) { return k < NPART && ((trk_off_bits >> k) & 1u) != 0u; }
+static inline void trk_off_set(uint32_t k, int off)
+{
+    if (k >= NPART) return;
+    if (off) trk_off_bits |= (uint8_t)(1u << k); else trk_off_bits &= (uint8_t)~(1u << k);
+}
 static void voice_start(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int glide)
 {
     AP_START(attack_start);
