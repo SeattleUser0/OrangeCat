@@ -279,6 +279,15 @@ static void shared_bus_retire(void)
     jfx_power_on();for(uint32_t i=G_DTIME;i<G_COUNT;i++)song.g[i]=GP[i].def;
     puts("Effects buses: worker fault discards the block's return, keeps their memory, resets their states, continues on CPU0: OK");
 }
+/* (Round 25) SPRING, SHIMMER and RESO are the reverb module's alone (OC_REV_RESIDENT 0): with no module they are not run, so this test hands the send host a stand-in kernel with state
+ * (a one-pole low-pass of the send kept in the modes' state, mixed into the return), registered as the loader registers the module's: the CPU1 / CPU0 equality is the bus's and the
+ * call's (tests/fx_reverb_module.sh holds the module's own arithmetic to the pin, in both MELODEE_FX_DEFER settings) */
+static void dc_rev_stand_in(const fx2_ctx_t *c,const int32_t *in,int32_t *out,uint32_t n)
+{
+    int32_t a=c->st->sp_lp;
+    for(uint32_t i=0;i<n;i++){a+=(in[i]-a)>>3;out[i]+=a;}
+    c->st->sp_lp=a;
+}
 /* the buses on CPU1 and on CPU0: the same output, bit for bit, for each reverb model with the delay and chorus */
 static void shared_bus_case(int parallel,uint32_t model)
 {
@@ -334,7 +343,13 @@ static int dual_core_suite(void)
                 render_case(0, alg, eng, voices);
                 render_case(1, alg, eng, voices);
             }
+#if !OC_REV_RESIDENT
+    for(uint32_t m=1;m<=3u;m++)fx2_modk[m].process=dc_rev_stand_in;
+#endif
     for(uint32_t model=0;model<5u;model++){shared_bus_case(0,model);shared_bus_case(1,model);}
+#if !OC_REV_RESIDENT
+    fx2_modk_clear();
+#endif
     puts("Effects buses: the five reverb models with the delay and chorus, four live synth tracks, serial/concurrent bit equality and joins: OK");
     shared_bus_retire();
     prophet_allocation();

@@ -402,6 +402,7 @@ static void pack_boot_notice(uint32_t skipped)
         uint32_t e = trk[k].eng_req % NENGINES;
         gone |= mod_gone(e) | track_mod_gone(&trk[k]);   /* (picker-r3) a MACRO track on a model the MODELS module does not hold */
         dub |= !fx_ins_module_ok() && trk[k].p[P_DUB_ECHO] != 0;     /* (round 20) DUB is a module: a track with DUB on and none installed plays dry */
+        dub |= jfx_rev_missing() && trk[k].p[P_REV] != 0;              /* (Round 25) so are the reverb's SPRING, SHIMMER and RESO: a track sending to one with no module plays it dry */
         pack |= !OC_PACK_READY() && (e == ENGI_MACRO || e == ENGI_SHAPES);
     }
     s = boot_notice_text(gone, dub, pack);

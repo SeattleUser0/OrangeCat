@@ -29,6 +29,9 @@
 #define SMP_USER_SLOTS 3
 #define main hostsim_main
 #include "hostsim.c"
+#if !defined(REGRESS_MODULE_HOST)
+#include "rev_module_host.h"                          /* (Round 25) the reverb module's host unit (tests/module_host_reverb_tu.c) */
+#endif
 #undef main
 #ifdef __APPLE__
 #include <libproc.h>
@@ -1028,6 +1031,9 @@ int main(int argc, char **argv)
     uint32_t ng, nc, e, pi, i, g0, g1, c0, c1, k0, ncpu = 0;
     uint32_t g_changed = 0, g_new = 0, g_gone = 0, h_fail = 0, c_fail = 0, c_warn = 0, k_fail = 0, crash = 0;
     double heavy[NENGINES] = {0}, heavy_ns[NENGINES] = {0}, idle_base;
+#if !defined(REGRESS_MODULE_HOST) && !OC_REV_RESIDENT
+    if (rev_host_module_set() != FX2M_OK) { printf("regress: the reverb module did not register\n"); return 2; }   /* (Round 25) SPRING, SHIMMER and RESO are the reverb module's alone: its host unit, linked in by run_tests.sh's dubrev_t */
+#endif
     uint32_t heavy_p[NENGINES] = {0};
     uint64_t t_start = now_ns();
     char name[64], s[64];

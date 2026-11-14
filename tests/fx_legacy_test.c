@@ -16,6 +16,8 @@
  *           module yet: it keeps the resident stand-in
  *   DUB     (RENDER too) the fixture with DUB values on all three DUB pages loads into DUB's module (fx_dub_data.h) with every knob, SYNC, PING, DRIVE and WOW as written
  * Revisions:
+ *   (Round 25) the image has no resident copy of SPRING, SHIMMER and RESO (OC_REV_RESIDENT 0): "the resident reverb" of RENDER and CLAMP is then the real module (registered for those renders);
+ *              the resident text itself is held equal to the module by tests/fx_reverb_module.sh's reference build, and both to the pin.
  *   (Release 3 step 8a) MODULE: the real reverb module's descriptors and kernels for SPRING, SHIMMER and RESO.
  *   (Release 3, round 9) the projects are the committed fixtures, not made by this tree's writer; the DUB fixture.
  *   (Release 3, step 3 decisions L1 to L4) first version.
@@ -168,6 +170,9 @@ int main(void)
             chk(buf, same);
         }
         /* RENDER: the resident reader's project against the module's values driving the same reverb */
+#if !OC_REV_RESIDENT
+        if (k < 3u) (void)rev_module_on();               /* (Round 25) the image has no resident copy of SPRING, SHIMMER and RESO: the real module is the stand-in that plays them (CLOUD is resident) */
+#endif
         render(R_res);
         snprintf(buf, sizeof buf, "%s RENDER  the project played through the resident reverb sounds (the test can hear a reverb)", REV_NM[k]);
         chk(buf, peak(R_res) > 500);
@@ -184,8 +189,14 @@ int main(void)
         render(R_other);
         snprintf(buf, sizeof buf, "%s RENDER  control: the same TYPE with the knobs at their defaults renders differently (the render can tell)", REV_NM[k]);
         chk(buf, memcmp(R_res, R_other, sizeof R_res) != 0);
+#if OC_REV_RESIDENT
         snprintf(buf, sizeof buf, "%s RENDER  .. and not one block of these renders went through the module's kernels (the resident reverb played)", REV_NM[k]);
         chk(buf, last_mcalls == 0 && !fx2_modk_ok());
+#else
+        snprintf(buf, sizeof buf, "%s RENDER  .. and %s", REV_NM[k], k < 3u ? "these renders went through the module's kernel (no resident copy in the image: the module is the stand-in)" : "not one block went through a module (CLOUD is resident)");
+        chk(buf, k < 3u ? last_mcalls > 1000u && fx2_modk_ok() : last_mcalls == 0 && !fx2_modk_ok());
+        fx2_modk_clear();
+#endif
         if (k < 3u) {                                    /* (step 8a) MODULE: the real module's own descriptor and kernel for this mode */
             int16_t rm[8], ro[8];
             uint32_t okm = 1, rdesc = 0;
@@ -235,6 +246,9 @@ int main(void)
         int32_t R_clamp[RN * CTL];
         fixture_project(FXR2_CLAMP_FILE, &loaded);
         project_restore_runtime(&loaded);
+#if !OC_REV_RESIDENT
+        (void)rev_module_on();                           /* (Round 25) the stand-in for RESO is the module: the image has no resident copy */
+#endif
         render(R_res);
         make_reverb(&d, 2);
         fwp_wire(&d, img, sizeof img, BASE, &desc);
@@ -245,6 +259,7 @@ int main(void)
         fx_legacy_export(img_rd, 0, desc, mod, trk[0].p, song.g);
         render(R_clamp);
         chk("CLAMP   .. and the resident reverb plays the 30 as it plays the 14 (it clamps the same way): renders equal", !memcmp(R_res, R_clamp, sizeof R_res));
+        fx2_modk_clear();
         {   /* (step 8a) through the real module: its RESO descriptor clamps the same, and its kernel plays the 14 as the resident plays the stored 30 */
             uint32_t rdesc = 0;
             int16_t rm[8];

@@ -12,9 +12,11 @@
  * then the host around it: each refusal of fx2_modk_set (nothing registered), the crash mark (taken once, when a module mode first runs; not for ROOM or CLOUD), the Effects table's `uses`,
  * the loader's commit and its erase guard, and the descriptor: the caps words, and each mode's pages against what the firmware shows today for that TYPE (the REVERB and REVERB 2 rows of
  * PAGES, global_desc for every knob) and against Session C's data (tests/fx_reverb_data.h), through the loader's checker as SC_FX.
- * With -DOC_REV_RESIDENT=0 (the image of the Nightly AFTER this one: no resident copy of the three modes) the same file checks what happens then: without the module a module mode is not run
- * (the return silent, the dry mix as it is); with it the render is the pinned resident printout.
- * Arguments: none. RVM_STOPFIRST=1: stop at the first differing block (the mutation check). Built and run by tests/fx_reverb_module.sh (tests/run_tests.sh). */
+ * Round 25: the image has no resident copy (OC_REV_RESIDENT 0, the default), and built that way this file checks THE SHIPPED IMAGE: without the module a module mode is not run (the
+ * return silent, the dry mix as it is); with it the render is the pinned printout (tests/fx_reverb_golden.txt, made from the resident code before the cut); a removal while SPRING sounds
+ * clears the tank and the state, a registration plays from the next block. Runs A .. D above need the resident text: they are the build with -DOC_REV_RESIDENT=1, now a host-only REFERENCE
+ * (the same rev_kern.h the module includes), which the image no longer carries.
+ * Arguments: none. RVM_STOPFIRST=1: the mutation check (the descriptor first, then the render: the reference build stops at the first differing block, the shipped image's at the first scenario off the pin; each says VERDICT). Built and run by tests/fx_reverb_module.sh (tests/run_tests.sh). */
 #define RVP_NO_MAIN 1
 #include "fx_reverb_probe.c"
 #include "fw_pages_wire.h"
@@ -56,7 +58,7 @@ static void tap_cmp(const char *sc, uint32_t b, const int32_t *pcm, size_t bytes
     if (cmp_at >= keep_n || memcmp(keep[cmp_at], pcm, bytes)) {
         if (!cmp_bad) {
             snprintf(first_bad, sizeof first_bad, "%s block %u differs from the resident render", sc, (unsigned)b);
-            if (stopfirst) { printf("fx reverb module: FAIL: %s\n", first_bad); exit(1); }
+            if (stopfirst) { printf("fx reverb module: FAIL: %s\nfx reverb module: VERDICT render: %s\n", first_bad, first_bad); exit(1); }
         }
         cmp_bad++;
     }
@@ -223,6 +225,7 @@ static void host_checks(void)
     fx2_modk_clear();
     (void)module_set();
     fx2_modk_note = note_hook; note_n = 0;
+    memset(mcalls, 0, sizeof mcalls);
     G(G_RTYPE, 0);
     run(300);
     ck("ROOM with the module registered: no call into the module, no crash mark, `uses` 0", !mcalls[1] && !mcalls[2] && !mcalls[3] && note_n == 0 && fx2_modk_uses() == 0 && jrev);
@@ -240,7 +243,21 @@ static void host_checks(void)
     fx2_modk_clear();
     c0 = mcalls[1];
     run(300);
+#if OC_REV_RESIDENT
     ck("the module removed while SPRING sounds: not one call goes to it afterwards, `uses` 0, the reverb goes on (the resident copy on the same state)", mcalls[1] == c0 && fx2_modk_uses() == 0 && jrev && fx.rtype == 1u);
+#else
+    {   static const rev_kst_t zk;
+        const uint8_t *tp = (const uint8_t *)jrev;
+        uint32_t i, tz = jrev != 0;
+        for (i = 0; tz && i < sizeof *jrev; i++) tz = !tp[i];
+        ck("no resident copy: the module removed while SPRING sounds: not one call goes to it afterwards, `uses` 0, the mode is not run (the dry mix), the tank stays held and TYPE stays SPRING; "
+           "the tank and the modes' state were cleared at the removal (nothing of the old tail is left to come back)", mcalls[1] == c0 && fx2_modk_uses() == 0 && jrev && fx.rtype == 1u && tz && !memcmp(&fx.k, &zk, sizeof zk));
+        (void)module_set();
+        run(50);
+        ck("the module registered again, TYPE still SPRING: its call runs from the next block on (no reboot, the stored TYPE and knobs as they were), `uses` 1", mcalls[1] == c0 + 50u && fx2_modk_uses() == 1u && fx.rtype == 1u);
+        fx2_modk_clear();
+    }
+#endif
     fx2_modk_note = 0;
 }
 int main(void)
@@ -277,21 +294,32 @@ int main(void)
     ck("... and not one call reached it", !mcalls[1] && !mcalls[2] && !mcalls[3]);
     host_checks();
 #else
-    /* the Nightly after: no resident copy of the three modes in the image */
-    {   uint32_t i;
-        fx2_modk_clear();
+    /* the shipped image (Round 25): no resident copy of the three modes */
+    if (stopfirst) {                                     /* the mutation check: the descriptor and the host's checks of it first (a mutated descriptor word ends here), then the render against the pin */
+        refusal_checks();
+        descriptor_checks();
+        if (bad) { printf("fx reverb module: %d FAILED\nfx reverb module: VERDICT descriptor: %d check(s) of the module's descriptor and its registration failed\n", bad, bad); return 1; }
+    }
+    {   fx2_modk_clear();
         rvp_tap = 0;
-        rvp_scenarios();
-        ck("no resident copy, no module: the modes SPRING, SHIMMER and RESO are not run: the three KNOBS renders are the same samples (the dry mix: the notes are the same, the reverb adds nothing)",
-           rvp_nres == 12u && rvp_res[1].au == rvp_res[2].au && rvp_res[2].au == rvp_res[3].au && rvp_res[1].au != rvp_res[0].au && rvp_res[1].au != rvp_res[4].au);
-        ck("... and ROOM and CLOUD (resident for good / still resident) are the pinned renders: KNOBS0, KNOBS4, MIX0, MIX4", golden_ok(1u | 1u << 4 | 1u << 7 | 1u << 11));
-        (void)i;
+        if (!stopfirst) {
+            rvp_scenarios();
+            ck("no resident copy, no module: the modes SPRING, SHIMMER and RESO are not run: the three KNOBS renders are the same samples (the dry mix: the notes are the same, the reverb adds nothing)",
+               rvp_nres == 12u && rvp_res[1].au == rvp_res[2].au && rvp_res[2].au == rvp_res[3].au && rvp_res[1].au != rvp_res[0].au && rvp_res[1].au != rvp_res[4].au);
+            ck("... and ROOM and CLOUD (resident for good / still resident) are the pinned renders: KNOBS0, KNOBS4, MIX0, MIX4", golden_ok(1u | 1u << 4 | 1u << 7 | 1u << 11));
+        }
         ck("the module's bank registers", module_set() == FX2M_OK);
+        memset(mcalls, 0, sizeof mcalls);
         rvp_scenarios();
-        ck("no resident copy, the module registered: the printout is tests/fx_reverb_golden.txt's (the resident render pinned before the cut): the module alone plays the three modes as the image did", golden_ok(0xFFFu));
+        if (!golden_ok(0xFFFu)) {
+            ck("no resident copy, the module registered: the printout is tests/fx_reverb_golden.txt's", 0);
+            if (stopfirst) { printf("fx reverb module: VERDICT render: the module's render differs from the pinned printout (tests/fx_reverb_golden.txt)\n"); return 1; }
+        } else
+            ck("no resident copy, the module registered: the printout is tests/fx_reverb_golden.txt's (the resident render pinned before the cut): the module alone plays the three modes as the image did", 1);
         ck("... through its calls", mcalls[1] > 20000u && mcalls[2] > 20000u && mcalls[3] > 20000u);
         fx2_modk_clear();
     }
+    if (!stopfirst) host_checks();
 #endif
     rvp_tap = 0;
     refusal_checks();

@@ -53,7 +53,7 @@
 #define JFX_XIP __attribute__((section(".text.xip_jfx"), noinline))
 #define REVK_FN JFX_XIP                                 /* rev_kern.h: the resident copy of a mode's function sits where the reverb's did */
 #ifndef OC_REV_RESIDENT
-#define OC_REV_RESIDENT 1                               /* (Release 3 step 8a) the resident copy of SPRING, SHIMMER and RESO stays in the image this Nightly and plays whenever the module is not registered. 0 (the Nightly after: FX_MODULES_PLAN.md 16): the text is not built in, and those modes without the module are not run (the return silent) */
+#define OC_REV_RESIDENT 0                               /* (Round 25: FX_MODULES_PLAN.md 18) 0: SPRING, SHIMMER and RESO are the reverb module's alone: the text is not built in, and those modes without the module are not run (the return silent, the dry mix; the REVERB pages and the boot notice say MODULE MISSING). 1 (Release 3 step 8a's Nightly, and now the host tests' reference build): the resident copy of the same text (rev_kern.h) plays whenever the module is not registered */
 #endif
 #if !OC_REV_RESIDENT
 #define REVK_NO_MODES 1
@@ -952,11 +952,26 @@ static int fx2_modk_set(uint32_t module_id, uint32_t version, uint32_t n, const 
     return FX2M_OK;
 }
 /* the module goes (its sectors are about to be erased, or it no longer stands): the host's copy of the calls zeroed; from the next bus job on the resident copy plays, on the same state, tank
- * and line (nothing to hand over, nothing that sounds changes). The caller masks the audio interrupt, as for fx2_modk_set */
+ * and line (nothing to hand over, nothing that sounds changes), or, with no resident copy (OC_REV_RESIDENT 0), the mode is not run and its tank and state are cleared. The caller masks the
+ * audio interrupt, as for fx2_modk_set */
+static void rev_state_clear(void);
 static void fx2_modk_clear(void)
 {
     memset(fx2_modk, 0, sizeof fx2_modk);
     fx2_mod_version = 0; fx2_mod_n = 0; fx2_marked = 0;
+#if !OC_REV_RESIDENT
+    if (fx.rtype >= 1u && fx.rtype <= 3u) {             /* (Round 25) a module mode running: no other copy goes on from its state, so the tank and the modes' state are cleared now, and a module */
+        rev_state_clear();                              /* that comes back starts from silence, not from the tail it was cut off in (ROOM and CLOUD, resident, keep theirs). No bus job is out: */
+        memset(&fx.k, 0, sizeof fx.k);                  /* the caller masks the audio interrupt, as for fx2_modk_set */
+    }
+#endif
+}
+/* (Round 25) the UI's question: the project's reverb TYPE is SPRING, SHIMMER or RESO and no kernel plays it (no module registered and no resident copy): its return is silent, and the REVERB
+ * pages and the boot notice say MODULE MISSING. Never while the resident copy is in the image */
+static int jfx_rev_missing(void)
+{
+    uint32_t ty = (uint32_t)clamp(song.g[G_RTYPE], 0, 4);
+    return ty >= 1u && ty <= 3u && !fx2_modk[ty].process && !REV_RESIDENT_OF(ty);
 }
 static inline int fx2_modk_ok(void) { return fx2_mod_n != 0; }
 /* the Effects table's `uses` (editor FX_TABLE): 1 while the reverb is held and the mode it runs is the module's */

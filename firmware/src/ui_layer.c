@@ -115,6 +115,14 @@ static void layer_masks(void)
     kb_lock = m && ui.lock ? 1u : 0u;
     kb_fx = (uint8_t)(ui.ly == LAYER_FX && layer_allowed() && !(ui.ly_t0 & LY_DEAD));   /* (0.6.0) */
     perf_kill = (uint8_t)(ui.menu || ui.confirm || name_on());   /* (a menu, a dialog: every effect suspended) */
+#if !OC_PERF_RESIDENT
+    {   /* (Round 25) GLITCH, TAPE STOP, SHUFFLE and FREEZE are the FX layer module's alone: a press of one with no module (its cell drawn dim, the key does nothing) says MODULE MISSING */
+        static uint32_t gx_miss;
+        uint32_t m = kb_fx ? perf_down & PF_GX & ~perf_have() : 0u;
+        if (m & ~gx_miss) ui_message("MODULE MISSING");
+        gx_miss = m;
+    }
+#endif
 
 }
 

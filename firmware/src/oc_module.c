@@ -652,7 +652,7 @@ static void oc_mod_boot(uint32_t crashed)
     }
 #endif
 #ifdef OC_FX2_HOST
-    {   int fi = oc_fx_find(FX2_MODULE_ID);                     /* (step 8a) the send host's kernels: let go of when the module no longer stands where they point (a banned or refused module is not in the table: the resident copy plays) */
+    {   int fi = oc_fx_find(FX2_MODULE_ID);                     /* (step 8a) the send host's kernels: let go of when the module no longer stands where they point (a banned or refused module is not in the table: the resident copy plays (OC_REV_RESIDENT 1; the image since Round 25 has none: the modes are not run)) */
         if (fx2_modk_ok() && !(fi >= 0 && (uint32_t)oc_mod.fx[fi].start + 1u == fx2_was)) {
             if (oc_mod_live) fm1_irq_off();
             fx2_modk_clear();
@@ -661,7 +661,7 @@ static void oc_mod_boot(uint32_t crashed)
     }
 #endif
 #ifdef OC_FX3_HOST
-    {   int fi = oc_fx_find(FX3_MODULE_ID);                     /* (step 8b) the master host's kernels: let go of when the module no longer stands where they point (a banned or refused module is not in the table: the resident copy plays) */
+    {   int fi = oc_fx_find(FX3_MODULE_ID);                     /* (step 8b) the master host's kernels: let go of when the module no longer stands where they point (a banned or refused module is not in the table: the resident copy plays (OC_PERF_RESIDENT 1; the image since Round 25 has none: the keys do nothing)) */
         if (fx3_modk_ok() && !(fi >= 0 && (uint32_t)oc_mod.fx[fi].start + 1u == fx3_was)) {
             if (oc_mod_live) fm1_irq_off();
             fx3_modk_clear();
@@ -1004,7 +1004,7 @@ static void oc_fxmod_kernel_guard(int32_t first, uint32_t n)
     (void)first; (void)n;
 #endif
 }
-/* (Release 3 step 8a) the same for the send host: the reverb's module modes run code in the registered module's flash; before any erase of its sectors the host lets go (the resident copy plays
+/* (Release 3 step 8a) the same for the send host: the reverb's module modes run code in the registered module's flash; before any erase of its sectors the host lets go (the resident copy plays (OC_REV_RESIDENT 1; the image since Round 25 has none: the modes are not run)
  * from the next bus job on, on the same state and tank: nothing that sounds changes). The audio interrupt is masked for the store: no bus job is out between interrupts (audio.c drains it) */
 static uint32_t oc_fx2mod_guard(int32_t first, uint32_t n)   /* 1: the kernels were let go of (Round 24 review: a refused or failed erase then reads the area again) */
 {
@@ -1373,7 +1373,7 @@ static void oc_fxmod_note_use(uint32_t mid)
 #ifdef OC_FX2_HOST
 /* (Release 3 step 8a) the send host takes the registered bank of module FX2_MODULE_ID (kind 2: SPRING, SHIMMER, RESO; the reverb bus, jfx.c). oc_fx2mod_commit is the part that does not depend
  * on the device's 4 byte pointers (a host test drives it): the PC guard's window first, then the host takes the calls (all or none), then the answer: a refusal is the Effects row's `why` =
- * 0x40 + the host's code (FX2M_VER, FX2M_RANGE), which FX_TABLE sends; the module stays listed and the resident copy plays */
+ * 0x40 + the host's code (FX2M_VER, FX2M_RANGE), which FX_TABLE sends; the module stays listed and the resident copy plays (OC_REV_RESIDENT 1; the image since Round 25 has none: the modes are not run) */
 static int oc_fx2mod_commit(uint32_t i, uint32_t mid, uint32_t version, uint32_t n, const fx2_reg_t *r)
 {
     uint32_t x;
@@ -1412,7 +1412,7 @@ static void oc_fx2mod_reg(uint32_t i)
 #ifdef OC_FX3_HOST
 /* (Release 3 step 8b) the master host takes the registered bank of module FX3_MODULE_ID (kind 3: GLITCH, TAPE STOP, SHUFFLE, FREEZE; the FX layer, jfx_perform.c), as the send host takes the
  * reverb's. oc_fx3mod_commit is the part that does not depend on the device's 4 byte pointers (a host test drives it): the PC guard's window first, then the host takes the calls (all or none),
- * then the answer: a refusal is the Effects row's `why` = 0x40 + the host's code (FX3M_VER, FX3M_RANGE), which FX_TABLE sends; the module stays listed and the resident copy plays */
+ * then the answer: a refusal is the Effects row's `why` = 0x40 + the host's code (FX3M_VER, FX3M_RANGE), which FX_TABLE sends; the module stays listed and the resident copy plays (OC_PERF_RESIDENT 1; the image since Round 25 has none: the keys do nothing) */
 static int oc_fx3mod_commit(uint32_t i, uint32_t mid, uint32_t version, uint32_t n, const fx3_reg_t *r)
 {
     uint32_t x;

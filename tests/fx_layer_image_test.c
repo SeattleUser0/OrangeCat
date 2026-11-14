@@ -257,7 +257,7 @@ int main(int argc, char **argv)
         r = install(FX3_MODULE_ID, st);
         link = oc_mod_link(st);
         reg_from_image(link);
-        chk("after the install nothing is registered with the master host on the host build (the device's oc_fx3mod_reg reads 4 byte pointers; the resident copy plays)", r == 0 && none_reg());
+        chk("after the install nothing is registered with the master host on the host build (the device's oc_fx3mod_reg reads 4 byte pointers; with no resident copy the four keys do nothing)", r == 0 && none_reg());
         fm1_guard_code_end = link;                           /* a window that ends where the module begins */
         r = oc_fx3mod_commit(st, FX3_MODULE_ID, 0x00010000u, 4, reg);
         chk("registration (oc_fx3mod_commit with the caps blocks out of the image's bytes): the window is widened to the module's last byte BEFORE the host takes the calls; the four effects are the module's; why 0",
@@ -270,7 +270,7 @@ int main(int argc, char **argv)
             fx3_modk_clear();
             reg_caps[1].abi = FX2_ABI_ID;
             r = oc_fx3mod_commit(st, FX3_MODULE_ID, 0x00010000u, 4, reg);
-            chk("a refusal (a caps block with the send host's abi): the module stays listed, state OK, why 0x41 (0x40 + FX3M_VER) in the Effects row and in what FX_TABLE sends; nothing registered: the resident copy plays",
+            chk("a refusal (a caps block with the send host's abi): the module stays listed, state OK, why 0x41 (0x40 + FX3M_VER) in the Effects row and in what FX_TABLE sends; nothing registered: the four keys do nothing (no resident copy; a press says MODULE MISSING)",
                 r == FX3M_VER && none_reg() && oc_mod.state[st] == MD_OK && oc_mod.why[st] == 0x41 && oc_mod.fx[0].why == 0x41);
             reg_caps[1] = keep; reg_caps[1].ram_work_min = 7;
             r = oc_fx3mod_commit(st, FX3_MODULE_ID, 0x00010000u, 4, reg);
@@ -283,7 +283,7 @@ int main(int argc, char **argv)
         (void)oc_mod_erase_span((int32_t)other, 1u);
         chk("guard: an erase of a sector outside the module's span leaves its kernels registered", fx3_modk_ok() && all_never());
         (void)oc_mod_erase_span(OC_MOD_START_SECTOR(st) + (int32_t)NSEC - 1, 1u);
-        chk("guard: an erase of the module's LAST sector lets the kernels go FIRST (fx3_modk_clear: the resident copy plays from the next block)", none_reg());
+        chk("guard: an erase of the module's LAST sector lets the kernels go FIRST (fx3_modk_clear: from the next block a playing effect is cut and its key does nothing)", none_reg());
         clean(); load(0); st = (uint32_t)oc_fxmod_plan(FX3_MODULE_ID, NSEC); load_at(st);
         r = install(FX3_MODULE_ID, st); reg_from_image(oc_mod_link(st));
         r |= oc_fx3mod_commit(st, FX3_MODULE_ID, 0x00010000u, 4, reg);
@@ -314,7 +314,7 @@ int main(int argc, char **argv)
         oc_fxmod_note_use(FX3_MODULE_ID);
         chk("the crash mark: a ring effect in use sets the module's inuse bit (oc_fxmod_note_use, which the master host calls before the module's first call)", (oc_modguard.inuse & (1u << st)) != 0);
         oc_mod_boot(1);                                      /* the session died with it in use */
-        chk("a crash with the module in use: the module is banned (MD_CRASHED), not in the Effects table, the master host holds nothing: the resident copy plays",
+        chk("a crash with the module in use: the module is banned (MD_CRASHED), not in the Effects table, the master host holds nothing: the four keys do nothing (MODULE MISSING)",
             oc_mod.state[st] == MD_CRASHED && oc_mod.nfxmod == 0 && oc_fx_find(FX3_MODULE_ID) < 0 && none_reg());
     }
     printf(bad ? "fx layer image: FAILED\n" : "fx layer image: all passed\n");

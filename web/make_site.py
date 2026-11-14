@@ -146,7 +146,7 @@ def fx_info(path):
 
 
 # (Release 3 step 8a) the effect modules a release offers but the installer page does not tick by default (the owner's decision): the reverb modes SPRING, SHIMMER and RESO (module id 2), whose
-# resident copy is still in the firmware this Nightly. DUB TAPE (1) stays ticked by default. (Release 3 step 8b, the owner's decision) so is the FX layer module (3: GLITCH, TAPE STOP, SHUFFLE,
+# resident copy was in the firmware that Nightly (Round 25: it is gone; the box stays unticked, since the default set already fills the 21 sectors). DUB TAPE (1) stays ticked by default. (Release 3 step 8b, the owner's decision) so is the FX layer module (3: GLITCH, TAPE STOP, SHUFFLE,
 # FREEZE; two sectors): with SHAPES, WHEEL, the default models pick and DUB TAPE it fills the 21 sectors exactly, so ticking the reverb module as well does not fit (the page says so)
 FX_OPTIONAL = {2}
 

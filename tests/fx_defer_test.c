@@ -16,6 +16,7 @@
 #include "ui_test.c"
 #include <assert.h>
 #include <math.h>
+#include "rev_module_host.h"                         /* (Round 25) SPRING, SHIMMER and RESO are the reverb module's alone: its host unit (tests/module_host_reverb_tu.c) registered in main */
 
 #define NB 4800u                                  /* blocks a scenario: 3.5 s */
 typedef struct { int32_t wet[CTL], sl[CTL], sr[CTL]; } ret_t;
@@ -158,6 +159,7 @@ int main(int argc, char **argv)
 {
     const char *dir = argc > 1 ? argv[1] : "build/host";
     printf("fx_defer: MELODEE_FX_DEFER=%d\n", MELODEE_FX_DEFER);
+    if (rev_host_module_set() != FX2M_OK) { printf("fx_defer: the reverb module did not register\n"); return 2; }
     fd_case(dir, "reverb_room", 3, SHIFT, 0, s_rev0, 0);
     fd_case(dir, "reverb_room_pre", 3, SHIFT, 0, s_rev0pre, 0);
     fd_case(dir, "reverb_spring", 3, SHIFT, 0, s_rev1, 0);
