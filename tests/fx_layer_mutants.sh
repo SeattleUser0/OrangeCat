@@ -55,7 +55,7 @@ mutant 's/    int32_t n = kc->gp\[1\], rate;/    int32_t n = kc->gp[1] + 1, rate
 mutant 's/rate = (int32_t)kc->semi(n);/rate = (int32_t)kc->semi(n) + 1;/' "FREEZE: the grain's speed (the host's semitone service)" FREEZE
 mutant 's/ks->u.f.rnd = 0x2545F491u;/ks->u.f.rnd = 0x2545F493u;/' "FREEZE: the generator's start" FREEZE
 mutant 's/    ks->u.f.sd = 1;/    ks->u.f.sd = -1;/' "FREEZE: the scan's first direction" FREEZE
-mutant 's/w = (int32_t)((v->x \* (65536u - v->x)) >> 15);/w = (int32_t)((v->x * (65536u - v->x)) >> 14);/' "FREEZE: a grain's window" FREEZE
+mutant 's/w = (int32_t)((v->x \* (65536u - v->x)) >> 15);/w = (int32_t)((v->x * (65536u - v->x)) >> 16);/' "FREEZE: a grain's window at half its height (>> 16; the window doubled, >> 15 to >> 14, overflows gl * w: under SAN=1 that is a sanitizer abort, not a verdict)" FREEZE
 mutant 's/j = ks->u.f.iv \/ 8u + 1u;/j = ks->u.f.iv \/ 4u + 1u;/' "FREEZE: the scan's speed" FREEZE
 mutant 's/if (2u \* ks->wr < ks->u.f.c)/if (2u * ks->wr < ks->u.f.c + 2u)/' "FREEZE: frozen a frame late" FREEZE
 mutant 's/ks->yl = (pl + ks->u.f.nl) >> 1;/ks->yl = pl;/' "FREEZE: the left sample between two grain evaluations" FREEZE

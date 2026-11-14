@@ -56,6 +56,7 @@ if [ "$MODE" = check ]; then
 fi
 
 # the mutations: a sed on the module's own copy of the kernel text (rev_kern_mut.h, which only the module's source includes), run in the shipped image's build (no resident copy): caught against the pin
+rm -f "$OUT"/rvm_test_r*_d*.o               # (Round 25) as in the check: the object's freshness test knows nothing of CC, BS or SAN
 fail=0; n=0
 mutant() {   # mutant 'sed script' what
     n=$((n + 1))

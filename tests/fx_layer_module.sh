@@ -61,6 +61,7 @@ if [ "$MODE" = check ]; then
 fi
 
 # the mutations: a sed on the module's own copy of the kernel text (perf_kern_mut.h, which only the module's source includes), run in the shipped image's build (no resident copy): caught against the pins
+rm -f "$OUT"/flm_test_r*_d*.o               # (Round 25) as in the check: the object's freshness test knows nothing of CC, BS or SAN
 fail=0; n=0
 mutant() {   # mutant 'sed script' what [scenario]: the scenario to run first (the mutated effect's own), so the mutant is caught in seconds
     n=$((n + 1))
