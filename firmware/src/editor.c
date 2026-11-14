@@ -1430,6 +1430,13 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(OC_MOD_STARTS);                                /* (Release 3 step 1) appended: the sector of every start from 0xC8000, +64 (-6 .. 11 -> 58 .. 75), and the area's low sectors' state (1 usable, 0 the record store may still hold a part there) */
         for (i = 0; i < OC_MOD_STARTS; i++) ed_b((uint32_t)(OC_MOD_START_REL(i) + 64));
         ed_b(OC_MOD_LOW_OK() ? 1u : 0u);
+        ed_b(OC_MOD_STARTS);                                /* (Round 26) appended: per start the code CRC-32 the loader verified (header word 52) and a MODELS module's pick (bit k: model k present),
+                                                             * 5 x 7 bits each, both 0 unless the start's state is OK: the installer page writes a module only when these differ from its own image's */
+        for (i = 0; i < OC_MOD_STARTS; i++) {
+            uint32_t mok = oc_mod.state[i] == MD_OK, mcrc = mok ? oc_mod.crc[i] : 0u, mpick = mok ? oc_mod.pick[i] : 0u, k;
+            for (k = 0; k < 5u; k++) ed_b(mcrc >> (7u * k));
+            for (k = 0; k < 5u; k++) ed_b(mpick >> (7u * k));
+        }
         break;
     }
     case ED_ENGINES: {                                     /* (0.11.0) -> nengines, then per engine number: source (0 not available: retired, or a module's number with none registered; 1 built in;
