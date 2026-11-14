@@ -43,6 +43,8 @@
  *   R8   a take of ordinary and control notes over manual notes and motion: shift right / left round the loop, sixteen shifts, REVERSE twice, byte for byte, NOTES shows
  *        each note on its cell; undo and redo of each tool; the take's undo after a shift and after taking it back; a sounding note moved with the transport running;
  *        the pool and a project of a shifted bank
+ * The re-review of d033cdc2 (R9; fails there): a DOUBLE of a note recorded on step 1 from late in the last step, then the tools byte for byte; such a note from an older
+ *        build whose onset's cell is not recorded keeps playing when moved; a sound load after a take keeps its undo; (R7) the tool's undo keeps a LEN cut made after it
  * Run by tests/run_tests.sh (dub_t: the DUB module's host unit is linked) with the build set, twice: the switch on (the default) and off (-DOC_CTL_REC=0). */
 #define RES_HOST_MAIN_WORDS (85760u / 4u)
 #define RES_HOST_LOW_WORDS (27740u / 4u)
@@ -1177,7 +1179,8 @@ static void r7_review(void)
     t = r6_fixture(1); snap(t, &SN0);
     seq_tool(t, ST_SHIFT_R); t->p[P_SLEN] = 12; snap(t, &SN1);
     undo_step(0); snap(t, &SA);
-    chk("R7   SHIFT RIGHT at LEN 16, LEN then cut to 12, EDIT held: byte for byte the bank before (LEN 16, the control notes back)", same_snap(&SN0, &SA));
+    SN0.len = 12;                                        /* (Round 25 review) the undo takes the tool back, not the LEN cut made after it */
+    chk("R7   SHIFT RIGHT at LEN 16, LEN then cut to 12, EDIT held: byte for byte the bank before the shift, LEN kept at 12 (the cut came after it), the control notes back", same_snap(&SN0, &SA));
     undo_step(1); snap(t, &SA);
     chk("R7   .. EDIT + OCT+: byte for byte the bank after (LEN 12)", same_snap(&SN1, &SA));
 }
@@ -1299,6 +1302,52 @@ static void r8_ordinary(void)
         }
         chk("R8   .. a project saved and loaded: every note of the shifted bank as it was (step byte, onset, kind), the steps", ok); }
 }
+/* ---- the re-review of d033cdc2 (R9) ---- */
+static void r9_rereview(void)
+{
+    track_t *t;
+    static bank_snap_t D0, A;
+    uint32_t o, c, i;
+    int rc, act;
+    /* a: DOUBLE of a bank whose note was played late in its last step (recorded on step 1) */
+    t = begin(-1);
+    rec_begin(); adv_to(at_step(t, 15) + period_of(t) * 3u / 4u); input_on(t, 67, 90); adv(200); input_off(t, 67); adv_to(at_step(t, 15) + period_of(t) - 10u); rec_end();
+    o = find_ord(67);
+    chk("R9   (the fixture) a note played late in step 16 of 16, recorded on step 1 (0xCF)", o < RECORD_MAX && recording[o].step == 0xCFu && recording_active(t, o));
+    rc = pattern_double(t, 0, 1);
+    c = RECORD_MAX;
+    for (i = 0; i < RECORD_MAX; i++) if (i != o && recording[i].vel && recording[i].note == 67u) c = i;
+    chk("R9   DOUBLE (LEN 32): the original now on step 17, the copy of step 1, as recording writes it (0x4F, was 0xCF viewing step 1); the copy 0xDF on step 1; both play",
+        rc == 0 && o < RECORD_MAX && c < RECORD_MAX && recording[o].step == 0x4Fu && recording_view(t, &recording[o]) == 16u && recording[c].step == 0xDFu &&
+        recording_active(t, o) && recording_active(t, c));
+    snap(t, &D0);
+    rc = seq_tool(t, ST_SHIFT_R); act = recording_active(t, o) && recording_active(t, c);
+    rc |= seq_tool(t, ST_SHIFT_L); snap(t, &A);
+    chk("R9   .. SHIFT RIGHT (both still play), SHIFT LEFT: byte for byte", rc == 0 && act && same_snap(&D0, &A));
+    undo_step(0); undo_step(0); snap(t, &A);
+    chk("R9   .. two undos: byte for byte", same_snap(&D0, &A));
+    rc = seq_tool(t, ST_REVERSE); act = recording_active(t, o) && recording_active(t, c); rc |= seq_tool(t, ST_REVERSE); snap(t, &A);
+    chk("R9   .. REVERSE twice (both play between): byte for byte", rc == 0 && act && same_snap(&D0, &A));
+    /* b: such a note as an older build saved it, its onset's cell not recorded (step 17 edited after the DOUBLE) */
+    t = begin(-1); t->p[P_SLEN] = 32;
+    stored(t, 20, 64, 0, 50000, 3000, 0, 0); recording[20].step = 0xCFu;
+    recording_reindex();
+    chk("R9   (the fixture) LEN 32, a note late in step 16 on step 1 (0xCF), step 17 not a recorded cell: it plays", recording_active(t, 20) && recording_view(t, &recording[20]) == 0u);
+    rc = seq_tool(t, ST_SHIFT_R);
+    chk("R9   .. SHIFT RIGHT: it still plays, on step 2 (its own cell moved), never silent", rc == 0 && recording_active(t, 20) && recording_view(t, &recording[20]) == 1u && ctl_all_valid());
+    rc = seq_tool(t, ST_REVERSE);
+    chk("R9   .. REVERSE: it still plays", rc == 0 && recording_active(t, 20) && ctl_all_valid());
+    /* c: a sound load after a take: its undo is kept */
+    t = begin(-1);
+    {   uint32_t pre;
+        rec_begin(); adv_to(at_step(t, 3) + 100u); input_on(t, 60, 100); adv(300); input_off(t, 60); key(K_KICK, 1); adv(50); key(K_KICK, 0); adv_to(at_step(t, 8)); rec_end();
+        pre = t->preset;
+        load_begin(t, UNDO_SOUND); t->preset = (uint8_t)(pre + 1u); load_end(t);
+        undo_step(0);
+        rc = n_ord(0) == 0u && n_ctl(0) == 0u && t->preset == pre + 1u;
+        undo_step(0);
+        chk("R9   a take, then a sound load (no motion): EDIT held undoes the take, held again the sound load (its level kept)", rc && t->preset == pre); }
+}
 #else
 static void s6_off(void)
 {
@@ -1342,7 +1391,7 @@ int main(void)
 #if OC_CTL_REC
     f1_grid(); f2_track(); f3_editors(); f4_release(); f4_reset(); f5a_queue(); f5b_strike(); f5c_same(); f6_skip(); f7_flood();
     s2_take(); s3_tools(); s4_quant(); s5_arm();
-    r1_len(); r2_tools(); r3_quant(); r4_old_cell(); r5_gaps(); r6_shift(); r7_review(); r8_ordinary();
+    r1_len(); r2_tools(); r3_quant(); r4_old_cell(); r5_gaps(); r6_shift(); r7_review(); r8_ordinary(); r9_rereview();
 #else
     s6_off();
 #endif
