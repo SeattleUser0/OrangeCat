@@ -84,12 +84,12 @@ static up_bank_t *bank_up(void);
 static uint8_t up_cached = 255;
 /* Main-loop index only, never serialized. Four Boolean flags share a byte;
  * names keep their 12 stored bytes and gain a terminator when read out. */
-static struct {
-    uint8_t ready:1, used:1, old:1, favorite:1;
-    uint8_t engine;
+static struct {                                 /* (Round 26) model: a MACRO sound's model id (browse.c entry_plays), 0 for others */
+    uint16_t ready:1, used:1, old:1, favorite:1, engine:6, model:5;
     char name[12];
 } up_meta[UP_SLOTS];
 _Static_assert(sizeof up_meta[0] == 14u, "compact preset index");
+_Static_assert(NENGINES <= 64u, "an engine number fits up_meta's 6 bits");
 static uint32_t up_migrate;
 static uint8_t up_migration_error,up_converting;
 static uint32_t up_fav_dirty;
@@ -183,6 +183,15 @@ static uint32_t up_kit_get(const up_rec_t *r, uint8_t *b)
 }
 _Static_assert(DXK_ROOM - 46u <= UP_PMAX * 2u - 127u && DXK_BYTES <= DXK_ROOM && sizeof ((up_rec_t *)0)->cz_extra == 46u, "a kit fits a record of any np");
 
+/* (Round 26) the MACRO model a record's sound names (its P_E0, clamped as eng_macro.c mc_want does), 0 (VA, always built in) for any other */
+static uint32_t up_rec_model(const up_rec_t *r)
+{
+    int32_t v;
+    if (r->engine != ENGI_MACRO || up_native(r) || up_native_cz(r) || r->np < 8u || r->np > sizeof r->packed)
+        return 0;
+    v = (int32_t)r->packed[r->np - 8u] - 64;      /* (up_value, below) */
+    return (uint32_t)(v < 0 ? 0 : v > 31 ? 31 : v);
+}
 static int up_valid(const up_rec_t *r)
 {
     if((r->used & ~UP_STAR)==UP_USED && up_native(r)){
@@ -257,7 +266,8 @@ static void up_cache_index(uint32_t b)
         int valid = up_valid(r);
         up_meta[k].ready=1;up_meta[k].used=(uint8_t)valid;if(!(up_fav_dirty>>b&1u))up_meta[k].favorite=(uint8_t)(!!(r->used&UP_STAR) && valid);
         up_meta[k].old=(uint8_t)(((up_bank_old >> b) & 1u) || (r->used != 0 && !valid));
-        up_meta[k].engine=up_native_cz(r)?ENGI_CZ:eng_sound_idx(r->engine);
+        up_meta[k].engine=(uint16_t)(up_native_cz(r)?ENGI_CZ:eng_sound_idx(r->engine));
+        up_meta[k].model=(uint16_t)up_rec_model(r);
         uint32_t n=0;
         for(;n<12u && r->name[n];n++)up_meta[k].name[n]=r->name[n]>='a' && r->name[n]<='z'?(char)(r->name[n]-32):r->name[n];
         if(n<sizeof up_meta[k].name)up_meta[k].name[n]=0;
@@ -700,6 +710,14 @@ static uint32_t up_engine(uint32_t k) {
 #endif
  if(up_native_cz(up_rec(k)))return ENGI_CZ;
  return eng_sound_idx(up_rec(k)->engine); }
+/* (Round 26) the MACRO model a used slot's sound names (0 for another engine's): from the index, as up_engine, so browsing reads no flash */
+static uint32_t up_model(uint32_t k)
+{
+#if MELODEE_FLASH && !defined(UP_HOST)
+    if (up_cached != k / UP_PER_BANK && up_meta[k].ready) return up_meta[k].model;
+#endif
+    return up_rec_model(up_rec(k));
+}
 
 static uint32_t up_count(void)                 /* used slots */
 {

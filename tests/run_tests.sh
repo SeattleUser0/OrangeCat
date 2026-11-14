@@ -514,6 +514,12 @@ plaits_jobs() {                                   # (Release 3, the model picker
     step "MACRO with a pick (WAVTBL, SPEECH, 6OP B and wave bank C left out): those models not offered, MISSG, VA with the settings kept; the rest bit for bit as the goldens" "$OUT/plaits_pick_test" tests/golden.txt
     $CC -O1 $FW $PL -Itests -o "$OUT/plaits_ui_test" tests/plaits_ui_test.c "$OUT/module_host_plaits_tu.o" -lm || { fail "compile tests/plaits_ui_test.c"; return 1; }
     step "MACRO with the MODELS module: the screen says MODULE MISSING for a track on a model not installed; a project's model ids load unchanged with or without the module" "$OUT/plaits_ui_test"
+    # (Round 26 item 1) browse shows only what can play: the device's engine set (SHAPES, the Prophet, WHEEL as modules; VA alone in MACRO), the module's unit built with it
+    BE=$(grep '^export MELODEE_' tools/orangecat_engines.sh | grep -o 'MELODEE_[A-Z0-9_]*=[01]' | sed 's/^/-D/' | tr '\n' ' ')
+    BF="-O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all $BE $FW -Itools/module/plaits"
+    $CC -c $BF -o "$OUT/browse_filter_tu.o" tests/module_host_plaits_tu.c || { fail "compile tests/module_host_plaits_tu.c (browse filter)"; return 1; }
+    $CC $BF -Itests -o "$OUT/browse_filter_test" tests/browse_filter_test.c "$OUT/browse_filter_tu.o" -lm || { fail "compile tests/browse_filter_test.c"; return 1; }
+    step "browse shows only what can play (Round 26): user, RECENT, FAV and MACRO presets of a missing engine or model hidden and back with the module; the 20-click walk; a project's missing sound keeps MODULE MISSING and turns to its neighbours" "$OUT/browse_filter_test"
 }
 module_host_wheel() {                             # (Orange Cat 0.14.0) WHEEL's module source as its own unit: the reference build's built-in WHEEL, the registration in slot 7, tests/golden_modules.txt
     $CC -c -O2 $FW -o "$OUT/module_host_wheel_tu.o" tests/module_host_wheel_tu.c || { fail "compile tests/module_host_wheel_tu.c"; return 1; }
