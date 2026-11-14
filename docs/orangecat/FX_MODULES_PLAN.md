@@ -680,7 +680,7 @@ The plan's rule (16, 17: one Nightly with module and resident copy, then the res
 | `OC_REV_RESIDENT=0` alone | 529,592 B | **-1,896 B** (16.7 measured -1,880 on its tree) | 31,560 B | 79,744 B | 280 (`rev_can_run`) |
 | `OC_PERF_RESIDENT=0` alone | 527,696 B | **-3,792 B** (17.9: -3,792) | 33,456 B | 79,776 B | 279 |
 | both at 0, base code | 525,804 B | -5,684 B | 35,348 B | 79,744 B | 280 |
-| **this branch** (both 0, the clear, the messages) | **526,140 B** | **-5,348 B** (the clear, `jfx_rev_missing` and the three messages: +336 B over the switches alone) | **35,012 B** (26,820 B over the 8 KB reserve) | 79,744 B | 280; low SRAM tail 27,688 B, data 2,344 B (unchanged) |
+| **this branch** (both 0, the clear, the messages) | **526,204 B** (f5291ff5; 526,140 B at 30bf9d59) | **-5,284 B** (the clear, `jfx_rev_missing` and the messages: +400 B over the switches alone) | **34,948 B** (26,756 B over the 8 KB reserve) | 79,744 B | 280; low SRAM tail 27,688 B, data 2,344 B (unchanged) |
 
 "About 1,824 B for the FX layer" (BUILD.md, 17.9) was the image against the one before step 8b (the master host and the loader stay); against Nightly 8cb0b1's image the FX layer's copy is 3,792 B and the reverb's 1,896 B.
 
