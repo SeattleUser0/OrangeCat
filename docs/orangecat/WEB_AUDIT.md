@@ -167,6 +167,20 @@ Checked and fine: every write clamped by the unit's descriptor; the editor runs 
 
 **Tests.** First full SAN=1 run on c459cf8 (16,252 s): one failure, `branch_nightly_test` comparing the nightly editor byte for byte (my change, fixed in 7e10486). Second full SAN=1 run through `tools/suite_lock.sh` on 7e10486: passed (12,183 s). Web app tests 164.
 
+## For Session A: the guide for Nightly v0.16.0-229d4c (branch web-r5, from linux-hw 29d4d869)
+
+**Ready: yes.** One code-free commit b77d60ed on linux-hw 29d4d869 (no firmware, no web app code; `controls_src.json` and what `gen_controls.mjs` makes from it, plus this file). Merge it as it is.
+
+**The guide.** Top line: build 229d4c, commit 229d4c9b, November 14, 2026; tables ea3fb820 (unchanged, nothing else regenerated). What changed:
+- REVERB: TYPE says ROOM and CLOUD are built in and SPRING, SHIMR, RESO come from REVERB MODES; the page's note says what happens without the module (dry, "MODULE MISSING: dry" on the REVERB pages, REVERB MODULE MISSING at boot, the mode kept).
+- FX layer (FX held): GLITCH, TAPE STOP, SHUFFLE, FREEZE come from FX LAYER; without it the cells are dim and a press says MODULE MISSING; the other keys are built in.
+- "Effects as modules" now lists the three modules (DUB TAPE, FX LAYER, REVERB MODES), the page's default ticks, and the one-click removal of an unticked REVERB MODES (asked first, named, not put back; never a ticked module, never DUB TAPE or FX LAYER).
+- New section "When the set does not fit: you choose what gives way" (giveWayAsk / giveWayWait / giveWayChosen in `web/index_pkg.html`: the candidates with their sectors, Install waits, the chosen module left out and left in the unit if there, asked again when the ticks or the unit read change).
+- MUTE / FROZEN on HOME's TRACKS (the Stage), the DUB keys not read through held layers (GLO, SCL, ARP, FX or SEQ) and DUB key recording (control notes) were already in the source from Round 24; the layer note now names SCL and SEQ as the DUB page's note does. Three new "differs" lines (give-way, effects only from modules, the MUTE word).
+- The stale sentence in the web-r4 entry above ("MUTE on the Stage is not written") is corrected in place.
+
+**Tests.** Full SAN=1 suite through `tools/suite_lock.sh` (slot 1, suites.slice, `--parallel 3`) in a checkout pinned at b77d60ed after `ci_step.py build`: **passed, 280 jobs, 16,889 s** (other sessions' builds and suites ran beside it). Web app tests 164 pass. This entry is a doc-only commit on top of b77d60ed.
+
 ## For Session A: ready
 
 **web-r3 ready: yes (round 3).** Head 3e39c996 on the merge of linux-hw 52a41894 (Nightly v0.16.0). The full SAN=1 suite passed through /tmp/oc-suite.lock and the suites.slice on 3e39c996 (6393 s), with every temporary and build output on disk (TMPDIR and OC_TMP = ~/oc-tmp; /tmp stayed at 7.0 GB throughout). The web app's own tests (159 checks) pass, and the firmware tables are checked in and match what tests/web_tables.c writes now. 3e39c996 adds one opt-in: OC_TMP (default /tmp) for the three fixed /tmp paths, in tests/mgrid_mutations.sh (scratch dir), web/quick-host.sh (SITE_DIR default) and tools/hw/hw_test.py (say --out default); everything else uses mktemp/tempfile and follows TMPDIR. This entry is a doc-only commit on top of 3e39c996; no code changed after the suite.
