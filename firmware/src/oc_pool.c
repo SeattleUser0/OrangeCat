@@ -84,6 +84,25 @@ static int ocp_step_used(const step_t *s)
     return memcmp(s, &empty, sizeof empty) != 0;
 }
 
+/* (Round 25) the one rule of a phrase's timed note, the saver's (ocp_gen_note) and the loader's (ocp_check, ocp_load): r as it is written (its owner's track and bank bits
+ * 0), ver the phrase's version. 1 kept; 0 dropped at load, the phrase loads (recording.c recording_legacy: an older build's event); -1 the phrase is refused */
+static int ocp_note_rule(const recorded_note_t *r, uint32_t ver)
+{
+    if (!r->vel || (r->owner & 31u) || ((r->length & RN_CTL) && ver < OCP_VER_CTL)) return -1;
+    return recording_load_rule(r);
+}
+
+/* event i as the pattern writes it, into *r: 1 it is the bank's and the loader keeps it (ocp_note_rule; a version 3 pattern if it is a control note, ocp_gen_count), 0 not
+ * written. (Round 24 review, Round 25) an event the loader would refuse is left out, as project_capture leaves it out of a project: written, it made the WHOLE phrase refuse at
+ * load. The count and the stream both ask here, so they agree */
+static int ocp_gen_note(const ocp_gen_t *g, uint32_t i, recorded_note_t *r)
+{
+    if (!g->notes[i].vel || (g->notes[i].owner & 31u) != g->owner) return 0;
+    *r = g->live ? recording_snapshot(i) : g->notes[i];
+    r->owner &= 224u;
+    return ocp_note_rule(r, OCP_VER_CTL) == 1;
+}
+
 /* back to the start (the same bytes again) */
 static void ocp_gen_rewind(ocp_gen_t *g)
 {
@@ -102,9 +121,9 @@ static uint32_t ocp_gen_count(ocp_gen_t *g)
     for (i = 0; i < g->mcount; i++)
         g->nmot += (g->mev[i].place >> 6) == g->k && g->mtag[i] == g->bank;
     for (i = 0; g->notes && i < RECORD_MAX; i++)
-    {   const recorded_note_t *n = &g->notes[i];
-        uint32_t mine = n->vel && (n->owner & 31u) == g->owner;
-        g->nnotes += mine; g->ctl |= mine && (n->length & RN_CTL); }
+    {   recorded_note_t n;
+        uint32_t mine = ocp_gen_note(g, i, &n);
+        g->nnotes += mine; g->ctl |= mine && (n.length & RN_CTL); }
     g->len = g->nsteps || g->nmot || g->nnotes ? OCP_HEAD + g->nsteps * OCP_STEP + 1u + g->nmot * 4u + 2u +
                                                      g->nnotes * OCP_NOTE : 0u;
     ocp_gen_rewind(g);
@@ -158,13 +177,12 @@ static void ocp_gen_item(ocp_gen_t *g)
             ocp_put16(b, g->nnotes); g->ilen = 2; g->phase = 5; g->i = 0;
             break;
         case 5:
-            for (; g->notes && g->i < RECORD_MAX; g->i++)
-                if (g->notes[g->i].vel && (g->notes[g->i].owner & 31u) == g->owner) break;
-            if (!g->notes || g->i == RECORD_MAX) { g->phase = 6; break; }
             {
-                recorded_note_t r = g->live ? recording_snapshot(g->i) : g->notes[g->i];
+                recorded_note_t r;
+                for (; g->notes && g->i < RECORD_MAX; g->i++)
+                    if (ocp_gen_note(g, g->i, &r)) break;
+                if (!g->notes || g->i == RECORD_MAX) { g->phase = 6; break; }
                 g->i++;
-                r.owner &= 224u;
                 memcpy(b, &r, OCP_NOTE);
             }
             g->ilen = (uint8_t)OCP_NOTE;
@@ -481,7 +499,7 @@ static int ocp_check(uint32_t id, uint32_t k, ocs_rec_t *r, ocp_rd_t *rd, ocp_pa
     *notes_at = rd->off - (rd->n - rd->pos);  /* (where the notes start, to read them again) */
     for (uint32_t n = 0; n < p->nnotes; n++) {    /* every note checks before anything changes */
         recorded_note_t v;
-        if (ocp_rd(rd, &v, OCP_NOTE) || !v.vel || (v.owner & 31u) || !recording_valid(&v) || ((v.length & RN_CTL) && p->ver < OCP_VER_CTL)) return 1;
+        if (ocp_rd(rd, &v, OCP_NOTE) || ocp_note_rule(&v, p->ver) < 0) return 1;
     }
     return rd->off != rd->end || rd->pos != rd->n;
 }
@@ -527,6 +545,7 @@ static int ocp_load(uint32_t id, uint32_t k, uint32_t bank, int apply)
         for (n = 0, j = 0; n < p.nnotes; n++) {
             recorded_note_t v;
             if (ocp_rd(&rd, &v, OCP_NOTE)) break;
+            if (!ocp_note_rule(&v, p.ver)) continue;   /* (Round 25) an older build's event: left out, the phrase loads (ocp_check refused every other) */
             v.owner = (uint8_t)((v.owner & 224u) | owner);
             f = motion_guard();
             for (; j < RECORD_MAX && recording[j].vel; j++)
