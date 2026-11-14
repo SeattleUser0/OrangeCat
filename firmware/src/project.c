@@ -266,7 +266,7 @@ static int proj_record_pack(uint8_t *b,const project_t *q)
         for(uint32_t i=0;i<RECORD_MAX;i++){
             const recorded_note_t *r=&q->recording[i];
             if(!r->vel || (r->owner&31u)!=owner)continue;
-            if(!recording_valid(r))return 0;
+            {int rule=recording_load_rule(r);if(rule<0)return 0;if(!rule)continue;}   /* (Round 25) the one rule: an older build's event is not written (recording_legacy) */
             uint32_t pos=0;uint8_t *v=b+PROJ_REC_OFF+at++*8u;
             wire_bits_put(v,&pos,r->on,16);wire_bits_put(v,&pos,r->duration,16);
             wire_bits_put(v,&pos,r->note,7);wire_bits_put(v,&pos,r->vel,7);
@@ -368,7 +368,7 @@ static int proj_pack(project_store_t *out, const project_t *q)
         if (!cz_patch_valid(q->cz[t].raw)) return 0;
         memcpy(b + PROJ_CZ_OFF + t*CZ_BYTES, q->cz[t].raw, CZ_BYTES);
     }
-    for (i = 0; i < RECORD_MAX; i++) if (!recording_valid(&q->recording[i])) return 0;
+    for (i = 0; i < RECORD_MAX; i++) if (recording_load_rule(&q->recording[i]) < 0) return 0;   /* (Round 25) the one rule (proj_record_pack leaves an older build's event out) */
     if(!proj_record_pack(b,q))return 0;
     for(t=0;t<NTRK;t++){if(!drum_patch_valid(&q->drum[t]))return 0;}
     for(t=0;t<NTRK;t++)drum_patch_pack(b+PROJ_DRUM_OFF+t*DRUM_WIRE_BYTES,&q->drum[t]);
