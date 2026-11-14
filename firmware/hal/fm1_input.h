@@ -363,8 +363,9 @@ static void fm1_input_scan(void)
  * that time with less than a whole click of plain transitions on the way (|net| < 4: so it has not gone round), it was a dropout: everything
  * since is undone. A real click that comes round to the same state has four plain transitions and stands. Otherwise the steps are given, late
  * by at most that time. A fast turn makes no anchor (its states
- * last a frame or two) and a turn from the detent starts from no anchor, so both decode exactly as before. A dropout at the detent itself when
- * the detent is both closed (3 2 0 1 3) is a whole click's states and still counts as one: not told apart. */
+ * last a frame or two) and a turn from the detent starts from none, so both decode exactly as before. Not told apart, and counted as a click:
+ * a dropout whose staggered states go all the way round at a click's pace (3 2 0 1 3, two frames each), and a dropout at the detent itself
+ * when the detent is both closed: both are a whole click's states. */
 static void fm1__emit(uint32_t e, volatile int8_t *sub)   /* back on the detent: whole cycles, a lost transition or two forgiven (one click = 4 transitions) */
 {
     int32_t n = *sub < 0 ? -*sub : *sub;
