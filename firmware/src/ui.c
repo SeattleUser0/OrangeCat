@@ -770,6 +770,8 @@ typedef struct {
     uint8_t link;                /* (ui-fix2 2) bit 0: the level pushed just before this one belongs to the same gesture (GLO's clear of four tracks): one
                                   * undo, one redo takes the whole group; bit 1: the group's note history is the one GLO took (note_transaction.group); bit 2:
                                   * that history owns this track's motion (a byte of the padding before `user`) */
+    uint8_t ctl_tool, ctl_len;   /* (Round 25) a SEQ tool (seq_tools.c) moved the bank's control notes: 1 + ST_SHIFT_R / ST_SHIFT_L / ST_REVERSE, and the LEN it moved
+                                  * them in; the undo moves them back (the inverse), the redo again. 0: none (every other level) */
     uint16_t user;
     uint8_t fm6[FP_SIZE + 1u];   /* the track's complete patch */
     cz_patch_t cz;
@@ -901,6 +903,7 @@ static void load_begin(track_t *t, uint32_t what)
     u->trk = (uint8_t)(i + 1u);
     u->keep = 0;
     u->link = 0;
+    u->ctl_tool = 0;
     u->pattern_gen = t->pattern_gen;
     u->what = (uint8_t)what;
     u->eng = t->eng_req;
@@ -1040,6 +1043,10 @@ static void undo_level(int redo)
             step_t s = t->step[i];
             t->step[i] = step_snapshot_get(&u->step[i]);
             step_snapshot_put(&u->step[i], &s);
+        }
+        if (u->ctl_tool) {                        /* (Round 25) the tool's control notes: back (the undo of SHIFT RIGHT is a step left; REVERSE is its own inverse) or again */
+            int dir = u->ctl_tool == 3u ? 0 : u->ctl_tool == 1u ? 1 : -1;
+            recording_ctl_move(t, u->ctl_len, redo ? dir : -dir);
         }
     }
     if (u->what & UNDO_FX) {                    /* (ui-fix2 2) the track's own effects: the swap param_kept keeps out of UNDO_SOUND's */
