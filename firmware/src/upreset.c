@@ -84,7 +84,7 @@ static up_bank_t *bank_up(void);
 static uint8_t up_cached = 255;
 /* Main-loop index only, never serialized. Four Boolean flags share a byte;
  * names keep their 12 stored bytes and gain a terminator when read out. */
-static struct {                                 /* (Round 26) model: a MACRO sound's model id (browse.c entry_plays), 0 for others */
+static struct {                                 /* (Round 26) engine: the stored number (up_engine maps it live, up_engine_stored as is); model: a MACRO sound's model id (browse.c entry_plays), 0 for others */
     uint16_t ready:1, used:1, old:1, favorite:1, engine:6, model:5;
     char name[12];
 } up_meta[UP_SLOTS];
@@ -266,7 +266,7 @@ static void up_cache_index(uint32_t b)
         int valid = up_valid(r);
         up_meta[k].ready=1;up_meta[k].used=(uint8_t)valid;if(!(up_fav_dirty>>b&1u))up_meta[k].favorite=(uint8_t)(!!(r->used&UP_STAR) && valid);
         up_meta[k].old=(uint8_t)(((up_bank_old >> b) & 1u) || (r->used != 0 && !valid));
-        up_meta[k].engine=(uint16_t)(up_native_cz(r)?ENGI_CZ:eng_sound_idx(r->engine));
+        up_meta[k].engine=(uint16_t)(up_native_cz(r)?ENGI_CZ:r->engine);
         up_meta[k].model=(uint16_t)up_rec_model(r);
         uint32_t n=0;
         for(;n<12u && r->name[n];n++)up_meta[k].name[n]=r->name[n]>='a' && r->name[n]<='z'?(char)(r->name[n]-32):r->name[n];
@@ -703,13 +703,15 @@ static int up_load_to(uint32_t k,uint32_t tr)
 
 static int up_load(uint32_t k){return up_load_to(k,song.sel);}
 
-/* the engine a used slot's sound plays on */
-static uint32_t up_engine(uint32_t k) {
+/* (Round 26) the engine number a used slot's record names, as stored (a retired or reserved one too: browse.c entry_plays hides it) */
+static uint32_t up_engine_stored(uint32_t k) {
 #if MELODEE_FLASH && !defined(UP_HOST)
     if(up_cached != k/UP_PER_BANK && up_meta[k].ready)return up_meta[k].engine;
 #endif
  if(up_native_cz(up_rec(k)))return ENGI_CZ;
- return eng_sound_idx(up_rec(k)->engine); }
+ return up_rec(k)->engine; }
+/* the engine a used slot's sound plays on */
+static uint32_t up_engine(uint32_t k) { return eng_sound_idx(up_engine_stored(k)); }
 /* (Round 26) the MACRO model a used slot's sound names (0 for another engine's): from the index, as up_engine, so browsing reads no flash */
 static uint32_t up_model(uint32_t k)
 {

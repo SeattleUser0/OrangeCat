@@ -185,7 +185,8 @@ static int entry_plays(uint32_t src, uint32_t k)
     if (src == USER_GENERAL) {
         if (!up_used(k))
             return 0;
-        e = up_engine(k) % NENGINES;
+        e = up_engine_stored(k);                      /* (the number stored: one no engine fills, as 4 or 13 without SLICE, is
+                                                       * hidden, not shown as the fallback engine's sound up_engine plays it on) */
 #if MELODEE_MACRO
         if (e == ENGI_MACRO)
             model = up_model(k);
@@ -260,8 +261,9 @@ enum { LM_ALL, LM_FAV, LM_RECENT, LM_CAT };
 #define LM_N (LM_CAT + NELEM(CAT_ORDER))
 static uint8_t list_recent;
 static uint8_t list_trk[NTRK];                             /* each track's LIST + 1, 0 none */
-static struct { uint8_t on, trk, mode, x; uint16_t n; uint32_t t; } brw;   /* the pending place: list index n; x the
-                                                                             * turn's acceleration (the browser's badge) */
+static struct { uint8_t on, trk, mode, x, src; uint16_t n, k; uint32_t t, gen; } brw;   /* the pending place: list index n; x the
+                                                                             * turn's acceleration (the browser's badge); (Round 26) src, k the
+                                                                             * entry at n, gen the lists' stamp it was taken at (browse_fix) */
 static uint32_t list_cat(uint32_t c)                       /* category c's LIST (none: ALL) */
 {
     uint32_t i;
@@ -350,7 +352,8 @@ static uint32_t list_scan(uint32_t m, uint32_t ws, uint32_t wk, uint32_t n, uint
                 k = (i + init) % len;
                 if (own && k == wk)
                     list_near = c;
-                if (slot && up_engine(k) % NENGINES != eng)   /* (another engine's slot; up_used is entry_plays') */
+                if (slot && up_engine_stored(k) != eng)       /* (another engine's slot, by the number stored: one no engine fills is
+                                                               * in no section, entry_plays would hide it; up_used is entry_plays') */
                     continue;
                 if (!entry_plays(src, k) || !list_keep(m, src, k))
                     continue;
@@ -384,7 +387,32 @@ static uint32_t preset_all_at(uint32_t n, uint32_t *k)
     list_scan(LM_ALL, 0xFFFFFFFFu, 0, n, &src, k, &total);
     return src;
 }
-static int browse_pending(void) { return brw.on && brw.trk == song.sel && brw.mode == list_mode(); }
+static uint32_t brw_gen(void) { return eng_gen + up_gen; }   /* (Round 26) moves when a module comes or goes, or a user bank changes */
+/* (Round 26) the lists changed under a pending place (a module registered or removed, a slot written or erased, inside the rest): the
+ * place follows its entry (src, k) to where it is now, so what is shown is what loads; an entry no longer listed drops the pending choice
+ * (the loaded sound is shown again; nothing loads). One scan, only when the stamp moved */
+static void browse_fix(void)
+{
+    uint32_t total, pos, as, ak;
+    if (!brw.on || brw.gen == brw_gen())
+        return;
+    brw.gen = brw_gen();
+    pos = list_scan(brw.mode, brw.src, brw.k, 0xFFFFFFFFu, &as, &ak, &total);
+    if (pos < total)
+        brw.n = (uint16_t)pos;
+    else
+        brw.on = 0;                                    /* (its entry is no longer listed: the loaded sound shows again) */
+    ui.force = 1;                                      /* (review: redraw now, not at the next change) */
+}
+static uint32_t preset_at(uint32_t n, uint32_t *k);
+static void brw_take(void)                                 /* the pending place's entry, at brw.n (set first) */
+{
+    uint32_t k;
+    brw.src = (uint8_t)preset_at(brw.n, &k);
+    brw.k = (uint16_t)k;
+    brw.gen = brw_gen();
+}
+static int browse_pending(void) { browse_fix(); return brw.on && brw.trk == song.sel && brw.mode == list_mode(); }
 static void recent_loaded(void)                            /* after a browsing load: the sound joins RECENT */
 {
     uint32_t src, k;
@@ -417,7 +445,9 @@ static uint32_t browse_shown(uint32_t *k)
 }
 static void browse_commit(void)                             /* load the pending sound now */
 {
-    uint32_t total, n = brw.n, cur;
+    uint32_t total, n, cur;
+    browse_fix();
+    n = brw.n;
     if (!brw.on)
         return;
     brw.on = 0;
@@ -463,6 +493,7 @@ static void browse_turn(uint32_t role, int32_t s)
         brw.trk = song.sel;
         brw.mode = (uint8_t)m;
         brw.n = (uint16_t)n;
+        brw_take();
         brw.t = fm1_ms;
         return;
     }

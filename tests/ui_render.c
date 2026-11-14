@@ -728,7 +728,7 @@ static void ref_scene(int s)
         {   /* (a fast turn through it: x4, its 12th sound pending, as the mockup's) */
             uint32_t total;
             list_cur(&total);
-            brw.on = 1; brw.trk = song.sel; brw.mode = (uint8_t)list_mode(); brw.n = (uint16_t)(total > 11u ? 11u : 0u);
+            brw.on = 1; brw.trk = song.sel; brw.mode = (uint8_t)list_mode(); brw.n = (uint16_t)(total > 11u ? 11u : 0u); brw_take();
             brw.t = fm1_ms; brw.x = 4;
         }
         break;
@@ -994,7 +994,7 @@ static void setup(int s)
     case S_PRESETS_PENDING: {                                               /* a fast turn, still moving */
         uint32_t total;
         eng(ENGI_CZ); go_page(GR_BROWSE); brw.on = 1; brw.trk = song.sel; brw.mode = (uint8_t)list_mode();
-        brw.n = (uint16_t)(list_cur(&total) + 9u); brw.t = fm1_ms; break;
+        brw.n = (uint16_t)(list_cur(&total) + 9u); brw_take(); brw.t = fm1_ms; break;
     }
     case S_PRESETS_RECENT: list_set(LM_RECENT); go_page(GR_BROWSE); break;
     case S_USER: song.playing = 0; up_store(3, "MY LONG BASS NAME"); up_store(4, "PAD"); ui.uslot = 3; go_page(GR_USER); break;
@@ -1240,7 +1240,7 @@ static void setup(int s)
     case S_STAGE_FROZEN:                                 /* (Orange Cat 0.5.6) track 2 on a frozen phrase: greyed, a blue tint */
         go_home(); bank_pid[1][trk[1].pattern % NPAT] = 7; frz_host_frozen = 1u << 6; break;
     case S_STAGE_BROWSE:
-        go_home(); brw.on = 1; brw.trk = song.sel; brw.mode = (uint8_t)list_mode(); brw.n = 9; brw.t = fm1_ms; break;
+        go_home(); brw.on = 1; brw.trk = song.sel; brw.mode = (uint8_t)list_mode(); brw.n = 9; brw_take(); brw.t = fm1_ms; break;
     case S_STAGE_STOPPED:
         song.playing = 0; go_home(); input_on(TSEL, 60, 100); input_on(TSEL, 63, 100); input_on(TSEL, 67, 100);
         input_on(TSEL, 70, 100); input_off(TSEL, 60); input_off(TSEL, 63); input_off(TSEL, 67); input_off(TSEL, 70); break;

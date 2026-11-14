@@ -249,7 +249,54 @@ int main(void)
         chk("... PRESETS left loads MACRO's VA SYNC LEAD (the listed one before MALLET)", src == ENGI_MACRO && k == 1u);
     }
 
-    /* 7. the cost: one scan of ALL (the loaded sound's place) with all 384 user slots used, every click does one or two */
+    /* 7. (review of 497138ce) a stored engine no engine fills (4; 13, SLICE not built) is hidden, not listed as the fallback engine's sound */
+    {
+        up_rec_t r = rec[0];
+        r.engine = 4u; memcpy(r.name, "MY FOUR\0\0\0\0\0", 12);
+        ok = up_put(5, &r) == 0;
+        r.engine = ENGI_SLICE; memcpy(r.name, "MY SLICE\0\0\0\0", 12);
+        ok &= up_put(6, &r) == 0;
+        up_cache_reset();
+        recent_n = 0; recent_push(USER_GENERAL, 5); recent_push(USER_GENERAL, 6);
+        list_scan(LM_RECENT, 0xFFFFFFFFu, 0, 0xFFFFFFFFu, &as, &ak, &total);
+        chk("user presets stored on engine 4 and on 13 (SLICE not built): kept, not listed in ALL nor RECENT (were: as the fallback engine's)",
+            ok && up_used(5) && up_used(6) && !listed(LM_ALL, USER_GENERAL, 5) && !listed(LM_ALL, USER_GENERAL, 6) && total == 0u);
+        up_put(5, 0); up_put(6, 0);
+    }
+
+    /* 8. (review of 497138ce) the lists change inside a fast turn's rest: what loads is what was shown */
+    {
+        uint32_t target, s0, k0, s1, k1, t2;
+        modules(0);
+        song.sel = 0; list_set(LM_ALL);
+        host_preset(&trk[0], ENGI_MACRO, 0);
+        target = list_scan(LM_ALL, USER_GENERAL, 0, 0xFFFFFFFFu, &as, &ak, &total);   /* MY VA, after MACRO's two VA presets */
+        load_at(target - 2u);
+        click(1, 0);
+        click(1, 1);
+        s0 = browse_shown(&k0);
+        eng_models_set(ENGI_MACRO, models, nmodels, oc_host_banks());   /* (the 45 other MACRO presets now come before it) */
+        s1 = browse_shown(&k1);
+        ok = browse_pending() && s0 == USER_GENERAL && k0 == 0u && s1 == s0 && k1 == k0;
+        rest();
+        cur_entry(&s1, &k1);
+        chk("a fast turn pending on MY VA, the MODELS module registered inside the rest: still shown, and MY VA is what loads",
+            ok && s1 == USER_GENERAL && k1 == 0u && preset_pos(&t2) == list_cur(&total));
+        list_scan(LM_ALL, ENGI_MACRO, 18, 0xFFFFFFFFu, &as, &ak, &total);
+        load_at(list_scan(LM_ALL, ENGI_MACRO, 16, 0xFFFFFFFFu, &as, &ak, &total));
+        click(1, 0);
+        click(1, 1);                                 /* pending: MALLET (18) */
+        s0 = browse_shown(&k0);
+        eng_models_clear(ENGI_MACRO);                /* MALLET can no longer play: the pending choice is dropped */
+        cur_entry(&s1, &k1);
+        ok = s0 == ENGI_MACRO && k0 == 18u && !browse_pending() && s1 == ENGI_MACRO && k1 == 17u;
+        rest();
+        cur_entry(&s1, &k1);
+        chk("... pending on MALLET, the module removed inside the rest: the choice is dropped, the loaded sound stays (nothing else loads)",
+            ok && s1 == ENGI_MACRO && k1 == 17u);
+    }
+
+    /* 9. the cost: one scan of ALL (the loaded sound's place) with all 384 user slots used, every click does one or two */
     {
         struct timespec a, b;
         uint32_t reps = 2000u;

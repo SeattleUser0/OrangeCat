@@ -507,6 +507,7 @@ static const engine_t *eng_default(uint32_t e)     /* what the slot holds withou
 /* (0.13.7) the loader's way in: the module's hot set as the loader read and checked it in flash (oc_module.c oc_mod_hot_check), never through the engine_t
  * here (on a host build a module's engine_ptr is a flash address) */
 static int eng_register_hot(const fw_mod_hdr_t *h, const engine_t *engine, const eng_hot_t *hot, uint32_t nhot);
+static uint32_t eng_gen;                              /* (Round 26) moves on every registration, removal and models change: browse.c's pending place */
 static int eng_register(const fw_mod_hdr_t *h, const engine_t *engine)   /* an engine_t in RAM or the image (the tests', a host module's) */
 {
     return eng_register_hot(h, engine, engine ? engine->hot : 0, engine ? engine->nhot : 0u);
@@ -514,6 +515,7 @@ static int eng_register(const fw_mod_hdr_t *h, const engine_t *engine)   /* an e
 static int eng_register_hot(const fw_mod_hdr_t *h, const engine_t *engine, const eng_hot_t *hot, uint32_t nhot)
 {
     uint32_t e;
+    eng_gen++;
     if (!h || !engine)
         return EM_BAD;
     e = h->engine;
@@ -546,6 +548,7 @@ static uint32_t eng_models_max(uint32_t e)          /* the arena block a part of
 }
 static int eng_models_set(uint32_t e, const void *const *models, uint32_t n, const void *const *banks)   /* 0 ok, EM_SLOT (not an engine that takes models, or its slot is retired) */
 {
+    eng_gen++;
     if (!eng_models_max(e) || e >= NENGINES || ENGINES[e] == &ENG_RETIRED) return EM_SLOT;
 #if MELODEE_MACRO
     if (e == ENGI_MACRO) mc_ext_set((const pl_mdl_t *const *)models, n, banks);
@@ -554,6 +557,7 @@ static int eng_models_set(uint32_t e, const void *const *models, uint32_t n, con
 }
 static void eng_models_clear(uint32_t e)
 {
+    eng_gen++;
 #if MELODEE_MACRO
     if (e == ENGI_MACRO) mc_ext_set(0, 0, 0);
 #else
@@ -570,6 +574,7 @@ static int eng_track_ext(const track_t *t)          /* the track plays a model t
 }
 static void eng_unregister(uint32_t e)
 {
+    eng_gen++;
     if (e >= NENGINES)
         return;
     eng_mod[e] = 0;                                 /* (0.11.1) one step in a running session, as in eng_register */
