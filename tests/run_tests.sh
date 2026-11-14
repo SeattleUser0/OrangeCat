@@ -886,6 +886,7 @@ if core && [ $TABLES = 1 ]; then
     t "Release 3 control-note flag (8.2b): recording_valid, the project record's pitch code 63, a Release 2 reader refuses it, an ordinary 124 to 127 stays a note" ctl_flag_test -O1 $FW
     t "Orange Cat pattern pool: banks round trip through flash, chunks, the fullest pattern, no room, power cuts" oc_pool_test -O1 $FW
     t "Orange Cat project store: SAVE and load through the pool, two slots, PATTERNS FULL, FBKK, power cuts" oc_project_test -O1 $FW
+    t "Release 3 project sections: the conversion splits the old record into GLOB, TRKS (ids, the OFF flag), NATV, LIST, SCNS, PERF, FRZR and the sections put it back byte for byte; a power cut at every program and erase" pj4_sec_test -O1 $FW -DOC_PJ4=1
     t "Orange Cat lists: new patterns kept, any track any pattern, the bank cache, projects share patterns" oc_lists_test -O1 $FW
     t "double-tap layers, SCREEN OFF, LFO 2 SYNC / TRIG / POL" layer_screen_test \
         -O1 -DMELODEE_USB_AUDIO=1 $FW

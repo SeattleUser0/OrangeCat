@@ -661,6 +661,10 @@ static const void *const pj4_keep[] __attribute__((used)) = {pj4_save, pj4_phras
 #endif
 #include "oc_pool.c"             /* (Orange Cat 0.3) the pattern pool of 64, kept in it */
 #include "oc_project.c"          /* (Orange Cat 0.3) the project slots: a small record each, their banks in the pool */
+#if OC_PJ4
+#include "oc_pj4_proj.c"          /* (Release 3 step 7, step 2) the project's sections: the old record split, the sections read back (PROJECT_FORMAT_R3.md 4) */
+static const void *const pj4p_keep[] __attribute__((used)) = {pj4p_split, pj4p_read};   /* (nothing calls them until the loader does: OC_PJ4=1 links them so their size is counted) */
+#endif
 #include "oc_lists.c"            /* (Orange Cat 0.3, 4c) each track's list of pool patterns; the banks its cache */
 
 /* FNV of each slot's stored bytes, as last written or read (0: unknown): autosave writes only what differs */
