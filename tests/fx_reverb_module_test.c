@@ -257,6 +257,37 @@ static void host_checks(void)
         ck("the module registered again, TYPE still SPRING: its call runs from the next block on (no reboot, the stored TYPE and knobs as they were), `uses` 1", mcalls[1] == c0 + 50u && fx2_modk_uses() == 1u && fx.rtype == 1u);
         fx2_modk_clear();
     }
+    {   /* (Round 25 review) each mode with the tracks playing (the check above may meet a tank the probe's silenced notes left empty): SPRING (its loop in the tank), SHIMMER, whose kernel also writes the model line's first block (its grains read it back), RESO (its strings in the tank, its filters in fx.k); `had`: there was a tail to clear */
+        static const rev_kst_t zk;
+        static const char *const NM[4] = { 0, "SPRING", "SHIMMER", "RESO" };
+        uint32_t ty, i;
+        for (ty = 1; ty <= 3u; ty++) {
+            const uint8_t *tp;
+            uint32_t had = 0, tz, lz = 1, kz;
+            char t[300];
+            fresh();
+            gb = 0; notes_off = 0;                       /* (the tracks playing: the probe's notes) */
+            fx2_modk_clear();
+            (void)module_set();
+            G(G_RTYPE, (int)ty); run(400);
+            tp = (const uint8_t *)jrev;
+            for (i = 0; jrev && i < sizeof *jrev; i++) had |= tp[i];
+            if (ty == 2u) for (i = 0; rx_have && i < SH_LEN; i++) had |= (uint32_t)(rx_seg[0][i] != 0);
+            fx2_modk_clear();
+            tz = jrev != 0;
+            for (i = 0; tz && i < sizeof *jrev; i++) tz = !tp[i];
+            if (ty == 2u) for (i = 0; lz && i < SH_LEN; i++) lz = rx_have && !rx_seg[0][i];
+            kz = !memcmp(&fx.k, &zk, sizeof zk);
+            snprintf(t, sizeof t, "no resident copy: the module removed while %s sounds (the tank%s held a tail): the tank%s and the modes' state are cleared at the removal; the module back plays from silence",
+                     NM[ty], ty == 2u ? " and the model line" : "", ty == 2u ? ", SHIMMER's line" : "");
+            run(1);
+            (void)module_set();
+            ck(t, had && tz && lz && kz && fx.rtype == ty);
+            run(20);
+            fx2_modk_clear();
+        }
+        G(G_RTYPE, 1);
+    }
 #endif
     fx2_modk_note = 0;
 }

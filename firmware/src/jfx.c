@@ -955,6 +955,8 @@ static int fx2_modk_set(uint32_t module_id, uint32_t version, uint32_t n, const 
  * and line (nothing to hand over, nothing that sounds changes), or, with no resident copy (OC_REV_RESIDENT 0), the mode is not run and its tank and state are cleared. The caller masks the
  * audio interrupt, as for fx2_modk_set */
 static void rev_state_clear(void);
+static void rev_line_clear(uint32_t n);
+static uint32_t rev_line_dirty(uint32_t from, uint32_t to);
 static void fx2_modk_clear(void)
 {
     memset(fx2_modk, 0, sizeof fx2_modk);
@@ -963,6 +965,7 @@ static void fx2_modk_clear(void)
     if (fx.rtype >= 1u && fx.rtype <= 3u) {             /* (Round 25) a module mode running: no other copy goes on from its state, so the tank and the modes' state are cleared now, and a module */
         rev_state_clear();                              /* that comes back starts from silence, not from the tail it was cut off in (ROOM and CLOUD, resident, keep theirs). No bus job is out: */
         memset(&fx.k, 0, sizeof fx.k);                  /* the caller masks the audio interrupt, as for fx2_modk_set */
+        rev_line_clear(rev_line_dirty(fx.rtype, fx.rtype));   /* (Round 25 review) SHIMMER's line too (the model line's first block: its kernel writes it, its grains read it back) */
     }
 #endif
 }

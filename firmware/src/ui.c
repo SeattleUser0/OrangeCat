@@ -386,26 +386,27 @@ static void pack_notice(uint32_t force)
 }
 /* (round 20) what the boot notice says: MODULE MISSING for an engine module not installed (as before), or for a track with DUB on and no DUB module (the kernel is the module's); both
  * together with the pack missing for a MACRO or SHAPES track: MODULE + PACK MISSING; else PACK MISSING. dub: a track has DUB on and none installed; pack: a track needs the pack and it is not there */
-static const char *boot_notice_text(uint32_t eng_gone, uint32_t dub, uint32_t pack)
+/* (Round 25) rev: a track sends to SPRING, SHIMMER or RESO and the reverb module is not there: alone it is named (REVERB MODULE MISSING); with another module missing the word is the shared one */
+static const char *boot_notice_text(uint32_t eng_gone, uint32_t dub, uint32_t pack, uint32_t rev)
 {
-    return eng_gone ? "MODULE MISSING" : dub && pack ? "MODULE + PACK MISSING" : dub ? "MODULE MISSING" : pack ? "PACK MISSING" : "";
+    return eng_gone ? "MODULE MISSING" : (dub || rev) && pack ? "MODULE + PACK MISSING" : dub ? "MODULE MISSING" : rev ? "REVERB MODULE MISSING" : pack ? "PACK MISSING" : "";
 }
 /* (Orange Cat 0.8.1) once at power-on, after the project is loaded (main.c, after project_boot, the way "BOOT PROJECT SKIPPED" is
  * shown): the pack is not there and a track of the project uses MACRO or SHAPES. It replaces the "LOADED" the project load said.
  * skipped: the boot guard skipped the project or template (their own word stays; nothing of theirs was loaded) */
 static void pack_boot_notice(uint32_t skipped)
 {
-    uint32_t k, gone = 0, dub = 0, pack = 0;
+    uint32_t k, gone = 0, dub = 0, pack = 0, rev = 0;
     const char *s;
     if (skipped) return;
     for (k = 0; k < NTRK && k < song.ntrk; k++) {
         uint32_t e = trk[k].eng_req % NENGINES;
         gone |= mod_gone(e) | track_mod_gone(&trk[k]);   /* (picker-r3) a MACRO track on a model the MODELS module does not hold */
         dub |= !fx_ins_module_ok() && trk[k].p[P_DUB_ECHO] != 0;     /* (round 20) DUB is a module: a track with DUB on and none installed plays dry */
-        dub |= jfx_rev_missing() && trk[k].p[P_REV] != 0;              /* (Round 25) so are the reverb's SPRING, SHIMMER and RESO: a track sending to one with no module plays it dry */
+        rev |= jfx_rev_missing() && trk[k].p[P_REV] != 0;              /* (Round 25) so are the reverb's SPRING, SHIMMER and RESO: a track sending to one with no module plays it dry */
         pack |= !OC_PACK_READY() && (e == ENGI_MACRO || e == ENGI_SHAPES);
     }
-    s = boot_notice_text(gone, dub, pack);
+    s = boot_notice_text(gone, dub, pack, rev);
     if (s[0]) ui_message(s);
 }
 #ifndef FRZ_AUDIO
