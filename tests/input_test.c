@@ -344,51 +344,84 @@ int main(void)
             enc_frame(m, 0);
         check("a one-frame glitch at rest: no step", fm1_in.enc_steps[0] == 0);
 
-        /* (Round 25, the owner's PRESETS knob: one slow click counted twice) contact dropouts in mid-click, replayed as raw frames, each a slow click
-         * (6 frames a state) both ways; every pattern is one step. DROPS[k]: the frames of one click from the detent (0) back to it */
+        /* (Round 25, the owner's PRESETS knob: one slow click counted twice) contact dropouts in mid-click, replayed as raw frames: state:frames
+         * from the detent (0) back to it, both ways. A and B are read about 100 us apart, so a dropout often shows one line a frame early: those
+         * staggered forms are here too. Every slow click is one step; the fast spins decode exactly as before (the old decoder's counts) */
         {
-            static const struct { const char *what; uint8_t n; uint8_t st[8], fr[8]; } DROPS[] = {   /* states and their frames (a slow click: 6 a state) */
-                {"plain", 4, {1, 3, 2, 0}, {6, 6, 6, 6}},
-                {"both lines open for a frame at the far state (3 -> 0 -> 3)", 6, {1, 3, 0, 3, 2, 0}, {6, 3, 1, 3, 6, 6}},
-                {"both lines open for two frames at the far state", 6, {1, 3, 0, 3, 2, 0}, {6, 3, 2, 3, 6, 6}},
-                {"two dropouts in one click", 8, {1, 3, 0, 3, 0, 3, 2, 0}, {6, 2, 1, 2, 1, 2, 6, 6}},
-                {"a diagonal bounce away from the detent (1 -> 2 -> 1)", 6, {1, 2, 1, 3, 2, 0}, {3, 1, 3, 6, 6, 6}},
-                {"a dropout at the far state, then a diagonal bounce (2 -> 1 -> 2)", 8, {1, 3, 0, 3, 2, 1, 2, 0}, {6, 3, 1, 3, 3, 1, 3, 6}},
+            static const struct { const char *what; int8_t want; uint8_t n; uint8_t st[10], fr[10]; } PAT[] = {
+                {"slow, plain", 1, 4, {1, 3, 2, 0}, {6, 6, 6, 6}},
+                {"slow, both lines open a frame at the far state (3 0 3)", 1, 6, {1, 3, 0, 3, 2, 0}, {6, 3, 1, 3, 6, 6}},
+                {"slow, both open two frames", 1, 6, {1, 3, 0, 3, 2, 0}, {6, 3, 2, 3, 6, 6}},
+                {"slow, both open three frames", 1, 6, {1, 3, 0, 3, 2, 0}, {6, 3, 3, 3, 6, 6}},
+                {"slow, dropout recovering through 1 (3 0 1 3)", 1, 7, {1, 3, 0, 1, 3, 2, 0}, {6, 3, 1, 1, 3, 6, 6}},
+                {"slow, dropout through 2 (3 2 0 3)", 1, 7, {1, 3, 2, 0, 3, 2, 0}, {6, 3, 1, 1, 3, 6, 6}},
+                {"slow, dropout through 2, two frames open (3 2 0 0 3)", 1, 7, {1, 3, 2, 0, 3, 2, 0}, {6, 3, 1, 2, 3, 6, 6}},
+                {"slow, two dropouts in one click", 1, 8, {1, 3, 0, 3, 0, 3, 2, 0}, {6, 3, 1, 3, 1, 3, 6, 6}},
+                {"slow, a one-frame misread at state 1", 1, 6, {1, 2, 1, 3, 2, 0}, {4, 1, 4, 6, 6, 6}},
+                {"fast spin, a state skipped each side of the detent (0 1 3 0 3 2 0)", 2, 7, {0, 1, 3, 0, 3, 2, 0}, {8, 1, 1, 1, 1, 1, 8}},
+                {"fast spin, two detents at one frame a state", 2, 9, {0, 1, 3, 2, 0, 1, 3, 2, 0}, {8, 1, 1, 1, 1, 1, 1, 1, 8}},
             };
             uint32_t k, j, ok = 1;
-            for (k = 0; k < sizeof DROPS / sizeof DROPS[0]; k++)
+            for (k = 0; k < sizeof PAT / sizeof PAT[0]; k++)
                 for (dir = 1; dir >= -1; dir -= 2) {
                     reset();
                     for (f = 0; f < 8u; f++)
                         enc_frame(m, 0);
-                    for (j = 0; j < DROPS[k].n; j++) {
-                        uint32_t st = DROPS[k].st[j];
+                    for (j = 0; j < PAT[k].n; j++) {
+                        uint32_t st = PAT[k].st[j];
                         if (dir < 0)
                             st = st == 1u ? 2u : st == 2u ? 1u : st;   /* the other way round: the lines swap roles */
-                        for (f = 0; f < DROPS[k].fr[j]; f++)
+                        for (f = 0; f < PAT[k].fr[j]; f++)
                             enc_frame(m, st);
                     }
                     for (f = 0; f < 8u; f++)
                         enc_frame(m, 0);
-                    printf("encoder 0: one slow click, %s, %s -> %d\n", DROPS[k].what, dir > 0 ? "cw" : "ccw", (int)fm1_in.enc_steps[0]);
-                    ok &= fm1_in.enc_steps[0] == one * dir;
+                    printf("encoder 0: %s, %s -> %d (want %d)\n", PAT[k].what, dir > 0 ? "cw" : "ccw", (int)fm1_in.enc_steps[0], PAT[k].want * (int)dir);
+                    ok &= fm1_in.enc_steps[0] == PAT[k].want * one * dir;
                 }
-            check("one slow click with a contact dropout or a bounce in it: one step (Round 25)", ok);
+            check("one slow click with a contact dropout in it: one step; fast spins as before (Round 25)", ok);
 
-            /* a real flick that lands on the detent by a jump (3 -> 0 in one frame) still counts, once it stands, and at once if the knob moves on */
+            /* the detent's own state is 3 (both closed at rest): a dropout at rest (3 0 1 3) is no step */
+            reset();
+            for (f = 0; f < 8u; f++)
+                enc_frame(m, 3);
+            enc_frame(m, 0); enc_frame(m, 1);
+            for (f = 0; f < 8u; f++)
+                enc_frame(m, 3);
+            check("a staggered dropout at rest, the detent both closed: no step (Round 25)", fm1_in.enc_steps[0] == 0);
+
+            /* when each step counts: a plain landing at once; a slow click's jump onto the detent after FM1_JUMP_FRAMES + 1 frames; a fast flick's at once */
             reset();
             for (f = 0; f < 8u; f++)
                 enc_frame(m, 0);
-            enc_frame(m, 1); enc_frame(m, 3); enc_frame(m, 0);
-            ok = fm1_in.enc_steps[0] == 0;                       /* not yet: it waits FM1_JUMP_FRAMES */
-            for (f = 0; f < 8u; f++)
-                enc_frame(m, 0);
-            ok &= fm1_in.enc_steps[0] == one;
-            enc_frame(m, 1); enc_frame(m, 3); enc_frame(m, 0); enc_frame(m, 1); enc_frame(m, 3); enc_frame(m, 2); enc_frame(m, 0);
-            for (f = 0; f < 8u; f++)
-                enc_frame(m, 0);
+            for (f = 0; f < 6u; f++) enc_frame(m, 1);
+            for (f = 0; f < 6u; f++) enc_frame(m, 3);
+            for (f = 0; f < 6u; f++) enc_frame(m, 2);
+            enc_frame(m, 0);
+            ok = fm1_in.enc_steps[0] == 0;                      /* a slow click's landing: believed on its second frame (rule 1), */
+            enc_frame(m, 0);
+            ok &= fm1_in.enc_steps[0] == one;                   /* and counted then */
+            for (f = 0; f < 6u; f++) enc_frame(m, 1);
+            for (f = 0; f < 6u; f++) enc_frame(m, 3);
+            for (f = 0; f < FM1_JUMP_FRAMES + 2u; f++) {         /* slow, then a jump onto the detent: one frame to be believed (mid-click), */
+                enc_frame(m, 0);                                /* then the jump's window */
+                ok &= fm1_in.enc_steps[0] == one;
+            }
+            enc_frame(m, 0);
+            ok &= fm1_in.enc_steps[0] == 2 * one;               /* the window is over: it counts, FM1_JUMP_FRAMES + 3 frames (~6.6 ms) after the landing */
+            for (f = 0; f < 8u; f++) enc_frame(m, 0);
+            enc_frame(m, 1); enc_frame(m, 3); enc_frame(m, 0);  /* a fast flick that lands by a jump: at once */
             ok &= fm1_in.enc_steps[0] == 3 * one;
-            check("a flick that lands by a jump: counted once it stands or the knob moves on (Round 25)", ok);
+            {   /* a long fast spin landing by jumps: every detent counts on its own frame, sub never runs away */
+                uint32_t d2, bad = 0;
+                for (d2 = 0; d2 < 40u; d2++) {
+                    enc_frame(m, 1); enc_frame(m, 3); enc_frame(m, 0);
+                    bad |= fm1_in.enc_steps[0] != (int32_t)(4 + d2) * one;
+                }
+                ok &= !bad;
+            }
+            printf("encoder 0: the timing of the steps -> %d\n", (int)fm1_in.enc_steps[0]);
+            check("each step counts on time: at once, or after a slow jump's window (Round 25)", ok);
         }
     }
 
