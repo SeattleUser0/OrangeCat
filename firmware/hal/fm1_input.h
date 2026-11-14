@@ -113,6 +113,7 @@ static volatile struct {
     uint8_t enc_dwell[FM1_NENC]; /* frames the decoded state has lasted (saturates) */
     uint8_t enc_prob[FM1_NENC], enc_anchor[FM1_NENC], enc_page[FM1_NENC];   /* on probation, from which state, frames since */
     int8_t enc_asub[FM1_NENC], enc_pend[FM1_NENC];   /* sub when it left the anchor; steps counted on probation, not given yet */
+    int8_t enc_pnet[FM1_NENC];   /* the plain transitions since the anchor, net (a jump adds none: its direction is a guess) */
     int16_t enc_steps[FM1_NENC]; /* + = clockwise */
     uint32_t frames;
 } fm1_in;
@@ -358,8 +359,10 @@ static void fm1_input_scan(void)
  * read open, the detent's own state when the detent is both open, and the decoder counted the click on that false landing and again on the real
  * one. A and B are read on two scan columns about 100 us apart, so the dropout often shows one line a frame early (3 2 0 3, 3 0 1 3): the raw
  * states of a dropout are those of a quick turn, and only what follows tells them apart. So: when the knob leaves a mid-click state it sat in
- * (an anchor), the steps it counts are held for FM1_PROBATION frames (~10 ms); if it comes back to the anchor within that time and sits there,
- * it was a dropout: everything since is undone. Otherwise the steps are given, late by at most that time. A fast turn makes no anchor (its states
+ * (an anchor), the steps it counts are held for FM1_PROBATION + FM1_ANCHOR_FRAMES frames (~13 ms); if it comes back to the anchor's state within
+ * that time with less than a whole click of plain transitions on the way (|net| < 4: so it has not gone round), it was a dropout: everything
+ * since is undone. A real click that comes round to the same state has four plain transitions and stands. Otherwise the steps are given, late
+ * by at most that time. A fast turn makes no anchor (its states
  * last a frame or two) and a turn from the detent starts from no anchor, so both decode exactly as before. A dropout at the detent itself when
  * the detent is both closed (3 2 0 1 3) is a whole click's states and still counts as one: not told apart. */
 static void fm1__emit(uint32_t e, volatile int8_t *sub)   /* back on the detent: whole cycles, a lost transition or two forgiven (one click = 4 transitions) */
@@ -422,14 +425,17 @@ static void fm1__frame(void)
                 fm1_in.enc_anchor[e] = fm1_in.enc_prev[e];
                 fm1_in.enc_asub[e] = *sub;
                 fm1_in.enc_page[e] = 0;
+                fm1_in.enc_pnet[e] = 0;
             }
             fm1_in.enc_dwell[e] = 1;
             idx = (uint32_t)fm1_in.enc_prev[e] << 2 | cur;
             if ((0x4182u >> idx) & 1u) {
                 (*sub)++;
+                fm1_in.enc_pnet[e]++;
                 fm1_in_stat.enc_moves[e]++;
             } else if ((0x2814u >> idx) & 1u) {
                 (*sub)--;
+                fm1_in.enc_pnet[e]--;
                 fm1_in_stat.enc_moves[e]++;
             } else {                               /* two states in one sample: a fast turn, */
                 fm1_in_stat.enc_lost[e]++;         /* the way it was going */
@@ -453,8 +459,9 @@ static void fm1__frame(void)
                 fm1__emit(e, sub);
         }
         if (fm1_in.enc_prob[e]) {
-            if (cur == fm1_in.enc_anchor[e] && fm1_in.enc_dwell[e] >= FM1_ANCHOR_FRAMES) {
-                *sub = fm1_in.enc_asub[e];         /* (Round 25) back on the anchor and sitting there: a dropout; as if it never happened */
+            if (cur == fm1_in.enc_anchor[e] && fm1_in.enc_dwell[e] == 1u &&
+                fm1_in.enc_pnet[e] > -4 && fm1_in.enc_pnet[e] < 4) {
+                *sub = fm1_in.enc_asub[e];         /* (Round 25) back on the anchor's state, not gone round: a dropout; as if it never happened */
                 fm1_in.enc_pend[e] = 0;
                 fm1_in.enc_prob[e] = 0;
 #if OC_SFC_PROBE

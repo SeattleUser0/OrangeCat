@@ -360,7 +360,7 @@ int main(void)
                 {"slow, dropout recovering through 1 (3 0 1 3)", 1, "1:6 3:3 0:1 1:1 3:3 2:6 0:6"},
                 {"slow, dropout through 2 (3 2 0 3)", 1, "1:6 3:3 2:1 0:1 3:3 2:6 0:6"},
                 {"slow, dropout through 2, two frames open (3 2 0 0 3)", 1, "1:6 3:3 2:1 0:2 3:3 2:6 0:6"},
-                {"slow, a staggered dropout at two frames a state (3 2 0 1 3)", 1, "1:6 3:3 2:2 0:2 1:2 3:4 2:6 0:6"},
+                {"slow, a staggered dropout at two frames a state (3 2 0 1 3): a whole click's states at a click's pace, not told apart", 2, "1:6 3:3 2:2 0:2 1:2 3:4 2:6 0:6"},
                 {"slow, two dropouts in one click", 1, "1:6 3:3 0:1 3:3 0:1 3:3 2:6 0:6"},
                 {"slow, a one-frame misread at state 1", 1, "1:4 2:1 1:4 3:6 2:6 0:6"},
                 {"slow, a reversal at the far state", 0, "1:6 3:6 1:6 0:6"},
@@ -374,6 +374,14 @@ int main(void)
                 {"a flick from the detent that skips state 1, 10 clicks", 10,
                  "3:1 2:1 0:1 3:1 2:1 0:1 3:1 2:1 0:1 3:1 2:1 0:1 3:1 2:1 0:1 3:1 2:1 0:1 3:1 2:1 0:1 3:1 2:1 0:1 3:1 2:1 0:1 3:1 2:1 0:1"},
                 {"fast spin, two detents at one frame a state", 2, "1:1 3:1 2:1 0:1 1:1 3:1 2:1 0:8"},
+                /* (review of 4492c279) real turns that come round to a state they sat in within the window; dropouts late in the far state */
+                {"a steady turn with uneven state times, 5 clicks", 5, "1:2 3:3 2:2 0:3 1:2 3:3 2:2 0:3 1:2 3:3 2:2 0:3 1:2 3:3 2:2 0:3 1:2 3:3 2:2 0:3"},
+                {"slow, then a quick click that pauses on the same state", 2, "1:6 3:6 2:6 0:2 1:1 3:1 2:4 0:8"},
+                {"slow start, a quick click back to state 1", 2, "1:6 3:1 2:1 0:1 1:6 3:6 2:6 0:6"},
+                {"two quick clicks back to state 1", 3, "1:6 3:1 2:1 0:1 1:1 3:1 2:1 0:1 1:6 3:6 2:6 0:6"},
+                {"slow, a dropout late in the far state", 1, "1:6 3:3 0:1 3:2 2:6 0:6"},
+                {"slow, a dropout of ten frames", 1, "1:6 3:3 0:10 3:3 2:6 0:6"},
+                {"slow, back the way it came after a pause in mid-click", 0, "1:6 3:6 2:6 3:6 1:6 0:8"},
             };
             uint32_t k, ok = 1;
             for (k = 0; k < sizeof PAT / sizeof PAT[0]; k++)
