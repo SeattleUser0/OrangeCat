@@ -313,6 +313,24 @@ static int recording_valid(const recorded_note_t *r)
 {
     return !r->vel || (r->pitch >= -24 && r->pitch <= 24 && (r->length <= 1 || (r->length == RN_CTL && !r->pitch && r->note >= RN_CTL_FIRST && r->note <= 127u)) && r->vel <= 127u && r->duration && r->note <= 127u && ((r->step & 128u) || (r->step & 63u) + ((r->step & 64u) != 0u) < NSTEP));
 }
+/* (Round 25) An event only an older build wrote: step byte 0x7F (6-bit step 63 and "rounded to the next step", so it views step 64, which no loop has). Every build before
+ * d40bd848 (Round 24's review; the first Nightly with it is v0.16.0-8cb0b1) took the event's step from seq_idx unbounded: a key with the playhead on step 64 after LEN was cut
+ * below 64 stored it. It never played (recording_plays wants step 63 inside LEN; at LEN 64 its view is past the cells), and the byte cannot say which cell it meant: the cell
+ * was rec_round's, 63 mod LEN or the one after, at the LEN of that moment, which the record does not keep. So a loader DROPS it (every other field must be valid) and keeps
+ * the project or phrase: its cell, flagged and holding the note rec_note put there, is left with no event, and the load's reconcile (OC_ONE_AUTH) keeps it as that manual step.
+ * Anything else recording_valid refuses still refuses the record: a writer has no other known way to make it */
+static int recording_legacy(const recorded_note_t *r)
+{
+    recorded_note_t v = *r;
+    v.step = 63u;
+    return r->vel && r->step == 0x7Fu && recording_valid(&v);
+}
+/* (Round 25) the one rule of a stored event, for the savers and the loaders alike: 1 kept (a saver writes only these), 0 dropped at load (recording_legacy), -1 the record
+ * is refused */
+static int recording_load_rule(const recorded_note_t *r)
+{
+    return recording_valid(r) ? 1 : recording_legacy(r) ? 0 : -1;
+}
 static uint32_t recording_view(const track_t *t, const recorded_note_t *r)
 {
     (void)t;

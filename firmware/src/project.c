@@ -209,8 +209,15 @@ static int proj_ok(const project_t *q)
         q->sel >= NTRK || q->parts > NPART || q->phys > PROJ_PHYS ||
         !chain_valid(&q->chain) || !motion_valid(&q->motion)) return 0;
     for (uint32_t k = 0; k < NTRK; k++) if (q->t[k].engine >= NENGINES || q->t[k].mpc_octave < -3 || q->t[k].mpc_octave > 3 || q->pattern[k] >= NPAT || !drum_patch_valid(&q->drum[k]) || !p5_patch_valid(&q->p5[k])) return 0;
-    for (uint32_t i = 0; i < RECORD_MAX; i++) if (!recording_valid(&q->recording[i])) return 0;
+    for (uint32_t i = 0; i < RECORD_MAX; i++) if (recording_load_rule(&q->recording[i]) < 0) return 0;   /* (Round 25) an older build's event (recording_legacy) does not refuse it: proj_drop_old drops it */
     return 1;
+}
+/* (Round 25) the events an older build wrote and the loaders drop (recording.c recording_legacy) taken out of q, its sum again */
+static void proj_drop_old(project_t *q)
+{
+    for (uint32_t i = 0; i < RECORD_MAX; i++)
+        if (!recording_load_rule(&q->recording[i])) memset(&q->recording[i], 0, sizeof q->recording[i]);
+    q->sum = proj_sum(q);
 }
 
 static int proj_unpack(project_t *q, const uint8_t *b);
@@ -222,6 +229,7 @@ static int proj_import(project_t *q, const void *b, int n)
         return proj_unpack(q, b) && proj_fn_none(q);
     if (n == (int)sizeof *q && proj_ok((const project_t *)b)) {
         memcpy(q, b, sizeof *q);
+        proj_drop_old(q);
         return 1;
     }
     return 0;
@@ -281,7 +289,7 @@ static int proj_record_unpack(project_t *q,const uint8_t *b)
             r->note=wire_bits_get(v,&pos,7);r->vel=wire_bits_get(v,&pos,7);
             r->step=wire_bits_get(v,&pos,8);r->owner=owner|(wire_bits_get(v,&pos,3)<<5);
             {uint32_t pc=wire_bits_get(v,&pos,6);uint32_t ln=wire_bits_get(v,&pos,1);r->pitch=(int8_t)((int32_t)pc-24);r->length=(uint8_t)ln;if(pc==63u){r->pitch=0;r->length=RN_CTL;}}   /* (8.2b) code 63 back to the flag; a Release 2 reader's pitch check refuses it */
-            if(!r->vel || !recording_valid(r))return 0;
+            {int rule=recording_load_rule(r);if(!r->vel || rule<0)return 0;if(!rule)memset(r,0,sizeof *r);}   /* (Round 25) an older build's event dropped, the project kept (recording_legacy) */
         }
     }
     return 1;
@@ -1046,6 +1054,7 @@ static int project_restore_runtime(const project_t *input)
     if (!proj_ok(input)) return 1;
     if(designer_on() && designer_quit)designer_quit(0);   /* a loaded project owns the new sound */
     if (p != input) memcpy(p, input, sizeof *p);
+    proj_drop_old(p);                                   /* (Round 25) an older build's event is not played or kept (recording_legacy) */
     transport_req = 2;
     panic_req = (1u << NTRK) - 1u;
     fm1_irq_off();                                      /* the audio ISR must not see half a project */
