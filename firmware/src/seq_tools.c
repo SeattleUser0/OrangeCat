@@ -13,7 +13,8 @@
  *   Round 25: SHIFT and REVERSE move the bank's control notes with the steps and the motion; their undo moves them back.
  */
 enum { ST_SHIFT_R, ST_SHIFT_L, ST_REVERSE };
-/* tool `kind` on track t's phrase playing: 0 done; 1 it holds recorded notes; 2 a Melodee song runs; 3 nothing in it */
+/* tool `kind` on track t's phrase playing: 0 done; 1 it holds recorded notes; 2 a Melodee song runs; 3 nothing in it; 4 (Round 25) a control note has no place to
+ * go (recording.c recording_ctl_move: one no writer makes), nothing changed */
 static int seq_tool(track_t *t, uint32_t kind)
 {
     static step_t tmp[NSTEP];
@@ -25,6 +26,7 @@ static int seq_tool(track_t *t, uint32_t kind)
     for (i = 0; i < len; i++) any |= step_on(&t->step[i]) || t->step[i].time == ST_TIE;
     for (i = 0; i < motion.count; i++) any |= (motion.event[i].place >> 6) == k && motion_pattern[i] == t->pattern;
     if (!any && !ctl) return 3;
+    if (ctl && !recording_ctl_move(t, len, kind == ST_SHIFT_R ? 1 : kind == ST_SHIFT_L ? -1 : 0, 0)) return 4;
     if (ctl) undo_seal();                               /* (Round 25) a level of its own: its undo moves the control notes back by this tool alone (ui.c undo_level) */
     motion_snapshot_track(t, &mo);
     load_begin(t, UNDO_PAT);
@@ -52,14 +54,17 @@ static int seq_tool(track_t *t, uint32_t kind)
             if ((motion.event[i].place >> 6) == k && motion_pattern[i] == t->pattern && (motion.event[i].place & 63u) < len)
                 motion.event[i].place = (uint8_t)((k << 6) | (len - 1u - (motion.event[i].place & 63u)));
     }
-    if (ctl) recording_ctl_move(t, len, kind == ST_SHIFT_R ? 1 : kind == ST_SHIFT_L ? -1 : 0);
+    if (ctl) recording_ctl_move(t, len, kind == ST_SHIFT_R ? 1 : kind == ST_SHIFT_L ? -1 : 0, 1);
     motion.rsv[0] = 1;
     motion_unguard(f);
     load_end(t);
-    if (ctl && undo_top && undo_last()->trk == k + 1u) {
-        undo_last()->ctl_tool = (uint8_t)(kind + 1u);
-        undo_last()->ctl_len = (uint8_t)len;
-        undo_seal();
+    if (undo_top && undo_last()->trk == k + 1u) {
+        undo_last()->ctl_tool |= UNDO_TOOL;             /* (Round 25 review) a SEQ tool's level: its undo is refused, as the tool is, once the bank holds ordinary recorded notes */
+        if (ctl) {
+            undo_last()->ctl_tool = (uint8_t)(UNDO_TOOL | (kind + 1u));
+            undo_last()->ctl_len = (uint8_t)len;
+            undo_seal();
+        }
     }
     return 0;
 }
@@ -69,7 +74,7 @@ static void seq_tool_ui(uint32_t kind)
     int rc;
     if (frz_locked()) return;                           /* (Orange Cat 0.5.6) a frozen phrase */
     rc = seq_tool(TSEL, kind);
-    ui_message(!rc ? DONE[kind % 3u] : rc == 1 ? "RECORDED NOTES: USE NOTES" : rc == 2 ? "STOP TO EDIT" : "NOTHING THERE");
+    ui_message(!rc ? DONE[kind % 3u] : rc == 1 ? "RECORDED NOTES: USE NOTES" : rc == 2 ? "STOP TO EDIT" : rc == 4 ? "CONTROL NOTE CANNOT MOVE" : "NOTHING THERE");
     ui.force = 1;
 }
 /* (Orange Cat 0.14.2) a drum lane's figure, copied and pasted onto another (Skiff 2.0's grid copy, its LANE's): the lane shown, its hits

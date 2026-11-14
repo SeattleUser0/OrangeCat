@@ -35,6 +35,10 @@
  *        and the other shift, sixteen shifts at LEN 16, REVERSE twice give the bank back byte for byte; REVERSE mirrors a control note as a step note with its length (the
  *        steps its gate covers); the tool's undo and redo byte for byte, each tool a level of its own; a bank of control notes only; the take's undo after a shift (the shift
  *        undone first, then the take, whole; redo both) and directly after the shift is taken back by hand
+ * The review of b81b3106 (R7; 12 of its checks fail on b81b3106: 1, 2, 3 and the transport's; swing and groove, and LEN changed before the undo, pass there too):
+ *   R7   1 a take, SHIFT RIGHT, SHIFT LEFT, EDIT held three times (with control notes and without): the take's undo, then nothing half of it; 2 SHIFT RIGHT, two takes,
+ *        two undos: the shift's undo refused over take 1's ordinary note; 3 LEN 64 with a 128 the place would not give: shifts and REVERSE byte for byte, a note
+ *        with no byte refused; 4 swing and groove; the transport running under a sounding HOLD (released, no stuck trigger); LEN changed before the undo
  * Run by tests/run_tests.sh (dub_t: the DUB module's host unit is linked) with the build set, twice: the switch on (the default) and off (-DOC_CTL_REC=0). */
 #define RES_HOST_MAIN_WORDS (85760u / 4u)
 #define RES_HOST_LOW_WORDS (27740u / 4u)
@@ -1055,6 +1059,115 @@ static void r6_shift(void)
         chk("R6   REVERSE twice on the take: byte for byte the take, its undo applies directly", rc == 0 && same_snap(&TK, &SN2) && recording_history(0) == 1 && n_ctl(0) == 0u);
     }
 }
+/* ---- the review of b81b3106 (R7) ---- */
+static void rec_begin(void) { song.rec = 1u; seq_start(); song.rec_pass = 0; seq_advance(0); now = 0; }
+static void rec_end(void) { seq_stop(); song.rec = 0; }
+static void r7_review(void)
+{
+    track_t *t;
+    static bank_snap_t TK, SA, SB2;
+    int rc;
+    /* 1: a take, SHIFT RIGHT, SHIFT LEFT (taken back by hand), then EDIT held three times: with control notes and without */
+    for (int v = 0; v < 2; v++) {
+        char what[220];
+        const char *kind = v ? "a take of motion alone (no control note)" : "a take of control notes and a motion event on step 8";
+        t = begin(-1);
+        manual(&t->step[2], 1, 60, 0, 0, 0, 90); manual(&t->step[12], 1, 55, 0, 0, 0, 100);
+        snap(t, &SN0);
+        rec_begin();
+        if (v) { adv_to(at_step(t, 3)); motion_set_event(t, 7, P_LEVEL, 44); adv_to(at_step(t, 15) + 5u); }
+        else { pass(t); motion_set_event(t, 7, P_LEVEL, 44); }
+        rec_end();
+        snap(t, &TK);
+        snprintf(what, sizeof what, "R7   (the fixture) %s: the take differs from the bank before it", kind);
+        chk(what, !same_snap(&SN0, &TK) && mo_at(&TK, 7) == 45u && n_ctl(0) == (v ? 0u : 4u));
+        rc = seq_tool(t, ST_SHIFT_R); rc |= seq_tool(t, ST_SHIFT_L); snap(t, &SA);
+        snprintf(what, sizeof what, "R7   %s, SHIFT RIGHT, SHIFT LEFT: the take byte for byte", kind);
+        chk(what, rc == 0 && same_snap(&TK, &SA));
+        undo_step(0); snap(t, &SA);
+        snprintf(what, sizeof what, "R7   %s: EDIT held: UNDO RECORDING, the bank before the take", kind);
+        chk(what, same_snap(&SN0, &SA));
+        undo_step(0); snap(t, &SA); undo_step(0); snap(t, &SB2);
+        snprintf(what, sizeof what, "R7   %s: EDIT held twice more: still the bank before the take (the shifts' levels went with the take's undo: no step moved, no motion of the take back)", kind);
+        chk(what, same_snap(&SN0, &SA) && same_snap(&SN0, &SB2));
+        undo_step(1); snap(t, &SA);
+        snprintf(what, sizeof what, "R7   %s: EDIT + OCT+: the take back byte for byte", kind);
+        chk(what, same_snap(&TK, &SA));
+    }
+    /* 2: SHIFT RIGHT, take 1 (an ordinary note and DIVE), take 2 (KICK): take 1's undo is gone, the shift's undo is refused as the tool is */
+    t = r6_fixture(1);
+    seq_tool(t, ST_SHIFT_R);
+    rec_begin(); adv_to(at_step(t, 6) + 40u); input_on(t, 62, 100); key(K_DIVE, 1); adv(200); input_off(t, 62); key(K_DIVE, 0); adv_to(at_step(t, 15)); rec_end();
+    rec_begin(); adv_to(at_step(t, 9) + 40u); key(K_KICK, 1); adv(50); key(K_KICK, 0); adv_to(at_step(t, 15)); rec_end();
+    chk("R7   (the fixture) SHIFT RIGHT, then take 1 (an ordinary note and DIVE on step 7), take 2 (a KICK)", n_ord(0) == 1u && n_ctl(0) == 7u);
+    undo_step(0);
+    chk("R7   EDIT held: take 2 undone (its KICK gone, take 1 kept)", n_ord(0) == 1u && n_ctl(0) == 6u);
+    snap(t, &SA); ui.msg_t = 0;
+    undo_step(0); snap(t, &SB2);
+    chk("R7   EDIT held again: the shift's undo is refused over take 1's ordinary note (RECORDED NOTES: USE NOTES), nothing moved", msg_is("RECORDED NOTES: USE NOTES") && same_snap(&SA, &SB2));
+    /* 3: LEN 64, a late control note with a 128 its place would not give it (a doubled bank) */
+    {   static const uint8_t BYTES[3] = {0xFEu, 0xDFu, 0xBFu};
+        for (uint32_t v = 0; v < 3u; v++) {
+            char what[220];
+            t = begin(-1); t->p[P_SLEN] = 64;
+            stored(t, 10, 125, BYTES[v] & 63u, 1000, 3000, 0, 1); recording[10].step = BYTES[v];
+            stored(t, 11, 124, 63 | 64 | 128, 40000, 100, 0, 1);
+            snap(t, &SN0);
+            rc = seq_tool(t, ST_SHIFT_R); rc |= seq_tool(t, ST_SHIFT_L); snap(t, &SA);
+            snprintf(what, sizeof what, "R7   LEN 64, step byte 0x%02X: SHIFT RIGHT, SHIFT LEFT: byte for byte, valid", BYTES[v]);
+            chk(what, rc == 0 && same_snap(&SN0, &SA) && ctl_all_valid());
+            for (int k = 0; k < 64 && !rc; k++) { rc |= seq_tool(t, ST_SHIFT_R); rc |= !ctl_all_valid(); }
+            snap(t, &SA);
+            snprintf(what, sizeof what, "R7   .. 64 SHIFT RIGHT (every place valid on the way): byte for byte (0x%02X)", recording[10].step);
+            chk(what, rc == 0 && same_snap(&SN0, &SA));
+            rc = seq_tool(t, ST_REVERSE); rc |= !ctl_all_valid(); rc |= seq_tool(t, ST_REVERSE); snap(t, &SA);
+            chk("R7   .. REVERSE twice: byte for byte", rc == 0 && same_snap(&SN0, &SA));
+        }
+        t = begin(-1); t->p[P_SLEN] = 64;
+        stored(t, 10, 125, 62, 1000, 3000, 0, 1); recording[10].step = 62 | 128;   /* not late with a 128: no writer makes one; on step 64 it has no byte */
+        snap(t, &SN0);
+        rc = seq_tool(t, ST_SHIFT_R); snap(t, &SA);
+        chk("R7   a control note no writer makes (not late, a 128) that would land on step 64: the tool refuses, nothing changed", rc == 4 && same_snap(&SN0, &SA));
+    }
+    /* 4a: swing and a groove */
+    t = r6_fixture(1);
+    t->p[P_SSWING] = 60; lists.groove[0] = 1; lists.gamt[0] = 100;
+    snap(t, &SN0);
+    rc = seq_tool(t, ST_SHIFT_R);
+    {   uint32_t p = period_of(t), ok = rc == 0;
+        for (uint32_t k = S_KICK; k <= S_RISE; k++) {
+            uint32_t pa, sa, pb, sb, ca = recording_step_of(t, p, at_of(t, &SN0.ev[10 + k]), &pa, &sa), cb = recording_step_of(t, p, at_of(t, &recording[10 + k]), &pb, &sb);
+            int64_t fa = (int64_t)pa * 65536 / sa, fb = (int64_t)pb * 65536 / sb;
+            int64_t tol = 65536 / (int64_t)(sa < sb ? sa : sb) + 1;   /* (the onset is placed to the sample: half a sample of either step) */
+            ok &= cb == (ca + 1u) % 16u && fa - fb <= tol && fb - fa <= tol;
+        }
+        chk("R7   swing 60 and a groove: SHIFT RIGHT puts every control note in the next step, as far into it (as the step's own length times)", ok); }
+    seq_tool(t, ST_SHIFT_L); snap(t, &SA);
+    chk("R7   .. SHIFT LEFT: byte for byte", same_snap(&SN0, &SA));
+    lists.groove[0] = 0; lists.gamt[0] = 0;
+    /* 4b: the transport running, HOLD sounding when the shift comes */
+    t = r6_fixture(1);
+    seq_start(); seq_advance(0); now = 0;
+    adv_to(at_step(t, 4) + 1000u);
+    {   int was = dub_rec[0][1], cut, on, off;
+        rc = seq_tool(t, ST_SHIFT_R);
+        cut = dub_rec[0][1] == 0 && !cref_sum();
+        adv_to(at_step(t, 7) + period_of(t) / 4u); on = dub_rec[0][1];
+        adv_to(at_step(t, 9)); off = !dub_rec[0][1];
+        adv_to(at_step(t, 16) + at_step(t, 7) + period_of(t) / 4u); on &= dub_rec[0][1];
+        adv_to(at_step(t, 16) + at_step(t, 9)); off &= !dub_rec[0][1];
+        seq_stop();
+        chk("R7   the transport running: HOLD sounding when SHIFT RIGHT comes is released at once; it then sounds at its new place (into step 8) and ends, this pass and the next",
+            was && rc == 0 && cut && on && off);
+        chk("R7   .. stopped: nothing left sounding (no trigger, no count, no queue)", quiet()); }
+    /* 4c: LEN changed between the shift and its undo */
+    t = r6_fixture(1); snap(t, &SN0);
+    seq_tool(t, ST_SHIFT_R); t->p[P_SLEN] = 12; snap(t, &SN1);
+    undo_step(0); snap(t, &SA);
+    chk("R7   SHIFT RIGHT at LEN 16, LEN then cut to 12, EDIT held: byte for byte the bank before (LEN 16, the control notes back)", same_snap(&SN0, &SA));
+    undo_step(1); snap(t, &SA);
+    chk("R7   .. EDIT + OCT+: byte for byte the bank after (LEN 12)", same_snap(&SN1, &SA));
+}
 #else
 static void s6_off(void)
 {
@@ -1098,7 +1211,7 @@ int main(void)
 #if OC_CTL_REC
     f1_grid(); f2_track(); f3_editors(); f4_release(); f4_reset(); f5a_queue(); f5b_strike(); f5c_same(); f6_skip(); f7_flood();
     s2_take(); s3_tools(); s4_quant(); s5_arm();
-    r1_len(); r2_tools(); r3_quant(); r4_old_cell(); r5_gaps(); r6_shift();
+    r1_len(); r2_tools(); r3_quant(); r4_old_cell(); r5_gaps(); r6_shift(); r7_review();
 #else
     s6_off();
 #endif
