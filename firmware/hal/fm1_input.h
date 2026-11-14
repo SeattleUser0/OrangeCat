@@ -365,7 +365,8 @@ static void fm1_input_scan(void)
  * by at most that time. A fast turn makes no anchor (its states
  * last a frame or two) and a turn from the detent starts from none, so both decode exactly as before. Not told apart, and counted as a click:
  * a dropout whose staggered states go all the way round at a click's pace (3 2 0 1 3, two frames each), and a dropout at the detent itself
- * when the detent is both closed: both are a whole click's states. */
+ * when the detent is both closed: both are a whole click's states. The other way round, and counted short by one: a click that skips a state
+ * and comes back to the state the knob had paused in within the window (3 2 1 3 after a pause on 3): a dropout's states (review, Round 25). */
 static void fm1__emit(uint32_t e, volatile int8_t *sub)   /* back on the detent: whole cycles, a lost transition or two forgiven (one click = 4 transitions) */
 {
     int32_t n = *sub < 0 ? -*sub : *sub;
