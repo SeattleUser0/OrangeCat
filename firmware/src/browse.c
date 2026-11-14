@@ -173,13 +173,44 @@ static uint32_t entry_cat(uint32_t src, uint32_t k)
     }
     return c;
 }
-static int entry_ok(uint32_t src, uint32_t k)              /* (a RECENT entry may have been erased since) */
+/* (Round 26, the owner's rule) the one test of what browse lists, in every LIST (ALL, FAV, RECENT, a category): the entry is there (a
+ * factory preset of its engine, a used slot: a RECENT entry may have been erased since) and can play: its engine is installed and offered
+ * (eng_ok: built in, or its module registered) and a MACRO sound's model is installed (eng_macro.c mc_model: built in, or in the MODELS
+ * module; a factory preset's model is its e[0], a user slot's P_E0 kept in the slots' index, upreset.c up_model). Nothing stored changes: a
+ * hidden entry comes back as soon as its module is registered, the list being worked out on every scan. RAM and the image only, no flash read */
+#define BROWSE_ENTRY_PLAYS 1                               /* (tests/browse_filter_test.c builds against 29d4d869 too, where this was entry_ok) */
+static int entry_plays(uint32_t src, uint32_t k)
 {
-    if (src == USER_GENERAL)
-        return up_used(k);
-    if (src_slot(src))
-        return native_used(src_engine(src, k), k);
-    return src < NENGINES && eng_ok(src) && k < ENGINES[src]->npresets;
+    uint32_t e, model = 0;
+    if (src == USER_GENERAL) {
+        if (!up_used(k))
+            return 0;
+        e = up_engine(k) % NENGINES;
+#if MELODEE_MACRO
+        if (e == ENGI_MACRO)
+            model = up_model(k);
+#endif
+    } else if (src_slot(src)) {
+        e = src_engine(src, k);
+        if (!native_used(e, k))
+            return 0;
+    } else {
+        e = src;
+        if (e >= NENGINES || k >= ENGINES[e]->npresets)
+            return 0;
+#if MELODEE_MACRO
+        if (e == ENGI_MACRO)
+            model = (uint32_t)eng_preset(ENGINES[e], k)->e[0];
+#endif
+    }
+    if (!eng_ok(e))
+        return 0;
+#if MELODEE_MACRO
+    if (e == ENGI_MACRO && !mc_model(model < MC_N ? model : MC_N - 1u))   /* (clamped as mc_want) */
+        return 0;
+#endif
+    (void)model;
+    return 1;
 }
 
 /* the entry track t plays (USER_GENERAL, UP_SLOTS: none of the list's) */
@@ -278,8 +309,11 @@ static int list_keep(uint32_t m, uint32_t src, uint32_t k)
 }
 
 /* one pass over the list LIST keeps: *total its length; the place of entry (ws, wk) (total: not in it); entry n in
- * *as, *ak (USER_GENERAL, UP_SLOTS past the end). The segments: 2 per engine in ENGINE_ORDER (factory, native), then
- * the user presets */
+ * *as, *ak (USER_GENERAL, UP_SLOTS past the end). The segments: 2 per engine in ENGINE_ORDER (factory, then the user
+ * presets made with it). Only entries that can play (entry_plays). list_near: when (ws, wk) is not in the list, how many
+ * listed entries come before the place it has in ALL's order (its engine's section, among its engine's presets; RECENT
+ * and an entry of no section: 0), so a turn from it goes to its neighbours (browse_turn) */
+static uint32_t list_near;
 #define LSEG_USER (2u * NENG_SHOWN)
 static uint32_t lseg_src(uint32_t seg){return seg&1u?USER_GENERAL:eng_vis(seg/2u);}
 static uint32_t lseg_len(uint32_t seg){return seg&1u?UP_SLOTS:ENGINES[eng_vis(seg/2u)]->npresets;}
@@ -289,11 +323,12 @@ static uint32_t list_scan(uint32_t m, uint32_t ws, uint32_t wk, uint32_t n, uint
     uint32_t seg, src, k, i, c = 0, pos = 0xFFFFFFFFu;
     *as = USER_GENERAL;
     *ak = UP_SLOTS;
+    list_near = 0;
     if (m == LM_RECENT) {
         for (i = 0; i < recent_n; i++) {
             src = recent[i] >> 16;
             k = recent[i] & 0xFFFFu;
-            if (!entry_ok(src, k))
+            if (!entry_plays(src, k))
                 continue;
             if (src == ws && k == wk)
                 pos = c;
@@ -303,14 +338,21 @@ static uint32_t list_scan(uint32_t m, uint32_t ws, uint32_t wk, uint32_t n, uint
         }
     } else {
         for (seg = 0; seg < LSEG_USER; seg++) {
-            uint32_t len = lseg_len(seg), slot = seg & 1u, init;
+            uint32_t len = lseg_len(seg), slot = seg & 1u, init, eng = eng_vis(seg / 2u),
+                     own = ws == lseg_src(seg) && (!slot || (wk < UP_SLOTS && up_used(wk) && up_engine(wk) % NENGINES == eng));
             src = lseg_src(seg);
+            if (own)                                    /* (ws, wk) belongs here: its place, listed or not */
+                list_near = c;
+            if (!eng_ok(eng))                           /* (an engine not installed: none of its section; the same answer as */
+                continue;                               /* entry_plays, a test a section instead of one an entry) */
             init = slot || !len ? 0u : preset_init(src);   /* (an engine's INIT first: FM6's comes after F24) */
             for (i = 0; i < len; i++) {
                 k = (i + init) % len;
-                if (slot && (!up_used(k) || up_engine(k)!=eng_vis(seg/2u)))
+                if (own && k == wk)
+                    list_near = c;
+                if (slot && up_engine(k) % NENGINES != eng)   /* (another engine's slot; up_used is entry_plays') */
                     continue;
-                if (!list_keep(m, src, k))
+                if (!entry_plays(src, k) || !list_keep(m, src, k))
                     continue;
                 if (src == ws && k == wk)
                     pos = c;
@@ -410,12 +452,12 @@ static void browse_turn(uint32_t role, int32_t s)
     d = pick_by(role, s, &fast);
     brw.x = (uint8_t)clamp((d < 0 ? -d : d) / (s < 0 ? -s : s), 1, 99);
     cur = brw.on && brw.n < total ? brw.n : loaded;
-    if (cur >= total)                                       /* the sound is not in the list: its first or last */
-        n = d > 0 ? 0u : total - 1u;
-    else if (!fast && (d == 1 || d == -1))
-        n = (cur + (d > 0 ? 1u : total - 1u)) % total;
-    else
-        n = (uint32_t)clamp((int32_t)cur + d, 0, (int32_t)total - 1);
+    if (cur >= total) {                                     /* (Round 26) the sound is not in the list (a project's track on an */
+        uint32_t near = list_near;                          /* engine or model not installed, a sound not in FAV): its neighbours, */
+        cur = d > 0 ? near + total - 1u : near;             /* the listed entries either side of the place it has in ALL's order */
+    }                                                       /* (as if it sat just before entry near): right near, left near - 1 */
+    n = (uint32_t)(((int32_t)(cur % total) + d % (int32_t)total + (int32_t)total) % (int32_t)total);   /* (Round 26) one entry a click,
+                                                                                                         * wrapping at both ends, slow or fast */
     if (fast) {
         brw.on = 1;
         brw.trk = song.sel;

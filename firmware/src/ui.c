@@ -38,6 +38,7 @@ static uint32_t up_count(void);
 static uint32_t up_nth(uint32_t n);
 static uint32_t up_rank(uint32_t slot);
 static uint32_t up_engine(uint32_t k);
+static uint32_t up_model(uint32_t k);          /* (Round 26) a MACRO user sound's model id */
 static void up_name(uint32_t k, char *b);
 static void up_slot_label(char *b, uint32_t k);
 static void up_ui(uint32_t op, uint32_t k);
