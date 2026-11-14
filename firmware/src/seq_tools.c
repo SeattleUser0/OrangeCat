@@ -81,6 +81,7 @@ static int seq_tool(track_t *t, uint32_t kind)
     motion_unguard(f);
     load_end(t);
     if (ev && undo_top && undo_last()->trk == k + 1u) {
+        undo_last()->after = undo_tool_sig(t);          /* (Round 25 review) the bank as the tool left it, its recorded notes too */
         undo_last()->ctl_tool = (uint8_t)(kind + 1u);
         undo_last()->ctl_len = (uint8_t)len;
         undo_seal();

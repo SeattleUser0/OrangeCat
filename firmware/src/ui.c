@@ -998,12 +998,13 @@ static int undo_ctl_dir(const undo_t *u, int redo)
 }
 /* (Round 25 review) the take's undo was applied: this track's levels newer than its capture (serial) hold the bank as the take left it, so swapping one in would bring
  * back part of the take (a SHIFT taken back by hand: the phrase a step over, the take's motion back, its control notes not). They go, with the levels linked to them
- * (a group goes whole); older levels, other tracks' and the redoable ones (the take's redo is always first) stay. Undo stays whole */
+ * (a group goes whole); older levels, other tracks', the redoable ones (the take's redo is always first) and sound-only levels stay. Undo stays whole */
 static void undo_drop_after(uint32_t track, uint32_t serial)
 {
     uint8_t drop[UNDO_LV_MAX];
     uint32_t i, n, top, more = 1;
-    for (i = 0; i < undo_cnt; i++) drop[i] = i < undo_top && undo_lv[i].trk == track + 1u && undo_lv[i].serial > serial;   /* (a level already undone stays: the take's redo comes first, then it is whole again) */
+    for (i = 0; i < undo_cnt; i++)                /* (Round 25 review) a pattern level or a tool's: a sound load after the take keeps its undo */
+        drop[i] = i < undo_top && undo_lv[i].trk == track + 1u && undo_lv[i].serial > serial && ((undo_lv[i].what & UNDO_PAT) || undo_lv[i].ctl_tool);   /* (a level already undone stays: the take's redo comes first, then it is whole again) */
     while (more) {
         more = 0;
         for (i = 0; i < undo_cnt; i++) {
@@ -1025,6 +1026,13 @@ static void undo_drop_after(uint32_t track, uint32_t serial)
     else if (undo_top) undo_lv[undo_top - 1u].keep = 0;
 }
 static void seq_tool_map(const step_t *s, uint32_t len, uint32_t kind, uint8_t *map);   /* (Round 25, seq_tools.c) */
+/* (Round 25 review) what a SEQ tool's level checks before it swaps its copy in: the track (track_sig) and the bank's recorded notes, which track_sig does not hold */
+static uint32_t undo_tool_sig(const track_t *t)
+{
+    uint32_t h = track_sig(t), owner = recording_owner(t);
+    for (uint32_t i = 0; i < RECORD_MAX; i++) if (recording[i].vel && (recording[i].owner & 31u) == owner) h = fnv(h, &recording[i], sizeof recording[i]);
+    return h;
+}
 static void seq_tool_apply(track_t *t, uint32_t len, uint32_t kind, uint8_t *map);
 static void undo_level(int redo)
 {
@@ -1048,7 +1056,7 @@ static void undo_level(int redo)
         seq_tool_map(t->step, (uint32_t)clamp(u->ctl_len, 1, NSTEP), kd, map);
         /* (Round 25, the owner: undo stays whole) the bank changed after the tool (a take wrote a cell, a step was edited): swapping the copy in would lose that, so the
          * inverse tool (the redo: the tool) moves the steps and the motion as they are, and the copy takes them as they were; otherwise the copy, byte for byte */
-        xf = track_sig(t) != u->after;
+        xf = undo_tool_sig(t) != u->after;
     }
     if (xf) {
         motion_restore(t);
@@ -1090,7 +1098,7 @@ static void undo_level(int redo)
         u->pat = ps;
         pat_last[trk_index(t)] = u->patn;
         u->patn = pn;
-        for (i = P_SLEN; i <= P_SGATE; i++) {
+        for (i = P_SLEN; i <= P_SGATE && !(u->ctl_tool & 3u); i++) {   /* (Round 25 review) not for a tool's level: the tool changed none of them, a change made after it stays */
             int16_t v = t->p[i];
             t->p[i] = u->p[i];
             u->p[i] = v;
@@ -1133,7 +1141,7 @@ static void undo_level(int redo)
         { cz_patch_t cp = cz_patch[tr]; cz_patch[tr] = u->cz; u->cz = cp; if (MELODEE_CZ) cz_track_accept(t); }   /* (Orange Cat: MELODEE_CZ) */
 
     }
-    if (u->ctl_tool & 3u) u->after = track_sig(t);   /* (Round 25) the bank as this level left it: the next undo or redo of it swaps the copy when it is still so */
+    if (u->ctl_tool & 3u) u->after = undo_tool_sig(t);   /* (Round 25) the bank as this level left it: the next undo or redo of it swaps the copy when it is still so */
     u->keep = 0;                                /* the next load copies the track as it is now */
     undo_top = (uint8_t)(redo ? undo_top + 1u : undo_top - 1u);
     if (undo_top) undo_lv[undo_top - 1u].keep = 0;

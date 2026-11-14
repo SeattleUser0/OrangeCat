@@ -184,8 +184,8 @@ static int doubled_banks(void)
     pattern_key_len(0, 0, 1);
     bad += check("D#: LEN x2, the steps copied after themselves over the hidden ones", t->p[P_SLEN] == 16 &&
         t->step[13].note[0] == 65 && t->step[12].time == ST_REST && msg_is("PATTERN DOUBLED") && ui.pat_did);
-    bad += check("  recorded notes copied (a wrapped one's copy wraps from the new last step), the hidden one gone",
-        rec_has(t, 70, 3) && rec_has(t, 70, 11) && rec_has(t, 72, 7u | 192u) && rec_has(t, 72, 15u | 192u) &&
+    bad += check("  recorded notes copied (a wrapped one's copy wraps from the new last step, the original now rounds to step 9, the copy of step 1: Round 25), the hidden one gone",
+        rec_has(t, 70, 3) && rec_has(t, 70, 11) && rec_has(t, 72, 7u | 64u) && rec_has(t, 72, 15u | 192u) &&
         !rec_has(t, 74, 9));
     bad += check("  motion copied, the hidden event gone", motion_count(t) == 2 && motion_at(0, 2, 50) &&
         motion_at(0, 10, 50));

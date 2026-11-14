@@ -1013,6 +1013,9 @@ static int recording_double(track_t *t, uint32_t bank, uint32_t len, int apply)
             recording[j].step = (uint8_t)(recording[j].step + len);
             /* Rounded forward past the longer loop's end: shown on its first step, as a wrapped original is. */
             if ((recording[j].step & 64u) && (recording[j].step & 63u) + 1u == 2u * len) recording[j].step |= 128u;
+            /* (Round 25 review) the original that wrapped to step 1 now rounds to step len + 1, the copy of step 1, as recording writes it (it kept the 128 and
+             * viewed step 1, played from step len: SHIFT could not move it and give it back byte for byte) */
+            if ((recording[i].step & 0xC0u) == 0xC0u && (recording[i].step & 63u) + 1u == len) recording[i].step &= (uint8_t)~128u;
             memset(&recording_run[j], 0, sizeof recording_run[j]); recording_rep_drop(j); recording_flags[j] = 0;
         }
     return 0;
@@ -1057,10 +1060,16 @@ static uint32_t recording_ctl_target(const recorded_note_t *r, uint32_t len, int
 /* (Round 25, the owner: everything in the phrase moves together) an ordinary recorded note goes with the cell it is recorded in, which the steps' own move takes to
  * map[c] (seq_tools.c seq_tool_map: c + 1, c - 1 round the loop, or REVERSE's place of the cell's note with its ties): its onset as far into its step as it was, its
  * gate, the rounding to the cell after its step (bit 64) kept, the 128 of a cell wrapped to step 1 as recording writes it. A note whose cell is not the one its onset
- * rounds to (a bank doubled leaves one viewing step 1) goes with the cell its onset rounds to, and is written as recording writes it from then on */
-static uint32_t recording_note_target(const recorded_note_t *r, uint32_t len, const uint8_t *map)
+ * rounds to (a project saved by a build whose DOUBLE left one viewing step 1) goes with the cell its onset rounds to when that is a recorded cell, else with its
+ * own (it keeps playing), and is written as recording writes it from then on: the one move that is not byte for byte, and no build writes such a note now */
+static uint32_t recording_note_target(const track_t *t, const recorded_note_t *r, uint32_t len, const uint8_t *map)
 {
-    uint32_t a = r->step & 63u, late = (r->step >> 6) & 1u, c = (a + late) % len, v = map[c] % len, b = (v + len - late) % len;
+    uint32_t a = r->step & 63u, late = (r->step >> 6) & 1u, c = (a + late) % len, v, b;
+    if (recording_view(t, r) != c) {                    /* (Round 25 review) a cell other than its onset's (a project saved before DOUBLE wrote the byte as recording does): */
+        const step_t *s = &t->step[map[c] % len];       /* the onset's cell when that is recorded (the steps have moved: map[c] holds it), else its own: it never goes silent */
+        if (s->time != ST_NOTE || !(s->flags & SF_RECORDED)) c = recording_view(t, r);
+    }
+    v = map[c] % len; b = (v + len - late) % len;
     return b | (late << 6) | (late && !v && b ? 128u : 0u);
 }
 static uint32_t recording_ctl_move(track_t *t, uint32_t len, int dir, const uint8_t *map, int apply)
@@ -1079,7 +1088,7 @@ static uint32_t recording_ctl_move(track_t *t, uint32_t len, int dir, const uint
         if (recording_flags[i] & 1u) recording_finish(i);
         recording_end(t, i);
         if (recording_ctl(r)) recording_ctl_target(r, len, dir, &bits);
-        else bits = recording_note_target(r, len, map);
+        else bits = recording_note_target(t, r, len, map);
         r->step = (uint8_t)bits;
         memset(&recording_run[i], 0, sizeof recording_run[i]);
         recording_rep_drop(i);
