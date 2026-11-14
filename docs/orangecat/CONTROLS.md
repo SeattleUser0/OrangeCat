@@ -2,7 +2,7 @@
 
 # Orange Cat controls
 
-For the Nightly v0.16.0-5f894f and later (firmware commit 5f894f97, November 12, 2026). Made from the firmware's tables ea3fb820: when they change, this page is made again.
+For the Nightly v0.16.0-229d4c and later (firmware commit 229d4c9b, November 14, 2026). Made from the firmware's tables ea3fb820: when they change, this page is made again.
 
 What every knob, button and key does on the unit, page by page. It describes the Nightly build: the new interface with HOME's pictures, the four knobs and the EDIT sheets, with the FX order SENDS first and the track's own effects last.
 
@@ -92,7 +92,7 @@ EDIT opens a sheet: a tab with rows, each row a page. From HOME, or from a page 
 
 - The gesture: let go before the hold time with nothing else touched and it is a tap: the button's page opens. Held longer alone, it is a peek: the map shows and letting go does nothing. A key, knob or button meanwhile makes it a combo.
 - Keys pressed while the layer button is down are the layer's: silent, no MIDI, never recorded. Keys already held before stay notes.
-- On HOME's DUB page the octave C4 to B4 stays DUB's keys while a layer button is held: a KICK (C#4) played with ARP, GLO or FX still down is a KICK, not MUTE T4. The layer's other keys work as ever. For the layer's own C4 to B4 keys, lock the layer (double-tap) or leave the DUB page.
+- On HOME's DUB page the octave C4 to B4 stays DUB's keys while a layer button (GLO, SCL, ARP, FX) or SEQ is held: a KICK (C#4) played with ARP, GLO or FX still down is a KICK, not MUTE T4. The layer's other keys work as ever. For the layer's own C4 to B4 keys, lock the layer (double-tap) or leave the DUB page.
 - Double-tap the button (second press within 0.3 s, then let go before the hold time) to lock the layer open. The header says LOCK. Press the button again to unlock; any other button closes it.
 - Only one layer at a time. PLAY and REC work in every layer; SAVE, HOME, SEQ and the other page buttons are swallowed. No layer opens in the menu, a dialog or the NAME screen.
 - In the GLO, SCL and ARP layers OCT- and OCT+ do not shift the octave.
@@ -166,6 +166,7 @@ The screen's footer: HOLD: EFFECT, ALL OFF.
 With a GLITCH, TAPE, SHUFFLE or FREEZE key down, KNOB 1 to 4 are its settings (never saved). GLITCH: DENS, PITCH, SIZE, VARI. TAPE: SCRATCH, TIME, CURVE. SHUFFLE: AMOUNT, SIZE, SPEED, VARI. FREEZE: DENS, PITCH, SPRAY, SIZE. With none down, KNOB 4 is FILTER, a low-pass on the whole mix.
 
 - OCT-: every effect off ("PUNCH-IN: ALL OFF"). Held effects do not change the octave.
+- GLITCH, TAPE STOP, SHUFFLE and FREEZE come from the FX LAYER module. Without it their cells on the map are dim, the key does nothing and the screen says MODULE MISSING. REPEAT, the mutes, CRUSH, THROW and FILTER are built in and always work.
 
 ## The pages
 
@@ -209,7 +210,9 @@ FX tapped from a page outside the family lands on SENDS. Each tap steps on: SEND
 
 #### REVERB
 
-- KNOB 1: TYPE (ROOM, SPRING, SHIMR, RESO, CLOUD). ROOM, SPRING, SHIMR, RESO or CLOUD.
+SPRING, SHIMR and RESO sound only with the REVERB MODES module installed. Without it the reverb plays dry on those modes (the dry mix goes on, the reverb's return is silent), the REVERB pages say "MODULE MISSING: dry" and the boot notice says REVERB MODULE MISSING. The mode and its values stay in the project; install the module and they play again.
+
+- KNOB 1: TYPE (ROOM, SPRING, SHIMR, RESO, CLOUD). The reverb type. ROOM and CLOUD are built in; SPRING, SHIMR and RESO come from the REVERB MODES module.
 - KNOB 2: SIZE (0 to 100 %). Size. On CLOUD, 100 % freezes what it holds.
 - KNOB 3: DAMP (0 to 100 %). Damping. On RESO it becomes FOLW: OFF or T1 to T4, the track it tunes to.
 - KNOB 4: PRE (0 to 100 ms; on SHIMR and CLOUD AIR -24 to +24 st; on RESO PITCH 0 to 14). Pre-delay.
@@ -795,7 +798,12 @@ GRID is a SEQ page for pitched tracks. It has two stages and the corner of the s
 
 ## Effects as modules
 
-DUB TAPE is an effect module. With it installed, every track with ECHO above 0 runs it; without it such a track plays dry and the DUB pages say MODULE MISSING. Installing or removing it takes effect at once.
+Three effects are modules. Installing or removing one takes effect at once.
+
+- DUB TAPE: with it installed, every track with ECHO above 0 runs it; without it such a track plays dry and the DUB pages say MODULE MISSING.
+- FX LAYER: GLITCH, TAPE STOP, SHUFFLE and FREEZE of the FX layer (FX held). Without it those four keys do nothing, their cells are dim and a press says MODULE MISSING; the layer's other keys work.
+- REVERB MODES: the reverb modes SPRING, SHIMR and RESO. Without it a project on one of them plays its reverb dry: the REVERB pages say "MODULE MISSING: dry" and the boot notice says REVERB MODULE MISSING. ROOM and CLOUD are built in.
+- The installer page ticks DUB TAPE and FX LAYER and offers REVERB MODES unticked ("More effect modules"). If the FM-1 holds REVERB MODES and you have not ticked it, the page can remove it for you when that is what makes the set fit: it asks first and names it, and it does not put it back (tick it and install again to have it back). Only REVERB MODES is removed this way: never a module you ticked, never DUB TAPE or FX LAYER.
 
 The FX button's pages are the same with or without it: an effect module adds, hides or renames no page on the unit. The modules are listed in the Effects table of the installer and the web app.
 
@@ -817,7 +825,16 @@ The modules sit in the module area and the tail region in the order they were in
 - No: nothing is written for the modules and the unit is as it was; the room meter keeps saying what is in the way.
 - If the cable is pulled or the page is closed part way, nothing is damaged. Some modules are off the FM-1 until you plug it in again and press Install: the page puts the rest back.
 
-A module of a set you did not tick is never taken off; the page names it when it is in the way.
+A module of a set you did not tick is never taken off; the page names it when it is in the way (REVERB MODES is the one exception: see "Effects as modules").
+
+## When the set does not fit: you choose what gives way
+
+Sometimes the modules you ticked need more room than the FM-1 has, whatever the order (a big pick of models and REVERB MODES, say). Then the page says "Choose the effect module that gives way" and lists the ticked effect modules whose absence lets the rest fit, each with its size in sectors. Install waits until you choose.
+
+- The one you choose is left out of this install, and the rest goes in. The page names it: "REVERB MODES gives way: it is not installed this time", say.
+- If the module that gives way is already in the FM-1, it stays there as it is: giving way never erases it.
+- The choice belongs to what you ticked and to the unit as the page read it. Tick or untick something, or read the unit again (Install reads it first), and the page asks again.
+- Rather keep every effect? Leave a model or a wave bank out of the MACRO pick until the room meter says it fits.
 
 ## The system menu
 
@@ -863,3 +880,6 @@ These points in older documents or notes do not match the Nightly. This guide fo
 - HOME + OCT- and HOME + OCT+ (copy and paste) are not in this build.
 - MACRO's models other than VA are a module you pick on the installer page. A model that is not installed shows MISSG and plays VA; MODL steps over it.
 - The installer page can ask to rearrange the modules before a set that does not fit; older notes know only "too many".
+- When the ticked set cannot fit at all, the page asks which effect module gives way; older notes say the page refuses the set.
+- SPRING, SHIMR and RESO, and GLITCH, TAPE STOP, SHUFFLE and FREEZE, are no longer in the firmware: they play only from their modules (REVERB MODES, FX LAYER). Older notes say the firmware plays them without a module.
+- A muted track says MUTE on HOME's TRACKS page and a frozen one says FROZEN, where its role stands; older notes say a muted track is only grey.
