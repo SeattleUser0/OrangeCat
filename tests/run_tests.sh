@@ -527,8 +527,10 @@ module_host_wheel() {                             # (Orange Cat 0.14.0) WHEEL's 
         "$OUT/module_host_wheel_test" tests/golden_modules.txt
 }
 fx_defer() {                                      # (Release 2, stage 2) the buses' returns one block late: the reference without it, then the deferred build against it (tests/fx_defer_test.c)
-    $CC -O1 $FW -DMELODEE_FX_DEFER=0 -o "$OUT/fx_defer_ref" tests/fx_defer_test.c -lm || { fail "compile tests/fx_defer_test.c (reference)"; return 1; }
-    $CC -O1 $FW -DMELODEE_FX_DEFER=1 -o "$OUT/fx_defer_test" tests/fx_defer_test.c -lm || { fail "compile tests/fx_defer_test.c"; return 1; }
+    # (Round 25) SPRING, SHIMMER and RESO are the reverb module's alone: its host unit linked in and registered (tests/rev_module_host.h)
+    $CC -c -O1 -ffp-contract=off $FW -DMELODEE_FX_DEFER=0 -o "$OUT/fx_defer_rev0.o" tests/module_host_reverb_tu.c && $CC -c -O1 -ffp-contract=off $FW -DMELODEE_FX_DEFER=1 -o "$OUT/fx_defer_rev1.o" tests/module_host_reverb_tu.c || { fail "compile tests/module_host_reverb_tu.c (fx_defer)"; return 1; }
+    $CC -O1 $FW -DMELODEE_FX_DEFER=0 -Itests -o "$OUT/fx_defer_ref" tests/fx_defer_test.c "$OUT/fx_defer_rev0.o" -lm || { fail "compile tests/fx_defer_test.c (reference)"; return 1; }
+    $CC -O1 $FW -DMELODEE_FX_DEFER=1 -Itests -o "$OUT/fx_defer_test" tests/fx_defer_test.c "$OUT/fx_defer_rev1.o" -lm || { fail "compile tests/fx_defer_test.c"; return 1; }
     step "the buses deferred (Release 2): the reference's returns written, one scenario a bus mode" "$OUT/fx_defer_ref" "$OUT"
     step "the buses deferred (Release 2): the reverbs and the GRAIN delay a pure block shift; the delays' and the chorus's compensated taps land where they did; a reset leaves no returns" "$OUT/fx_defer_test" "$OUT"
 }
@@ -587,9 +589,10 @@ phys_ref() {
 
 # ------------------------------------------------------------------ tests ---
 # the longest first: they set the length of the run
-sound && t "effects (Orange Cat 0.6.0, Jiant FM's): DIST, AUTO PAN, DELAY, REVERB x5, CHORUS, SLICER, the FX layer, FX FULL, FUN23 / TPLM storage and the old records converted; audition WAVs" jfx_test -O1 $FW
+# (Round 25) jfx_test, regress, fx_defer: SPRING, SHIMMER and RESO are the reverb module's alone (OC_REV_RESIDENT 0): those tests link its host unit and register it (dubrev_t)
+sound && dubrev_t "effects (Orange Cat 0.6.0, Jiant FM's): DIST, AUTO PAN, DELAY, REVERB x5, CHORUS, SLICER, the FX layer, FX FULL, FUN23 / TPLM storage and the old records converted; audition WAVs" jfx_test -O1 $FW
 sound && job fx_defer
-sound && t "effects with the buses deferred (Release 2): the effects' tests again with MELODEE_FX_DEFER=1 (the returns one block late)" jfx_defer:jfx_test -O1 $FW -DMELODEE_FX_DEFER=1
+sound && dubrev_t "effects with the buses deferred (Release 2): the effects' tests again with MELODEE_FX_DEFER=1 (the returns one block late)" jfx_defer:jfx_test -O1 $FW -DMELODEE_FX_DEFER=1
 core && t "paired voices with the buses deferred (Release 2): serial/concurrent equality, the worker's joins and a fault" dual_core_defer:dual_core_test -O2 $FW -DMELODEE_FX_DEFER=1 -pthread
 core && t "audio matrix with the buses deferred (Release 2)" audio_matrix_defer:audio_matrix_test -O2 $FW -DMELODEE_FX_DEFER=1 -pthread
 core && t "audio with the buses deferred (Release 2): overload protection" audio_defer:audio_test $FW -DMELODEE_FX_DEFER=1
@@ -899,13 +902,13 @@ if sound && [ $TABLES = 1 ]; then
     mkdir -p build/mod_demo \
         build/phys_demo build/drum_demo build/noise_demo build/fm6_demo
     t "MACRO VA init (round 18): VA BASS and VA SYNC LEAD on a fresh part render as after a switch from three other models" macro_va_init_test -O2 -ffp-contract=off $FW -Itests
-    t "regression: golden renders, health, voices, CPU budget" regress -O2 $FW -- \
+    dubrev_t "regression: golden renders, health, voices, CPU budget" regress -O2 $FW -- \
         "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
     # (ui-fix2 close-out) golden.txt is the shipping build's (the build set on): song/4track_mix plays its slides as ui-fix 8's legato glides now (OC_SLIDE), 7b5647232840caa8 -> 9e96d61252be67d8.
     # The old paths keep their own run: the build set off, golden.txt with that one line as it was
-    t "regression with every switch of the build set off: the goldens of the old paths (song/4track_mix as it was)" regress_legacy:regress -O2 $BS_OFF $FW -- \
+    dubrev_t "regression with every switch of the build set off: the goldens of the old paths (song/4track_mix as it was)" regress_legacy:regress -O2 $BS_OFF $FW -- \
         sh -c "sed 's/^song\/4track_mix .*/song\/4track_mix 7b5647232840caa8/' tests/golden.txt > $OUT/golden_legacy.txt && $OUT/regress_legacy $OUT/golden_legacy.txt tests/cpu_baseline.txt"
-    t "regression with the buses deferred (Release 2): the same renders, the effects' returns one block late; tests/golden_fxdefer.txt holds the lines that differ" regress_defer:regress -O2 $FW -DMELODEE_FX_DEFER=1 -- \
+    dubrev_t "regression with the buses deferred (Release 2): the same renders, the effects' returns one block late; tests/golden_fxdefer.txt holds the lines that differ" regress_defer:regress -O2 $FW -DMELODEE_FX_DEFER=1 -- \
         "$OUT/regress_defer" tests/golden.txt tests/cpu_baseline.txt
     job module_host
     job module_host_prophet
@@ -941,7 +944,7 @@ if sound && [ $TABLES = 1 ]; then
         ctl_rec_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     dub_t "Control-note recording switched off (OC_CTL_REC=0 still builds): the keys and CC 18 to 21 record nothing, a stored control note plays and reaches no engine; sanitizers" \
         ctl_rec_off:ctl_rec_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 -DOC_CTL_REC=0 $FW -Itests
-    t "regression with the new interface built in (OC_HOME_PIC=1): every golden render unchanged, the macros at 0" regress_pic:regress -O2 $FW -DOC_HOME_PIC=1 -- \
+    dubrev_t "regression with the new interface built in (OC_HOME_PIC=1): every golden render unchanged, the macros at 0" regress_pic:regress -O2 $FW -DOC_HOME_PIC=1 -- \
         "$OUT/regress_pic" tests/golden.txt tests/cpu_baseline.txt
     mkdir -p build/shapes_demo
     t "SHAPES (Orange Cat 0.5.1): every shape and preset through the voices, A4 at 440 Hz, the tone section; WAVs" \

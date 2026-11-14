@@ -51,7 +51,7 @@ enum { BM_NONE, BM_LOOP, BM_GLT, BM_TAPE, BM_SHUF, BM_FRZ };
 /* (Release 3 step 8b, FX_MODULES_PLAN.md 17) the four ring effects' text is perf_kern.h, ONE text the image's resident copy (here) and the effect module (tools/module/fxlayer_mod.c: kind 3)
  * both include; this file is their host: the keys, what plays, the 1/16, the 32 KB, REPEAT, the sweeps, the mutes, and the dispatch to the registered module's kernel or the resident copy */
 #ifndef OC_PERF_RESIDENT
-#define OC_PERF_RESIDENT 1                               /* the resident copy of GLITCH, TAPE STOP, SHUFFLE and FREEZE stays in the image this Nightly and plays whenever the module is not registered. 0 (the Nightly after: FX_MODULES_PLAN.md 17): the text is not built in, and without the module those four keys do nothing (perf_avail) */
+#define OC_PERF_RESIDENT 0                               /* (Round 25: FX_MODULES_PLAN.md 18) 0: GLITCH, TAPE STOP, SHUFFLE and FREEZE are the FX layer module's alone: the text is not built in, and without the module those four keys do nothing (perf_avail; the key's cell is dim and a press says MODULE MISSING). 1 (Release 3 step 8b's Nightly, and now the host tests' reference build): the resident copy of the same text (perf_kern.h) plays whenever the module is not registered */
 #endif
 #define PFK_FN JFX_XIP                                   /* perf_kern.h: the resident copy of a kernel function sits where the layer's did */
 #if !OC_PERF_RESIDENT

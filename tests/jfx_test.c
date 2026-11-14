@@ -26,6 +26,7 @@
 #define UI_TEST_NO_MAIN 1
 #define JFX_DLY_CHECK 1                                 /* (round 4) jfx.c counts a delay read or write outside the line held: jfx_dly_bad */
 #include "ui_test.c"
+#include "rev_module_host.h"                          /* (Round 25) the reverb module's host unit (tests/module_host_reverb_tu.c, linked in by run_tests.sh's dubrev_t) */
 #include <sys/stat.h>
 #include <assert.h>
 
@@ -978,6 +979,7 @@ static void t_cost(void)
 
 int main(void)
 {
+    if (rev_host_module_set() != FX2M_OK) { printf("jfx: the reverb module did not register\n"); return 2; }   /* (Round 25) SPRING, SHIMMER and RESO are the reverb module's alone */
     t_silence();
     t_delay();
     t_reverb();

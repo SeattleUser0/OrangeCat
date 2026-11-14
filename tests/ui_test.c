@@ -3382,6 +3382,15 @@ static int test_layer(void)
     ok &= ui.home && !((perf_down>>PF_R8)&1u);
     ui_power_on();press(B_FX);frame();
     bad += check("FX held: the punch-in map, its keys play effects (no notes); FX tapped: its page",ok && !ui.home && cur_page()->fam==FAM_FX && !ui.layer);
+#if !OC_PERF_RESIDENT
+    /* (Round 25) GLITCH .. FREEZE are the FX layer module's alone: with none registered, a press of GLITCH (B3) does nothing and says MODULE MISSING; a REPEAT says nothing */
+    ui_power_on();fx3_modk_clear();btn_down(B_FX);frames(800);ui.msg_t=0;
+    key_down(white(3));frame();ok=((perf_down>>PF_GLT)&1u) && !((perf_act>>PF_GLT)&1u) && msg_is("MODULE MISSING");
+    key_up(white(3));frame();ui.msg_t=0;
+    key_down(white(0));frame();ok&=((perf_down>>PF_R8)&1u) && !msg_is("MODULE MISSING");
+    key_up(white(0));btn_up(B_FX);frame();
+    bad += check("FX held, no FX layer module: GLITCH's key does nothing and says MODULE MISSING; REPEAT 1/8's says nothing",ok);
+#endif
     return bad;
 }
 
@@ -6624,6 +6633,50 @@ static int test_dub_module_missing(void)
     return bad;
 }
 #endif
+#if !OC_REV_RESIDENT
+/* (Round 25) the reverb modes SPRING, SHIMMER and RESO are the reverb module's alone (OC_REV_RESIDENT 0): a project on one of them with no module plays its reverb dry and the screen says
+ * MODULE MISSING: at power-on after the project load (a track sends to the reverb), and on the REVERB pages ("MODULE MISSING: dry" where FX FULL would be); ROOM and CLOUD never */
+static void rev_dummy(const fx2_ctx_t *c, const int32_t *in, int32_t *out, uint32_t n) { (void)c; (void)in; (void)out; (void)n; }
+static int test_rev_module_missing(void)
+{
+    int bad = 0;
+    uint32_t i, ty, ok;
+    ui_power_on();
+    stop_transport();
+    bootguard.failed = 0;
+    fx2_modk_clear();
+    oc_pack_good = 1;
+    for (i = 0; i < NTRK; i++) { set_engine_of(&trk[i], 0); trk[i].p[P_DUB_ECHO] = 0; trk[i].p[P_REV] = 0; }
+    trk[1].p[P_REV] = 90;
+    song.ntrk = NTRK;                                    /* (what a project load gives the boot notice to look through) */
+    for (ty = 0, ok = 1; ty <= 4u; ty++) {
+        song.g[G_RTYPE] = (int16_t)ty;
+        ui.msg_t = 0; ui.msg[0] = 0;
+        pack_boot_notice(0);
+        ok &= (ty >= 1u && ty <= 3u) == (msg_is("MODULE MISSING") != 0);
+        ok &= (ty >= 1u && ty <= 3u) == (jfx_rev_missing() != 0);
+        ok &= !strcmp(pv_fx_full_text(4u), ty >= 1u && ty <= 3u ? "MODULE MISSING: dry" : "FX FULL: no memory, dry");
+    }
+    bad += check("no reverb module: TYPE SPRING, SHIMMER or RESO with a track sending: MODULE MISSING at boot and \"MODULE MISSING: dry\" on the REVERB pages; ROOM and CLOUD: neither", ok);
+    for (ty = 1, ok = 1; ty <= 3u; ty++) fx2_modk[ty].process = rev_dummy;   /* (as a registered module: the loader's fx2_modk_set) */
+    for (ty = 0; ty <= 4u; ty++) {
+        song.g[G_RTYPE] = (int16_t)ty;
+        ui.msg_t = 0; ui.msg[0] = 0;
+        pack_boot_notice(0);
+        ok &= !msg_is("MODULE MISSING") && !jfx_rev_missing() && !strcmp(pv_fx_full_text(4u), "FX FULL: no memory, dry");
+    }
+    fx2_modk_clear();
+    bad += check("  the module registered: nothing said, at boot or on the pages, for any TYPE", ok);
+    song.g[G_RTYPE] = 2;
+    trk[1].p[P_REV] = 0;
+    ui.msg_t = 0; ui.msg[0] = 0;
+    pack_boot_notice(0);
+    bad += check("  SHIMMER with no track sending to the reverb: nothing said at boot (nothing would sound)", !msg_is("MODULE MISSING"));
+    bad += check("  the stored TYPE is left as it is", song.g[G_RTYPE] == 2);
+    song.g[G_RTYPE] = 0;
+    return bad;
+}
+#endif
 /* (Orange Cat 0.11.0) Admission at assignment: a fake module header and engine_t in the table, the engine given to the selected track by the
  * browser's ENGINE knob path (select_engine) and by a preset load (preset_go's path). The cost word is carried, not used: no render budget exists. */
 static uint32_t adm_big_units(const struct track *tt) { (void)tt; return 1000u; }
@@ -6690,6 +6743,9 @@ int main(void)
     bad += test_pack_notice();
     bad += test_pack_boot_notice();
     bad += test_dub_module_missing();
+#if !OC_REV_RESIDENT
+    bad += test_rev_module_missing();
+#endif
 #endif
     bad += test_prophet_pages();
     bad += test_large_face();

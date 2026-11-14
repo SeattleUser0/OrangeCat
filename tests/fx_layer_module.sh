@@ -1,14 +1,15 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Kerem Kilic (Ellic Studio)
-# Release 3 step 8b (docs/orangecat/FX_MODULES_PLAN.md 17): the FX layer's buffer effects GLITCH, TAPE STOP, SHUFFLE and FREEZE as one effect module (kind 3), beside the resident copy.
+# Release 3 step 8b (docs/orangecat/FX_MODULES_PLAN.md 17): the FX layer's buffer effects GLITCH, TAPE STOP, SHUFFLE and FREEZE as one effect module (kind 3). Round 25: the image has no
+# resident copy (OC_PERF_RESIDENT 0, the default); the switch stays, and its 1 is now a host-only REFERENCE build (the text the pin was made from, perf_kern.h, which the module includes too).
 #   tests/fx_layer_module.sh [OUTDIR]           run from the repo root; the compile flags are run_tests.sh's (CC, BS in the environment, or the defaults below). For MELODEE_FX_DEFER 0 and 1:
-#                                               1. the probe (tests/fx_layer_probe.c: the resident layer through the real mixer) against the pinned printout tests/fx_layer_golden.txt, which
-#                                                  was made from the resident code BEFORE the four effects' text was cut out of jfx_perform.c: the cut changed no sample;
-#                                               2. tests/fx_layer_module_test.c with the module's translation unit (tests/module_host_fxlayer_tu.c: tools/module/fxlayer_mod.c with
-#                                                  OC_MODULE_HOST, its own object): the module's render through the host against the resident effects', sample for sample, and the host around it;
-#                                               3. the same test built without the resident copy (OC_PERF_RESIDENT=0: the Nightly after this one).
-#   tests/fx_layer_module.sh --mutate [OUTDIR]  the mutation check: for each mutation of the MODULE's copy of the kernel text only (the resident effects keep the original) the test must FAIL
+#                                               1. THE SHIPPED IMAGE (OC_PERF_RESIDENT 0): tests/fx_layer_module_test.c with the module's translation unit (tests/module_host_fxlayer_tu.c:
+#                                                  tools/module/fxlayer_mod.c with OC_MODULE_HOST, its own object): without the module the four keys do nothing; with it the render is the
+#                                                  pinned printout tests/fx_layer_golden.txt (made from the resident code BEFORE the cut) and run E hashes to tests/fx_layer_kernel_golden.txt;
+#                                               2. the reference (-DOC_PERF_RESIDENT=1): the probe (tests/fx_layer_probe.c) against the same pin, the module's render against the reference's
+#                                                  block for block (runs A .. D), the two copies side by side (run E) and run E's recorded hashes from the resident side.
+#   tests/fx_layer_module.sh --mutate [OUTDIR]  the mutation check, on the shipped image's build: for each mutation of the MODULE's copy of the kernel text the test must FAIL against the pins
 # The layer's own arithmetic shifts negative samples left (GLITCH's and CRUSH's bit reduction: ((x + b) >> sh) << sh), which the C standard leaves undefined and both compilers in use define
 # (two's complement); it is the resident text of 0.6.0 and is pinned as it is, so under the sanitizers (SAN=1) this job turns the one check off (-fno-sanitize=shift-base) and no other.
 # (Round 24 review) the same check also meets the same shift in the SLICER (jfx_slicer.c) and in djf_block (jfx.c), which this probe is the first to reach: eleven sites in all, every one
@@ -23,41 +24,43 @@ ROOT=$(pwd)
 case $OUT in /*) ;; *) OUT=$ROOT/$OUT ;; esac
 FLAGS="-w -fno-sanitize=shift-base -I$ROOT/build/gen -Ifirmware/src -Itests"
 
-probe() {   # probe D: the resident layer with MELODEE_FX_DEFER=D, the printout in $OUT/flp_dD.txt
-    $CC $FLAGS -DMELODEE_FX_DEFER=$1 -o "$OUT/flp_d$1" tests/fx_layer_probe.c -lm || return 1
+probe() {   # probe D: the reference build's layer (OC_PERF_RESIDENT=1) with MELODEE_FX_DEFER=D, the printout in $OUT/flp_dD.txt
+    $CC $FLAGS -DOC_PERF_RESIDENT=1 -DMELODEE_FX_DEFER=$1 -o "$OUT/flp_d$1" tests/fx_layer_probe.c -lm || return 1
     "$OUT/flp_d$1" > "$OUT/flp_d$1.txt" || return 1
 }
-test_obj() {   # test_obj D: the test's object (the firmware with the resident effects, and the host), compiled once for every mutant
-    [ -f "$OUT/flm_test_d$1.o" ] && [ "$OUT/flm_test_d$1.o" -nt tests/fx_layer_module_test.c ] && [ "$OUT/flm_test_d$1.o" -nt tests/fx_layer_module.sh ] && [ "$OUT/flm_test_d$1.o" -nt tests/fx_layer_probe.c ] && [ -z "$(find firmware/src -newer "$OUT/flm_test_d$1.o" -name '*.[ch]' -print -quit)" ] && return 0
-    $CC $FLAGS -DMELODEE_FX_DEFER=$1 -c -o "$OUT/flm_test_d$1.o" tests/fx_layer_module_test.c
+test_obj() {   # test_obj D R: the test's object (the firmware with OC_PERF_RESIDENT=R: 0 the shipped image, 1 the reference; and the host), compiled once for every mutant
+    o="$OUT/flm_test_r$2_d$1.o"
+    [ -f "$o" ] && [ "$o" -nt tests/fx_layer_module_test.c ] && [ "$o" -nt tests/fx_layer_module.sh ] && [ "$o" -nt tests/fx_layer_probe.c ] && [ -z "$(find firmware/src -newer "$o" -name '*.[ch]' -print -quit)" ] && return 0
+    $CC $FLAGS -DMELODEE_FX_DEFER=$1 -DOC_PERF_RESIDENT=$2 -c -o "$o" tests/fx_layer_module_test.c
 }
-build() {   # build DIR TAG D: the module's unit in DIR (a tree with firmware/, tools/module/, tests/) linked with the test to $OUT/flm_TAG_dD
-    test_obj "$3" || return 1
-    (cd "$1" && $CC $FLAGS -DMELODEE_FX_DEFER=$3 -c -o "$OUT/flm_$2_tu_d$3.o" tests/module_host_fxlayer_tu.c) && $CC -o "$OUT/flm_$2_d$3" "$OUT/flm_test_d$3.o" "$OUT/flm_$2_tu_d$3.o" -lm || return 1
+build() {   # build DIR TAG D R: the module's unit in DIR (a tree with firmware/, tools/module/, tests/) linked with the test (OC_PERF_RESIDENT=R) to $OUT/flm_TAG_rR_dD
+    test_obj "$3" "$4" || return 1
+    (cd "$1" && $CC $FLAGS -DMELODEE_FX_DEFER=$3 -c -o "$OUT/flm_$2_tu_d$3.o" tests/module_host_fxlayer_tu.c) && $CC -o "$OUT/flm_$2_r$4_d$3" "$OUT/flm_test_r$4_d$3.o" "$OUT/flm_$2_tu_d$3.o" -lm || return 1
 }
 if [ "$MODE" = check ]; then
-    for d in 0 1; do
+    [ -f tests/fx_layer_module_test.c ] || { echo "fx_layer_module: tests/fx_layer_module_test.c is not there"; exit 1; }
+    unset FLM_E_ONLY FLM_STOPFIRST FLM_E_PRINT  # (Round 24 review) the mutation check's shortcuts: a stray one in the environment would skip runs here
+    rm -f "$OUT"/flm_test_r*_d*.o               # (Round 24 review) the object's freshness test knows nothing of CC, BS or SAN: the check always compiles its own
+    for d in 0 1; do                            # 1. the shipped image: no resident copy
+        build "$ROOT" ok $d 0 || { echo "fx_layer_module: compile (MELODEE_FX_DEFER=$d, OC_PERF_RESIDENT=0)"; exit 1; }
+        "$OUT/flm_ok_r0_d$d" || { echo "fx_layer_module: FAILED (MELODEE_FX_DEFER=$d, OC_PERF_RESIDENT=0: the shipped image)"; exit 1; }
+    done
+    for d in 0 1; do                            # 2. the reference build
         probe $d || { echo "fx_layer_module: the probe (MELODEE_FX_DEFER=$d) did not build or run"; exit 1; }
     done
     cat "$OUT/flp_d0.txt" "$OUT/flp_d1.txt" > "$OUT/flp.txt"
     if ! cmp -s "$OUT/flp.txt" tests/fx_layer_golden.txt; then
-        echo "fx_layer_module: the resident layer's render differs from the pinned printout (tests/fx_layer_golden.txt):"; diff "$OUT/flp.txt" tests/fx_layer_golden.txt | head -30; exit 1
+        echo "fx_layer_module: the reference layer's render differs from the pinned printout (tests/fx_layer_golden.txt):"; diff "$OUT/flp.txt" tests/fx_layer_golden.txt | head -30; exit 1
     fi
-    echo "fx_layer_module: the resident layer's render equals the pinned printout (12 scenarios, MELODEE_FX_DEFER 0 and 1)"
-    [ -f tests/fx_layer_module_test.c ] || { echo "fx_layer_module: tests/fx_layer_module_test.c is not there"; exit 1; }
-    unset FLM_E_ONLY FLM_STOPFIRST          # (Round 24 review) the mutation check's shortcuts: a stray one in the environment would skip runs here
-    rm -f "$OUT"/flm_test_d0.o "$OUT"/flm_test_d1.o   # (Round 24 review) the object's freshness test knows nothing of CC, BS or SAN: the check always compiles its own
+    echo "fx_layer_module: the reference layer's render (OC_PERF_RESIDENT=1, host only) equals the pinned printout (12 scenarios, MELODEE_FX_DEFER 0 and 1)"
     for d in 0 1; do
-        build "$ROOT" ok $d || { echo "fx_layer_module: compile (MELODEE_FX_DEFER=$d)"; exit 1; }
-        "$OUT/flm_ok_d$d" || { echo "fx_layer_module: FAILED (MELODEE_FX_DEFER=$d)"; exit 1; }
+        build "$ROOT" ok $d 1 || { echo "fx_layer_module: compile (MELODEE_FX_DEFER=$d, OC_PERF_RESIDENT=1)"; exit 1; }
+        "$OUT/flm_ok_r1_d$d" || { echo "fx_layer_module: FAILED (MELODEE_FX_DEFER=$d, OC_PERF_RESIDENT=1: the reference)"; exit 1; }
     done
-    # the image of the Nightly after this one (OC_PERF_RESIDENT=0: no resident copy of the four effects): without the module their keys do nothing, with it the render is the pinned one
-    $CC $FLAGS -DMELODEE_FX_DEFER=1 -DOC_PERF_RESIDENT=0 -c -o "$OUT/flm_test_nores.o" tests/fx_layer_module_test.c && $CC -o "$OUT/flm_nores" "$OUT/flm_test_nores.o" "$OUT/flm_ok_tu_d1.o" -lm || { echo "fx_layer_module: compile (OC_PERF_RESIDENT=0)"; exit 1; }
-    "$OUT/flm_nores" || { echo "fx_layer_module: FAILED (OC_PERF_RESIDENT=0)"; exit 1; }
     exit 0
 fi
 
-# the mutations: a sed on the module's own copy of the kernel text (perf_kern_mut.h, which only the module's source includes), the resident effects unchanged
+# the mutations: a sed on the module's own copy of the kernel text (perf_kern_mut.h, which only the module's source includes), run in the shipped image's build (no resident copy): caught against the pins
 fail=0; n=0
 mutant() {   # mutant 'sed script' what [scenario]: the scenario to run first (the mutated effect's own), so the mutant is caught in seconds
     n=$((n + 1))
@@ -70,10 +73,10 @@ mutant() {   # mutant 'sed script' what [scenario]: the scenario to run first (t
     sed -i "$1" "$OUT/flm_mdir/firmware/src/perf_kern_mut.h"
     sed -i "$1" "$OUT/flm_mdir/tools/module/fxlayer_mod.c"      # (a mutation of a descriptor word is in the module's own source; the kernel mutations match nothing there)
     cat "$OUT/flm_mdir/firmware/src/perf_kern_mut.h" "$OUT/flm_mdir/tools/module/fxlayer_mod.c" | cmp -s - "$OUT/flm_mdir/before" && { echo "fx_layer_module: mutation $n ($2) did not apply"; exit 2; }
-    build "$OUT/flm_mdir" mut 1 || { echo "fx_layer_module: mutant $n does not compile"; exit 2; }
-    (cd "$ROOT" && FLM_STOPFIRST=1 FLM_FIRST="$3" "$OUT/flm_mut_d1" > "$OUT/flm_mut.out" 2>&1); rc=$?
-    # caught means: the test ended with exit 1 AND its own verdict line: an output block of the module's render that differs from the resident's (VERDICT render), the two copies of the
-    # kernel text side by side giving different samples or state (VERDICT kernel: what no render reached), or a failed check of the
+    build "$OUT/flm_mdir" mut 1 0 || { echo "fx_layer_module: mutant $n does not compile"; exit 2; }
+    (cd "$ROOT" && FLM_STOPFIRST=1 FLM_FIRST="$3" "$OUT/flm_mut_r0_d1" > "$OUT/flm_mut.out" 2>&1); rc=$?
+    # caught means: the test ended with exit 1 AND its own verdict line: a scenario of the module's render off the pinned printout (VERDICT render), run E's samples or state off its
+    # recorded hashes (VERDICT kernel: what no render reached), or a failed check of the
     # module's descriptor (VERDICT descriptor). Any other end (a crash, a sanitizer's abort, a timeout, some other check failing) is not a proof that the mutant was seen, and is said
     if [ $rc -eq 0 ]; then
         echo "fx_layer_module: MUTATION SURVIVED: $2"; fail=1

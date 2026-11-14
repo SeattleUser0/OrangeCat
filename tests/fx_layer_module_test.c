@@ -16,10 +16,12 @@
  * registered), the crash mark (taken once, before the module's first call; not for a REPEAT or a sweep), the Effects table's `uses`, a removal while an effect plays, and the descriptor: the
  * caps words, and each effect's page against what the cards show today (ui_layer.c FXK_LABEL, FXK_MIN, FXK_MAX, the enumerations, perf_gp's initial values) and against Session C's data
  * (tests/mod_ui_test.c t_step8_layer), through the loader's checker as SC_FX.
- * With -DOC_PERF_RESIDENT=0 (the image of the Nightly AFTER this one: no resident copy of the four effects) the same file checks what happens then: without the module the four keys do
- * nothing (no sound changed, no memory taken, no card), the REPEATs, the sweeps and the mutes work; with it the render is the pinned resident printout; a module removed under a playing
- * effect cuts it and gives the buffer back.
- * Arguments: none. FLM_STOPFIRST=1: the descriptor first, then A and B only, stopping at the first differing block (the mutation check); FLM_FIRST=<scenario>: that scenario first. Built
+ * Round 25: the image has no resident copy (OC_PERF_RESIDENT 0, the default), and built that way this file checks THE SHIPPED IMAGE: without the module the four keys do nothing (no sound
+ * changed, no memory taken, no card), the REPEATs, the sweeps and the mutes work; with it every scenario's render is the pinned printout (tests/fx_layer_golden.txt, made from the resident
+ * code before the cut), run E (the module alone) hashes to tests/fx_layer_kernel_golden.txt, a key's way to the sound is as above; a module removed under a playing effect cuts it and gives
+ * the buffer back. Runs A .. D and E side by side need the resident text: they are the build with -DOC_PERF_RESIDENT=1, now a host-only REFERENCE (the same perf_kern.h the module
+ * includes), which also records run E's hashes from its resident side.
+ * Arguments: none. FLM_STOPFIRST=1: the descriptor first, then (the reference build) A and B only, stopping at the first differing block, or (the shipped image's) each scenario against the pin, stopping at the first off it, then run E (the mutation check); FLM_FIRST=<scenario>: that scenario first. Built
  * and run by tests/fx_layer_module.sh. */
 #define FLP_NO_MAIN 1
 #include "fx_layer_probe.c"
@@ -105,6 +107,24 @@ static int golden_ok(const flp_res_t *res)
     }
     fclose(f);
     return ok && i == NSC;
+}
+/* scenario s of this build's section of the pinned printout against res (the mutation check in the shipped image's build: a scenario at a time) */
+static int golden_one(uint32_t s, const flp_res_t *res)
+{
+    FILE *f = fopen(getenv("FLP_GOLDEN") ? getenv("FLP_GOLDEN") : "tests/fx_layer_golden.txt", "r");
+    char line[256], mine[256], head[64];
+    uint32_t i = 0, in = 0, ok = 0;
+    if (!f) return 0;
+    snprintf(head, sizeof head, "fx_layer probe: MELODEE_FX_DEFER %d", (int)MELODEE_FX_DEFER);
+    snprintf(mine, sizeof mine, "%s blocks %u au %016llx st %016llx", res->name, res->blocks, (unsigned long long)res->au, (unsigned long long)res->st);
+    while (fgets(line, sizeof line, f)) {
+        line[strcspn(line, "\n")] = 0;
+        if (!strncmp(line, "fx_layer probe:", 15)) { in = !strcmp(line, head); continue; }
+        if (!in || !strncmp(line, "fx_layer:", 9)) continue;
+        if (i++ == s) { ok = !strcmp(mine, line); break; }
+    }
+    fclose(f);
+    return (int)ok;
 }
 /* one scenario, one run: 0 A (kept), 1 B (the module), 2 C (the module toggled), 3 D (removed) */
 static void one(uint32_t s, uint32_t run_)
@@ -264,23 +284,36 @@ static void refusal_checks(void)
     }
     fx3_modk_clear();
 }
-#if OC_PERF_RESIDENT
 /* ---- E: the two copies of the kernel text side by side, without the mixer: the resident copy (PERF_RESIDENT) and the module's calls on the same state, 32 KB, knobs and input, every value
  * of every card knob. The scenarios hear what a player does; this hears what they cannot reach in a render of sane length: a threshold one step off in the slices' hash (GLITCH's DENS,
  * SHUFFLE's AMOUNT and SPEED are compared with a hash a 1/16: one value in a hundred a slice), every DENS with every VARI, every CURVE with every TIME. Each run: the host's part of a start
  * (the state cleared, P and gs set), the kernel's start, then blocks of 32 samples of stereo noise cut in two runs at a place that moves (the second run not the block's head), SCRATCH's
- * count moving, the last blocks fading out; after every run the outputs, the return and the whole state must be equal, and the 32 KB at the end ---- */
+ * count moving, the last blocks fading out; after every run the outputs, the return and the whole state must be equal, and the 32 KB at the end.
+ * (Round 25) The image has no resident copy: built that way (OC_PERF_RESIDENT 0, the shipped image) only the module's side runs, and what it gives (the outputs, the returns, the state after
+ * every run, the 32 KB at the end) is folded into one hash an effect and compared with tests/fx_layer_kernel_golden.txt, which the REFERENCE build (-DOC_PERF_RESIDENT=1, host only: the
+ * resident text, perf_kern.h) records from the resident side; the reference build checks its resident side against that file too, so the pin is the resident text's ---- */
 static int16_t dkA[FX3_FRAMES][2], dkB[FX3_FRAMES][2];
 static uint64_t dk_runs, dk_samples, dk_bad;
 static char dk_first[160];
 static uint32_t dk_seed;
+static uint64_t dk_h[4];                                /* [GX_*]: the recorded side's hash (the resident copy in the reference build, the module in the shipped image's) */
+static void dk_mix(uint32_t x, const void *p, size_t bytes)
+{
+    const uint32_t *w = p;
+    size_t i;
+    for (i = 0; i < bytes / 4u; i++) dk_h[x] = (dk_h[x] ^ w[i]) * 0x100000001B3ull;
+    dk_h[x] = (dk_h[x] ^ bytes) * 0x100000001B3ull;
+}
 static int32_t dk_noise(void) { dk_seed = dk_seed * 1664525u + 1013904223u; return (int32_t)(dk_seed >> 8) % 24001 - 12000; }
 static void direct_one(uint32_t x, int g0, int g1, int g2, int g3, uint32_t beat, uint32_t P, uint32_t gs, uint32_t nblk, uint32_t tag)
 {
     fx3_st_t sa, sb;
     fx3_ctx_t ca, cb;
     volatile int8_t ga[4], gb[4];
-    const fx3_kcalls_t *res = PERF_RESIDENT_OF(x), *mod = oc_host_fxl_calls(x);
+#if OC_PERF_RESIDENT
+    const fx3_kcalls_t *res = PERF_RESIDENT_OF(x);
+#endif
+    const fx3_kcalls_t *mod = oc_host_fxl_calls(x);
     uint32_t b, i, scr = tag * 7u;
     int32_t la[CTL], ra[CTL], lb[CTL], rb[CTL];
     ga[0] = gb[0] = (int8_t)g0; ga[1] = gb[1] = (int8_t)g1; ga[2] = gb[2] = (int8_t)g2; ga[3] = gb[3] = (int8_t)g3;
@@ -289,7 +322,10 @@ static void direct_one(uint32_t x, int g0, int g1, int g2, int g3, uint32_t beat
     sa.P = sb.P = P; sa.gs = sb.gs = gs;
     ca.st = &sa; ca.buf = (fx3_buf_t *)dkA; ca.gp = ga; cb.st = &sb; cb.buf = (fx3_buf_t *)dkB; cb.gp = gb;
     ca.beat = cb.beat = beat; ca.scr = cb.scr = scr; ca.go = cb.go = 1; ca.head = cb.head = 0; ca.semi = cb.semi = semi_q16;
-    res->start(&ca); mod->start(&cb);
+#if OC_PERF_RESIDENT
+    res->start(&ca);
+#endif
+    mod->start(&cb);
     dk_seed = 0x9E3779B9u ^ (tag * 2654435761u) ^ x;
     for (b = 0; b < nblk; b++) {
         uint32_t cut = 1u + (b * 13u + tag) % (CTL - 1u), part, done = 0, ended = 0;
@@ -300,8 +336,15 @@ static void direct_one(uint32_t x, int g0, int g1, int g2, int g3, uint32_t beat
         for (part = 0; part < 2u && !ended; part++) {
             uint32_t n = part ? CTL - cut : cut, da, db;
             ca.head = cb.head = part == 0u;
-            da = res->run(&ca, la + done, ra + done, n);
             db = mod->run(&cb, lb + done, rb + done, n);
+#if OC_PERF_RESIDENT
+            da = res->run(&ca, la + done, ra + done, n);
+            dk_mix(x, la, sizeof la); dk_mix(x, ra, sizeof ra); dk_mix(x, &da, sizeof da); dk_mix(x, &sa, sizeof sa);
+#else
+            da = db;
+            dk_mix(x, lb, sizeof lb); dk_mix(x, rb, sizeof rb); dk_mix(x, &db, sizeof db); dk_mix(x, &sb, sizeof sb);
+            memcpy(la, lb, sizeof la); memcpy(ra, rb, sizeof ra); sa = sb;
+#endif
             dk_runs++; dk_samples += da;
             if (da != db || memcmp(la, lb, sizeof la) || memcmp(ra, rb, sizeof ra) || memcmp(&sa, &sb, sizeof sa)) {
                 if (!dk_bad) snprintf(dk_first, sizeof dk_first, "%s knobs %d %d %d %d beat %u P %u gs %u: block %u differs from the resident copy's", SC_NM[x], g0, g1, g2, g3, (unsigned)beat, (unsigned)P, (unsigned)gs, (unsigned)b);
@@ -314,6 +357,12 @@ static void direct_one(uint32_t x, int g0, int g1, int g2, int g3, uint32_t beat
         }
         if (ended) break;
     }
+#if OC_PERF_RESIDENT
+    dk_mix(x, dkA, sizeof dkA);
+#else
+    dk_mix(x, dkB, sizeof dkB);
+    memcpy(dkA, dkB, sizeof dkA);
+#endif
     if (memcmp(dkA, dkB, sizeof dkA)) {
         if (!dk_bad) snprintf(dk_first, sizeof dk_first, "%s knobs %d %d %d %d beat %u P %u gs %u: the 32 KB differs from the resident copy's", SC_NM[x], g0, g1, g2, g3, (unsigned)beat, (unsigned)P, (unsigned)gs);
         dk_bad++;
@@ -353,12 +402,33 @@ static void direct_checks(void)
             uint32_t beat = (uint32_t[]){3000u, 9000u, 30000u}[(uint32_t)(c + 100 + v) % 3u], tt = beat >> (4u - (uint32_t)v), m = 15000u * 600u / (uint32_t)(300 - c), fall = tt < m ? (tt > 64u ? tt : 64u) : m;
             direct_one(GX_TAPE, 0, v, c, 0, beat, beat / 4u, 0, (fall + 2600u) / CTL, tag);
         }
+#if OC_PERF_RESIDENT
     snprintf(t, sizeof t, "E the two copies of the kernel text side by side (no mixer): every DENS x VARI and PITCH x SIZE of GLITCH, every AMOUNT x VARI and SPEED x SIZE of SHUFFLE, every DENS x SIZE and SPRAY x PITCH of "
              "FREEZE, every CURVE x TIME of TAPE STOP with SCRATCH turning: %llu runs, %llu samples: the outputs, the returns, the state and the 32 KB are equal (%llu differ%s%s)",
              (unsigned long long)dk_runs, (unsigned long long)dk_samples, (unsigned long long)dk_bad, dk_bad ? "; the first: " : "", dk_first);
     ck(t, !dk_bad && dk_runs > 1000000u);
-}
 #endif
+    {   /* the recorded run E (tests/fx_layer_kernel_golden.txt) */
+        FILE *f = fopen(getenv("FLM_KGOLDEN") ? getenv("FLM_KGOLDEN") : "tests/fx_layer_kernel_golden.txt", "r");
+        char line[128], want[128];
+        uint32_t k, ok = f != 0, got = 0;
+        if (getenv("FLM_E_PRINT"))
+            for (k = 0; k < 4u; k++) printf("E %s runs %llu e %016llx\n", SC_NM[k], (unsigned long long)dk_runs, (unsigned long long)dk_h[k]);
+        for (k = 0; f && k < 4u; k++) {
+            snprintf(want, sizeof want, "E %s runs %llu e %016llx", SC_NM[k], (unsigned long long)dk_runs, (unsigned long long)dk_h[k]);
+            if (!fgets(line, sizeof line, f)) { ok = 0; break; }
+            line[strcspn(line, "\n")] = 0;
+            if (strcmp(line, want)) { ok = 0; if (!dk_first[0]) snprintf(dk_first, sizeof dk_first, "%s: run E gives %s, recorded %s", SC_NM[k], want, line); }
+            else got++;
+        }
+        if (f) fclose(f);
+        snprintf(t, sizeof t, "E %s: every value of every card knob of the four effects (%llu runs, %llu samples): the outputs, the returns, the state and the 32 KB hash to tests/fx_layer_kernel_golden.txt's "
+                 "(recorded from the resident text by the reference build)%s%s", OC_PERF_RESIDENT ? "the resident side" : "the module alone (the shipped image: no resident copy)",
+                 (unsigned long long)dk_runs, (unsigned long long)dk_samples, ok ? "" : ": ", ok ? "" : dk_first);
+        ck(t, ok && got == 4u && dk_runs > 1000000u);
+        if (!ok && stopfirst) { printf("fx layer module: VERDICT kernel: %s\n", dk_first); exit(1); }
+    }
+}
 /* ---- a key's way to the sound: the first output sample that differs from the same render with no key, resident and module ---- */
 #define LAT_BLOCKS 900u
 static int32_t (*lat_ref)[CTL * 2], (*lat_out)[CTL * 2];
@@ -403,15 +473,20 @@ static void latency_checks(void)
             uint8_t mr[LAT_BLOCKS];
             char t[300];
             lat_render(lat_ref, -1, (int)playing, 0);
+#if OC_PERF_RESIDENT
             lat_render(lat_out, FLP_E[x], (int)playing, 0);
             fr = lat_first();
             memcpy(mr, lat_mode, sizeof mr);
             for (b = 0; b < LAT_BLOCKS && mr[b] == BM_NONE; b++) {}
             sr = b;
+#endif
             lat_render(lat_out, FLP_E[x], (int)playing, 1);
             fm = lat_first();
             for (b = 0; b < LAT_BLOCKS && lat_mode[b] == BM_NONE; b++) {}
             sm = b;
+#if !OC_PERF_RESIDENT
+            fr = fm; sr = sm; memcpy(mr, lat_mode, sizeof mr);   /* (the shipped image: the module alone; the reference build holds it equal to the resident copy's, the pin holds the sound) */
+#endif
             snprintf(t, sizeof t, "%s pressed before block 207, %s: the effect starts in block %u (resident) and %u (module)%s; the first output sample that differs from the render with no key is "
                      "sample %u (resident) and %u (module): the same", SC_NM[x], playing ? "playing" : "stopped", (unsigned)sr, (unsigned)sm,
                      playing ? ", the block of the next 1/16" : ", the block of the press", (unsigned)fr, (unsigned)fm);
@@ -583,9 +658,18 @@ int main(void)
         host_checks();
     }
 #else
-    /* the Nightly after: no resident copy of the four effects in the image */
-    absent_checks();
-    for (s = 0; s < NSC; s++) {
+    /* the shipped image (Round 25): no resident copy of the four effects */
+    if (getenv("FLM_E_ONLY")) {                          /* (for a quick look, and to record tests/fx_layer_kernel_golden.txt with FLM_E_PRINT=1 in the reference build: run E alone) */
+        direct_checks();
+        printf(bad ? "fx layer module: %d FAILED\n" : "fx layer module: E passed\n", bad);
+        return bad != 0;
+    }
+    if (!stopfirst) absent_checks();
+    for (uint32_t q = 0; q < NSC; q++) {
+        const char *first = stopfirst ? getenv("FLM_FIRST") : 0;   /* (the mutation check: the mutated effect's own scenario first) */
+        uint32_t f = NSC;
+        for (s = 0; first && s < NSC; s++) if (!strcmp(first, SCN[s])) f = s;
+        s = f == NSC ? q : q == 0u ? f : q <= f ? q - 1u : q;
         memset(mrun, 0, sizeof mrun); memset(mstart, 0, sizeof mstart);
         snprintf(flp_only, sizeof flp_only, "%s", SCN[s]);
         fx3_modk_clear();
@@ -595,10 +679,19 @@ int main(void)
         resA[s] = flp_res[0];
         for (r = 0; r < 4u; r++) { runB[r] += mrun[r]; startB[r] += mstart[r]; }
         flp_only[0] = 0;
+        if (stopfirst && !golden_one(s, &resA[s])) {
+            printf("fx layer module: FAIL: %s\nfx layer module: VERDICT render: the module's render of %s differs from the pinned printout (tests/fx_layer_golden.txt)\n", SCN[s], SCN[s]);
+            return 1;
+        }
     }
+    fx3_modk_clear();
     ck("no resident copy, the module registered: the printout is tests/fx_layer_golden.txt's (the resident render pinned before the cut): the module alone plays the four effects as the image did", golden_ok(resA));
     ck("... through its calls", runB[0] > 20000u && runB[1] > 20000u && runB[2] > 20000u && runB[3] > 20000u && startB[0] > 100u && startB[1] > 100u && startB[2] > 100u && startB[3] > 100u);
-    host_checks();
+    direct_checks();                                     /* (run E against its recorded hashes: a mutant only this catches says VERDICT kernel) */
+    if (!stopfirst) {
+        latency_checks();
+        host_checks();
+    }
 #endif
     flp_tap = 0;
     if (!stopfirst) {

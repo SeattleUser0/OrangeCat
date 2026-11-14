@@ -243,7 +243,7 @@ int main(int argc, char **argv)
         r = install(FX2_MODULE_ID, st);
         link = oc_mod_link(st);
         reg_from_image(link);
-        chk("after the install nothing is registered with the send host on the host build (the device's oc_fx2mod_reg reads 4 byte pointers; the resident copy plays)", r == 0 && !fx2_modk_ok());
+        chk("after the install nothing is registered with the send host on the host build (the device's oc_fx2mod_reg reads 4 byte pointers; with no resident copy the three modes are not run: the dry mix)", r == 0 && !fx2_modk_ok());
         fm1_guard_code_end = link;                           /* a window that ends where the module begins */
         r = oc_fx2mod_commit(st, FX2_MODULE_ID, 0x00010000u, 3, reg);
         chk("registration (oc_fx2mod_commit with the caps blocks out of the image's bytes): the window is widened to the module's last byte BEFORE the host takes the calls; the three modes are the module's; why 0",
@@ -257,7 +257,7 @@ int main(int argc, char **argv)
             fx2_modk_clear();
             reg_caps[1].abi = FX_ABI_ID;
             r = oc_fx2mod_commit(st, FX2_MODULE_ID, 0x00010000u, 3, reg);
-            chk("a refusal (a caps block with the insert host's abi): the module stays listed, state OK, why 0x41 (0x40 + FX2M_VER) in the Effects row and in what FX_TABLE sends; nothing registered: the resident copy plays",
+            chk("a refusal (a caps block with the insert host's abi): the module stays listed, state OK, why 0x41 (0x40 + FX2M_VER) in the Effects row and in what FX_TABLE sends; nothing registered: the three modes are not run (no resident copy: the dry mix, MODULE MISSING)",
                 r == FX2M_VER && !fx2_modk_ok() && oc_mod.state[st] == MD_OK && oc_mod.why[st] == 0x41 && oc_mod.fx[0].why == 0x41);
             reg_caps[1] = keep; reg_caps[1].ram_work_min = 0; reg_caps[1].ram_work_max = 0;
             r = oc_fx2mod_commit(st, FX2_MODULE_ID, 0x00010000u, 3, reg);
@@ -270,7 +270,7 @@ int main(int argc, char **argv)
         (void)oc_mod_erase_span((int32_t)other, 1u);
         chk("guard: an erase of a sector outside the module's span leaves its kernels registered", fx2_modk_ok());
         (void)oc_mod_erase_span(OC_MOD_START_SECTOR(st), 1u);
-        chk("guard: an erase of the module's sector lets the kernels go FIRST (fx2_modk_clear: the resident copy plays from the next bus job)", !fx2_modk_ok() && !fx2_modk[1].process && !fx2_modk[2].process && !fx2_modk[3].process);
+        chk("guard: an erase of the module's sector lets the kernels go FIRST (fx2_modk_clear: from the next bus job the mode is not run, its tank and state cleared)", !fx2_modk_ok() && !fx2_modk[1].process && !fx2_modk[2].process && !fx2_modk[3].process);
         clean(); load(0); st = (uint32_t)oc_fxmod_plan(FX2_MODULE_ID, 1u); load_at(st);
         r = install(FX2_MODULE_ID, st); reg_from_image(oc_mod_link(st));
         r |= oc_fx2mod_commit(st, FX2_MODULE_ID, 0x00010000u, 3, reg);
@@ -299,7 +299,7 @@ int main(int argc, char **argv)
         oc_fxmod_note_use(FX2_MODULE_ID);
         chk("the crash mark: a module mode in use sets the module's inuse bit (oc_fxmod_note_use, which the send host calls at the bus start)", r == 0 && (oc_modguard.inuse & (1u << st)) != 0);
         oc_mod_boot(1);                                      /* the session died with it in use */
-        chk("a crash with the module in use: the module is banned (MD_CRASHED), not in the Effects table, the send host holds nothing: the resident copy plays",
+        chk("a crash with the module in use: the module is banned (MD_CRASHED), not in the Effects table, the send host holds nothing: the three modes are not run (the dry mix, MODULE MISSING)",
             oc_mod.state[st] == MD_CRASHED && oc_mod.nfxmod == 0 && oc_fx_find(FX2_MODULE_ID) < 0 && !fx2_modk_ok());
     }
     printf(bad ? "fx reverb image: FAILED\n" : "fx reverb image: all passed\n");
