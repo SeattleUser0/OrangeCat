@@ -1069,18 +1069,51 @@ static int pack_protocol(void)
         memset(t, 0, 16); t[0] = 'O'; t[1] = 'C'; t[2] = 'S'; t[3] = 'C'; t[4] = 1;
         for (i = 0; i < 4u; i++) t[8 + i] = (uint8_t)(tl >> (8u * i));
         c = ocs_crc32(t + 16, tl - 16u); for (i = 0; i < 4u; i++) t[12 + i] = (uint8_t)(c >> (8u * i));
-        request(ED_PACK_INFO, 0, 0);
+        oc_pack_scan(); request(ED_PACK_INFO, 0, 0);
         w = host_wire[29] | host_wire[30] << 7 | host_wire[31] << 14 | (uint32_t)host_wire[32] << 21 | (uint32_t)host_wire[33] << 28;
         bad += check("PACK_INFO: a whole scene trailer: its length and the CRC-32 of all its bytes (its header too)",
                      host_wire[6] == 1 && (host_wire[26] | host_wire[27] << 7 | host_wire[28] << 14) == tl && w == ocs_crc32(t, tl));
         t[100] ^= 1u; c = ocs_crc32(t + 16, tl - 16u); for (i = 0; i < 4u; i++) t[12 + i] = (uint8_t)(c >> (8u * i));
-        request(ED_PACK_INFO, 0, 0);
+        oc_pack_scan(); request(ED_PACK_INFO, 0, 0);
         bad += check("PACK_INFO: another trailer of the same length (a byte changed, its CRC right): another CRC",
                      (host_wire[29] | host_wire[30] << 7 | host_wire[31] << 14 | (uint32_t)host_wire[32] << 21 | (uint32_t)host_wire[33] << 28) == ocs_crc32(t, tl) && ocs_crc32(t, tl) != w);
         t[100] ^= 1u;
-        request(ED_PACK_INFO, 0, 0);
+        oc_pack_scan(); request(ED_PACK_INFO, 0, 0);
         bad += check("PACK_INFO: a damaged trailer (its CRC wrong): 0 and 0", host_wire[6] == 0 && (host_wire[26] | host_wire[27] | host_wire[28] | host_wire[29]) == 0);
         memset(t, 0xFF, tl);
+        {   /* (re-review) PACK_INFO sends the trailer as the scan found it: a pack with a trailer installed through the commands, then the values against a fresh read */
+            static uint8_t big[OC_PACK_LEN + 3u + 600u];
+            uint32_t tot = at + tl, ftl = 0, fc;
+            memcpy(big, pak, len); memset(big + len, 0xFF, at - len);
+            for (i = 16u; i < tl; i++) big[at + i] = (uint8_t)(i * 17u + 3u);
+            memset(big + at, 0, 16); memcpy(big + at, "OCSC", 4); big[at + 4] = 1;
+            for (i = 0; i < 4u; i++) big[at + 8 + i] = (uint8_t)(tl >> (8u * i));
+            c = ocs_crc32(big + at + 16, tl - 16u); for (i = 0; i < 4u; i++) big[at + 12 + i] = (uint8_t)(c >> (8u * i));
+            a[0] = (uint8_t)(tot & 127u); a[1] = (uint8_t)(tot >> 7 & 127u); a[2] = (uint8_t)(tot >> 14); a[3] = 0;
+            request(ED_PACK_BEGIN, a, 4);
+            ok = host_wire[5] == 0;
+            request(ED_PACK_INFO, 0, 0);
+            ok &= (host_wire[26] | host_wire[29]) == 0;                  /* the install under way: no trailer */
+            for (off = OC_PACK_HDR; off < tot; off += 256u) {
+                uint32_t k = tot - off < 256u ? tot - off : 256u;
+                a[0] = (uint8_t)(off & 127u); a[1] = (uint8_t)(off >> 7 & 127u); a[2] = (uint8_t)(off >> 14);
+                n = pack7(big + off, k, a + 3);
+                request(ED_PACK_WRITE, a, 3u + n);
+                ok &= host_wire[5] == 0;
+            }
+            n = pack7(big, OC_PACK_HDR, a);
+            request(ED_PACK_END, a, n);
+            ok &= host_wire[5] == 0;
+            request(ED_PACK_INFO, 0, 0);
+            fc = pk_trailer_crc(&ftl);
+            bad += check("PACK_INFO after a pack with a trailer is written through the commands: the trailer the end's scan cached is a fresh read's (length and CRC)",
+                         ok && host_wire[6] == 1 && (host_wire[26] | host_wire[27] << 7 | host_wire[28] << 14) == ftl && ftl == tl &&
+                         (host_wire[29] | host_wire[30] << 7 | host_wire[31] << 14 | (uint32_t)host_wire[32] << 21 | (uint32_t)host_wire[33] << 28) == fc && fc == ocs_crc32(big + at, tl));
+            a[0] = 0; request(ED_PACK_ERASE, a, 1);
+            request(ED_PACK_INFO, 0, 0);
+            bad += check("... and after an erase: none", host_wire[6] == 0 && (host_wire[26] | host_wire[29]) == 0);
+            memset(host_pack, 0xFF, sizeof host_pack); memcpy(host_pack, pak, len); oc_pack_scan();
+        }
     }
 #endif
     a[0] = 0; request(ED_PACK_ERASE, a, 1);
@@ -1579,7 +1612,7 @@ static int fw_report(void)
     uint32_t i, len = 0x40004u, crc, rest;
     reset();
     memset(host_app, 0xFF, sizeof host_app);
-    request(ED_MOD_INFO, 0, 0);
+    ed_fw_forget(); request(ED_MOD_INFO, 0, 0);
     bad += check("MOD_INFO's image report (Round 26): no commit marker (erased flash): length, body CRC and the rest's CRC 0",
                  host_wire_n == FWR + 16u && rep_u35(FWR) == 0 && rep_u35(FWR + 5u) == 0 && rep_u35(FWR + 10u) == 0 && host_wire[FWR + 15u] == 0xF7);
     for (i = 0; i < 0x1000u + len; i++) host_app[i] = (uint8_t)(i * 13u + (i >> 9));
@@ -1587,24 +1620,38 @@ static int fw_report(void)
     crc = ocs_crc32(host_app + 0x1000u, len);
     app_marker(len, crc, 0);
     rest = app_rest(len);
-    request(ED_MOD_INFO, 0, 0);
+    ed_fw_forget(); request(ED_MOD_INFO, 0, 0);
     bad += check("MOD_INFO's image report: the marker's body length and CRC as the build wrote them, and one CRC over the rest the loader writes (directory and stub, the body's last sector after it, the marker's sector and 0x92000)",
                  rep_u35(FWR) == len && rep_u35(FWR + 5u) == crc && rep_u35(FWR + 10u) == rest && crc && rest);
     {   static const uint32_t at[] = { 0x10u, 0x500u, 0x1000u + 0x40004u + 8u, 0x92000u - 0x4000u + 0x100u, 0x91000u - 0x4000u + 0x40u };
         int z = 1;
         for (i = 0; i < 5u; i++) {
             host_app[at[i]] ^= 1u;
-            request(ED_MOD_INFO, 0, 0);
+            ed_fw_forget(); request(ED_MOD_INFO, 0, 0);
             z &= rep_u35(FWR + 10u) != rest && rep_u35(FWR + 5u) == crc;
             host_app[at[i]] ^= 1u;
         }
         bad += check("MOD_INFO's image report: a byte changed in the directory, the stub, the body's last sector past the body, cfg_tool, the marker's sector: the rest's CRC differs", z);
         host_app[(0x8E000u - 0x4000u) + 5u] ^= 1u;                       /* the tail region (modules: never written by the loader) */
-        request(ED_MOD_INFO, 0, 0);
+        ed_fw_forget(); request(ED_MOD_INFO, 0, 0);
         bad += check("MOD_INFO's image report: the tail region's modules are not in it", rep_u35(FWR + 10u) == rest);
     }
+    {   /* (re-review) the values are read once: a module written meanwhile changes nothing, and what is sent is what a fresh read gives */
+        uint32_t w0 = rep_u35(FWR + 10u);
+        ed_fw_forget(); request(ED_MOD_INFO, 0, 0); w0 = rep_u35(FWR + 10u);
+        memset(host_mod, 0xFF, sizeof host_mod); memset(&oc_mod, 0, sizeof oc_mod); memset(&oc_modguard, 0, sizeof oc_modguard); oc_mod_boot(0);
+        song.playing = 0; host_progress = 1;
+        i = install_image(ENGI_SHAPES, 0, 3000u);
+        request(ED_MOD_INFO, 0, 0);
+        bad += check("MOD_INFO's image report is read once: after a module install the cached values are still sent", i == 0 && rep_u35(FWR) == len && rep_u35(FWR + 10u) == w0);
+        host_app[0x10] ^= 1u; request(ED_MOD_INFO, 0, 0);
+        bad += check("... and not read again on the next request (the flash under a running image does not change on a unit)", rep_u35(FWR + 10u) == w0);
+        host_app[0x10] ^= 1u; ed_fw_forget(); request(ED_MOD_INFO, 0, 0);
+        bad += check("... and a fresh read gives the same values", rep_u35(FWR) == len && rep_u35(FWR + 5u) == crc && rep_u35(FWR + 10u) == w0);
+        memset(host_mod, 0xFF, sizeof host_mod); memset(&oc_mod, 0, sizeof oc_mod); oc_mod_boot(0);
+    }
     app_marker(len, crc, 1);
-    request(ED_MOD_INFO, 0, 0);
+    ed_fw_forget(); request(ED_MOD_INFO, 0, 0);
     bad += check("MOD_INFO's image report: a marker whose own CRC is wrong: all 0", rep_u35(FWR) == 0 && rep_u35(FWR + 5u) == 0 && rep_u35(FWR + 10u) == 0);
     memset(host_app, 0xFF, sizeof host_app);
     reset();

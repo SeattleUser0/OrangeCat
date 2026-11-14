@@ -502,10 +502,14 @@ static int ed_kit_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
 #define OC_APP_MARK 0x91FE0u                                 /* the commit marker (stub_core.h STUB_MARK_OFF) */
 #define OC_APP_HI 0x93000u
 static uint32_t ed_rd32(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
-static void ed_fw_image(void)
+/* (Round 26, re-review) the three values never change while an image runs (an update restarts the unit): read at the first request, then sent from here. ed_fw_forget: a
+ * host test that puts another image under the same run */
+static struct { uint8_t done; uint32_t len, crc, rest; } ed_fw;
+static __attribute__((unused)) void ed_fw_forget(void) { ed_fw.done = 0; }
+static void ed_fw_read(void)
 {
     uint8_t mk[20];
-    uint32_t len = 0, crc = 0, rest = 0, k, end;
+    uint32_t len = 0, crc = 0, rest = 0, end;
     memcpy(mk, OC_APP_XIP(OC_APP_MARK), sizeof mk);
     if (ed_rd32(mk) == 0x4D425243u && ed_rd32(mk + 4) == 1u && ed_rd32(mk + 16) == ocs_crc32(mk, 16u) && ed_rd32(mk + 8) &&
         !(ed_rd32(mk + 8) & 3u) && ed_rd32(mk + 8) <= OC_APP_MARK_SEC - OC_APP_BODY) {
@@ -515,9 +519,15 @@ static void ed_fw_image(void)
         rest = ocs_crc_add(rest, OC_APP_XIP(OC_APP_BODY + len), end - (OC_APP_BODY + len));
         rest = ~ocs_crc_add(rest, OC_APP_XIP(OC_APP_MARK_SEC), OC_APP_HI - OC_APP_MARK_SEC);
     }
-    for (k = 0; k < 5u; k++) ed_b(len >> (7u * k));
-    for (k = 0; k < 5u; k++) ed_b(crc >> (7u * k));
-    for (k = 0; k < 5u; k++) ed_b(rest >> (7u * k));
+    ed_fw.len = len; ed_fw.crc = crc; ed_fw.rest = rest; ed_fw.done = 1;
+}
+static void ed_fw_image(void)
+{
+    uint32_t k;
+    if (!ed_fw.done) ed_fw_read();
+    for (k = 0; k < 5u; k++) ed_b(ed_fw.len >> (7u * k));
+    for (k = 0; k < 5u; k++) ed_b(ed_fw.crc >> (7u * k));
+    for (k = 0; k < 5u; k++) ed_b(ed_fw.rest >> (7u * k));
 }
 /* (Release 3 step 4) the effect modules, by module id. Arguments: module id (5 x 7 bits).
  *   FX_INFO   id, sectors (1 .. 8; a models module's id FW_MODELS_ID: 1 .. 18) -> plan (the start an install of that many sectors goes to, 127 none), flags (1 the install is in place: the old module of the id is erased
@@ -1405,7 +1415,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                                                             * hash (5 x 7 bits), this build's length (3 x 7), its hash (5 x 7), the area (3 x 7) */
         uint32_t len, hash, st = oc_pack_info(&len, &hash);
 #if OC_HOME_PIC
-        ed_b(st); ed_b(st == 1u && pk_trailer_ok() ? 1u : 0u);       /* (round 9) the second byte: bit 0 a whole scene trailer is in the area (the installer page writes the pack again when its file has one and this is 0) */
+        ed_b(st); ed_b(st == 1u && pk_tr.ok ? 1u : 0u);   /* (Round 26) as the last scan found it (oc_pack.c pk_tr) */       /* (round 9) the second byte: bit 0 a whole scene trailer is in the area (the installer page writes the pack again when its file has one and this is 0) */
 #else
         ed_b(st); ed_b(0);
 #endif
@@ -1416,7 +1426,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(OC_PACK_AREA); ed_b(OC_PACK_AREA >> 7); ed_b(OC_PACK_AREA >> 14);
         {   uint32_t tl = 0, tc = 0;                            /* (Round 26) appended: the scene trailer's length and the CRC-32 of all of it (its header too) as stored, 0 and 0 with none */
 #if OC_HOME_PIC
-            if (st == 1u) tc = pk_trailer_crc(&tl);
+            if (st == 1u && pk_tr.ok) { tl = pk_tr.len; tc = pk_tr.crc; }
 #endif
             ed_b(tl); ed_b(tl >> 7); ed_b(tl >> 14);
             for (i = 0; i < 5u; i++) ed_b(tc >> (7u * i));

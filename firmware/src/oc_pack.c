@@ -140,6 +140,13 @@ static int pk_image_check(oc_rd_t rd, void *ctx, uint32_t size)
     t = oc_rule_tails(rd, ctx, size, PK_SECTORS);
     return t < 0 ? 4 : t > 0 ? 3 : 0;
 }
+#if OC_HOME_PIC
+static int pk_trailer_ok(void);
+static uint32_t pk_trailer_crc(uint32_t *tl);
+/* (Round 26, re-review) the stored scene trailer as oc_pack_scan last found it: whole (pk_trailer_ok), its length and its CRC-32 (pk_trailer_crc), so that PACK_INFO
+ * reads no flash; cleared when an install or an erase starts, set again by the scan at the install's end and at boot */
+static struct { uint8_t ok; uint32_t len, crc; } pk_tr;
+#endif
 /* the state of the area now; oc_pack_good follows */
 static void oc_pack_scan(void)
 {
@@ -155,6 +162,10 @@ static void oc_pack_scan(void)
     /* (0.14.0) the copies first, then the flag: a MACRO note sequenced during a pack install renders only once its hot set is whole. A pack that is no
      * longer good is silent before its copies change (an unchanged good pack's copy rewrites equal bytes) */
     if (pk.state != PK_OK) oc_pack_good = 0;
+#if OC_HOME_PIC
+    pk_tr.ok = 0; pk_tr.len = pk_tr.crc = 0;
+    if (pk.state == PK_OK) { pk_tr.crc = pk_trailer_crc(&pk_tr.len); pk_tr.ok = pk_tr.len != 0; }
+#endif
     if (oc_pack_changed) oc_pack_changed();                  /* (0.13.7) the engines' hot sets copy their tables again (engines.c eng_hot_refresh) */
     oc_pack_good = pk.state == PK_OK;
 }
@@ -204,6 +215,9 @@ static int oc_pack_begin(uint32_t len)
     pk.writing = 0;
     pk.state = PK_MISSING;
     oc_pack_good = 0;
+#if OC_HOME_PIC
+    pk_tr.ok = 0; pk_tr.len = pk_tr.crc = 0;
+#endif
     rc = pk_erase_all();
     if (rc) return rc;
     pk.writing = 1;
@@ -301,6 +315,9 @@ static int oc_pack_erase(void)
     if (lg_incomplete) return -4;
     pk.writing = 0;
     oc_pack_good = 0;
+#if OC_HOME_PIC
+    pk_tr.ok = 0; pk_tr.len = pk_tr.crc = 0;
+#endif
     rc = pk_erase_all();
     pk.state = PK_MISSING;
     return rc;
