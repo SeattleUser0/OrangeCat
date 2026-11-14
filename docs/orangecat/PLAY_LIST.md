@@ -1,3 +1,20 @@
+# Orange Cat Nightly v0.16.0-229d4c (Round 25): what changed for you since 8cb0b1
+
+Written November 14, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. **This Nightly is on the test unit, installed from the live page with the page's defaults.**
+
+1. **PRESETS counting one slow click twice: fixed in the decoder (all knobs).** If a contact drops out for a moment in mid-click, the click no longer counts on the false landing and again on the real one. Fast turns and flicks count as before; a slow click now counts about 13 ms after it lands (you should not feel it). Your knob's own click was not logged (the log saw no turn), so the fix rests on the likeliest cause and 27 replayed patterns. **Please try:** slow single clicks of PRESETS on HOME, and tell me if one ever moves more than one sound. (Turning PRESETS walks through every engine's sounds: that is the browse list as built. Tell me if you want it to stay inside the track's engine.)
+2. **SHIFT moves everything** in the phrase together: steps, motion, control notes and recorded notes, as you decided. REVERSE mirrors them all. Undo gives everything back in order, and nothing is refused.
+3. **The power-on check passed** (thank you for the off and on): the unit starts its update window correctly from a real power-on too.
+4. **The full set:** when the ticked set does not fit, the page asks which effect module gives way this time (a module already in the unit stays there). A unit holding the reverb module gets one click to the default set: the page asks, removes REVERB MODES and installs the rest. It never removes a ticked module, DUB TAPE or the FX layer. You may be asked to choose twice: once before Install and again after it reads the unit.
+5. **The built-in reverb modes and FX layer are gone** from the firmware (5,348 B freed; 35,880 B now free). Without their module, SPRING, SHIMMER and RESO play dry ("MODULE MISSING: dry"; "REVERB MODULE MISSING" at power-on if a track uses one), and the four FX keys say MODULE MISSING. The default install has the FX layer; the reverb module stays unticked as you decided: tick it (and let the page choose what gives way) if you use those modes.
+6. **Old projects:** a project or phrase saved by an earlier build that held one bad step byte (possible after shortening LEN) now loads instead of refusing; the one event it drops never played.
+7. **Why the page rewrites one module every install:** it is the MACRO models module (the page cannot tell which models the unit holds, so it writes them again). Harmless but it costs one erase each time; the fix needs a firmware report and is not built yet.
+8. **Track OFF (explicit):** still waits for Session C's TRKS section (nothing new from Session C).
+9. **Controls guide:** https://seattleuser0.github.io/OrangeCat/webapp/nightly-app/controls.html (its header still names an older Nightly: Session D is asked to update it).
+10. **Image:** 529,076 B. **Tested:** full SAN=1 suite green on d5816b52 (280 jobs); the Nightly adds text only. **Your decisions:** PRESETS inside the track's engine or across all engines; whether the reverb module should be in your default set (and what gives way).
+
+---
+
 # Orange Cat Nightly v0.16.0-8cb0b1 (Round 24): what changed for you since 5f894f
 
 Written November 13, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. **This Nightly is on the test unit, installed from the live page with the page's defaults.**
