@@ -1,3 +1,15 @@
+# Orange Cat Nightly v0.16.0-c5a112 (Round 26): what changed for you since 229d4c
+
+Written November 15, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. **This Nightly is on the test unit, installed from the live page with the page's defaults.**
+
+1. **Browse shows only what can play.** A user preset, a RECENT entry or a MACRO preset appears only when its engine (and for MACRO, its model) is installed. Nothing is deleted: hidden ones come back when you install the module. A project whose track uses a missing one keeps it and says MODULE MISSING; one PRESETS click from there goes to its neighbour. Each click is one sound in both directions, and the list wraps at both ends, also on a fast turn (before, a fast turn stopped at the ends).
+2. **The page writes only what changed.** The unit now tells the page a checksum of each module, of the pack's picture and of its running firmware. Install skips everything already there: on the test unit, two installs in a row, the second wrote nothing and asked nothing. The "erased first" question you saw on every install (the MACRO models module) is gone unless the models really change.
+3. **Release 3 qualification is planned** (BUILD.md 7.37): the two-hour soak with DUB and the effect modules as modules (both clocks, both effect sets, twice), every sequencer test cell, the hiss check, and installs from the live page onto a unit upgraded from 0.15.0 Standard, a wiped unit and one coming from the stock firmware. It runs once the format revision is in.
+4. **Session C:** nothing new since November 11; the rest of the format revision is not built. You said you would hand it to me next round.
+5. **Image:** 530,096 B. **Tested:** full SAN=1 suite green on d7e948c7 (280 jobs); the Nightly adds text only.
+
+---
+
 # Orange Cat Nightly v0.16.0-229d4c (Round 25): what changed for you since 8cb0b1
 
 Written November 14, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. **This Nightly is on the test unit, installed from the live page with the page's defaults.**
