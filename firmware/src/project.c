@@ -1617,6 +1617,9 @@ static uint8_t persist_repair;                  /* boot repair must retry even w
 static uint32_t persist_retry_ms;
 #endif
 
+#if OC_MODULES && MELODEE_FLASH && defined(FM1_IRQ_TARGET)
+static void ed_fw_read(void);                     /* (Round 26) editor.c: the image the unit runs, read at boot before the plaintext window */
+#endif
 static void persist_boot(void)                    /* before settings_init / panel_init */
 {
 #if MELODEE_FLASH
@@ -1629,6 +1632,10 @@ static void persist_boot(void)                    /* before settings_init / pane
         return;
 #if (OC_SFC_PROBE || OC_BOOT_SAMPLE) && defined(FM1_IRQ_TARGET)
     fl_probe_boot_sample();                        /* (Round 22, the stub window's bench gate) what the reset left, before the window is set */
+#endif
+#if OC_MODULES && defined(FM1_IRQ_TARGET)          /* (the device: a host build that has the store has no editor and no window) */
+    ed_fw_read();                                  /* (Round 26) the image report (editor.c): the marker at 0x91FE0 and 0x91000..0x92FFF read through XIP while they still decrypt;
+                                                    * the window below starts at 0x8E000 (the tail) and would show them raw. At most 16 KB of CRC, about 1 ms */
 #endif
     fl_plain_window_init();                        /* flash above 0x93000 reads as plaintext through XIP
                                                     * (user sample sets are played from there) */

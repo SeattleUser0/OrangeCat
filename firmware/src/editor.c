@@ -502,8 +502,10 @@ static int ed_kit_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
 #define OC_APP_MARK 0x91FE0u                                 /* the commit marker (stub_core.h STUB_MARK_OFF) */
 #define OC_APP_HI 0x93000u
 static uint32_t ed_rd32(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
-/* (Round 26, re-review) the three values never change while an image runs (an update restarts the unit): read at the first request, then sent from here. ed_fw_forget: a
- * host test that puts another image under the same run */
+/* (Round 26, re-review) the three values never change while an image runs (an update restarts the unit). (Round 26, found on the unit) They are read at boot, from
+ * persist_boot (project.c) BEFORE fl_plain_window_init: the window starts at 0x8E000 (the tail region), so afterwards XIP shows 0x91000..0x92FFF (the marker, cfg_tool)
+ * as stored, enciphered, and the marker's magic fails. A host build has no window and no persist_boot: the first request reads them. ed_fw_forget: a host test that puts
+ * another image under the same run */
 static struct { uint8_t done; uint32_t len, crc, rest; } ed_fw;
 static __attribute__((unused)) void ed_fw_forget(void) { ed_fw.done = 0; }
 static void ed_fw_read(void)
