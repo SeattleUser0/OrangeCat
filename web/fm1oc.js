@@ -37,7 +37,7 @@ import { PLACE } from "./fm1place.js";
 
 export const OC_CMD = { PACK_INFO: 115, PACK_BEGIN: 116, PACK_WRITE: 117, PACK_END: 118, PACK_ERASE: 119,
   MOD_INFO: 120, MOD_BEGIN: 121, MOD_WRITE: 122, MOD_END: 123, MOD_REMOVE: 124, ENGINES: 125,
-  EXT: 0, FX_INFO: 130, FX_BEGIN: 131, FX_REMOVE: 132, FX_TABLE: 133 };   /* (Release 3 step 4) 130..133 go as command 0 with n = cmd - 128 (web/EDITOR_PROTOCOL.md) */
+  EXT: 0, FX_INFO: 130, FX_BEGIN: 131, FX_REMOVE: 132, FX_TABLE: 133, FLASH_ID: 134 };   /* (Round 27) 134 FLASH_ID: the flash part, read only (FLASH_CHIPS.md) */   /* (Release 3 step 4) 130..133 go as command 0 with n = cmd - 128 (web/EDITOR_PROTOCOL.md) */
 const crc32 = bkCrc;
 const ocSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -93,6 +93,7 @@ export const ocReq = {
   fxBegin: (id, start, len) => [OC_CMD.EXT, [OC_CMD.FX_BEGIN - 128, ...ocId(id), start, len & 0x7F, (len >> 7) & 0x7F, (len >> 14) & 0x7F]],
   fxRemove: (id) => [OC_CMD.EXT, [OC_CMD.FX_REMOVE - 128, ...ocId(id)]],
   fxTable: () => [OC_CMD.EXT, [OC_CMD.FX_TABLE - 128]],
+  flashId: () => [OC_CMD.EXT, [OC_CMD.FLASH_ID - 128]],
 };
 function ocId(id) { const o = []; for (let i = 0; i < 5; i++) o.push(Math.floor((id >>> 0) / 2 ** (7 * i)) & 0x7F); return o; }
 
@@ -108,6 +109,7 @@ export function parsePackInfo(a) {
   o.trailer = (o.banks & 1) === 1;                       // (round 9) a scene trailer is in the pack area (a firmware with the new interface says so; older ones send 0)
   o.len = r.n3(); o.hash = r.n5(); o.buildLen = r.n3(); o.buildHash = r.n5(); o.area = r.n3();
   if (r.i + 8 <= a.length) { o.trailerLen = r.n3(); o.trailerCrc = r.n5(); }   // (Round 26) the stored scene trailer's length and the CRC-32 of all of it (0, 0: none; absent: an older firmware)
+  if (r.i < a.length) o.flash = r.b();                 // (Round 27) the flash part: 0 FLASH NOT SUPPORTED (the unit writes nothing), 1 Puya, 2 UCUN; absent: a firmware before it
   return o;
 }
 export function parseModInfo(a) {
@@ -122,10 +124,26 @@ export function parseModInfo(a) {
     for (let k = 0; k < c; k++) { crcs.push(r.n5()); pages.push(r.n5()); }
     o.crcs = crcs; o.pages = pages;                                                // (review) pages: the CRC-32 of each start's whole 256 byte header page as stored
     if (r.i + 15 <= a.length) o.fw = { len: r.n5(), crc: r.n5(), rest: r.n5() };   // (Round 26) the image the unit runs: the commit marker's body length and CRC, the CRC of the rest the loader writes (0s: no marker)
+    if (o.fw && r.i < a.length) o.flash = r.b();                                   // (Round 27) the flash part, as PACK_INFO's last byte
   }   // the six low sectors (starts 12..17) are usable (the unit's last appended byte; absent: false)   // (Release 3 step 1) the sector of each start, appended by the unit (absent: OCM_SECTOR)   // (0.12.1) the start whose module of another engine is in the way
   o.shapesBuiltIn = !!(o.flags & 1); o.moduleWins = !!(o.flags & 2); o.writing = !!(o.flags & 4); o.inPlace = !!(o.flags & 8);
   return o;
 }
+// (Round 27) 134 FLASH_ID through the extension (the reply's first byte is n, 6): the lead's read-only report of the flash part (web/EDITOR_PROTOCOL.md, tools/hw/fm1hw.py flashid)
+export function parseFlashId(a) {
+  const r = new OcReader(a);
+  if (r.b() !== OC_CMD.FLASH_ID - 128) throw new Error("not FLASH_ID");
+  const u24 = () => r.b() | (r.b() << 7) | (r.b() << 14) | (r.b() << 21), u8 = () => r.b() | (r.b() << 7);
+  const o = { version: r.b(), verdict: r.b(), writes: r.b() === 1, bootId: u24() >>> 0, rc: r.b() };
+  o.id = u24() >>> 0; o.sr1 = u8(); o.sr2 = u8(); o.sr3 = u8(); o.sfdpOk = r.b() === 1;
+  o.sfdp = Array.from({ length: 16 }, u8); const n = r.b(); o.bfpt = Array.from({ length: n }, u8);
+  o.sfcCon = r.n5();                                 // the SFC's control register as the unit found it (bits 11:8 the XIP read mode)
+  return o;
+}
+// (Round 27, FLASH_CHIPS.md) the unit said its flash part is not one the firmware knows (PACK_INFO's or MOD_INFO's last byte 0): nothing is sent that would write
+export const flashRefused = (info) => !!info && info.flash === 0;
+// (Round 27) the unit's part from that byte: 1 Puya 0x856014, 2 UCUN 0xB36014 (firmware/hal/fm1_flash_id.h FL_JEDEC_PART); null when the unit does not say
+export const flashPartOf = (info) => (info && info.flash === 1 ? 0x856014 : info && info.flash === 2 ? 0xB36014 : null);
 export function parseEngines(a) {
   const r = new OcReader(a), n = r.b(), o = { engines: [], starts: [] };
   for (let e = 0; e < n; e++) {
@@ -449,8 +467,9 @@ export async function probeUnit(link, { fx = false } = {}) {
 // (Release 3 step 4) the unit's modules for the page's lists: MOD_INFO, ENGINES and the Effects table
 export const listUnit = (link) => probeUnit(link, { fx: true });
 
-const packCode = (rc) => (rc === 2 ? "packStop" : rc === 3 ? "packOldFw" : rc === 4 ? "packRestart" : "packFail");
-const modCode = (rc) => (rc === 2 ? "modStop" : rc === 4 ? "modRestart" : rc === 5 ? "modNoFree" : rc === 7 ? "modUnreadable" : rc === 8 ? "modTail" : "modFail");
+export const OC_CODES = { pack: (rc) => packCode(rc), mod: (rc) => modCode(rc) };   // (Round 27, for the tests)
+const packCode = (rc) => (rc === 2 ? "packStop" : rc === 3 ? "packOldFw" : rc === 4 ? "packRestart" : rc === 9 ? "flashWrite" : "packFail");   /* (Round 27) 9: the flash did not take the write */
+const modCode = (rc) => (rc === 2 ? "modStop" : rc === 4 ? "modRestart" : rc === 5 ? "modNoFree" : rc === 7 ? "modUnreadable" : rc === 8 ? "modTail" : rc === 9 ? "flashWrite" : "modFail");
 
 // the pack file against PACK_INFO: this build's length and hash in its header (oc_pack.c accepts nothing else), the payload CRC and the sector tails (0.13.4: packProblem)
 export function packFits(bytes, info) { return packProblem(bytes, info) === ""; }
@@ -695,6 +714,8 @@ export function fwCurrent(id, info) {
 //   files: {pack: bytes|null, modules: [bytes], want: [{kind, module_id} | null]}      fetched before anything is written; want (Release 3 step 4, optional): what the
 //                                                    manifest says each module is, checked against the file's header and descriptor ("modManifest" when not)
 //   runFirmware(): the page's own update; resolves when the unit is back
+//   flashParts (Round 27, optional): fm1pkg.js flashPartsOf of the package, {ids, declared}; with it the unit is asked first too, and a unit whose part (PACK_INFO /
+//                                     MOD_INFO's flash byte) is not in ids is refused before the update starts (flashPackage, detail: the part's id)
 //   firmwareId (Round 26, optional): the package's {len, crc, stub} (fm1pkg.js firmwareIdentity); with it the unit is asked first (peekUnit(), else openUnit()) and the firmware
 //                                     is left as it is (sum.firmware "current") when the unit runs that image (fwCurrent); without it, or in any doubt, it is written
 //   openUnit(): the unit's editor port as an OcLink, or null (the page looks for up to a minute)
@@ -724,12 +745,20 @@ export async function runSet(ctx) {
   if (stages.firmware) {
     const f = part(weight.firmware);
     let same = false;
-    if (ctx.firmwareId) {                                // (Round 26) the unit asked first: the image it runs against the package's (fwCurrent); any doubt flashes
+    if (ctx.firmwareId || ctx.flashParts) {              // (Round 26) the unit asked first: the image it runs against the package's (fwCurrent); any doubt flashes
       const l = await (ctx.peekUnit || ctx.openUnit)();
       if (l) {
-        try { const m = await l.ask(ocReq.modInfo(), { timeout: 300, retries: 1 }); same = fwCurrent(ctx.firmwareId, m ? parseModInfo(m) : null); }
+        let mi = null;
+        try { const m = await l.ask(ocReq.modInfo(), { timeout: 300, retries: 1 }); mi = m ? parseModInfo(m) : null; same = fwCurrent(ctx.firmwareId, mi); }
         catch (e) { if (e.code === "ocLost") throw e; same = false; }
         finally { l.close(); }
+        if (flashRefused(mi)) { log("firmware: the unit says FLASH NOT SUPPORTED (its flash part is not one the firmware knows): nothing is written"); throw new OcError("flashUnsupported"); }   // (Round 27) before the update starts
+        const part = flashPartOf(mi);                    // (Round 27) the package must know the unit's part: its declaration, or the original part only (flashPartsOf)
+        if (part && ctx.flashParts && !ctx.flashParts.ids.includes(part)) {
+          const hex = part.toString(16).toUpperCase().padStart(6, "0");
+          log(`firmware: the unit's flash part is ${hex}; this package ${ctx.flashParts.declared ? "declares " + ctx.flashParts.ids.map((v) => v.toString(16).toUpperCase()).join(", ") : "declares no parts (taken as 856014 only)"}: nothing is written`);
+          throw new OcError("flashPackage", hex);
+        }
       }
       log(same ? "firmware: the unit runs this package's image (the body by its marker, the rest the loader writes by its CRC): left as it is" : "firmware: the unit's image is not this package's, or it does not say: written");
     }
@@ -745,6 +774,10 @@ export async function runSet(ctx) {
     say("unitProbe");
     let probe = await probeUnit(link, { fx: anyFx });
     log(`probe: pack ${probe.pack ? "state " + probe.pack.state : "no reply"}, modules ${probe.mod ? "yes" : "no reply"}, engines ${probe.engines ? "yes" : "no reply"}`);
+    if (flashRefused(probe.pack) || flashRefused(probe.mod)) {   // (Round 27, FLASH_CHIPS.md) the unit's flash part is not one its firmware knows: no BEGIN, no WRITE, nothing erased
+      log("probe: the unit says FLASH NOT SUPPORTED: nothing is written");
+      throw new OcError("flashUnsupported");
+    }
     if (!probe.pack) {                                   // 1c: a firmware without 115 (stock, or Orange Cat before 0.8.0)
       sum.pack = stages.pack ? "oldfw" : "off"; sum.module = mods.map(() => (stages.module ? "oldfw" : "off"));
       return sum;

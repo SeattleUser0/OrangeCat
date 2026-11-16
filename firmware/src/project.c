@@ -1629,6 +1629,12 @@ static void project_boot(void)
 #include "slice_store.c"                          /* SLICE's MAN slices, kept in the user slots */
 #endif
 #if MELODEE_FLASH
+#include "../hal/fm1_flash_id.h"                  /* (Round 27) the accepted JEDEC ids: FL_JEDEC_OK */
+static uint32_t flash_jedec;                    /* (Round 27) the id persist_boot read (editor 134 FLASH_ID reports it) */
+/* (Round 27) the parts this build accepts, declared in the image for the installer page (fm1_flash_id.h FL_IDS_DECL_*; read by persist_boot so the
+ * linker keeps it) */
+static const struct { char magic[12]; uint32_t version, n, id[FL_IDS_DECL_N], check; } fl_ids_decl __attribute__((used, aligned(4))) =
+    { {'O', 'C', '-', 'F', 'L', 'A', 'S', 'H', '-', 'I', 'D', 'S'}, 1u, FL_IDS_DECL_N, {FL_JEDEC_PUYA_P25Q80, FL_JEDEC_UCUN_UC25HQ80}, FL_IDS_DECL_CHECK };
 static persist_t persist_saved;
 static uint8_t persist_pending;                 /* 1 requested, 2 waiting after a flash error */
 static uint8_t persist_repair;                  /* boot repair must retry even when RAM equals defaults */
@@ -1644,10 +1650,14 @@ static void persist_boot(void)                    /* before settings_init / pane
     persist_t p;
     boot_work.state = 0;
     uint32_t f = irq_save();
-    flash_ok = FL_FAR(fl_jedec_ram)() == 0x856014u;       /* the expected 1 MiB part, else stay RAM-only */
+    flash_jedec = FL_FAR(fl_jedec_ram)();
     irq_restore(f);
-    if (!flash_ok)
+    (void)*(const volatile uint32_t *)&fl_ids_decl.n;   /* (the declaration referenced: --gc-sections keeps it) */
+    flash_ok = FL_JEDEC_OK(flash_jedec);           /* (Round 27) Puya P25Q80(H) or UCUN UC25HQ80 (hal/fm1_flash_id.h); any other part: the flash is left alone */
+    if (!flash_ok) {
+        ui_flash_unsupported = 1;                  /* every save's outcome says FLASH NOT SUPPORTED (ui.c ui_message); main.c shows it at boot */
         return;
+    }
 #if (OC_SFC_PROBE || OC_BOOT_SAMPLE) && defined(FM1_IRQ_TARGET)
     fl_probe_boot_sample();                        /* (Round 22, the stub window's bench gate) what the reset left, before the window is set */
 #endif

@@ -33,7 +33,12 @@
  * of the record on a cold boot: BOOT-SAFETY.md): the stub finds no marker and
  * hands over to the staged loader, or to the ROM's USB boot.
  *
+ * (Round 27, docs/orangecat/FLASH_CHIPS.md) 0. before anything else the flash's JEDEC id: a part hal/fm1_flash_id.h does not accept
+ *    (Puya 0x856014, UCUN 0xB36014) is refused, -18, nothing read from the host and nothing erased; the host is told with one read
+ *    request at OTA_NOFLASH | id (ota.c), which the page and fm1_install.py report as FLASH NOT SUPPORTED. (The driver refuses
+ *    every erase and program of such a part as well: fm1_flash.h fl_id_gate.)
  * Hooks from the platform (loader.c, ldr_test.c):
+ *   ldr_jedec()           the flash's JEDEC id (0x9F; on the device it also opens the driver's write gate)
  *   ldr_fread(off, p, n)  ldr_erase(off)  ldr_prog(off, p, n)   flash, 0 = ok
  *   ldr_record_clear()    forget the RAM update record
  *   ldr_progress(done, total)
@@ -54,6 +59,8 @@
 #define LDR_BODY_MAX (LDR_BODY_END - LDR_BODY_LO)
 #define LDR_LAST_SEC 0x92000u
 
+#include "../hal/fm1_flash_id.h"
+static uint32_t ldr_jedec(void);
 static int ldr_fread(uint32_t off, void *p, uint32_t n);
 static int ldr_erase(uint32_t off);
 static int ldr_prog(uint32_t off, const void *p, uint32_t n);
@@ -194,6 +201,11 @@ static int ldr_session(void)
     static uint8_t hdr[0x400], sec[0x1000], cur[0x1000];
     uint32_t i, fl_off, fl_size, ota_off, ota_len, key, s, done = 0, open = 0, stub, body_len = 0, body_end, total;
     int rc, mark;
+    /* 0. (Round 27) the flash part: an unknown one is left alone, and the host is told why */
+    if (!FL_JEDEC_OK(i = ldr_jedec())) {
+        ota_say_noflash(i);
+        return -18;
+    }
     /* 1. UFW header + entry list (ota.c) */
     if ((rc = ota_ufw(hdr, &fl_off, &fl_size, &ota_off, &ota_len)) != 0)
         return rc;

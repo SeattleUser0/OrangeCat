@@ -30,6 +30,8 @@
 #define OTA_LDR_HCRC 0xEBAAu                     /* official update loader (usb_hid_ota.bin) */
 #define OTA_LDR_DCRC 0x5881u
 #define OTA_LDR_LEN 0x4DE1u
+#define OTA_NOFLASH 0xEE000000u                  /* (Round 27) one read request at OTA_NOFLASH | JEDEC id (24 bits), length 0: "FLASH NOT SUPPORTED, nothing written"
+                                                    * (FLASH_CHIPS.md); the page and fm1_install.py stop there and say so. A page before it calls it a bad request and stops too */
 #define OTA_FRAME_MAX 640u                       /* 512-B response = 605 wire bytes */
 #ifndef OTA_SCRATCH                              /* 2 KiB of work space while staging (melodee.c: the project staging) */
 static uint8_t ota_scratch[0x800];
@@ -168,6 +170,16 @@ static void ota_service(void)
         ota_reply_identity();
 }
 
+/* (Round 27) the flash part is not one hal/fm1_flash_id.h accepts: the host is told once, no answer is awaited */
+static void ota_say_noflash(uint32_t id)
+{
+    uint8_t q[8];
+    q[0] = 0;
+    ota_wr32(q + 1, OTA_NOFLASH | (id & 0xFFFFFFu));
+    q[5] = q[6] = q[7] = 0;
+    ota_send_msg(0x30, q, 8);
+}
+
 /* one read request (3 tries x 5 s); data -> dst */
 static uint32_t ota_deadline;                    /* 0 = none; else ota_now_ms() limit of the session */
 
@@ -230,7 +242,12 @@ static int ota_stage_head(uint32_t len)
     for (i = 0; i < 16u; i++)
         h[16 + i] = (uint8_t)NAME[i];
     ota_wr16(h, ota_crc16(h + 2, 30, 0));
-    return ota_prog(OTA_AREA, h, 32);
+    {   /* (Round 27 review) read back, as the body was: the boot stub and the SPL find the staged loader by this head */
+        uint8_t back[32];
+        if (ota_prog(OTA_AREA, h, 32) || ota_fread(OTA_AREA, back, 32) || !ota_memeq(back, h, 32))
+            return -1;
+    }
+    return 0;
 }
 
 /* UFW header + entry list (hdr: 1 KiB) from the host -> offset / length of

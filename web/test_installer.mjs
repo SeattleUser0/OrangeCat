@@ -29,6 +29,7 @@ const context = vm.createContext({
   fetch: url => new Promise(resolve => pending.push({url, resolve})),
   logicalImage: bytes => bytes,
   firmwareIdentity: () => null,                 // (Round 26) fm1pkg.js: the stub packages carry no marker
+  flashPartsOf: () => null,   // (Round 27) fm1pkg.js: no declaration read here (test_flash_refuse.mjs covers it), so runSet asks the unit only as before
   productOf: bytes => ["new", "old", "rc"][bytes[0]],
   Uint8Array,
 });
@@ -91,4 +92,5 @@ assert.doesNotMatch(template, /build-(?:rc-|nightly-)?single|singleWhy|fallback-
 // 0.11.2: the whole set (firmware, pack, modules) against a mocked unit
 await import("./test_installer_set.mjs");
 await import("./test_installer_page.mjs");
+await import("./test_flash_refuse.mjs");   // (Round 27) FLASH NOT SUPPORTED: the page refuses, nothing written
 console.log("installer: dual-core release/channel selection, cache separation, fetch races, language, write lock and scrolling passed");

@@ -63,6 +63,7 @@ static void ota_commit(const uint8_t *parm) { (void)parm; }
 #include "../src/ota.c"
 
 /* ---- ldr_core.c hooks: interrupts are off for the whole loader ---- */
+static uint32_t ldr_jedec(void) { return fl_jedec_ram(); }   /* (Round 27) the id; an accepted one opens the driver's write gate (fm1_flash.h fl_id_gate) */
 static int ldr_fread(uint32_t off, void *p, uint32_t n) { return fl_read_ram(off, p, n); }
 static int ldr_erase(uint32_t off)
 {

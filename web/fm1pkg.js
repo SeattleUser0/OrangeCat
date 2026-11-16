@@ -273,6 +273,34 @@ export function firmwareIdentity(fwsc) {
   } catch (_) { return null; }
 }
 
+// (Round 27, docs/orangecat/FLASH_CHIPS.md) the flash parts (JEDEC ids) the package's firmware and update loader accept: the declaration
+// the build writes into the image from firmware/hal/fm1_flash_id.h ("OC-FLASH-IDS", version 1, count, ids, ~(version ^ count ^ ids)),
+// found in the app area as the loader writes it, deciphered. -> {ids, declared}; a package without it (Standard 0.15.0, older Nightlies)
+// is taken as knowing the original part only: {ids: [0x856014], declared: false}
+export const FLASH_ORIGINAL = 0x856014;
+export function flashPartsOf(fwsc) {
+  const none = { ids: [FLASH_ORIGINAL], declared: false };
+  try {
+    const p = new Package(fwsc);
+    if (p.appBase !== APP_LO || p.flash.length < APP_HI || p.chipKey === null) return none;
+    const x = p.flash.slice(APP_LO, APP_HI);
+    sfc(x, 0, x.length, 0, p.chipKey);
+    const M = [0x4F, 0x43, 0x2D, 0x46, 0x4C, 0x41, 0x53, 0x48, 0x2D, 0x49, 0x44, 0x53];   // "OC-FLASH-IDS"
+    for (let i = 0; i + 24 <= x.length; i += 4) {
+      if (x[i] !== M[0] || x[i + 1] !== M[1]) continue;
+      let k = 2; while (k < 12 && x[i + k] === M[k]) k++;
+      if (k < 12) continue;
+      const ver = u32(x, i + 12), n = u32(x, i + 16);
+      if (ver !== 1 || n < 1 || n > 8 || i + 24 + 4 * n > x.length) continue;
+      const ids = []; let c = ver ^ n;
+      for (let j = 0; j < n; j++) { const v = u32(x, i + 20 + 4 * j); ids.push(v); c ^= v; }
+      if (((~c) >>> 0) !== u32(x, i + 20 + 4 * n)) continue;
+      return { ids, declared: true };
+    }
+  } catch (_) { /* not a package this reads: the original part only */ }
+  return none;
+}
+
 export async function sha256hex(bytes) {
   const d = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(d)].map((x) => x.toString(16).padStart(2, "0")).join("");
