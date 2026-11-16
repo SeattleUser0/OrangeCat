@@ -128,7 +128,8 @@
       "others": [
         "SELECT: what MENU > GLO SELECT says (BPM at first).",
         "PLAY: RESTART from the top without stopping.",
-        "OCT- (on release): puts back the mutes, levels and BPM from when the layer opened (\"MIX PUT BACK\"). OCT+ does nothing."
+        "OCT- (on release): puts back the mutes, levels and BPM from when the layer opened (\"MIX PUT BACK\"). It does not undo a track OFF.",
+        "OCT+ (a tap, on release): the selected track OFF, or ON again (\"T2 OFF\", \"T2 ON\", playing \"T2 ON AT LOOP\"). An OFF track is not played and gives its memory back; its steps, sound and mix are kept, its keys and MIDI make no sound, the Stage row says OFF. Turned ON it takes its memory back (WAIT while there is none) and plays from the next launch point (ARP's LAUNCH). Works on every page, the DUB page too."
       ]
     },
     "[SCL] SET": {

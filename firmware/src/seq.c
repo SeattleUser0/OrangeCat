@@ -587,6 +587,7 @@ static uint32_t rec_round(const track_t *t, uint32_t *next)
 static void rec_note(track_t *t, uint32_t note, uint32_t vel)
 {
     if (seq_erase_active(t)) return;
+    if (trk_off_silent(trk_index(t))) return;           /* (Round 27) an OFF track records nothing: its notes make no sound */
     uint32_t len = t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u, k;
     uint32_t next;
     /* Every recording source rounds to the closest swung onset, including
@@ -1392,7 +1393,7 @@ static __attribute__((noinline)) void seq_fire(track_t *t, uint32_t idx, uint32_
         }
         t->rskip_n = 0;
     }
-    if (((seq_hush | seq_frz_quiet) >> trk_index(t)) & 1u)   /* (0.5.6: a frozen phrase's take plays) */
+    if (((seq_hush | seq_frz_quiet | seq_off_quiet) >> trk_index(t)) & 1u)   /* (0.5.6: a frozen phrase's take plays; (Round 27) OFF, or ON before its launch point) */
         s = &SEQ_HUSH_STEP;
     seq_step(t, s, step_gate(s) ? step_samples(t, period, idx) : period, skip);
 }
@@ -1494,6 +1495,9 @@ static void seq_grid_tick(track_t *t, uint32_t n)
         }
         if (!t->seq_idx && !starting && t->ent_pass < 255u)   /* (Orange Cat 0.3, 4c) a pass of the bank playing */
             t->ent_pass++;
+        if (((seq_off_quiet >> trk_index(t)) & 1u) && !trk_off(trk_index(t)) &&
+            (starting || launch_here(t, period, !t->seq_idx)))   /* (Round 27) turned ON while playing: its notes from the launch point (as a staged MUTE) */
+            seq_off_quiet &= (uint8_t)~(1u << trk_index(t));
         if (!starting && t->mute_arm && launch_here(t, period, !t->seq_idx)) {   /* (0.4.1) a staged MUTE */
             t->p[P_MUTE] = (int16_t)(t->mute_arm - 1u);
             t->mute_arm = 0;

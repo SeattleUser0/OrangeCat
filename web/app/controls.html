@@ -61,7 +61,7 @@ th{background:var(--card)}
 <p>The screen's footer: RESTART, UNDO, DONE.</p>
 <div class="tw"><table><thead><tr><th>Key</th><th>Does</th></tr></thead><tbody><tr><td>F#3 G#3 A#3 C#4</td><td>MUTE T1 to T4. Latched; a lit key is sounding.</td></tr><tr><td>F3 G3 A3 B3</td><td>SOLO T1 to T4 while held.</td></tr><tr><td>C4</td><td>Unmute all.</td></tr><tr><td>F4</td><td>Tap tempo (internal clock only; the tempo is set from the third tap).</td></tr></tbody></table></div>
 <p>KNOB 1 to 4: LEVEL of T1 to T4 (recorded as motion when armed).</p>
-<ul><li>SELECT: what MENU &gt; GLO SELECT says (BPM at first).</li><li>PLAY: RESTART from the top without stopping.</li><li>OCT- (on release): puts back the mutes, levels and BPM from when the layer opened (&quot;MIX PUT BACK&quot;). OCT+ does nothing.</li></ul>
+<ul><li>SELECT: what MENU &gt; GLO SELECT says (BPM at first).</li><li>PLAY: RESTART from the top without stopping.</li><li>OCT- (on release): puts back the mutes, levels and BPM from when the layer opened (&quot;MIX PUT BACK&quot;). It does not undo a track OFF.</li><li>OCT+ (a tap, on release): the selected track OFF, or ON again (&quot;T2 OFF&quot;, &quot;T2 ON&quot;, playing &quot;T2 ON AT LOOP&quot;). An OFF track is not played and gives its memory back; its steps, sound and mix are kept, its keys and MIDI make no sound, the Stage row says OFF. Turned ON it takes its memory back (WAIT while there is none) and plays from the next launch point (ARP's LAUNCH). Works on every page, the DUB page too.</li></ul>
 <h3 id="scl-set">[SCL] SET</h3>
 <p>Hold SCL. On NOTES and TRACKER of a pitched track SCL held is a step modifier instead (it moves the note in time).</p>
 <p>The screen's footer: ROOT, UNDO, DONE.</p>
