@@ -156,7 +156,7 @@ static int mpc_octaves_unpack(int8_t oct[NTRK], uint32_t word)
     return 1;
 }
 typedef union { uint32_t align; uint8_t raw[PROJ_STORE_SIZE]; } project_store_t;
-_Static_assert(G_DTIME == PROJ_GLOBALS && G_BUDGET==41u && G_COUNT==76u && PROJ_JFX_N <= 56u &&
+_Static_assert(G_DTIME == PROJ_GLOBALS && G_BUDGET==41u && G_COUNT==76u && PROJ_JFX_N <= 54u &&   /* ((Round 27, the review) 54: the two ids below MPC_OCT are PROJ_OFF_WIRE's */
                P_DIST == PROJ_OLD_P_FX && P_REV == PROJ_OLD_P_SEND && P_JRES6 == 113u && P_COUNT == 124u,
                "global ids, the effect ids and the wire header stay fixed (a change: a new magic and a conversion)");
 /* (0.6.0) the global effect settings of a record from before FUN23: the new defaults; the leveler off, so a converted
@@ -1099,6 +1099,7 @@ static int project_restore_runtime(const project_t *input)
         oc_mod_note_engine(e, (uint32_t)(uint16_t)s->p[P_E0]);                          /* (0.11.1) the module's use is marked now, before audio renders it (the main loop's pass comes later) */
 #endif
         t->mpc_octave = (int8_t)clamp(s->mpc_octave, -3, 3);
+        if (trk_off(k) && !s->off) trk_on_load |= (uint8_t)(1u << k);   /* ((Round 27) turned ON by the load: its state taken as a load takes it, voice.c) */
         trk_off_set(k, s->off != 0u);                                     /* (Release 3) the explicit OFF, from the project */
         t->user = 0; t->user_native=0;                                    /* (no user preset slot is saved) */
         for (i = 0; i < P_COUNT; i++) {                 /* every value back inside its range */

@@ -448,6 +448,7 @@ static void stage_row(uint32_t k)
     static const char *const AM[7] = {"ARP", "ARP UP", "ARP DOWN", "ARP UP-DOWN", "ARP RANDOM", "ARP ORDER", "REPEAT"};
     const track_t *t = &trk[k];
     uint32_t sel = k == song.sel, mute = t->p[P_MUTE] != 0u, arm = (song.rec >> k) & 1u, len = (uint32_t)t->p[P_SLEN];
+    uint32_t off = trk_off(k), wait = (trk_on_wait >> k) & 1u;   /* (Round 27) OFF: greyed as a muted row, the word OFF; ON and short of memory: WAIT */
     uint32_t lv = stage_rec_lv(k);
     uint32_t ph = song.playing && t->seq_idx < len ? t->seq_idx : 0xFFFFu, nb = st_bars(t);
     uint32_t cur_e = lists.cur[k] % OCL_NENT, se = ocl_staged_ent(k);   /* (Orange Cat 0.3, 4c) the entries */
@@ -459,7 +460,7 @@ static void stage_row(uint32_t k)
     int32_t steps_row = h >= 80, showrole = 1;          /* (one, two tracks: the role under the name; three, four: beside it,
                                                          * at the right) */
     uint32_t frozen = frz_track_frozen(k);              /* (Orange Cat 0.5.6) on a frozen phrase: greyed, a blue tint */
-    uint16_t tc = mute ? T_DIM : frozen ? ux_mix(T_DIM, ST_FROZEN_BLUE, 55) : T_TRK(k), bg = ux_mix(T_BG, tc, sel ? 24 : 11);
+    uint16_t tc = mute || off || wait ? T_DIM : frozen ? ux_mix(T_DIM, ST_FROZEN_BLUE, 55) : T_TRK(k), bg = ux_mix(T_BG, tc, sel ? 24 : 11);
                                                         /* (the track's tint) */
     const aafont_t *lf = TY_LB, *nf = h >= 80 ? TY_VL : TY_TX;
     char nm[24], line[48], more[48], ml[TL_MAX][32], d[3] = {(char)('1' + k), 0, 0}, role[16];
@@ -479,11 +480,11 @@ static void stage_row(uint32_t k)
     cat = entry_cat(src, kk) % CAT_N;
     {   /* the role (NEW SONG's words: DRUMS, CHORDS; none, OTHER: the track), then what plays */
         char tn[3] = {'T', (char)('1' + k), 0};
-        str_cpy(line, mute ? "MUTE" : frozen ? "FROZEN" : cat == CAT_DRUM ? "DRUMS" : cat == CAT_KEYS ? "CHORDS" :
+        str_cpy(line, off ? "OFF" : wait ? "WAIT" : mute ? "MUTE" : frozen ? "FROZEN" : cat == CAT_DRUM ? "DRUMS" : cat == CAT_KEYS ? "CHORDS" :
                 cat && cat != CAT_OTHER ? CAT_NAME[cat] : tn, sizeof line);   /* ((0.5.6) frozen: says so; (round 24) muted: says so
                                                          * first (the grey alone read as a fault: "Track 4 graying out")) */
     }
-    sig = str_hash(str_hash(1u + sel * 2u + mute * 4u + arm * 8u + (uint32_t)pending * 16u + stage.out * 32u + frozen * 64u, nm),
+    sig = str_hash(str_hash(1u + sel * 2u + mute * 4u + arm * 8u + (uint32_t)pending * 16u + stage.out * 32u + frozen * 64u + off * 128u + wait * 256u, nm),
                    line) +
           next * 131u + (t->pattern + 8u * cur_e) * 7919u + len * 13u + ux.gen * 977u + ux.pal * 31u + n * 7u + (uint32_t)h * 211u + idle * 3u +
           lv * 50021u;
@@ -502,7 +503,7 @@ static void stage_row(uint32_t k)
                                                          * right of its line (the role where the name leaves room), the
                                                          * steps across under them) */
         room = BOX_W - 6 - tx - 8 - pills - text_w(lf, role) - 8;
-        if (text_w(TY_TX, nm) > room && !mute && !frozen)   /* ((round 24) MUTE and FROZEN stay: the name gives the room, smaller or cut) */
+        if (text_w(TY_TX, nm) > room && !mute && !frozen && !off && !wait)   /* ((round 24) MUTE and FROZEN stay: the name gives the room, smaller or cut) */
             showrole = 0, room = BOX_W - 6 - tx - 6 - pills;
         nf = ty_fit(TY_TX, nm, room);
         lay = st_layout(nb, BOX_W - 6 - tx, h - 6 - TY_TX->cap - 5);
@@ -573,15 +574,15 @@ static void stage_row(uint32_t k)
         cv_text_c(6 + cs / 2, ty_y(h / 2 - ny, cs > 30 ? TY_VL : TY_TX), cs > 30 ? TY_VL : TY_TX, d, T_INK, tc);
         if (arm)                                        /* armed: a REC dot on its corner */
             cv_disc(6 + cs - 2, h / 2 - cs / 2 - ny + 2, 9, T_REC, 0);
-        cv_free_text(tx, by, nf, nm, pending ? T_ACCENT : mute ? T_DIM : frozen ? tc : T_TEXT, bg, room);
+        cv_free_text(tx, by, nf, nm, pending ? T_ACCENT : mute || off || wait ? T_DIM : frozen ? tc : T_TEXT, bg, room);
         if (l2[0])
-            cv_free_text(tx, by + nf->h - 4, nf, l2, pending ? T_ACCENT : mute ? T_DIM : frozen ? tc : T_TEXT, bg,
+            cv_free_text(tx, by + nf->h - 4, nf, l2, pending ? T_ACCENT : mute || off || wait ? T_DIM : frozen ? tc : T_TEXT, bg,
                          BOX_W - 6 - tx);
         {   /* the role, then the pattern (a pill in the track's colour), the next one waiting for the bar dashed */
             int32_t lx = steps_row ? tx : BOX_W - 6 - pills - (showrole ? text_w(lf, role) + 8 : 0), cy = pcy,
                     ly = ty_y(cy, lf), re = BOX_W - 6;
             if (showrole)
-                lx = cv_text_on(lx, ly, lf, role, mute ? T_REC : tc, bg) + 8;   /* ((round 24) MUTE: red, as MIXER's Mute and GLO's map) */
+                lx = cv_text_on(lx, ly, lf, role, wait ? T_ACCENT : off ? T_TEXT : mute ? T_REC : tc, bg) + 8;   /* ((Round 27) OFF: plain, WAIT: the accent) */   /* ((round 24) MUTE: red, as MIXER's Mute and GLO's map) */
             if (!idle) {
                 cv_rrect(lx, cy - 8, pw, 16, 4, tc, bg);
                 cv_text_on(lx + 4, ly, lf, pt, T_INK, tc);

@@ -2,7 +2,7 @@
 
 # Orange Cat controls
 
-For the Nightly v0.16.0-229d4c and later (firmware commit 229d4c9b, November 14, 2026). Made from the firmware's tables ea3fb820: when they change, this page is made again.
+For the Nightly v0.16.0-229d4c and later (firmware commit 229d4c9b, November 14, 2026). Made from the firmware's tables a4b0c290: when they change, this page is made again.
 
 What every knob, button and key does on the unit, page by page. It describes the Nightly build: the new interface with HOME's pictures, the four knobs and the EDIT sheets, with the FX order SENDS first and the track's own effects last.
 
@@ -101,7 +101,7 @@ EDIT opens a sheet: a tab with rows, each row a page. From HOME, or from a page 
 
 Hold GLO for the hold time (MENU > HOLD, 0.3 to 0.6 s, 0.4 s at first), or press a key or knob while it is down. Tap it quickly and GLO opens MIXER, then GLOBAL, SYSTEM, WEIGHTS and WEIGHTS 2.
 
-The screen's footer: RESTART, UNDO, DONE.
+The screen's footer: RESTART, UNDO, TRK OFF.
 
 | Key | Does |
 |---|---|
@@ -114,7 +114,8 @@ KNOB 1 to 4: LEVEL of T1 to T4 (recorded as motion when armed).
 
 - SELECT: what MENU > GLO SELECT says (BPM at first).
 - PLAY: RESTART from the top without stopping.
-- OCT- (on release): puts back the mutes, levels and BPM from when the layer opened ("MIX PUT BACK"). OCT+ does nothing.
+- OCT- (on release): puts back the mutes, levels and BPM from when the layer opened ("MIX PUT BACK"). It does not undo a track OFF.
+- OCT+ (a tap, on release): the selected track OFF, or ON again ("T2 OFF", "T2 ON", playing "T2 ON AT LOOP"). An OFF track is not played and gives its memory back; its steps, sound and mix are kept, its keys and MIDI make no sound, the Stage row says OFF. Turned ON it takes its memory back (WAIT while there is none) and plays from the next launch point (ARP's LAUNCH). Works on every page, the DUB page too.
 
 ### [SCL] SET
 

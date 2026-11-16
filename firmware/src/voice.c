@@ -560,13 +560,31 @@ static int trk_wanted(const track_t *t);                 /* seq.c: the track has
  * project record's tagged word PROJ_OFF_WIRE (project.c; the TRKS section's flags bit 0 in the Release 3 format, PROJECT_FORMAT_R3.md 4) and set from there by
  * proj_apply. trk_off() returns it; an OFF track is released as soon as its voices have ended whatever its steps hold (trk_wanted asks here first, when
  * OC_TRK_RELEASE is on). Nothing here turns it on or off but the project load and trk_off_set (Session A: the engine side and the screen). */
-static uint8_t trk_off_bits;                             /* bit k: track k is OFF (main loop writes it with the audio interrupt off, as a project load does) */
+static volatile uint8_t trk_off_bits;                    /* bit k: track k is OFF (the main loop writes it, the audio interrupt reads it) */
 static inline int trk_off(uint32_t k) { return k < NPART && ((trk_off_bits >> k) & 1u) != 0u; }
 static inline void trk_off_set(uint32_t k, int off)
 {
     if (k >= NPART) return;
     if (off) trk_off_bits |= (uint8_t)(1u << k); else trk_off_bits &= (uint8_t)~(1u << k);
 }
+/* (Round 27 item 3, BUILD.md 7.40) the engine side of the OFF, in the audio interrupt (engine_block, the start of every block, before its notes), driven
+ * by trk_off_bits alone (OC_TRK_RELEASE stays 0: nothing is released automatically). OFF: every hold of the track let go (keys, arp, mono stack,
+ * waiting notes), its sounding voices fade over XF_BLOCKS blocks (2.9 ms, the engine switch's fade: no click), then the state goes back to the arena
+ * (eng_state_clear, eng_rel set) and the track is not rendered (track_render_audio), its strip not mixed, its DUB insert off (fx_insert.c), its frozen
+ * take silent (mix.c). Its notes (keys, MIDI on its channel, the sequencer, arp, scenes) start nothing and take nothing (trk_note_on_work). Its steps,
+ * sound (preset, params, a pending engine change: eng_req), motion, recordings and mix settings are not touched; the sequencer keeps its place
+ * (seq_off_quiet keeps its notes from it). ON: the state taken again from free memory only (eng_state_take_quiet: the effects are not made to yield, the
+ * record undo is not dropped); short, the track waits (trk_on_wait: the Stage row says WAIT) and asks again after each release. Playing, its sequencer
+ * notes start at the next launch point (seq.c launch_here, LAUNCH: the loop end by default, as a staged MUTE); stopped, at once. */
+#define OC_TRK_OFF_ENGINE 1                              /* (the tests: this firmware has the engine side) */
+static uint8_t trk_off_seen;                             /* bit k: the audio side has acted on track k's OFF */
+static uint8_t trk_on_wait;                              /* bit k: turned ON, its state not had yet (the arena short) */
+static uint8_t trk_on_load;                              /* bit k: turned ON by a project load (proj_apply, the interrupt off): its take is a load's (the effects yield), not the quiet one */
+static volatile uint8_t seq_off_quiet;                   /* bit k: the sequencer's notes do not reach track k (OFF; ON, before its launch point) */
+static uint32_t trk_off_n, trk_off_bytes, trk_on_n, trk_on_waits;   /* counts: the host tests and editor command 72 [flags, 11] */
+static inline int trk_off_silent(uint32_t k) { return k < NPART && (((trk_off_bits | trk_on_wait) >> k) & 1u) != 0u; }   /* its notes start nothing */
+/* the main loop: track k OFF (1) or ON (0); the audio interrupt does the rest at its next block (it only reads the byte: the main loop is its one writer) */
+static void track_off_req(uint32_t k, int off) { trk_off_set(k, off); }
 static void voice_start(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int glide)
 {
     AP_START(attack_start);
@@ -708,6 +726,8 @@ static void trk_note_on_work(track_t *t, uint32_t note, uint32_t vel)
     uint32_t any = 0, i, mode = trk_vmode(t);
     if (t->p[P_MUTE] || (uint32_t)(t - trk) >= trk_n())   /* (a track not in use: silent) */
         return;
+    if (trk_off_silent((uint32_t)(t - trk)))             /* (Round 27) OFF, or ON and waiting for its state: no note, nothing taken */
+        return;
     if ((perf_hush >> (uint32_t)(t - trk)) & 1u)         /* (0.6.0 rev 2) muted by the FX layer: no new note (its
                                                          * sound ramped to silence, its voices ended: perf_mute) */
         return;
@@ -840,14 +860,79 @@ static int eng_held(track_t *t)
 {
     uint32_t k = (uint32_t)(t - trk) % NPART;
     if (!eng_rel[k]) return 1;
-    if (!trk_wanted(t)) return 0;
+    if (trk_off(k) || (OC_TRK_RELEASE && !trk_wanted(t))) return 0;   /* ((Round 27) OFF: never; the automatic release, when built in: when wanted) */
     eng_rel[k] = 0;
     eng_retakes++;
     return 1;
 }
+/* (Round 27) the ON's take: from free memory only. resource_get would make the effects yield (res_jfx_yield) and drop the record undo; the owner: a
+ * track turned ON waits, nothing else is dropped. Asked again only after a release (eng_take_gen, as eng_state_take). */
+static int eng_state_take_quiet(track_t *t)
+{
+    uint32_t k = (uint32_t)(t - trk) % NPART;
+    uint32_t size = (MELODEE_DRUM && t->engine == ENGI_DRUM) ? drum_bytes(t) : eng_state_size(t->engine);
+    if (k >= trk_n()) return 1;                         /* (not in use: eng_state_take's, when it is added) */
+    if (!size || resource[RES_ENGINE0 + k].size == ((size + 3u) & ~3u)) return 1;
+    if (eng_take_gen[k] == resource_gen + 1u) return 0;
+    if (resource_allocate(RES_ENGINE0 + k, size)) return 1;
+    eng_take_gen[k] = resource_gen + 1u;
+    return 0;
+}
+/* (Round 27) track t's OFF and ON (above, trk_off_seen). Returns 1 while the track is OFF: engine_block does nothing else for it (an engine change asked
+ * meanwhile waits in eng_req and is made at the ON, with no voice: at once) */
+static int trk_off_block(track_t *t)
+{
+    uint32_t k = (uint32_t)(t - trk) % NPART, bit = 1u << k, i, any = 0;
+    if (trk_off(k)) {
+        seq_off_quiet |= (uint8_t)bit;
+        trk_on_wait &= (uint8_t)~bit;
+        trk_on_load &= (uint8_t)~bit;
+        if (!(trk_off_seen & bit)) {                    /* the first block OFF: every hold let go, the voices told to end */
+            trk_off_seen |= (uint8_t)bit;
+            t->nheld = 0; t->arp_phys = 0; t->arp_note = 0;
+            t->nmono = 0; t->mono_note = 0; t->xp_n = 0;
+            t->seq_n = 0; t->seq_hold = 0; t->rh_n = 0;
+            for (i = 0; i < NVOICE; i++) {
+                t->v[i].gate = 0;
+                any |= t->v[i].active;
+            }
+            if (any && !t->xf_on) {                     /* (an engine fade under way goes on as it is) */
+                t->xf_on = 1;
+                t->xf = XF_BLOCKS;
+            }
+        }
+        if (t->xf_on) {
+            if (t->xf) return 1;                        /* fading (track_render_audio counts down) */
+            t->xf_on = 0;
+        }
+        for (i = 0; i < NVOICE; i++) {
+            voice_t *v = &t->v[i];
+            v->active = v->gate = 0;
+            v->stage = 0;
+            v->env = v->env_out = 0;
+        }
+        if (!eng_rel[k]) {                              /* the state back to the arena */
+            trk_off_bytes += resource[RES_ENGINE0 + k].size;
+            trk_off_n++;
+            eng_state_clear(k);
+            eng_rel[k] = 1;
+            eng_keep[k] = 0;
+        }
+        return 1;
+    }
+    if (trk_off_seen & bit) {                           /* turned ON: the state to be taken (below, after an engine change asked while OFF) */
+        trk_off_seen &= (uint8_t)~bit;
+        eng_rel[k] = 0;
+        trk_on_wait |= (uint8_t)bit;
+        trk_on_n++;
+        if (!song.playing) seq_off_quiet &= (uint8_t)~bit;   /* (stopped: PLAY starts it with the others) */
+    }
+    return 0;
+}
 static void engine_block(track_t *t)
 {
     uint32_t i, any = 0;
+    if (trk_off_block(t)) return;
     if (t->xf_on || t->eng_req != t->engine) {
         if (!t->xf_on) {
             for (i = 0; i < NVOICE; i++)
@@ -881,7 +966,13 @@ static void engine_block(track_t *t)
                 trk_note_on(t, t->xp_note[i], t->xp_vel[i]);
         }
     }
-    if (!t->xf_on && eng_held(t) && eng_state_take(t) && t->xp_n) {    /* (round 10) the state's memory is there: the notes that waited for it play now */
+    if ((trk_on_wait >> ((uint32_t)(t - trk) % NPART)) & 1u) {   /* (Round 27) turned ON: the state from free memory, or the track waits */
+        uint32_t kb = 1u << ((uint32_t)(t - trk) % NPART);
+        if (!t->xf_on && ((trk_on_load & kb) ? eng_state_take(t) : eng_state_take_quiet(t))) {
+            trk_on_wait &= (uint8_t)~kb;
+            trk_on_load &= (uint8_t)~kb;
+        } else trk_on_waits++;                          /* (blocks waited: the counts) */
+    } else if (!t->xf_on && eng_held(t) && eng_state_take(t) && t->xp_n) {    /* (round 10) the state's memory is there: the notes that waited for it play now */
         uint32_t n = t->xp_n;
         t->xp_n = 0;
         for (i = 0; i < n; i++)
@@ -1018,6 +1109,12 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
     uint32_t nr = 0, fade = t->xf_on && t->xf;
     uint32_t live=0;
     for (i=0;i<NVOICE;i++) if(t->v[i].active){live=1;break;}
+    if (!live && !t->xf_on && ((trk_off(ti) && eng_rel[ti % NPART]) || ((trk_on_wait >> ti) & 1u))) {   /* (Round 27) OFF (its voices ended, its state given back), or ON and
+                                                         * waiting with nothing sounding: not rendered, nothing taken. (A fade still running, an OFF turned ON inside its 2.9 ms or
+                                                         * an engine change's, renders on: it counts the fade down, so the ON's take comes after it) */
+        if (clear_idle) for (i = 0; i < n; i++) out[i] = 0;
+        return 0;
+    }
     int16_t pe_new[8];
     if(live || clear_idle)for (i = 0; i < n; i++)out[i] = 0;
     if (mod.on && mod.ldep < 32767) lfo = mulq15(lfo, mod.ldep);

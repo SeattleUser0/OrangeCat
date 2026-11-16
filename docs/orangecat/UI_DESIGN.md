@@ -9,6 +9,8 @@ ui-build, its log in docs/orangecat/UI_BUILD.md. The screens are drawn by the fi
 (tests/ui_mockup.c), so what they show is what the unit can draw.
 
 Revisions:
+- 0.6 (November 16, 2026, Round 27 item 3, branch r27-off): decision 7 below, the control that turns a track OFF (GLO + OCT+),
+  and what an OFF track shows on HOME's pages.
 - 0.5 (October 31, 2026, branch ui-fix): the owner withdrew the SHIFT map after playing the Nightly (decision 4 reversed): HOME held
   opens the MENU, HOME as SHIFT keeps every combo (UI_BUILD.md "ui-fix 6"). The map's passages below (the controls table, section
   1's "HOME held: the SHIFT map", the page table, Part 3 step 3 and `shift_map.png`) are the design as it was and are not amended.
@@ -44,6 +46,28 @@ Decided; they replace "The choices for the morning" below, kept as it was writte
    in the asset pack** until they are modules; the firmware image holds none.
 6. **Parameter ids:** the knob macros take P_RESERVED33..36. DUB TAPE (on release-2) uses P_JRES0..6 and
    P_RESERVED45..47. None of those is reused for anything else.
+7. **Track OFF (Round 27 item 3, November 16, 2026): GLO + OCT+ turns the selected track OFF, and ON again.** A tap of OCT+ while
+   GLO is held (or locked open by a double tap), acted on at OCT+'s release as GLO's OCT- (put back) is; held past the hold time it
+   is not a tap and does nothing new. ALGORITHM picks the track before (GLO eats ALGORITHM's turns while it is held). The screen says
+   "T2 OFF", "T2 ON" (stopped) or "T2 ON AT LOOP" (playing: the launch point, ARP's KNOB 1 LAUNCH). GLO's map footer names it
+   (OCT+ TRK OFF, where GLO DONE was). OCT- (put back) does not undo an OFF: an OFF is not a mix setting. What OFF does: BUILD.md 7.40.
+   *Why this control: the conflict check.* GLO's own: the black keys F#3..C#4 MUTE, F3..B3 SOLO, C4 UNMUTE ALL, F4 TAP, KNOB 1..4
+   LEVEL, SELECT (MENU > GLO SELECT), PLAY RESTART, OCT- put back; **OCT+ did nothing** (ui_layer.c layer_oct ate its tap; the guide:
+   "OCT+ does nothing"). The other layers hold their own button, never GLO's: ARP (scenes, staged mutes, FILL, LAUNCH, throws, OCT-
+   put back), FX (punch-ins, its mutes, FILTER, OCT- all off), SCL (every key ROOT, OCT- put back); SEQ, ENV, LFO and EDIT held are
+   swallowed while GLO is down (a layer takes no other page button), and their own OCT combos (EDIT + OCT-/+ undo / redo, SEQ's
+   motion holds) need their button, not GLO. HOME as SHIFT + OCT+ (paste) needs HOME, which GLO swallows. A key was ruled out:
+   HOME's DUB page keeps C4..B4 as DUB's keys under a held layer (Round 24, dub_keys.h dubk_owned), so GLO + D4 or E4 (GLO's free
+   white keys) would be a DUB throw there; the keys above F4 have no cell on GLO's map; the GRID page owns every key. A button is
+   none of these pages' keys: GLO + OCT+ is the same on TRACKS, the Stage, the DUB page, the GRID page and every other page. The MIXER
+   page has no free control (KNOB 1 LEVEL, 2 PAN, 3 FREEZE, 4 MUTE, all turns, no knob push), and its knob 4's MUTE stays MUTE.
+   Long presses and double taps: GLO's double tap locks it (OCT+ is one of the buttons that keep the lock, ui_layer.c
+   layer_lock_input), a long GLO alone peeks, HOME held 700 ms is the MENU, the pattern button held 1 s its dialog, REC held a Capture
+   or the clears: none is GLO + OCT+.
+   *What an OFF track shows.* The Stage: its row greyed as a muted one, the role word **OFF** (plain text) where MUTE / FROZEN go;
+   **WAIT** (the accent) while a track turned ON waits for its memory. HOME's picture page: the sound line says OFF (or WAIT) where
+   MUTE goes. MIXER (GLO's page): the strip greyed, OFF (or WAIT) where Mute goes. An OFF track can be selected and edited (its steps,
+   its sound: a preset or an engine loaded while OFF is stored and comes in at the ON); its keys make no sound.
 
 ## The choices for the morning (October 26, as proposed)
 

@@ -122,8 +122,10 @@ static void hp_sound_line(int pack_missing)
     val[0] = 0;                                         /* (ui-fix: with no knob turning the value is empty, not whatever the
                                                          * stack held: the signature hashed it, and ASan caught str_len reading on) */
     label = hot >= 0 ? hp_knob_text((uint32_t)hot & 3u, val) : 0;
-    uint32_t sig, mute = t->p[P_MUTE] != 0;             /* (round 24) the track muted: the line says MUTE at its right (red, as MIXER's), the numeral grey as its row on TRACKS */
-    int32_t xe = 236, mw = text_w(TY_LB, "MUTE");
+    uint32_t off = trk_off(song.sel) || ((trk_on_wait >> song.sel) & 1u);   /* (Round 27) OFF (or WAIT) says so where MUTE would, and before it */
+    const char *mw_word = trk_off(song.sel) ? "OFF" : off ? "WAIT" : "MUTE";
+    uint32_t sig, mute = t->p[P_MUTE] != 0 || off;     /* (round 24) the track muted: the line says MUTE at its right (red, as MIXER's), the numeral grey as its row on TRACKS */
+    int32_t xe = 236, mw = text_w(TY_LB, mw_word);
     sound_name(t, name);
     pos[0] = 0;
     if (!label && user_of(t) == USER_NONE && !t->user_native && e->npresets) {   /* a factory preset: its place in the list */
@@ -134,7 +136,7 @@ static void hp_sound_line(int pack_missing)
     sig = hp_hash(2166136261u, name, str_len(name));
     sig = hp_hash(sig, pos, str_len(pos));
     sig = hp_hash(sig, val, str_len(val)) + (uint32_t)(hot + 2) * 7919u + song.sel * 131u + ux.gen * 977u +
-          (uint32_t)pack_missing * 31u + (label ? 1u : 0u) + (hp_dub() ? 0x2D0Bu : 0u) + (mute ? 0x4D55u : 0u);
+          (uint32_t)pack_missing * 31u + (label ? 1u : 0u) + (hp_dub() ? 0x2D0Bu : 0u) + (mute ? 0x4D55u : 0u) + (off ? 0x4F46u + (uint32_t)trk_off(song.sel) : 0u);
     if (!ui.force && sig == hp.sig_sound)
         return;
     hp.sig_sound = sig;
@@ -158,7 +160,7 @@ static void hp_sound_line(int pack_missing)
         xe = 32 + room;
     }
     if (mute && xe + 8 <= 236 - mw)                     /* (a knob's long name and value: no room, the grey numeral alone) */
-        cv_text_r(236, ty_y(12, TY_LB), TY_LB, "MUTE", T_REC, T_BG);
+        cv_text_r(236, ty_y(12, TY_LB), TY_LB, mw_word, off ? T_TEXT : T_REC, T_BG);
     cv_blit(0, HP_SOUND_Y);
 }
 

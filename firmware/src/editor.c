@@ -973,6 +973,31 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             break;
         }
 #endif
+        if ((na == 2u || na == 3u) && a[1] == 11u) {
+            /* (Round 27 item 3, BUILD.md 7.40) [flags, 11]: the tracks OFF, schema 23: 23, then 5 x 7 bits each: the OFF bits (voice.c trk_off_bits), the bits
+             * the audio side has acted on (trk_off_seen), the released states (eng_rel), the tracks ON and waiting for their memory (trk_on_wait), the tracks
+             * whose sequencer notes wait for the launch point (seq_off_quiet); the arena's capacity, used, peak, failures; each track's engine state held
+             * (bytes, four); the voices sounding (active, not given up) on each track (four); the counts: OFFs acted on, the bytes they gave back, ONs,
+             * blocks waited. [flags, 11, mask]: sets the OFF bits to mask first (as GLO + OCT+ does, for a bench run), then the same reply. Flag 1 is not used. */
+            uint32_t k, v[21];
+            if (na == 3u) for (k = 0; k < NTRK && k < trk_n(); k++) track_off_req(k, (int)((a[2] >> k) & 1u));   /* (the tracks in use: a place not in use is left as it is) */
+            fm1_irq_off();
+            v[0] = trk_off_bits; v[1] = trk_off_seen; v[2] = 0;
+            for (k = 0; k < NPART; k++) v[2] |= (uint32_t)(eng_rel[k] != 0) << k;
+            v[3] = trk_on_wait; v[4] = seq_off_quiet;
+            v[5] = RESOURCE_CAPACITY; v[6] = resource_used(); v[7] = resource_peak; v[8] = resource_failures;
+            for (k = 0; k < 4u; k++) {
+                uint32_t i, n = 0;
+                v[9 + k] = k < NPART ? resource[RES_ENGINE0 + k].size : 0u;
+                for (i = 0; k < NPART && i < NVOICE; i++) n += trk[k].v[i].active && trk[k].v[i].stage != 4u;
+                v[13 + k] = n;
+            }
+            v[17] = trk_off_n; v[18] = trk_off_bytes; v[19] = trk_on_n; v[20] = trk_on_waits;
+            fm1_irq_on();
+            ed_b(23);
+            for (k = 0; k < 21u; k++) ed_bk_u32(v[k]);
+            break;
+        }
         if ((na == 2u || na == 5u || na == 6u) && a[1] == 6u) {
             /* (0.15.0) [flags, 6]: the cost caps (voice.c voice_cap_room), schema 15 (Release 2; 13 before: three fields a class, no third cap column): 15, then 5 x 7 bits each: engaged now, times
              * engaged, halves engaged, extra UNISON voices refused, the shared effects ran last block, N (3: MODAL, FM6, the Prophet); then

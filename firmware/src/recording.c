@@ -1281,7 +1281,7 @@ static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t lat
     recorded_note_t *r = &recording[i];
     if (recording_flags[i] & 4u) return;
     recording_flags[i] |= 4u;
-    if ((recording_flags[i] & 1u) || (((seq_hush | seq_frz_quiet) >> trk_index(t)) & 1u)) return;   /* (an edit waiting:
+    if ((recording_flags[i] & 1u) || (((seq_hush | seq_frz_quiet | seq_off_quiet) >> trk_index(t)) & 1u)) return;   /* (an edit waiting:
                                                          * seq.c; Orange Cat 0.5.6: a frozen phrase's take plays) */
     uint32_t view = recording_view(t, r) % NSTEP, tr = trk_index(t);
     if (!recording_ctl(r) && !recording_roll_ok(t, view)) return;   /* (Round 24) a control note: no chance or condition of the step under it (and it does not roll the step for the notes) */
@@ -1325,7 +1325,7 @@ static void recording_rep_tick(track_t *t, uint32_t n)
             recording_shape(t, i, period, &vel, &gate, &hits, &part, &grace);
             while (left && (int32_t)(recording_rep_at[tr][k] - clk) <= (int32_t)n) {
                 uint32_t late = (uint32_t)((int32_t)n - (int32_t)(recording_rep_at[tr][k] - clk));
-                if (!((recording_flags[i] & 1u) || (((seq_hush | seq_frz_quiet) >> tr) & 1u))) recording_hit(t, i, vel, gate, late);
+                if (!((recording_flags[i] & 1u) || (((seq_hush | seq_frz_quiet | seq_off_quiet) >> tr) & 1u))) recording_hit(t, i, vel, gate, late);
                 left--;
                 recording_rep_at[tr][k] += part;
             }

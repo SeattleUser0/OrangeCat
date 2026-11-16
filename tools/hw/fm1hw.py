@@ -193,6 +193,15 @@ class Unit:
         f = [sum(d[1 + i * 5 + j] << (7 * j) for j in range(5)) for i in range((len(d) - 1) // 5)]
         return {"sounding": f[20], "gated": f[21], "sheds": f[24], "kills": f[25]}
 
+    def trk_off(self, mask=None):
+        """(Round 27, BUILD.md 7.40) AUDIO_STATS [0, 11 (, mask)], schema 23: the tracks OFF, the arena, each track's state and voices; mask: set the OFF bits first"""
+        d = self.req(72, [0, 11] + ([mask & 15] if mask is not None else []))
+        if d[0] != 23:
+            raise RuntimeError(f"AUDIO_STATS [0, 11]: schema {d[0]}, not 23 (a firmware without track OFF)")
+        f = [sum(d[1 + i * 5 + j] << (7 * j) for j in range(5)) for i in range((len(d) - 1) // 5)]
+        return {"off": f[0], "acted": f[1], "released": f[2], "waiting": f[3], "launch_wait": f[4], "arena": f[5], "used": f[6], "peak": f[7],
+                "failures": f[8], "state_bytes": f[9:13], "voices": f[13:17], "offs": f[17], "off_bytes": f[18], "ons": f[19], "blocks_waited": f[20]}
+
     @staticmethod
     def _parse(d):
         n = (len(d) - 1) // 5
@@ -531,6 +540,8 @@ def main():
     s = sub.add_parser("table"); s.add_argument("--seconds", type=float, default=20); s.add_argument("--out"); s.add_argument("--label", default="")
     s.add_argument("--set", choices=sorted(SETS), default="heavy")
     s = sub.add_parser("library"); s.add_argument("--backup"); s.add_argument("--store-slot", type=int); s.add_argument("--name", default="HW TEST")
+    s = sub.add_parser("trkoff", help="(Round 27) the tracks OFF, the arena, each track's state and voices; --set MASK turns tracks OFF (bit k: track k+1)")
+    s.add_argument("--set", type=lambda x: int(x, 0))
     s = sub.add_parser("snapshot"); s.add_argument("file")
     s = sub.add_parser("putback"); s.add_argument("file")
     a = ap.parse_args()
@@ -550,6 +561,8 @@ def main():
             table(u, a.seconds, a.label, a.out, a.set)
         elif a.cmd == "library":
             print(json.dumps(library(u, a.backup, a.store_slot, a.name), indent=1))
+        elif a.cmd == "trkoff":
+            print(json.dumps(u.trk_off(a.set)))
         elif a.cmd == "snapshot":
             Path(a.file).write_text(json.dumps(u.snapshot()) + "\n")
         elif a.cmd == "putback":
