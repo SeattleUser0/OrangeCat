@@ -502,7 +502,17 @@ static int test_off(void)
             ok &= trk_off_bits == 0;
         }
     }
-    return check("OFF: saved with the project, read back after a reboot, set (not or-ed) by a load, restored from a bank record, none from a record of before", ok);
+    {   /* (Round 27, the review) a track removed takes its bit with it, and the emptied last place is ON: track 4 OFF, track 2 removed: track 3 (was 4) OFF, place 4 not */
+        int rm;
+        project_load(1);
+        trk_off_bits = 0; trk_off_set(3, 1);
+        rm = trk_n() == 4u && track_remove(1) == 0;
+        ok &= rm;
+        if (!rm || trk_off_bits != 0x04u) printf("  OFF and a removal: removed %d, the bits 0x%02X (want 0x04: track 3 OFF, place 4 ON)\n", rm, trk_off_bits);
+        ok &= trk_off_bits == 0x04u;
+        trk_off_bits = 0;
+    }
+    return check("OFF: saved with the project, read back after a reboot, set (not or-ed) by a load, restored from a bank record, none from a record of before, a removal shifts it (the emptied place ON)", ok);
 }
 
 #ifndef OC_PROJECT_NO_MAIN

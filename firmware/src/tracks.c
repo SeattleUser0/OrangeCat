@@ -61,6 +61,7 @@ static int track_remove(uint32_t k)
             step_clear(&t->step[i]);
         p->pattern[last] = 0;
         t->mpc_octave = 0;
+        t->off = 0;                                     /* (Round 27, the review of r3-format2) the emptied place is ON: it took no OFF bit from the shift */
         *proj_p5_origin(p, last) = 0;
     }
     for (i = 0; i < RECORD_MAX; i++) {                  /* takes: k's go, the later tracks' move down */
@@ -188,6 +189,7 @@ static void track_blank(uint32_t k)
         pattern_write(k % NTRK, b, &p);
     }
     pattern_switch(t, 0);
+    trk_off_set(k % NTRK, 0);                           /* (Round 27) a new track is ON */
     t->pattern_next = 0xff;
     t->pattern_gen++;
     for (r = 0; r < CHAIN_ROWS; r++)
