@@ -8,7 +8,9 @@ import assert from "node:assert/strict";
 import * as OC from "./fm1oc.js";
 import { Updater, pack7 } from "./fm1ota.js";
 import * as PKG from "./fm1pkg.js";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 // (namespace imports, so that the file also runs on a tree before Round 27 and fails there on behaviour, not on a missing export)
 const { runSet, parsePackInfo, parseModInfo, OC_CMD } = OC;
 const parseFlashId = OC.parseFlashId || (() => { throw new Error("no parseFlashId: a page before Round 27"); });
@@ -109,7 +111,12 @@ for (const flash of [1, 2, undefined]) {
   assert.deepEqual(none, { ids: [0x856014], declared: false }, "not a package: the original part only");
   // this tree's package: build/melodee.fwsc (the suite's copy) or what tools/hw/ci_step.py build writes (build/melodee-nightly.fwsc, build/melodee-*.fwsc); none: a failure, not a skip
   const dir = new URL("../build/", import.meta.url);
-  const cands = ["melodee.fwsc", ...(existsSync(dir) ? readdirSync(dir).filter((f) => /^melodee-.*\.fwsc$/.test(f)).sort() : [])].map((f) => new URL(f, dir)).filter((u) => existsSync(u));
+  // (the suite's tree keeps packages of earlier builds: take the one this commit's build wrote, build/orangecat-<version>-<commit>.fwsc, else the newest of the candidates)
+  let head = "";
+  try { head = execFileSync("git", ["rev-parse", "--short=7", "HEAD"], { cwd: fileURLToPath(new URL("..", import.meta.url)) }).toString().trim(); } catch (_) {}
+  const names = existsSync(dir) ? readdirSync(dir).filter((f) => /^(melodee(-.*)?|orangecat-.*)\.fwsc$/.test(f)) : [];
+  const mine = names.filter((f) => head && f.startsWith("orangecat-") && f.endsWith("-" + head + ".fwsc"));
+  const cands = (mine.length ? mine : names).map((f) => new URL(f, dir)).sort((x, y) => statSync(y).mtimeMs - statSync(x).mtimeMs);
   assert.ok(cands.length, "a package built from this tree (build/melodee.fwsc or build/melodee-*.fwsc): build first (tools/hw/ci_step.py build)");
   assert.deepEqual(PKG.flashPartsOf(new Uint8Array(readFileSync(cands[0]))), { ids: [0x856014, 0xB36014], declared: true }, "this tree's package declares both parts");
   if (process.env.FC_OLD_FWSC) assert.deepEqual(PKG.flashPartsOf(new Uint8Array(readFileSync(process.env.FC_OLD_FWSC))), { ids: [0x856014], declared: false }, "a package before Round 27: no declaration");
