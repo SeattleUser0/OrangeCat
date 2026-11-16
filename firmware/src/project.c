@@ -62,6 +62,7 @@ typedef struct {                               /* one track */
     int16_t p[P_COUNT];
     uint8_t engine, preset;
     int8_t mpc_octave;
+    uint8_t off;                               /* (Release 3) the track is OFF (voice.c trk_off): saved in the tagged word PROJ_OFF_WIRE */
     step_t step[NSTEP];
 } proj_trk_t;
 typedef struct {
@@ -128,6 +129,7 @@ static uint8_t proj_p5_origin_value(const project_t *p,uint32_t track)
 #define PROJ_P5_ORIGIN_TAG1 0x35u
 #define PROJ_P5_ORIGIN_MAX 128u /* native Prophet user collection */
 #define PROJ_MPC_OCT_WIRE (PROJ_TONE_WIRE - 2u) /* tagged bank octaves in the unused project tail */
+#define PROJ_OFF_WIRE (PROJ_MPC_OCT_WIRE - 2u)  /* (Release 3) the tracks that are OFF: a tagged word 0xB000 | bit k (the tail before the octaves; 0: none; any other tag: none) */
 #define TMPL_MPC_OCT_G G_RESERVED25             /* template metadata only; remains an inert runtime global */
 
 /* Four signed octaves in a tagged 16-bit word; zero is an older record (all banks at zero).
@@ -208,7 +210,7 @@ static int proj_ok(const project_t *q)
     if (q->magic != PROJ_MAGIC || q->size != sizeof *q || q->sum != proj_sum(q) ||
         q->sel >= NTRK || q->parts > NPART || q->phys > PROJ_PHYS ||
         !chain_valid(&q->chain) || !motion_valid(&q->motion)) return 0;
-    for (uint32_t k = 0; k < NTRK; k++) if (q->t[k].engine >= NENGINES || q->t[k].mpc_octave < -3 || q->t[k].mpc_octave > 3 || q->pattern[k] >= NPAT || !drum_patch_valid(&q->drum[k]) || !p5_patch_valid(&q->p5[k])) return 0;
+    for (uint32_t k = 0; k < NTRK; k++) if (q->t[k].engine >= NENGINES || q->t[k].mpc_octave < -3 || q->t[k].mpc_octave > 3 || q->t[k].off > 1u || q->pattern[k] >= NPAT || !drum_patch_valid(&q->drum[k]) || !p5_patch_valid(&q->p5[k])) return 0;
     for (uint32_t i = 0; i < RECORD_MAX; i++) if (recording_load_rule(&q->recording[i]) < 0) return 0;   /* (Round 25) an older build's event (recording_legacy) does not refuse it: proj_drop_old drops it */
     return 1;
 }
@@ -363,6 +365,11 @@ static int proj_pack(project_store_t *out, const project_t *q)
     for(t=0;t<NTRK;t++){b[pos++]=(uint8_t)q->user[t];b[pos++]=(uint8_t)(q->user[t]>>8);}
     b[PROJ_MPC_OCT_WIRE] = (uint8_t)octword;
     b[PROJ_MPC_OCT_WIRE+1u] = (uint8_t)(octword >> 8);
+    {
+        uint32_t offw = 0;
+        for (t = 0; t < NTRK; t++) { if (q->t[t].off > 1u) return 0; offw |= (uint32_t)q->t[t].off << t; }
+        if (offw) { offw |= 0xB000u; b[PROJ_OFF_WIRE] = (uint8_t)offw; b[PROJ_OFF_WIRE + 1u] = (uint8_t)(offw >> 8); }
+    }
     memcpy(b + PROJ_FM6_OFF, q->fm6, sizeof q->fm6);
     for (t = 0; t < NTRK; t++) {
         if (!cz_patch_valid(q->cz[t].raw)) return 0;
@@ -529,6 +536,10 @@ static int proj_unpack(project_t *q, const uint8_t *b)
         int8_t oct[NTRK];
         if (!mpc_octaves_unpack(oct, b[PROJ_MPC_OCT_WIRE] | (uint32_t)b[PROJ_MPC_OCT_WIRE+1u] << 8)) return 0;
         for (t = 0; t < NTRK; t++) q->t[t].mpc_octave = oct[t];
+        {   /* (Release 3) the OFF word: a record of before has zeros there; another tag is read as none */
+            uint32_t offw = b[PROJ_OFF_WIRE] | (uint32_t)b[PROJ_OFF_WIRE + 1u] << 8;
+            for (t = 0; t < NTRK; t++) q->t[t].off = (uint8_t)((offw & 0xF000u) == 0xB000u ? (offw >> t) & 1u : 0u);
+        }
     }
     if (!chain_valid(&q->chain) || !motion_valid(&q->motion)) return 0;
     for (t = 0; t < NTRK; t++)
@@ -650,6 +661,10 @@ static const void *const pj4_keep[] __attribute__((used)) = {pj4_save, pj4_phras
 #endif
 #include "oc_pool.c"             /* (Orange Cat 0.3) the pattern pool of 64, kept in it */
 #include "oc_project.c"          /* (Orange Cat 0.3) the project slots: a small record each, their banks in the pool */
+#if OC_PJ4
+#include "oc_pj4_proj.c"          /* (Release 3 step 7, step 2) the project's sections: the old record split, the sections read back (PROJECT_FORMAT_R3.md 4) */
+static const void *const pj4p_keep[] __attribute__((used)) = {pj4p_split, pj4p_read};   /* (nothing calls them until the loader does: OC_PJ4=1 links them so their size is counted) */
+#endif
 #include "oc_lists.c"            /* (Orange Cat 0.3, 4c) each track's list of pool patterns; the banks its cache */
 
 /* FNV of each slot's stored bytes, as last written or read (0: unknown): autosave writes only what differs */
@@ -740,6 +755,7 @@ static void project_capture(project_t *p)
 #endif
         p->t[i].engine = trk[i].eng_req;
         p->t[i].mpc_octave = trk[i].mpc_octave;
+        p->t[i].off = (uint8_t)trk_off(i);
         p->t[i].preset = trk[i].preset;
         if(user_of(&trk[i])<UP_SLOTS)p->user[i]=(uint16_t)(user_of(&trk[i])+1u);
         p->pattern[i] = trk[i].pattern;
@@ -1083,6 +1099,7 @@ static int project_restore_runtime(const project_t *input)
         oc_mod_note_engine(e, (uint32_t)(uint16_t)s->p[P_E0]);                          /* (0.11.1) the module's use is marked now, before audio renders it (the main loop's pass comes later) */
 #endif
         t->mpc_octave = (int8_t)clamp(s->mpc_octave, -3, 3);
+        trk_off_set(k, s->off != 0u);                                     /* (Release 3) the explicit OFF, from the project */
         t->user = 0; t->user_native=0;                                    /* (no user preset slot is saved) */
         for (i = 0; i < P_COUNT; i++) {                 /* every value back inside its range */
             const param_desc_t *d = param_desc_of(e, i);

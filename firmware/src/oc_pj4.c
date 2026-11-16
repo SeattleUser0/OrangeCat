@@ -71,6 +71,7 @@ typedef struct {
     uint32_t n;                                /* chunks */
 } pj4_plan_t;
 typedef struct { const uint8_t *p; uint32_t n; } pj4_seg_t;
+typedef struct { uint8_t *p; uint32_t n; } pj4_dseg_t;   /* (a segment to write into) */
 typedef struct { ocs_src_t src; pj4_seg_t seg[2u * PJ4_NSEC + 2u]; uint32_t nseg, i, o; } pj4_rsrc_t;
 
 /* The working memory of one operation (a save, a sweep, a conversion, a restore): about 9.6 KB, taken by the caller for that operation only (the audio arena when
@@ -180,6 +181,49 @@ static int pj4_sec_read(uint32_t slot, uint32_t tag, uint8_t *dst, uint32_t max)
     if (pj4_open(slot, &r) || pj4_sec_at(&r, tag, &off, &len) || len > max || ocs_at(&r, off, dst, len)) return -1;
     return (int)len;
 }
+/* the run-length coding the OCJ3 record uses (oc_project.c), for the sections' bodies: a byte other than 0 is itself, 0 then n (1..255) is n zero bytes. The bytes come from, and
+ * go to, a few segments (the ranges of the project part), so no copy of them is made */
+static int pj4_rle_enc(const pj4_seg_t *seg, uint32_t ns, uint8_t *out, uint32_t max)
+{
+    uint32_t s, i, o = 0, z = 0;
+    for (s = 0; s < ns; s++)
+        for (i = 0; i < seg[s].n; i++) {
+            uint8_t b = seg[s].p[i];
+            if (!b) { if (++z == 255u) { if (o + 2u > max) return -1; out[o++] = 0; out[o++] = 255u; z = 0; } continue; }
+            if (z) { if (o + 2u > max) return -1; out[o++] = 0; out[o++] = (uint8_t)z; z = 0; }
+            if (o >= max) return -1;
+            out[o++] = b;
+        }
+    if (z) { if (o + 2u > max) return -1; out[o++] = 0; out[o++] = (uint8_t)z; }
+    return (int)o;
+}
+/* exactly the segments' bytes out of exactly n coded ones. 0; -1 the coding is not that */
+static int pj4_rle_dec(const uint8_t *in, uint32_t n, const pj4_dseg_t *seg, uint32_t ns)
+{
+    uint32_t i = 0, s = 0, o = 0;                              /* segment s, offset o in it */
+    while (i < n) {
+        uint32_t run = in[i] ? 1u : (i + 1u < n ? in[i + 1u] : 0u), v = in[i];
+        if (!run) return -1;
+        i += in[i] ? 1u : 2u;
+        for (; run; run--) {
+            while (s < ns && o >= seg[s].n) { s++; o = 0; }
+            if (s >= ns) return -1;
+            seg[s].p[o++] = (uint8_t)v;
+        }
+    }
+    while (s < ns && o >= seg[s].n) { s++; o = 0; }
+    return s == ns ? 0 : -1;
+}
+/* (step 2) how a conversion makes the new record's sections out of the old record. rec: the old record's bytes (rl; the same bytes at out are free to be overwritten once
+ * read), dec: scratch (decmax) that is free until the phrases are read again, out: where the sections' bytes go (outmax), crcmap[id]: the new CRC of each converted phrase
+ * (0: not in the project), frz: the unit's frozen-phrase table (OCS_FREEZE, 64 entries of 32 B) or 0. Fills secs[*nsec] (HEAD and PHRD are the core's), and h's name,
+ * sel and parts. 0; -1 the old record does not read; PJ4_FULL the sections do not fit a record */
+typedef struct {
+    int (*split)(void *ctx, pj4_head_t *h, const uint8_t *rec, uint32_t rl, uint8_t *dec, uint32_t decmax, uint8_t *out, uint32_t outmax,
+                 pj4_sec_t *secs, uint32_t *nsec, const uint32_t *crcmap);
+    void *ctx;
+} pj4_cvhook_t;
+
 /* the sections of the slot's record that the caller does not know (its tags are not in known[]), copied into buf (max) and appended to secs[*n] (cap): a save
  * writes them back byte for byte (4: unknown tags are kept). The core's own two are never copied. 0; -1 buf or secs full or the record unreadable */
 static int pj4_carry(uint32_t slot, const uint32_t *known, uint32_t nk, uint8_t *buf, uint32_t max, pj4_sec_t *secs, uint32_t *n, uint32_t cap)
@@ -489,14 +533,16 @@ static int pj4_cv_get(void *ctx, uint32_t id, uint8_t *dst, uint32_t off, uint32
  * the new record starts with (name, seed, uid ..: the caller's; the project layer makes them). crcmap, when not null, is filled with the new CRC of phrase id
  * (index id) so that the freeze table's hashes can be recomputed (9 step 4). 0 converted (the old record erased); PJ4_FULL with *over; -1 no old record; else
  * the save's. Idempotent: a slot that already has a new record only has its old one erased */
-static int pj4_convert(pj4_ws_t *w, uint32_t slot, uint64_t names, uint8_t *work, pj4_head_t *h, uint32_t *over, uint32_t *crcmap)
+static int pj4_convert(pj4_ws_t *w, uint32_t slot, uint64_t names, uint8_t *work, pj4_head_t *h, uint32_t *over, uint32_t *crcmap, const pj4_cvhook_t *hk)
 {
     pj4_phr_t *ph;
     pj4_cv_t cv;
-    pj4_sec_t sec;
+    pj4_sec_t sec, secs[PJ4_NSEC];
+    uint32_t nsec = 0, cmap[PJ4_NPH + 1u];
     uint32_t nph = 0, id;
     int rc, rl;
     pj4_w = w; ph = w->ph;
+    memset(cmap, 0, sizeof cmap);
     if (pj4_dir_load(slot, &pj4_d0) == 0) return ocs_delete(OCS_PROJECT, slot);   /* (a cut after the commit: finish step 5) */
     cv.names = names; cv.raw = work; cv.out = work + PJ4_PHMAX + 3u; cv.cached = 0;
     rl = ocs_read(OCS_PROJECT, slot, work + 2u * (PJ4_PHMAX + 3u), PJ4_RECMAX);
@@ -507,10 +553,18 @@ static int pj4_convert(pj4_ws_t *w, uint32_t slot, uint64_t names, uint8_t *work
         if ((len = pj4_cv_load(&cv, id)) <= 0) continue;                         /* (empty, or unreadable: the new project has no such phrase) */
         ph[nph].id = (uint8_t)id; ph[nph].len = (uint16_t)len; ph[nph].crc = ocs_crc32(cv.out, (uint32_t)len);
         if (crcmap) crcmap[id] = ph[nph].crc;
+        cmap[id] = ph[nph].crc;
         nph++;
     }
-    sec.tag = PJ4_T_OJ3B; sec.len = (uint32_t)rl; sec.p = work + 2u * (PJ4_PHMAX + 3u);
-    if ((rc = pj4_save(w, slot, h, &sec, 1, ph, nph, pj4_cv_get, &cv, over)) != 0) return rc;
+    cv.cached = 0;
+    if (hk) {                                                                    /* (step 2) the sections: the old record split, its phrases' new CRCs for the freeze table */
+        uint8_t *rec = work + 2u * (PJ4_PHMAX + 3u);
+        if ((rc = hk->split(hk->ctx, h, rec, (uint32_t)rl, work, 2u * (PJ4_PHMAX + 3u), rec, PJ4_RECMAX, secs, &nsec, cmap)) != 0) return rc;
+    } else {
+        sec.tag = PJ4_T_OJ3B; sec.len = (uint32_t)rl; sec.p = work + 2u * (PJ4_PHMAX + 3u);
+        secs[0] = sec; nsec = 1;
+    }
+    if ((rc = pj4_save(w, slot, h, secs, nsec, ph, nph, pj4_cv_get, &cv, over)) != 0) return rc;
     return ocs_delete(OCS_PROJECT, slot);                                        /* (step 5) */
 }
 
@@ -528,7 +582,7 @@ static void pj4_old_pool_trim(const uint64_t *names)
 /* the boot's step (9): the sweep, then each slot: a new record and an old one (a cut conversion) -> the old one erased; an old one only -> converted; nothing -> as is.
  * status[slot]: 0 nothing, 1 converted (or already), 2 OLD FORMAT (does not fit; *over[slot] the bytes short), 3 failed otherwise. mk(slot, head) makes the head of a
  * slot's new project (name, seed, uid ..) */
-static void pj4_boot(pj4_ws_t *w, const uint64_t *names, uint8_t *work, void (*mk)(uint32_t slot, pj4_head_t *h), uint8_t *status, uint32_t *over)
+static void pj4_boot(pj4_ws_t *w, const uint64_t *names, uint8_t *work, void (*mk)(uint32_t slot, pj4_head_t *h), uint8_t *status, uint32_t *over, const pj4_cvhook_t *hk)
 {
     uint32_t slot;
     pj4_w = w;
@@ -540,7 +594,7 @@ static void pj4_boot(pj4_ws_t *w, const uint64_t *names, uint8_t *work, void (*m
         if (!ocs_exists(OCS_PROJECT, slot)) { status[slot] = pj4_dir_load(slot, &pj4_d0) == 0; continue; }
         memset(&h, 0, sizeof h);
         mk(slot, &h);
-        rc = pj4_convert(w, slot, names[slot], work, &h, &over[slot], 0);
+        rc = pj4_convert(w, slot, names[slot], work, &h, &over[slot], 0, hk);
         status[slot] = rc == 0 ? 1 : rc == PJ4_FULL ? 2 : 3;
     }
     pj4_old_pool_trim(names);
