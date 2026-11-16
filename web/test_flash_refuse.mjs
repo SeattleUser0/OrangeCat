@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import * as OC from "./fm1oc.js";
 import { Updater, pack7 } from "./fm1ota.js";
 import * as PKG from "./fm1pkg.js";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 // (namespace imports, so that the file also runs on a tree before Round 27 and fails there on behaviour, not on a missing export)
 const { runSet, parsePackInfo, parseModInfo, OC_CMD } = OC;
 const parseFlashId = OC.parseFlashId || (() => { throw new Error("no parseFlashId: a page before Round 27"); });
@@ -107,10 +107,20 @@ for (const flash of [1, 2, undefined]) {
   assert.equal(typeof PKG.flashPartsOf, "function", "fm1pkg.js reads the package's declaration (flashPartsOf)");
   const none = PKG.flashPartsOf(new Uint8Array(1000));
   assert.deepEqual(none, { ids: [0x856014], declared: false }, "not a package: the original part only");
-  const fresh = new URL("../build/melodee.fwsc", import.meta.url);
-  if (existsSync(fresh)) assert.deepEqual(PKG.flashPartsOf(new Uint8Array(readFileSync(fresh))), { ids: [0x856014, 0xB36014], declared: true }, "this tree's package declares both parts");
-  else console.log("installer: flashPartsOf on this build's package: skipped (no build/melodee.fwsc)");
+  // this tree's package: build/melodee.fwsc (the suite's copy) or what tools/hw/ci_step.py build writes (build/melodee-nightly.fwsc, build/melodee-*.fwsc); none: a failure, not a skip
+  const dir = new URL("../build/", import.meta.url);
+  const cands = ["melodee.fwsc", ...(existsSync(dir) ? readdirSync(dir).filter((f) => /^melodee-.*\.fwsc$/.test(f)).sort() : [])].map((f) => new URL(f, dir)).filter((u) => existsSync(u));
+  assert.ok(cands.length, "a package built from this tree (build/melodee.fwsc or build/melodee-*.fwsc): build first (tools/hw/ci_step.py build)");
+  assert.deepEqual(PKG.flashPartsOf(new Uint8Array(readFileSync(cands[0]))), { ids: [0x856014, 0xB36014], declared: true }, "this tree's package declares both parts");
   if (process.env.FC_OLD_FWSC) assert.deepEqual(PKG.flashPartsOf(new Uint8Array(readFileSync(process.env.FC_OLD_FWSC))), { ids: [0x856014], declared: false }, "a package before Round 27: no declaration");
+}
+// 7. (re-review) rc 9 from the pack and module commands, a write the flash did not take, is a flash error on the page (both languages), not "stop playback"
+{
+  assert.ok(OC.OC_CODES, "fm1oc.js maps the unit's rc codes (OC_CODES)");
+  assert.equal(OC.OC_CODES.mod(9), "flashWrite"); assert.equal(OC.OC_CODES.pack(9), "flashWrite");
+  assert.equal(OC.OC_CODES.mod(4), "modRestart"); assert.equal(OC.OC_CODES.mod(5), "modNoFree"); assert.equal(OC.OC_CODES.pack(4), "packRestart");
+  const page = readFileSync(new URL("./index_pkg.html", import.meta.url), "utf8");
+  assert.equal((page.match(/^\s*flashWrite: "/gm) || []).length, 2, "the page has the flash error's text in both languages");
 }
 // 4. fm1ota.js: the device's OTA_NOFLASH request (ota.c, the loader's step 0) is the error "flash", with the id; nothing more is served
 {

@@ -21,6 +21,9 @@ static volatile uint32_t *fl_reg(uint32_t a);
 #include "../firmware/hal/fm1_flash.h"
 static int16_t abuf[64];                               /* (storage_hw.c's audio_silence clears it) */
 #include "../firmware/src/storage_hw.c"                /* the real store side: its flash_ok gate above the driver's gate */
+#ifndef ST_FLASH_SLOW
+#define ST_FLASH_SLOW (-20)                            /* (a tree before the re-review has none: the checks below then fail on behaviour) */
+#endif
 
 #define SENT 0xA5A5A500u                               /* a register slot the driver has not written since: high bits set */
 static volatile uint32_t r_spi_con, r_spi_buf = SENT | 0xFFu, r_portd = 1, r_portd_dir, r_iomap = 0x20, r_sfc = 0x200, r_cache = 0x4000, r_t4, r_p33_con, r_p33_dat = SENT, r_other;
@@ -141,6 +144,22 @@ int main(void)
     part(0xB36014u); chip.ops_dur = 8000u; flash_ok = 1;
     rc = st_erase(0x97000u); commit();
     bad += check("storage_hw.c: both open (UCUN): st_erase writes", rc == 0 && chip.erases == 1u);
+    /* (re-review) a slow part through storage_hw.c: its own flash error, never the driver's -4 / -5 (which oc_module.c and oc_pack.c's callers read
+     * as "the old pairs are still moving" / "no start free"); and the audio buffer cleared before a program as before an erase */
+    part(0xB36014u); chip.ops_dur = 1200000u; flash_ok = 1;
+    rc = st_erase(0x97000u); commit();
+    bad += check("storage_hw.c: an erase past the limit: ST_FLASH_SLOW (-20), not -4", rc == ST_FLASH_SLOW);
+    part(0xB36014u); chip.ops_dur = 6000000u; flash_ok = 1;
+    rc = st_erase(0x97000u); commit();
+    bad += check("storage_hw.c: an erase past 2 s: ST_FLASH_SLOW, not -5", rc == ST_FLASH_SLOW);
+    part(0xB36014u); chip.ops_dur = 120000u; flash_ok = 1;
+    for (uint32_t i = 0; i < sizeof abuf / sizeof abuf[0]; i++) abuf[i] = 1234;
+    rc = st_prog(0x97000u, page, 256u); commit();
+    {
+        int clear = 1;
+        for (uint32_t i = 0; i < sizeof abuf / sizeof abuf[0]; i++) clear &= abuf[i] == 0;
+        bad += check("storage_hw.c: a program past the limit: ST_FLASH_SLOW; the audio buffer cleared first", rc == ST_FLASH_SLOW && clear);
+    }
     /* (review) the report's commands */
     {
         static fl_report_t r;

@@ -467,8 +467,9 @@ export async function probeUnit(link, { fx = false } = {}) {
 // (Release 3 step 4) the unit's modules for the page's lists: MOD_INFO, ENGINES and the Effects table
 export const listUnit = (link) => probeUnit(link, { fx: true });
 
-const packCode = (rc) => (rc === 2 ? "packStop" : rc === 3 ? "packOldFw" : rc === 4 ? "packRestart" : "packFail");
-const modCode = (rc) => (rc === 2 ? "modStop" : rc === 4 ? "modRestart" : rc === 5 ? "modNoFree" : rc === 7 ? "modUnreadable" : rc === 8 ? "modTail" : "modFail");
+export const OC_CODES = { pack: (rc) => packCode(rc), mod: (rc) => modCode(rc) };   // (Round 27, for the tests)
+const packCode = (rc) => (rc === 2 ? "packStop" : rc === 3 ? "packOldFw" : rc === 4 ? "packRestart" : rc === 9 ? "flashWrite" : "packFail");   /* (Round 27) 9: the flash did not take the write */
+const modCode = (rc) => (rc === 2 ? "modStop" : rc === 4 ? "modRestart" : rc === 5 ? "modNoFree" : rc === 7 ? "modUnreadable" : rc === 8 ? "modTail" : rc === 9 ? "flashWrite" : "modFail");
 
 // the pack file against PACK_INFO: this build's length and hash in its header (oc_pack.c accepts nothing else), the payload CRC and the sector tails (0.13.4: packProblem)
 export function packFits(bytes, info) { return packProblem(bytes, info) === ""; }
