@@ -2,7 +2,7 @@
 
 # Orange Cat controls
 
-For the Nightly v0.16.0-229d4c and later (firmware commit 229d4c9b, November 14, 2026). Made from the firmware's tables ea3fb820: when they change, this page is made again.
+For the Nightly v0.16.0-c5a112 and later (firmware commit c5a112e3, November 14, 2026). Made from the firmware's tables ea3fb820: when they change, this page is made again.
 
 What every knob, button and key does on the unit, page by page. It describes the Nightly build: the new interface with HOME's pictures, the four knobs and the EDIT sheets, with the FX order SENDS first and the track's own effects last.
 
@@ -14,7 +14,7 @@ The parameter names and ranges in the page tables come straight from the firmwar
 
 - A tap is a press let go before 0.7 s. HOME, REC, SAVE, EDIT, SEQ and OCT+ also do something when held for 0.7 s.
 - ALGORITHM picks the track, T1 to T4, one per click, no wrap. Only tracks in use count.
-- PRESETS browses the selected track's sounds on HOME and on the PRESETS page. On other pages it has a job only where the page says so.
+- PRESETS browses the selected track's sounds on HOME and on the PRESETS page: one sound a click, slow or fast, and the list wraps at both ends. Only sounds that can play are listed (see the PRESETS page). On other pages it has a job only where the page says so.
 - KNOB 1 to KNOB 4 edit the four columns of the page. MENU > KNOB ACCEL makes fast turns step further.
 - SELECT steps the page inside the button's family. On HOME it turns what MENU > HOME SELECT says (BPM until you change it). With GLO held, on any page, it turns what MENU > GLO SELECT says. With SEQ held it switches the selected track to the next or previous of its 8 pattern banks.
 - OCT- and OCT+ shift the keys' octave on HOME (-3 to +3; both together put it back to 0). On every other page, and in sheets, menus and dialogs, they are Esc and Enter: OCT- leaves or cancels, OCT+ enters or does the page's action.
@@ -69,7 +69,7 @@ HOME has up to four pages. MENU > HOME PAGE chooses the first. With TRACKS (the 
 - CHORD: the twelve notes as a wheel in fifths with the song's key. Notes sounding on the tracks are lit in the track colors and the chord is named in the middle. The knobs drop in over the wheel.
 - PICTURE: the sound line (track, sound name, its place in the factory list; a knob turned shows its name and value there), four dials in the knob colors (blue, green, white, orange), a value row and the engine's picture. PACK MISSING in red means the asset pack is not installed. A macro knob moves around the sound as stored (-64 to +63); going back to TRACKS keeps the offsets in the sound. While the selected track is muted its numeral is grey and the line says MUTE in red at the right (also on DUB).
 - DUB: the tape loop and the performance keys, see "DUB performance view".
-- On every HOME page: SELECT turns HOME SELECT (BPM at first). PRESETS browses the sounds; a fast turn loads when it rests. EDIT opens the EDIT sheets. ENV, LFO, SCL, ARP, FX, GLO, SAVE and SEQ open their pages. OCT- and OCT+ shift the octave. PLAY plays what it played last. REC held (stopped) clears the selected track. SAVE opens PROJECT.
+- On every HOME page: SELECT turns HOME SELECT (BPM at first). PRESETS browses the sounds, one a click, wrapping at both ends; a fast turn loads when it rests. EDIT opens the EDIT sheets. ENV, LFO, SCL, ARP, FX, GLO, SAVE and SEQ open their pages. OCT- and OCT+ shift the octave. PLAY plays what it played last. REC held (stopped) clears the selected track. SAVE opens PROJECT.
 
 HOME's four knobs by engine:
 
@@ -575,7 +575,7 @@ SAVE tapped opens PROJECT. Tapped again: USER. SELECT inside the family steps PR
 Only through SELECT inside the SAVE family (PROJECT, then PRESETS, then USER). A SAVE tap goes to PROJECT. The PRESETS encoder on HOME browses sounds without this page.
 
 - KNOB 1: LIST (All, Faves, Recent, then Bass, Lead, Pad, Keys, Organ, Strings, Brass, Wind, Pluck, Bells, Drums, FX, Other). The list to browse. No wrap.
-- KNOB 2: SOUND. The sound in the list (the same as the PRESETS encoder). One sound a click; it wraps at both ends. Only sounds that can play are listed: a user or MACRO sound whose engine or model module is not installed is hidden, and comes back when the module is installed. A fast turn loads when it rests.
+- KNOB 2: SOUND. The sound in the list (the same as the PRESETS encoder). One sound a click; it wraps at both ends, on a fast turn too. Only sounds that can play are listed, in every list (ALL, FAV, RECENT and the categories): a user sound, a RECENT entry or a MACRO sound whose engine or model module is not installed is hidden. Nothing is deleted: it comes back when the module is installed. A track whose sound is hidden keeps it (the screen says MODULE MISSING); the first click from it goes to its neighbour in the list's order, not to the list's other end. A fast turn loads when it rests.
 - KNOB 3: FAV (right marks, left unmarks). The shown sound's favourite star.
 - KNOB 4: ENGINE. Next or previous engine; it loads that engine's first sound.
 
@@ -816,6 +816,15 @@ The line under the list is the room meter. It says how many sectors the module a
 - On the unit, MACRO's MODL knob (KNOB 1 on TRACKS, the MODEL row of the Sound sheet) steps over a model that is not installed.
 - A sound or a project that names a model that is not installed loads and keeps every setting. MODL shows MISSG, the track plays VA with those settings, and the screen says MODULE MISSING. Install the model and the track plays it again.
 - Installing the pick does not change a sound: a model plays as it did when it was built in.
+- PRESETS lists a MACRO sound (factory or user) only while its model is installed; the others stay stored and come back with the model.
+
+## Install writes only what changed
+
+Before it writes, the page asks the FM-1 for a checksum of each module, of the asset pack and of the firmware it runs, and compares them with what it would write. Whatever already matches is left as it is: the summary says "already current, left as it is", nothing is erased and nothing is asked. Press Install twice in a row and the second one writes nothing.
+
+- A module is written again only when its contents differ (for the MACRO models module: when the pick changed). The question "No other place is free, so the module that is in the unit is erased first" now comes only then.
+- The firmware is flashed only when it is another build (a new Nightly, another version, a bench build). The same build installed again is left as it is.
+- A firmware older than this Nightly sends no checksums: on it the page works as before (the firmware always flashed, the MACRO models module always written).
 
 ## Modules that do not fit: the page asks first
 
@@ -882,4 +891,6 @@ These points in older documents or notes do not match the Nightly. This guide fo
 - The installer page can ask to rearrange the modules before a set that does not fit; older notes know only "too many".
 - When the ticked set cannot fit at all, the page asks which effect module gives way; older notes say the page refuses the set.
 - SPRING, SHIMR and RESO, and GLITCH, TAPE STOP, SHUFFLE and FREEZE, are no longer in the firmware: they play only from their modules (REVERB MODES, FX LAYER). Older notes say the firmware plays them without a module.
+- PRESETS wraps at both ends on a fast turn too, and lists only sounds that can play; older notes say a fast turn stops at the ends and that every user sound is listed.
+- Install leaves what is already in the FM-1 alone (firmware, pack, modules); older notes say every Install flashes the firmware and writes the MACRO models module again.
 - A muted track says MUTE on HOME's TRACKS page and a frozen one says FROZEN, where its role stands; older notes say a muted track is only grey.
