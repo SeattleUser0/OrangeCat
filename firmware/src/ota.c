@@ -242,7 +242,12 @@ static int ota_stage_head(uint32_t len)
     for (i = 0; i < 16u; i++)
         h[16 + i] = (uint8_t)NAME[i];
     ota_wr16(h, ota_crc16(h + 2, 30, 0));
-    return ota_prog(OTA_AREA, h, 32);
+    {   /* (Round 27 review) read back, as the body was: the boot stub and the SPL find the staged loader by this head */
+        uint8_t back[32];
+        if (ota_prog(OTA_AREA, h, 32) || ota_fread(OTA_AREA, back, 32) || !ota_memeq(back, h, 32))
+            return -1;
+    }
+    return 0;
 }
 
 /* UFW header + entry list (hdr: 1 KiB) from the host -> offset / length of

@@ -213,6 +213,7 @@ const TEXT = {
     lost: "USB の接続が切れました。挿し直してもう一度押してください。",
     noloader: "書き込みモードの FM-1 が見つかりません。USB を挿し直してもう一度押してください（終わるまで書き込みモードのままです）。",
     flash: "FLASH NOT SUPPORTED: この FM-1 のフラッシュチップにはこのファームウェアが対応していません。何も書き込んでいません。ID: ",
+    flashPackage: "このパッケージのファームウェアは、この FM-1 のフラッシュチップを知りません。インストールは始めず、何も書き込んでいません。新しいリリースを選んでください。チップ: ",
     flashUnsupported: "FLASH NOT SUPPORTED: この FM-1 のフラッシュチップにはファームウェアが対応していません。インストールは始めず、何も書き込んでいません。",
     noreturn: "FM-1 が戻ってきません。電源を入れ直してください。",
     mismatch: "書き込みは終わりましたが、FM-1 が別のバージョンを報告しています: ",
@@ -310,6 +311,7 @@ const TEXT = {
     lost: "The USB connection was lost. Replug it and press Install again.",
     noloader: "The FM-1 in update mode was not found. Replug the USB cable and press Install again (it stays in update mode until it is finished).",
     flash: "FLASH NOT SUPPORTED: the FM-1's flash chip is not one this firmware knows, so nothing was written. Its JEDEC id: ",
+    flashPackage: "This package's firmware does not know this FM-1's flash chip, so the install was not started and nothing was written. Choose a newer release. The chip's JEDEC id: ",
     flashUnsupported: "FLASH NOT SUPPORTED: the FM-1 says its flash chip is not one its firmware knows. The install was not started and nothing was written.",
     noreturn: "The FM-1 did not come back. Power-cycle it.",
     mismatch: "Written, but the FM-1 reports another version: ",
@@ -572,8 +574,8 @@ function stageNote() {
 }
 const ready = () => { lastKey = "ready"; $("status").textContent = `Orange Cat ${selection().channel.version} (${t(build() + "Tag")})`; };
 const log = (t) => { const box = $("log"); box.textContent += t + "\n"; box.scrollTop = box.scrollHeight; };
-let image = null, imageId = null;
-const fwIds = {};
+let image = null, imageId = null, imageParts = null;
+const fwIds = {}, fwParts = {};
 const meta = /*META*/{};
 function releaseOptions() {
   const selected = $("release").value || meta.version;
@@ -633,7 +635,7 @@ async function choose() {
   const {kind, channel, key} = selection(), epoch = ++buildEpoch;
   stageNote(); installWhat();
   const cacheKey = kind + ":" + (channel?.version || "") + ":" + (channel?.commit || "");
-  image = null; imageId = null; $("go").disabled = true;
+  image = null; imageId = null; imageParts = null; $("go").disabled = true;
   modelsLoad();                                       /* (the model picker) the build's master package, beside the firmware's */
   try {
     if (!images[cacheKey]) {
@@ -644,9 +646,10 @@ async function choose() {
       if (productOf(pkg) !== channel.product) { if (epoch === buildEpoch) sayK("badpkg"); return; }
       images[cacheKey] = logicalImage(pkg);
       fwIds[cacheKey] = firmwareIdentity(pkg);      /* (Round 26) what a unit running this package reports (MOD_INFO): Install leaves the firmware when it is that */
+      fwParts[cacheKey] = flashPartsOf(pkg);        /* (Round 27) the flash parts the package's firmware knows (none declared: the original part only) */
     }
     if (epoch !== buildEpoch) return;
-    image = images[cacheKey]; imageId = fwIds[cacheKey] || null; if (!writing) ready(); lockInstaller(writing);
+    image = images[cacheKey]; imageId = fwIds[cacheKey] || null; imageParts = fwParts[cacheKey] || null; if (!writing) ready(); lockInstaller(writing);
   } catch (e) { if (epoch === buildEpoch) sayK("loadfail", e.message); }
 }
 buildIds.forEach(k => $("build-" + k).addEventListener("change", () => { if (build() === "dual" || build() === "nightly-dual") remember(build()); return choose(); }));
@@ -799,7 +802,7 @@ $("go").addEventListener("click", async () => {
     const sum = await runSet({
       stages, files, log,
       runFirmware: (f) => flashFirmware(midi, product, f),
-      firmwareId: imageId, peekUnit: () => openUnit(midi, 5000),   /* (Round 26) the firmware is left as it is when the unit runs this package's image */
+      firmwareId: imageId, flashParts: imageParts, peekUnit: () => openUnit(midi, 5000),   /* (Round 26) the firmware is left as it is when the unit runs this package's image */
       openUnit: () => openUnit(midi),
       say: (k) => sayK(k),
       progress: (x) => { $("bar").value = x * 100; },

@@ -600,7 +600,7 @@ def flashid_text(o):
              f"boot id     0x{o['boot_id']:06X} (read by persist_boot)",
              f"read now    {o['rc_text']}",
              f"JEDEC id    0x{o['id']:06X}",
-             f"SR1 0x{o['sr1']:02X}  SR2 0x{o['sr2']:02X}  SR3 0x{o['sr3']:02X}   (Puya positions: SR1 BP4..0 = bits 6..2, SRP0 bit 7; "
+             f"SR1 0x{o['sr1']:02X}  SR2 0x{o['sr2']:02X}  (SR3 not read)   (Puya positions: SR1 BP4..0 = bits 6..2, SRP0 bit 7; "
              f"SR2 QE bit 1, LB1..3 bits 3..5, CMP bit 6, SUS bits 2 and 7)",
              f"SFC_CON     0x{o['sfc_con']:08X} (read mode, bits 11:8: {(o['sfc_con'] >> 8) & 15}; the SDK's sfc_run_mode order: "
              f"0 read, 1 fast read, 2..4 dual, 5..7 quad)",

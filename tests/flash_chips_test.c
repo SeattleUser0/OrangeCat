@@ -128,13 +128,13 @@ static int report(void)
     reset();
     boot_as(0xB36014u);
     memset(&fc_chip, 0, sizeof fc_chip);
-    fc_chip.id = 0xB36014u; fc_chip.sr1 = 0x00; fc_chip.sr2 = 0x02; fc_chip.sr3 = 0x60; fc_chip.sfdp_ok = 1; fc_chip.sfc_con = 0x80000521u;
+    fc_chip.id = 0xB36014u; fc_chip.sr1 = 0x00; fc_chip.sr2 = 0x02; fc_chip.sr3 = 0x00; fc_chip.sfdp_ok = 1; fc_chip.sfc_con = 0x80000521u;
     memcpy(fc_chip.sfdp, SFDP, 16); fc_chip.bfpt_n = 64;
     for (uint32_t i = 0; i < 64u; i++) fc_chip.bfpt[i] = (uint8_t)(0xE5u + i * 3u);
     fc_rep_n = 0;
     bad += fc_check("FLASH_ID: answered (no arguments)", ed_flash_handle(ED_FLASH_ID, 0, 0) == 1);
     bad += fc_check("FLASH_ID: version 1, verdict 2 (UCUN), writes on, the boot id", fc_rep[0] == 1u && fc_rep[1] == 2u && fc_rep[2] == 1u && fc_u24(fc_rep + 3) == 0xB36014u);
-    bad += fc_check("FLASH_ID: rc 0, the id now, SR1 SR2 SR3 as 2 x 7 bits", fc_rep[7] == 0u && fc_u24(fc_rep + 8) == 0xB36014u && fc_u8(fc_rep + 12) == 0u && fc_u8(fc_rep + 14) == 2u && fc_u8(fc_rep + 16) == 0x60u);
+    bad += fc_check("FLASH_ID: rc 0, the id now, SR1 SR2 SR3 as 2 x 7 bits", fc_rep[7] == 0u && fc_u24(fc_rep + 8) == 0xB36014u && fc_u8(fc_rep + 12) == 0u && fc_u8(fc_rep + 14) == 2u && fc_u8(fc_rep + 16) == 0u);
     {
         int ok = fc_rep[18] == 1u && fc_rep[35 + 16] == 64u && fc_rep_n == 52u + 128u + 5u;
         uint32_t sc = 0;

@@ -25,11 +25,19 @@
 #define FL_JEDEC_PART(id) ((id) == FL_JEDEC_PUYA_P25Q80 ? 1u : (id) == FL_JEDEC_UCUN_UC25HQ80 ? 2u : 0u)
 #define FL_NOT_SUPPORTED_TEXT "FLASH NOT SUPPORTED"
 
+/* (Round 27) the package's declaration: the parts this build's firmware and update loader accept, written into the firmware image
+ * (project.c fl_ids_decl, .rodata) from this list, so the installer page (web/fm1pkg.js flashPartsOf) finds it in the package it
+ * would write and refuses a package that does not know the unit's part. A package without it (Standard 0.15.0, older Nightlies)
+ * is taken as knowing 0x856014 only. Layout, little-endian: "OC-FLASH-IDS" (12 bytes), version 1, count, the ids, then
+ * ~(version ^ count ^ every id) */
+#define FL_IDS_DECL_N 2u
+#define FL_IDS_DECL_CHECK (~(1u ^ FL_IDS_DECL_N ^ FL_JEDEC_PUYA_P25Q80 ^ FL_JEDEC_UCUN_UC25HQ80))
+
 /* the read-only report (hal/fm1_flash.h fl_report fills it on the device, from fl_cmd_rd_ram; editor_flash.c sends it as editor 134 FLASH_ID) */
 typedef struct {
     uint32_t id;                  /* 0x9F: manufacturer << 16 | type << 8 | density */
     uint8_t busy;                 /* SR1's WIP bit was set: nothing past SR1 was read */
-    uint8_t sr1, sr2, sr3;        /* 0x05, 0x35, 0x15 */
+    uint8_t sr1, sr2, sr3;        /* 0x05, 0x35; sr3 always 0: SR3 is not read (no 0x15: not in the P25Q80H map, the UCUN map unknown) */
     uint8_t sfdp_ok;              /* the 0x5A header's signature read "SFDP" */
     uint8_t bfpt_n;               /* bytes of the basic parameter table read (parameter header 0's length, at most 64) */
     uint8_t sfdp[16];             /* 0x5A at 0: the SFDP header and parameter header 0 */

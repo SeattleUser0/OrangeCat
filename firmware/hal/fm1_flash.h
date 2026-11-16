@@ -26,7 +26,16 @@
 static inline void *fl_far(void *p) { void *volatile q = p; return q; }
 #define FL_FAR(fn) ((__typeof__(&fn))fl_far((void *)&fn))
 
+#ifndef REG32                                      /* (Round 27) a host test (tests/flash_wait_test.c) maps the registers onto its simulated part */
 #define REG32(a) (*(volatile uint32_t *)(a))
+#endif
+#ifdef FL_HOST_SIM                                 /* (Round 27) the host test: the core's instructions are no-ops there */
+#define FL_ASM(s) ((void)0)
+#define FL_FLUSHINV(a) ((void)(a))
+#else
+#define FL_ASM(s) __asm__ volatile(s ::: "memory")
+#define FL_FLUSHINV(a) __asm__ volatile("flushinv [%0]" :: "r"(a) : "memory")
+#endif
 #define SFC_CON         REG32(0x40200u)            /* bit31 busy; [11:8] read mode */
 #define SFCENC_CON      (*(volatile uint8_t *)0x40300u)  /* b0 decrypt, b1 plain window */
 #define SFCENC_UNENC_H  REG32(0x40308u)            /* WO, XIP (CPU) address */
@@ -83,7 +92,7 @@ static inline void *fl_far(void *p) { void *volatile q = p; return q; }
 
 typedef struct { uint32_t sfc_con, spi_con; } fl_saved_t;
 
-RAMINL void fl_csync(void) { __asm__ volatile("csync" ::: "memory"); }
+RAMINL void fl_csync(void) { FL_ASM("csync"); }
 RAMINL void fl_cache_idle(void) { while (!(CACHE_CON & 0x4000u)) ; }
 RAMINL void fl_delay(uint32_t n) { volatile uint32_t i = n; while (i--) ; }
 
@@ -154,18 +163,45 @@ RAMINL void fl_inval(uint32_t off, uint32_t len)
     fl_cache_idle();
     for (; a < e; a += 32u) {
         fl_csync();
-        __asm__ volatile("flushinv [%0]" :: "r"(a) : "memory");
+        FL_FLUSHINV(a);
         fl_csync();
         fl_cache_idle();
     }
 }
+/* (Round 27, FLASH_CHIPS.md) the watchdog fed from RAM: hal/fm1_sys.h fm1_wdt_feed's P33 "or 0x40 into WDT_CON (0x80)", the same
+ * register writes, inlined here because fm1_sys.h's functions run from XIP, which is off while the part is busy */
+#define FL_P33_CON REG32(0x13E08u)
+#define FL_P33_DAT REG32(0x13E0Cu)
+RAMINL void fl_p33_xfer(uint32_t b)
+{
+    uint32_t n = 100000u;
+    FL_P33_DAT = b;
+    FL_P33_CON |= 1u << 4;
+    (void)FL_P33_CON;
+    while ((FL_P33_CON & (1u << 1)) && --n) ;
+}
+RAMINL void fl_wdt_feed(void)
+{
+    FL_P33_CON &= ~(1u << 8);
+    FL_P33_CON |= 1u;
+    fl_p33_xfer(1u << 5);                         /* op 1 (or), address 0x080 */
+    fl_p33_xfer(0x80u);
+    fl_p33_xfer(0x40u);
+    FL_P33_CON &= ~((1u << 0) | (1u << 8));
+}
+/* Wait for WIP to clear. XIP is never switched back on while it is set: past max_us (the caller's limit, generous against the
+ * datasheet maxima) the wait goes on, from RAM, the watchdog fed every 100 ms, and the result is an error: -4 when the part
+ * finished within FL_WIP_LONG_US, -5 when it took longer. A part whose WIP never clears keeps the unit here (interrupts off, the
+ * screen still, the watchdog fed) until it is powered off: the alternative, XIP code read from a busy part, executes garbage. */
+#define FL_WIP_LONG_US 2000000u                   /* 2 s: 160 x the Puya part's tSE max (12 ms), 666 x its tPP max (3 ms) */
 RAMINL int fl_wait_ready(uint32_t max_us, uint32_t *took_us)
 {
-    uint32_t t0 = T4_CNT, dt;
+    uint32_t t0 = T4_CNT, dt, fed = 0, longer = 0;
     for (;;) {
-        dt = (T4_CNT - t0) / 24u;
-        if (!(fl_rdsr(0x05) & 1u)) { *took_us = dt; return 0; }
-        if (dt > max_us) { *took_us = dt; return -4; }
+        dt = (T4_CNT - t0) / 24u;                 /* (TIMER4 wraps after 178.9 s: `longer` is sticky, so a wrap changes nothing) */
+        if (!(fl_rdsr(0x05) & 1u)) { *took_us = dt; return longer ? -5 : dt > max_us ? -4 : 0; }
+        if (dt > FL_WIP_LONG_US) longer = 1;
+        if (dt > max_us && (dt - fed > 100000u || dt < fed)) { fl_wdt_feed(); fed = dt; }
     }
 }
 
@@ -179,6 +215,7 @@ static uint8_t fl_id_gate;
 static RAMFN uint32_t fl_jedec_ram(void)                 /* 0x856014 Puya, 0xB36014 UCUN (fm1_flash_id.h) */
 {
     fl_saved_t s; uint32_t id;
+    fl_id_gate = 0;                               /* (Round 27 review) closed first: a read that cannot run leaves it closed, whatever an earlier one found */
     if (fl_enter(&s)) return 0;
     fl_cs(0); fl_tx(0x9F);
     id = (uint32_t)fl_rx() << 16; id |= (uint32_t)fl_rx() << 8; id |= fl_rx();
@@ -190,7 +227,7 @@ static RAMFN uint32_t fl_jedec_ram(void)                 /* 0x856014 Puya, 0xB36
 
 /* (Round 27) the read-only report (editor 134 FLASH_ID): one RAM entry point for a read command (fl_cmd_rd_ram) and the report put
  * together on the XIP side from it (fl_report), so the RAM code grows by one small function. The commands: 0x05 (SR1) first, and when
- * its WIP bit is set (a write still in progress) nothing else (busy = 1); else 0x9F, 0x35, 0x15, 0x5A at 0 (the SFDP header and the
+ * its WIP bit is set (a write still in progress) nothing else (busy = 1); else 0x9F, 0x35, 0x5A at 0 (the SFDP header and the
  * first parameter header, 16 bytes) and 0x5A at that header's pointer (the basic parameter table, up to 64 bytes). Read commands
  * only. Interrupts off (the caller), as every fl_*_ram; nothing writes between the commands. Not in the update loader. */
 #if !defined(MELODEE_LOADER) || !MELODEE_LOADER
@@ -218,7 +255,8 @@ static __attribute__((unused)) int fl_report(fl_report_t *r)
     FL_FAR(fl_cmd_rd_ram)(0x9F, 0, 0, b, 3);
     r->id = (uint32_t)b[0] << 16 | (uint32_t)b[1] << 8 | b[2];
     FL_FAR(fl_cmd_rd_ram)(0x35, 0, 0, &r->sr2, 1);
-    FL_FAR(fl_cmd_rd_ram)(0x15, 0, 0, &r->sr3, 1);
+    r->sr3 = 0;                                                 /* (Round 27 review) SR3 is not read: 0x15 is not in the P25Q80H's command map and the UCUN part's
+                                                                 * map is unknown, and no guessed opcode is sent to the part. The reply keeps the byte, 0 */
     FL_FAR(fl_cmd_rd_ram)(0x5A, 0, 1, r->sfdp, 16u);
     r->sfdp_ok = r->sfdp[0] == 'S' && r->sfdp[1] == 'F' && r->sfdp[2] == 'D' && r->sfdp[3] == 'P';
     r->bfpt_n = 0;
@@ -301,9 +339,9 @@ static void fl_plain_window_init(void)
     SFCENC_UNENC_L = FL_XIP(FL_PLAIN_LO);         /* (0x93000: the app area ends there, the pack begins; option A: FL_TAIL_LO, 0x8E000, the tail region) */
     SFCENC_UNENC_H = 0x07FFFFFFu;
     SFCENC_CON |= 2u;
-    __asm__ volatile("cli" ::: "memory");
+    FL_ASM("cli");
     fl_inval(FL_PLAIN_LO, 0x100000u - FL_PLAIN_LO);     /* drop any decrypted lines */
-    __asm__ volatile("csync\n\tsti" ::: "memory");
+    FL_ASM("csync\n\tsti");
 }
 
 #ifndef OC_BOOT_SAMPLE
@@ -383,8 +421,8 @@ static uint32_t fl_probe_paths(uint32_t off, uint32_t mode, uint8_t *got, uint32
 }
 #endif
 
-static inline uint32_t irq_save(void) { __asm__ volatile("cli" ::: "memory"); return 0; }
-static inline void irq_restore(uint32_t f) { (void)f; __asm__ volatile("csync\n\tsti" ::: "memory"); }
+static inline uint32_t irq_save(void) { FL_ASM("cli"); return 0; }
+static inline void irq_restore(uint32_t f) { (void)f; FL_ASM("csync\n\tsti"); }
 
 static int fl_erase4k(uint32_t off, uint32_t *took_us)
 {

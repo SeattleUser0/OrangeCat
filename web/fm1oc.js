@@ -142,6 +142,8 @@ export function parseFlashId(a) {
 }
 // (Round 27, FLASH_CHIPS.md) the unit said its flash part is not one the firmware knows (PACK_INFO's or MOD_INFO's last byte 0): nothing is sent that would write
 export const flashRefused = (info) => !!info && info.flash === 0;
+// (Round 27) the unit's part from that byte: 1 Puya 0x856014, 2 UCUN 0xB36014 (firmware/hal/fm1_flash_id.h FL_JEDEC_PART); null when the unit does not say
+export const flashPartOf = (info) => (info && info.flash === 1 ? 0x856014 : info && info.flash === 2 ? 0xB36014 : null);
 export function parseEngines(a) {
   const r = new OcReader(a), n = r.b(), o = { engines: [], starts: [] };
   for (let e = 0; e < n; e++) {
@@ -711,6 +713,8 @@ export function fwCurrent(id, info) {
 //   files: {pack: bytes|null, modules: [bytes], want: [{kind, module_id} | null]}      fetched before anything is written; want (Release 3 step 4, optional): what the
 //                                                    manifest says each module is, checked against the file's header and descriptor ("modManifest" when not)
 //   runFirmware(): the page's own update; resolves when the unit is back
+//   flashParts (Round 27, optional): fm1pkg.js flashPartsOf of the package, {ids, declared}; with it the unit is asked first too, and a unit whose part (PACK_INFO /
+//                                     MOD_INFO's flash byte) is not in ids is refused before the update starts (flashPackage, detail: the part's id)
 //   firmwareId (Round 26, optional): the package's {len, crc, stub} (fm1pkg.js firmwareIdentity); with it the unit is asked first (peekUnit(), else openUnit()) and the firmware
 //                                     is left as it is (sum.firmware "current") when the unit runs that image (fwCurrent); without it, or in any doubt, it is written
 //   openUnit(): the unit's editor port as an OcLink, or null (the page looks for up to a minute)
@@ -740,7 +744,7 @@ export async function runSet(ctx) {
   if (stages.firmware) {
     const f = part(weight.firmware);
     let same = false;
-    if (ctx.firmwareId) {                                // (Round 26) the unit asked first: the image it runs against the package's (fwCurrent); any doubt flashes
+    if (ctx.firmwareId || ctx.flashParts) {              // (Round 26) the unit asked first: the image it runs against the package's (fwCurrent); any doubt flashes
       const l = await (ctx.peekUnit || ctx.openUnit)();
       if (l) {
         let mi = null;
@@ -748,6 +752,12 @@ export async function runSet(ctx) {
         catch (e) { if (e.code === "ocLost") throw e; same = false; }
         finally { l.close(); }
         if (flashRefused(mi)) { log("firmware: the unit says FLASH NOT SUPPORTED (its flash part is not one the firmware knows): nothing is written"); throw new OcError("flashUnsupported"); }   // (Round 27) before the update starts
+        const part = flashPartOf(mi);                    // (Round 27) the package must know the unit's part: its declaration, or the original part only (flashPartsOf)
+        if (part && ctx.flashParts && !ctx.flashParts.ids.includes(part)) {
+          const hex = part.toString(16).toUpperCase().padStart(6, "0");
+          log(`firmware: the unit's flash part is ${hex}; this package ${ctx.flashParts.declared ? "declares " + ctx.flashParts.ids.map((v) => v.toString(16).toUpperCase()).join(", ") : "declares no parts (taken as 856014 only)"}: nothing is written`);
+          throw new OcError("flashPackage", hex);
+        }
       }
       log(same ? "firmware: the unit runs this package's image (the body by its marker, the rest the loader writes by its CRC): left as it is" : "firmware: the unit's image is not this package's, or it does not say: written");
     }

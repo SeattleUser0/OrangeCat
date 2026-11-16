@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* (Round 27, docs/orangecat/FLASH_CHIPS.md) editor 134 FLASH_ID (through the extension: F0 7D 46 4C 00 06 F7): the flash part, read
- * only. The JEDEC id (0x9F), status registers 1/2/3 (0x05, 0x35, 0x15), the SFDP header and basic parameter table (0x5A), and the
+ * only. The JEDEC id (0x9F), status registers 1 and 2 (0x05, 0x35; SR3 is not read: its byte is 0), the SFDP header and basic parameter table (0x5A), and the
  * firmware's verdict (hal/fm1_flash_id.h). Nothing is written and no write command is sent; when SR1 says a write is in progress
  * only SR1 is read (rc 1). The read runs as every fl_*_ram (from RAM, interrupts off: ED_FLASH_REPORT, hal/fm1_flash.h fl_report). Reply: web/EDITOR_PROTOCOL.md.
  *

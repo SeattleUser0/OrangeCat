@@ -869,6 +869,8 @@ if core && [ $TABLES = 1 ]; then
     t "384 shared presets: all-engine capacity, conversion, torn writes and high-slot identity" unified_presets_test $FW
     t "persistence: deferred settings, retry and failed-save rollback" persistence_test $FW
     t "flash chips (Round 27): Puya and UCUN save and read back, an unknown JEDEC id writes nothing and says FLASH NOT SUPPORTED, editor 134 FLASH_ID" flash_chips_test $FW
+    t "flash driver (Round 27): the write gate, and XIP never back on while the part is busy (a slow part waited out, the watchdog fed)" flash_wait_test
+    t "OTA staging (Round 27 review): the LOADER.BIN head read back; a head the flash did not take fails the stage" ota_head_test
     t "first boot: foreign settings, safe defaults, ownership and interrupted cleanup" settings_origin_test $FW
     t "first boot: reset unsupported preset banks, preserve good entries and retry cuts" preset_boot_reset_test $FW
     t "storage safety: protect unreadable records until confirmed replacement" storage_safety_test $FW

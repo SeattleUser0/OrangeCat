@@ -7,6 +7,8 @@
 import assert from "node:assert/strict";
 import * as OC from "./fm1oc.js";
 import { Updater, pack7 } from "./fm1ota.js";
+import * as PKG from "./fm1pkg.js";
+import { existsSync, readFileSync } from "node:fs";
 // (namespace imports, so that the file also runs on a tree before Round 27 and fails there on behaviour, not on a missing export)
 const { runSet, parsePackInfo, parseModInfo, OC_CMD } = OC;
 const parseFlashId = OC.parseFlashId || (() => { throw new Error("no parseFlashId: a page before Round 27"); });
@@ -71,6 +73,45 @@ for (const flash of [1, 2, undefined]) {
   assert.equal(sum.firmware, "installed");
 }
 
+// 5. (Round 27, the package's declaration) a package that does not know the unit's part is refused before the update starts: one without the
+//    declaration (Standard 0.15.0, older Nightlies) is taken as knowing 0x856014 only, so it goes onto a Puya unit as today and not onto a UCUN one
+{
+  const OLD = { ids: [0x856014], declared: false }, NEW = { ids: [0x856014, 0xB36014], declared: true };
+  const go = async (flash, parts) => {
+    const u = unit(flash);
+    let flashed = false, err = null;
+    try {
+      await runSet({ stages: { firmware: true, pack: false, module: false }, files: { pack: null, modules: [] }, firmwareId: { len: 9, crc: 8, rest: 7 }, flashParts: parts,
+        runFirmware: async () => { flashed = true; }, peekUnit: async () => u.link(), openUnit: async () => u.link(), sleep: async () => {} });
+    } catch (e) { err = e; }
+    return { flashed, err, asked: u.asked };
+  };
+  let r = await go(2, OLD);
+  assert.equal(r.err && r.err.code, "flashPackage", "a package that declares no parts onto a UCUN unit: refused");
+  assert.equal(r.err.detail, "B36014");
+  assert.equal(r.flashed, false, "... the update is not started");
+  assert.ok(!r.asked.some((c) => WRITES.includes(c)), "... nothing written");
+  r = await go(1, OLD);
+  assert.ok(!r.err && r.flashed, "the same package onto a Puya unit: written as today");
+  r = await go(2, NEW);
+  assert.ok(!r.err && r.flashed, "a package that declares the UCUN part onto a UCUN unit: written");
+  r = await go(undefined, OLD);
+  assert.ok(!r.err && r.flashed, "a unit whose firmware does not say its part (before Round 27): written as today");
+  r = await go(2, { ids: [0xB36014], declared: true });
+  assert.ok(!r.err && r.flashed);
+  r = await go(1, { ids: [0xB36014], declared: true });
+  assert.equal(r.err && r.err.code, "flashPackage", "a package that declares only the other part: refused");
+}
+// 6. fm1pkg.js flashPartsOf: the declaration in a package this tree built (build/melodee.fwsc), none in one before Round 27 (FC_OLD_FWSC, e.g. Standard 0.15.0)
+{
+  assert.equal(typeof PKG.flashPartsOf, "function", "fm1pkg.js reads the package's declaration (flashPartsOf)");
+  const none = PKG.flashPartsOf(new Uint8Array(1000));
+  assert.deepEqual(none, { ids: [0x856014], declared: false }, "not a package: the original part only");
+  const fresh = new URL("../build/melodee.fwsc", import.meta.url);
+  if (existsSync(fresh)) assert.deepEqual(PKG.flashPartsOf(new Uint8Array(readFileSync(fresh))), { ids: [0x856014, 0xB36014], declared: true }, "this tree's package declares both parts");
+  else console.log("installer: flashPartsOf on this build's package: skipped (no build/melodee.fwsc)");
+  if (process.env.FC_OLD_FWSC) assert.deepEqual(PKG.flashPartsOf(new Uint8Array(readFileSync(process.env.FC_OLD_FWSC))), { ids: [0x856014], declared: false }, "a package before Round 27: no declaration");
+}
 // 4. fm1ota.js: the device's OTA_NOFLASH request (ota.c, the loader's step 0) is the error "flash", with the id; nothing more is served
 {
   const body = [0x00, 0x59, 0x30, 8, 0, 0, 0, ...[0x56, 0x34, 0x12, 0xEE], 0, 0, 0];

@@ -29,6 +29,7 @@ const context = vm.createContext({
   fetch: url => new Promise(resolve => pending.push({url, resolve})),
   logicalImage: bytes => bytes,
   firmwareIdentity: () => null,                 // (Round 26) fm1pkg.js: the stub packages carry no marker
+  flashPartsOf: () => null,   // (Round 27) fm1pkg.js: no declaration read here (test_flash_refuse.mjs covers it), so runSet asks the unit only as before
   productOf: bytes => ["new", "old", "rc"][bytes[0]],
   Uint8Array,
 });
