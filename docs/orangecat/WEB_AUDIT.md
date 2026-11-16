@@ -190,6 +190,25 @@ Checked and fine: every write clamped by the unit's descriptor; the editor runs 
 
 **Tests.** Full SAN=1 suite through `tools/suite_lock.sh` (slot 1, suites.slice, `--parallel 3`) in a checkout pinned at b77d60ed after `ci_step.py build`: **passed, 280 jobs, 16,889 s** (other sessions' builds and suites ran beside it). Web app tests 164 pass. This entry is a doc-only commit on top of b77d60ed.
 
+## For Session A: web-r6 (from linux-hw 5c9ba403, web-r5 merged)
+
+**Ready: yes.** Branch web-r6, head d45b4b5c plus this doc-only entry. Commits: 6a237968 (merge of web-r5), e1d01497 (the guide for c5a112), f68bdc30 (editor: E1 and the audition), c19302a8 (the debounce of the unit's saved settings), d45b4b5c (this file's round 6).
+
+**The guide.** Top line: build c5a112, commit c5a112e3, November 14, 2026; tables 46323678 (only the new "saved" key). What changed:
+- PRESETS: one sound a click, slow or fast, wrapping at both ends; a fast turn loads when it rests. ALL, FAV, RECENT and the categories list only sounds whose engine and model are installed (BUILD.md 7.36); nothing is deleted, a hidden track sound says MODULE MISSING and the first click goes to its neighbour. A MACRO sound is listed only while its model is installed.
+- New section "Install writes only what changed" (MOD_INFO and PACK_INFO CRCs, BUILD.md 7.38): a current module, pack or firmware is skipped, so a second install in a row writes nothing; the "erased first" question appears only when a module really changes; older firmware behaves as before.
+- Two new "differs" lines (the PRESETS wrap and filter; Install leaving current items alone).
+- Track OFF: **not added.** It is not built and not named yet (BUILD.md 7.39); it goes in when you name the control.
+
+**The fixes (open items needing no new command, most used first).**
+- Review item 2: the unit's saved settings (GLOBAL 4..9, 13, 17, 21, 41) are sent once, when the knob rests (1 s), in the app and the editor, so a turn no longer writes flash per step. The list comes from `web_gp_saved` in tests/web_wire.h through fw_tables.js (`FW.saved.gp`), and editor_test holds it equal to `ed_dev_global`.
+- Review item 3: the editor's audition no longer SETs 33..36.
+- E1 (page side): an INFO engine slot that reads "-" turns off FM6, CZ-1 and the Prophet in the editor.
+- A3, A23, A41, A58 closed by the web-cmds merge; B3..B32 closed as superseded by the generated guide.
+- Left open: the items that need a command (listed under "Not fixed (after round 6)"), E6, E7, E1's firmware side, and E11 (the editor's offline mock; its own round).
+
+**Tests.** Full SAN=1 suite through `tools/suite_lock.sh` (slot 2, suites.slice, `--parallel 3`) in a checkout pinned at d45b4b5c after `ci_step.py build`: **passed, 280 jobs, 16,641 s**. Web app tests 167 pass; `web/test_web.mjs` passes (the new tests fail without the fixes). This entry is a doc-only commit on top of d45b4b5c.
+
 ## For Session A: ready
 
 **web-r3 ready: yes (round 3).** Head 3e39c996 on the merge of linux-hw 52a41894 (Nightly v0.16.0). The full SAN=1 suite passed through /tmp/oc-suite.lock and the suites.slice on 3e39c996 (6393 s), with every temporary and build output on disk (TMPDIR and OC_TMP = ~/oc-tmp; /tmp stayed at 7.0 GB throughout). The web app's own tests (159 checks) pass, and the firmware tables are checked in and match what tests/web_tables.c writes now. 3e39c996 adds one opt-in: OC_TMP (default /tmp) for the three fixed /tmp paths, in tests/mgrid_mutations.sh (scratch dir), web/quick-host.sh (SITE_DIR default) and tools/hw/hw_test.py (say --out default); everything else uses mktemp/tempfile and follows TMPDIR. This entry is a doc-only commit on top of 3e39c996; no code changed after the suite.
