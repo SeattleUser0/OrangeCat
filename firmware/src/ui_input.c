@@ -2231,6 +2231,7 @@ static void layer_masks(void);
 static void layer_lock_input(uint32_t pressed);
 static void layer_arm(uint32_t pressed, uint32_t now);
 static uint32_t layer_held(void);
+static int glo_oct_ok(void);
 static uint32_t layer_gesture(uint32_t now, uint32_t combo);
 static void layer_show(void);
 static void layer_tap(uint32_t l);
@@ -2653,7 +2654,7 @@ static void ui_input(void)
     if(ui.bulk_hold && !(fm1_in.buttons&(1u<<panel.btn[B_OCTUP]))){
         if(bulk_context()){if(bulk.on&&!slot_kind()){if(!(OC_STEP_PAGES&&cur_page()->graph==GR_FEEL))notes_bulk_sheet_open();}else if(!bulk.on)page_sheet_open();}ui.bulk_hold=0;   /* (FEEL: no sheet: the range stays) */
     }
-    oct = oct_taps(pressed, oct_nav() || (ui.ly == LAYER_GLO && layer_held()));   /* ((Round 27) GLO down, its map not open yet: GLO + OCT+ is a tap all the same) */
+    oct = oct_taps(pressed, oct_nav() || glo_oct_ok());   /* ((Round 27) GLO down, its map not open yet: GLO + OCT+ is a tap all the same) */
     uint32_t lay, knob_layer, glo_select_layer, combo = 0, lytap, lkeys;
     int32_t s, ks[4] = {0, 0, 0, 0}, glo_sel = 0;
     seq_erase_update(pressed);

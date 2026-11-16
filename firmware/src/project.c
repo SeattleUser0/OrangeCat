@@ -1099,6 +1099,7 @@ static int project_restore_runtime(const project_t *input)
         oc_mod_note_engine(e, (uint32_t)(uint16_t)s->p[P_E0]);                          /* (0.11.1) the module's use is marked now, before audio renders it (the main loop's pass comes later) */
 #endif
         t->mpc_octave = (int8_t)clamp(s->mpc_octave, -3, 3);
+        if (trk_off(k) && !s->off) trk_on_load |= (uint8_t)(1u << k);   /* ((Round 27) turned ON by the load: its state taken as a load takes it, voice.c) */
         trk_off_set(k, s->off != 0u);                                     /* (Release 3) the explicit OFF, from the project */
         t->user = 0; t->user_native=0;                                    /* (no user preset slot is saved) */
         for (i = 0; i < P_COUNT; i++) {                 /* every value back inside its range */

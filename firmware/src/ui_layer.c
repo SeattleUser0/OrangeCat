@@ -101,6 +101,8 @@ static const char *layer_head(void)
 static uint32_t layer_open(void) { return ui.ly && (ui.ly_t0 & LY_OPEN) && ly_down(ui.ly) && layer_allowed() ? ui.ly : 0u; }
 static int layer_set_open(void) { return layer_open() && LAYERS[layer_open()].kind==LK_SET; }
 static uint32_t layer_held(void) { return ui.ly && ly_down(ui.ly) && layer_allowed(); }
+/* (Round 27) GLO held and alive (not pressed under a dialog, the menu or NAME: LY_DEAD), its map perhaps not open yet: GLO + OCT is a tap of GLO's */
+static int glo_oct_ok(void) { return ui.ly == LAYER_GLO && layer_held() && !(ui.ly_t0 & LY_DEAD); }
 
 /* each pass, before the keys: what the ISR (seq.c keyboard_block) gives to a layer. Armed: its button; none
  * armed: any layer button not already down (one pressed meanwhile is armed below; one held over from before
@@ -432,8 +434,8 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
     }
     if (layer_set_open())
         lys.oct |= (uint8_t)(((pressed >> dn) & 1u) | ((pressed >> up) & 1u) << 1);
-    else if (layer_held() && ui.ly == LAYER_GLO)        /* (Round 27) GLO down, its map not open yet (OCT+ is the combo that opens it): OCT+ is GLO's, never the octave */
-        lys.oct |= (uint8_t)(((pressed >> up) & 1u) << 1);
+    else if (glo_oct_ok())                              /* (Round 27) GLO down, its map not open yet (OCT is the combo that opens it): OCT+ and OCT- are GLO's, never the octave nor a page's */
+        lys.oct |= (uint8_t)(((pressed >> dn) & 1u) | ((pressed >> up) & 1u) << 1);
     mine = oct & lys.oct;
     if (mine & 1u) {                                    /* OCT-: back to when it opened */
         if (lys.l == LAYER_GLO) {
@@ -459,7 +461,7 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
             ui_message("SCALE PUT BACK");
         }
     }
-    if ((mine & 2u) && (lys.l == LAYER_GLO || (ui.ly == LAYER_GLO && !layer_open())))             /* (Round 27) GLO + OCT+: the selected track OFF / ON (UI_DESIGN.md, decisions: track OFF) */
+    if ((mine & 2u) && lys.l == LAYER_GLO && (layer_open() == LAYER_GLO || glo_oct_ok() || ui.lock == LAYER_GLO))             /* (Round 27) GLO + OCT+: the selected track OFF / ON (UI_DESIGN.md, decisions: track OFF) */
         glo_track_off(song.sel);
     lys.oct &= (uint8_t)(((fm1_in.buttons >> dn) & 1u) | ((fm1_in.buttons >> up) & 1u) << 1);
     return oct & ~mine;

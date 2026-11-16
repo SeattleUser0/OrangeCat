@@ -980,7 +980,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
              * (bytes, four); the voices sounding (active, not given up) on each track (four); the counts: OFFs acted on, the bytes they gave back, ONs,
              * blocks waited. [flags, 11, mask]: sets the OFF bits to mask first (as GLO + OCT+ does, for a bench run), then the same reply. Flag 1 is not used. */
             uint32_t k, v[21];
-            if (na == 3u) for (k = 0; k < NTRK; k++) track_off_req(k, (int)((a[2] >> k) & 1u));
+            if (na == 3u) for (k = 0; k < NTRK && k < trk_n(); k++) track_off_req(k, (int)((a[2] >> k) & 1u));   /* (the tracks in use: a place not in use is left as it is) */
             fm1_irq_off();
             v[0] = trk_off_bits; v[1] = trk_off_seen; v[2] = 0;
             for (k = 0; k < NPART; k++) v[2] |= (uint32_t)(eng_rel[k] != 0) << k;

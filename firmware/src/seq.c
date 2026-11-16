@@ -808,6 +808,7 @@ static int rec_note_start(track_t *t);
 static void seq_advance(uint32_t n);
 static void input_on(track_t *t, uint32_t note, uint32_t vel)
 {
+    if (trk_off_silent(trk_index(t))) return;           /* (Round 27) OFF or waiting: no note, no recording started, no capture, no arp */
     uint32_t started = vel && rec_note_start(t);
     countin_note(t,note,vel);
     last_note = (uint8_t)note;
@@ -1495,7 +1496,7 @@ static void seq_grid_tick(track_t *t, uint32_t n)
         }
         if (!t->seq_idx && !starting && t->ent_pass < 255u)   /* (Orange Cat 0.3, 4c) a pass of the bank playing */
             t->ent_pass++;
-        if (((seq_off_quiet >> trk_index(t)) & 1u) && !trk_off(trk_index(t)) &&
+        if (((seq_off_quiet >> trk_index(t)) & 1u) && !trk_off(trk_index(t)) && !((trk_on_wait >> trk_index(t)) & 1u) &&   /* (ON and its state taken) */
             (starting || launch_here(t, period, !t->seq_idx)))   /* (Round 27) turned ON while playing: its notes from the launch point (as a staged MUTE) */
             seq_off_quiet &= (uint8_t)~(1u << trk_index(t));
         if (!starting && t->mute_arm && launch_here(t, period, !t->seq_idx)) {   /* (0.4.1) a staged MUTE */

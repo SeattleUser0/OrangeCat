@@ -579,6 +579,7 @@ static inline void trk_off_set(uint32_t k, int off)
 #define OC_TRK_OFF_ENGINE 1                              /* (the tests: this firmware has the engine side) */
 static uint8_t trk_off_seen;                             /* bit k: the audio side has acted on track k's OFF */
 static uint8_t trk_on_wait;                              /* bit k: turned ON, its state not had yet (the arena short) */
+static uint8_t trk_on_load;                              /* bit k: turned ON by a project load (proj_apply, the interrupt off): its take is a load's (the effects yield), not the quiet one */
 static volatile uint8_t seq_off_quiet;                   /* bit k: the sequencer's notes do not reach track k (OFF; ON, before its launch point) */
 static uint32_t trk_off_n, trk_off_bytes, trk_on_n, trk_on_waits;   /* counts: the host tests and editor command 72 [flags, 11] */
 static inline int trk_off_silent(uint32_t k) { return k < NPART && (((trk_off_bits | trk_on_wait) >> k) & 1u) != 0u; }   /* its notes start nothing */
@@ -885,6 +886,7 @@ static int trk_off_block(track_t *t)
     if (trk_off(k)) {
         seq_off_quiet |= (uint8_t)bit;
         trk_on_wait &= (uint8_t)~bit;
+        trk_on_load &= (uint8_t)~bit;
         if (!(trk_off_seen & bit)) {                    /* the first block OFF: every hold let go, the voices told to end */
             trk_off_seen |= (uint8_t)bit;
             t->nheld = 0; t->arp_phys = 0; t->arp_note = 0;
@@ -965,8 +967,11 @@ static void engine_block(track_t *t)
         }
     }
     if ((trk_on_wait >> ((uint32_t)(t - trk) % NPART)) & 1u) {   /* (Round 27) turned ON: the state from free memory, or the track waits */
-        if (!t->xf_on && eng_state_take_quiet(t)) trk_on_wait &= (uint8_t)~(1u << ((uint32_t)(t - trk) % NPART));
-        else trk_on_waits++;                            /* (blocks waited: the counts) */
+        uint32_t kb = 1u << ((uint32_t)(t - trk) % NPART);
+        if (!t->xf_on && ((trk_on_load & kb) ? eng_state_take(t) : eng_state_take_quiet(t))) {
+            trk_on_wait &= (uint8_t)~kb;
+            trk_on_load &= (uint8_t)~kb;
+        } else trk_on_waits++;                          /* (blocks waited: the counts) */
     } else if (!t->xf_on && eng_held(t) && eng_state_take(t) && t->xp_n) {    /* (round 10) the state's memory is there: the notes that waited for it play now */
         uint32_t n = t->xp_n;
         t->xp_n = 0;
@@ -1103,11 +1108,13 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
     }
     uint32_t nr = 0, fade = t->xf_on && t->xf;
     uint32_t live=0;
-    if ((trk_off(ti) && eng_rel[ti % NPART]) || ((trk_on_wait >> ti) & 1u)) {   /* (Round 27) OFF (its voices ended, its state given back), or ON and waiting: not rendered, nothing taken */
+    for (i=0;i<NVOICE;i++) if(t->v[i].active){live=1;break;}
+    if (!live && !t->xf_on && ((trk_off(ti) && eng_rel[ti % NPART]) || ((trk_on_wait >> ti) & 1u))) {   /* (Round 27) OFF (its voices ended, its state given back), or ON and
+                                                         * waiting with nothing sounding: not rendered, nothing taken. (A fade still running, an OFF turned ON inside its 2.9 ms or
+                                                         * an engine change's, renders on: it counts the fade down, so the ON's take comes after it) */
         if (clear_idle) for (i = 0; i < n; i++) out[i] = 0;
         return 0;
     }
-    for (i=0;i<NVOICE;i++) if(t->v[i].active){live=1;break;}
     int16_t pe_new[8];
     if(live || clear_idle)for (i = 0; i < n; i++)out[i] = 0;
     if (mod.on && mod.ldep < 32767) lfo = mulq15(lfo, mod.ldep);

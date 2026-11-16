@@ -13,7 +13,11 @@
  *            its voices are what they were (the budget is of sounding voices: an idle track holds none)
  *   WAIT     ON with the arena full of the effects' blocks: the track waits (WAIT on its row), the effects keep their memory (no yield asked), its keys
  *            are silent and nothing waits in xp_note; a block freed: the state is taken and it plays
- *   KEY      GLO + OCT+ (a tap) turns the selected track OFF and ON again
+ *   KEY      GLO + OCT+ (a tap) turns the selected track OFF and ON again, the octave unchanged; a quick GLO + OCT- is GLO's put back (no leak); a dead GLO turns nothing OFF
+ *   FADE     ON inside the OFF's fade, and inside an engine change's: the fade ends, the state is held, not left waiting
+ *   TAKES    a take recorded through the keys' path waits for the launch point too (recording.c)
+ *   LATE     ON while waiting for memory across a loop end: it comes in at a launch point after the take
+ *   LOAD     a load that turns a track ON takes its state as a load does
  * Run by tests/run_tests.sh. On a firmware without the engine side (06fd4f40) it builds with the fallbacks below and fails. */
 #define RES_HOST_MAIN_WORDS (85760u / 4u)              /* the device's banks (tests/jfx_arena_test.c) */
 #define RES_HOST_LOW_WORDS (27740u / 4u)
@@ -143,11 +147,12 @@ int main(void)
         {
             uint32_t any1 = 0, any0 = 0, rec1 = 0;
             for (b = 0; b < 2u * 2u * SEC; b++) {       /* two passes of the 16 steps (2 s) */
-                if (b == 100u) trk_note_on(&trk[1], 67, 100);
-                if (b == 300u) trk_note_off(&trk[1], 67);
+                if (b == 100u) input_on(&trk[1], 67, 100);      /* (the keys' own path: sound, the take, the capture) */
+                if (b == 300u) input_off(&trk[1], 67);
                 run(1); any1 |= sounding(1) || held(1); any0 |= sounding(0);
             }
             for (b = 0; b < RECORD_MAX; b++) rec1 += recording[b].vel != 0;
+            for (b = 0; b < NSTEP; b++) if (trk[1].step[b].flags & SF_RECORDED) rec1 += 100u;
             CHECK(song.playing && !any1, "SILENT: the sequencer playing two passes: track 2 started no voice and took no state");
             CHECK(any0, "SILENT: track 1 played on");
             CHECK(rec1 == rec0, "SILENT: armed, a key on the OFF track recorded nothing (%u -> %u)", rec0, rec1);
@@ -287,16 +292,119 @@ int main(void)
     fresh();
     {
         uint32_t sel;
+        int8_t oct;
         go_home(); frames(100);
         song.sel = 2; sel = 2; frames(50);
+        oct = song.octave;
         btn_down(B_GLO); frames(48); press(B_OCTUP); frames(48); btn_up(B_GLO); frames(100);
         run(8);
         CHECK(trk_off(sel) && !held(sel), "KEY: GLO + OCT+: the selected track (3) OFF, released (%u B)", held(sel));
         CHECK(!trk_off(0) && !trk_off(1) && !trk_off(3), "KEY: the others ON");
+        CHECK(song.octave == oct, "KEY: the octave unchanged (%d, was %d)", song.octave, oct);
         btn_down(B_GLO); frames(48); press(B_OCTUP); frames(48); btn_up(B_GLO); frames(100);
         run(2);
         CHECK(!trk_off(sel) && held(sel) == mc, "KEY: again: ON, the state back");
-        printf("track off: KEY: GLO + OCT+ turns the selected track OFF and ON\n");
+        CHECK(song.octave == oct, "KEY: the octave still unchanged");
+        {   /* a quick GLO + OCT-: GLO's put back, the tap not leaked to the page (the octave, a page's OCT-) */
+            uint32_t home = ui.home, pg = ui.home_pg;
+            ui.msg[0] = 0;
+            btn_down(B_GLO); frames(48); press(B_OCTDN); frames(16);
+            CHECK(!strcmp(ui.msg, "MIX PUT BACK"), "KEY: a quick GLO + OCT-: GLO's put back took the tap (said \"%s\")", ui.msg);
+            frames(32); btn_up(B_GLO); frames(100);
+            CHECK(song.octave == oct && ui.home == home && ui.home_pg == pg && !trk_off(sel), "KEY: a quick GLO + OCT-: no octave, the page as it was, no OFF");
+        }
+        {   /* a dead GLO (pressed with the menu up, LY_DEAD): its OCT+ is no OFF */
+            ui.menu = 1; btn_down(B_GLO); frames(48); ui.menu = 0; frames(32);
+            press(B_OCTUP); frames(48); btn_up(B_GLO); frames(100); run(8);
+            CHECK(!trk_off(sel), "KEY: a dead GLO (pressed under the menu) + OCT+: no OFF");
+            song.octave = oct;
+        }
+        printf("track off: KEY: GLO + OCT+ turns the selected track OFF and ON; a quick OCT- does not leak, a dead GLO turns nothing OFF\n");
+    }
+
+    /* FADE: ON inside the OFF's fade (2.9 ms), and inside an engine change's fade */
+    fresh();
+    {
+        trk_note_on(&trk[1], 60, 110); run(20);
+        track_off_req(1, 1); run(1);
+        CHECK(trk[1].xf_on && held(1) == mc, "FADE: (OFF: the fade running)");
+        track_off_req(1, 0);
+        run(XF_BLOCKS + 4u);
+        CHECK(!((trk_on_wait >> 1) & 1u) && !trk[1].xf_on && !sounding(1) && held(1) == mc, "FADE: ON inside the fade: not left waiting (wait %u, xf_on %u, xf %u, voices %u, %u B)",
+              (trk_on_wait >> 1) & 1u, trk[1].xf_on, trk[1].xf, sounding(1), held(1));
+        trk_note_on(&trk[1], 62, 100); run(4);
+        CHECK(sounding(1), "FADE: and a key plays");
+        trk_note_off(&trk[1], 62); trk_note_off(&trk[1], 60);
+        trk_note_on(&trk[1], 64, 110); run(10);
+        set_engine_of(&trk[1], ENGI_SHAPES); apply_preset_to(&trk[1], 0);
+        run(1);
+        track_off_req(1, 1); run(1); track_off_req(1, 0);
+        run(XF_BLOCKS + 6u);
+        CHECK(!((trk_on_wait >> 1) & 1u) && trk[1].engine == ENGI_SHAPES && held(1) == sz(ENGI_SHAPES) && !trk[1].xf_on, "FADE: OFF and ON inside an engine change's fade: SHAPES, held (%u B), not waiting", held(1));
+        printf("track off: FADE: ON inside the OFF's fade and inside an engine change's: taken, not left waiting\n");
+    }
+
+    /* TAKES: a recorded take on track 2 (the keys' path, armed), then OFF and ON mid-pass: its recorded notes wait for the loop end too */
+    fresh();
+    {
+        uint32_t first = 0xFFFFu, idx_at = 0xFFFFu, i;
+        trk[1].p[P_SLEN] = 16;
+        song.rec = 2u; transport_req = 1; run(1);
+        for (i = 0; i < 16u; i++) {                     /* a note on every step, through input_on */
+            uint32_t s0 = trk[1].seq_idx;
+            input_on(&trk[1], 60u + (i & 3u), 100);
+            while (trk[1].seq_idx == s0) run(1);
+            input_off(&trk[1], 60u + (i & 3u));
+        }
+        song.rec = 0; run(8);
+        { uint32_t n = 0; for (i = 0; i < RECORD_MAX; i++) n += recording[i].vel != 0; CHECK(n >= 8u, "TAKES: (the take recorded: %u notes)", n); }
+        track_off_req(1, 1); off_settle(1);
+        while (trk[1].seq_idx != 5u) run(1);
+        track_off_req(1, 0); run(1);
+        for (b = 0; b < 4u * SEC && first == 0xFFFFu; b++) { run(1); if (sounding(1)) { first = b; idx_at = trk[1].seq_idx; } }
+        CHECK(first != 0xFFFFu && idx_at == 0u, "TAKES: ON at step 5: the recorded notes from the loop end (first at step %u)", idx_at);
+        transport_req = 2; run(4);
+        printf("track off: TAKES: a recorded take waits for the launch point too (first note at step %u)\n", idx_at);
+    }
+
+    /* LATE: ON while waiting for memory, across a launch point: it comes in at a launch point after its state is taken */
+    fresh();
+    {
+        uint32_t s, first = 0xFFFFu, idx_at = 0xFFFFu, taken_at = 0xFFFFu;
+        for (b = 0; b < 16u; b++) put(&trk[1], b, 60);
+        track_off_req(1, 1); off_settle(1);
+        transport_req = 1; run(1);
+        for (k = 0; k < 6u; k++)
+            for (s = 60000u; s >= 400u; s -= 400u) if (resource_allocate(RES_JFX0 + RES_JFX_N - 1u - k, s)) break;
+        while (trk[1].seq_idx != 5u) run(1);
+        track_off_req(1, 0); run(1);
+        CHECK((trk_on_wait >> 1) & 1u, "LATE: (waiting for memory)");
+        while (trk[1].seq_idx != 0u) run(1);           /* a launch point passes while it waits */
+        while (trk[1].seq_idx != 6u) run(1);
+        CHECK(((seq_off_quiet >> 1) & 1u) && !sounding(1), "LATE: the loop end passed while waiting: still quiet");
+        for (k = 0; k < 6u; k++) resource_release(RES_JFX0 + RES_JFX_N - 1u - k);
+        run(2); taken_at = trk[1].seq_idx;
+        CHECK(held(1) == mc, "LATE: memory freed at step %u: taken", taken_at);
+        for (b = 0; b < 4u * SEC && first == 0xFFFFu; b++) { run(1); if (sounding(1)) { first = b; idx_at = trk[1].seq_idx; } }
+        CHECK(first != 0xFFFFu && idx_at == 0u, "LATE: the first note at the next loop end after the take (step %u)", idx_at);
+        transport_req = 2; run(4);
+        printf("track off: LATE: waiting across a loop end, taken at step %u, the first note at step %u\n", taken_at, idx_at);
+    }
+
+    /* LOAD: a project load that turns a track ON takes its state as a load does: the effects yield (not the quiet take's wait) */
+    fresh();
+    {
+        static project_t pj;
+        uint32_t s;
+        project_capture(&pj);                           /* (all four ON) */
+        track_off_req(1, 1); off_settle(1);
+        for (k = 0; k < 6u; k++)
+            for (s = 60000u; s >= 400u; s -= 400u) if (resource_allocate(RES_JFX0 + RES_JFX_N - 1u - k, s)) break;
+        CHECK(project_restore_runtime(&pj) == 0, "LOAD: (loaded)");
+        for (b = 0; b < 16u && held(1) != mc; b++) run(1);
+        CHECK(held(1) == mc && !((trk_on_wait >> 1) & 1u), "LOAD: track 2 turned ON by the load: its state taken in %u blocks (the effects gave way)", b);
+        for (k = 0; k < 6u; k++) resource_release(RES_JFX0 + RES_JFX_N - 1u - k);
+        printf("track off: LOAD: a load turning a track ON takes the state as a load does (%u blocks)\n", b);
     }
 
     if (bad) { printf("track off: %d FAILED\n", bad); return 1; }

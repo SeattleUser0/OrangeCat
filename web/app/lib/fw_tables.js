@@ -5573,7 +5573,7 @@ export const FW = {
    "foot": [
     "RESTART",
     "UNDO",
-    "DONE"
+    "TRK OFF"
    ]
   },
   {
