@@ -35,7 +35,7 @@ const html = readFileSync(join(HERE, "editor.html"), "utf8");
 const proto = html.slice(html.indexOf("/*PROTO-BEGIN*/"), html.indexOf("/*PROTO-END*/"));
 const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
-   UP, bank, nativeBank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
+   DEV_SAVED_G, DEV_REST_MS, UP, bank, nativeBank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, F, FM6,
    FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone, ocmParse, ocmCheck, ocmTails, packProblem, ocmSwapPlan, modSummary, OCM_STATE, enginesRows, ocmReason, fetchModPages, replaceOcm, assignEngine, modCode, kitBody, kitFromBody, KIT_LANE, KIT_RANGE, sharedBank, dxkitRecord, dxkitFromRecord, dxkitValid })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
@@ -1868,6 +1868,10 @@ async function patternProtocol() {
     const real=E.parse[E.CMD.DUMP];E.parse[E.CMD.DUMP]=()=>({p:dumpP,engine:8});
     try{await E.auditionPatch(fake,inf,pt,{gEng:20});}finally{E.parse[E.CMD.DUMP]=real;}
     ok(sets.includes(10)&&!sets.some(i=>i>=33&&i<=36),"audition: a patch's values at 33..36 (HOME's macro offsets) are not written; the sound's are");
+  }
+  {   /* (web-r6) the editor's saved settings are the firmware's (tests/web_wire.h web_gp_saved = editor.c ed_dev_global, in the app's generated tables) */
+    const { FW } = await import(join(HERE, "app/lib/fw_tables.js"));
+    ok([...E.DEV_SAVED_G].sort((a, b) => a - b).join() === FW.saved.gp.join() && E.DEV_REST_MS >= 500, "editor: the settings a SET saves (sent once they rest) are the firmware's: " + FW.saved.gp.join(" "));
   }
   {   /* (web-r6, audit E1) the Nightly sends the FM6 / CZ / Prophet tags with those engines "-" in the list: no 6-OP FM tab, no CZ or Prophet panel */
     const nm=(e)=>[...Array.from(e)].map(c=>c.charCodeAt(0)).concat(0);

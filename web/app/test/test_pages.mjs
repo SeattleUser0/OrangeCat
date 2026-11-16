@@ -86,5 +86,18 @@ export async function run() {
   const r = await s.trackMix(1, 77, true);
   await s.readTracks();
   ok(r.level === 77 && r.mute === 1 && s.tracks.tracks[1].level === 77 && s.tracks.tracks[1].mute === 1, "pages: the MIXER's LEVEL and MUTE of another track reach it (TRACK_MIX)");
+  /* (web-r6) the settings a SET saves (A4, BUDGET, BOOT, DRUM, the WEIGHTS) are sent once they rest, the last value only; every other cell at once */
+  {
+    const all = PG.shownPages().flatMap((pg) => PG.cellsOf(pg, s.dump.p)).filter(Boolean);
+    const saved = all.filter(PG.savesSettings).map((c) => c.label);
+    ok([boot, drumch, w1, guard].every(PG.savesSettings) && saved.includes("A4") && saved.includes("BUDGET") && !all.some((c) => c.scope === "TRACK" && PG.savesSettings(c)) &&
+      !all.some((c) => c.label === "BPM" && PG.savesSettings(c)), `pages: the cells sent once they rest are the unit's saved settings (${saved.join(" ")}), never a track's or BPM`);
+    const timers = []; const sent = [];
+    const put = PG.whenRested((v) => sent.push(v), { later: (f, ms) => (timers.push({ f, ms, on: true }), timers.length - 1), cancel: (i) => { timers[i].on = false; } });
+    for (const v of [400, 410, 420, 440]) put(v);
+    const live = timers.filter((t) => t.on);
+    live.forEach((t) => t.f());
+    ok(sent.length === 1 && sent[0] === 440 && live.length === 1 && live[0].ms === PG.REST_MS && PG.REST_MS >= 500, "pages: four turns of a saved setting send one SET, the last value, after the rest");
+  }
   s.close();
 }

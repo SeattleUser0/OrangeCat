@@ -35,4 +35,7 @@ static const char *web_wire(const page_t *pg, uint32_t k, const int16_t *vp)
  * the reserved globals, except the WEIGHTS (the device's settings) */
 static int web_tp_refused(uint32_t id) { return param_reserved(id) && !(id >= P_MAC0 && id <= P_MAC3); }
 static int web_gp_refused(uint32_t id) { return global_reserved(id) && !(id >= G_WP5 && id <= G_SAFETY); }
+/* (web-r6) the globals whose SET the unit saves with its settings (editor.c ed_dev_global: one settings sector erased a changed value, Session A's review of web-cmds item 2):
+ * the pages send these once the value rests. tests/editor_test.c holds this equal to ed_dev_global */
+static int web_gp_saved(uint32_t id) { return id == G_A4 || id == G_BUDGET || id == G_BOOT || id == G_DRUMCH || (id >= G_WP5 && id <= G_SAFETY); }
 #endif

@@ -3591,6 +3591,9 @@ async function replaceOcm(send, probe, row, ocm, ask, progress) {
   await probe();
   return "swapped";
 }
+/* (web-r6, Session A's review of web-cmds item 2) the globals whose SET the unit saves with its settings (editor.c ed_dev_global: A4 21, BUDGET 41, BOOT 17, the DRUM
+   channel 13, the WEIGHTS 4..9): each SET erases a settings sector, so the page sends such a value once it rests (the last one). test_web.mjs holds the list to the firmware's tables */
+const DEV_SAVED_G = new Set([4, 5, 6, 7, 8, 9, 13, 17, 21, 41]), DEV_REST_MS = 1000;
 /*PROTO-END*/
 
 /* ===================================================================== UI === */
@@ -4512,6 +4515,11 @@ function userSet(s, id, v, final) {
   let st = sets.get(k);
   if (!st) sets.set(k, (st = { last: 0, sent: null }));
   st.last = performance.now();
+  if (s && DEV_SAVED_G.has(id)) {                   /* (web-r6) a setting the unit saves: one SET once the value rests */
+    clearTimeout(st.rest);
+    st.rest = setTimeout(() => { st.rest = null; if (dev && dev.dump.g[id] !== st.sent) sendSet(s, id, k); }, DEV_REST_MS);
+    return;
+  }
   if (v === st.sent) return;                        /* the last request already carries it */
   sendSet(s, id, k);
   if (!s && dev.dump.engine===15 && id===dev.info.pe0+7) buildGroups();

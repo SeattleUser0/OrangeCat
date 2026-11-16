@@ -2,7 +2,7 @@
 
 # Orange Cat controls
 
-For the Nightly v0.16.0-c5a112 and later (firmware commit c5a112e3, November 14, 2026). Made from the firmware's tables ea3fb820: when they change, this page is made again.
+For the Nightly v0.16.0-c5a112 and later (firmware commit c5a112e3, November 14, 2026). Made from the firmware's tables 46323678: when they change, this page is made again.
 
 What every knob, button and key does on the unit, page by page. It describes the Nightly build: the new interface with HOME's pictures, the four knobs and the EDIT sheets, with the FX order SENDS first and the track's own effects last.
 

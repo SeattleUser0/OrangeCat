@@ -553,7 +553,8 @@ function cellView(c) {
     if (+input.value !== now) input.value = String(now);
     if (c.id === FW_DUB_SYNC) render();                 /* TIME L / R read on the beat now, or in ms */
   };
-  if (can) input.addEventListener(n <= 24 ? "change" : "input", () => { val.textContent = PG.cellText(c, +input.value); op(() => write(+input.value)); });
+  const send = PG.savesSettings(c) ? PG.whenRested((nv) => op(() => write(nv))) : (nv) => op(() => write(nv));   /* (web-r6) a saved setting: once it rests */
+  if (can) input.addEventListener(n <= 24 ? "change" : "input", () => { val.textContent = PG.cellText(c, +input.value); send(+input.value); });
   return el("label", { class: "edit" + (can ? "" : " ro"), title: can ? null : PG.refusedWhy(c) }, el("span", { class: "lab" }, c.label), input, val);
 }
 const FW_DUB_SYNC = FW.dub.sync;

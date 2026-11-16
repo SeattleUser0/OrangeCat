@@ -23,6 +23,16 @@ import { PAGE_STATUS } from "./app_coverage.js";
 
 const D = FW.dub, MIX = FW.mixer, RECQ = FW.recq;
 const REFUSED_TP = new Set(FW.refused.tp), REFUSED_GP = new Set(FW.refused.gp);
+/* (web-r6, Session A's review of web-cmds item 2) the globals whose SET the unit saves with its settings (A4, BUDGET, BOOT, the DRUM channel, the WEIGHTS: editor.c
+   ed_dev_global, through tests/web_wire.h web_gp_saved): each SET of one erases a settings sector, so the page sends such a value once it has rested REST_MS, the last one only */
+const SAVED_GP = new Set(FW.saved.gp);
+export const REST_MS = 1000;
+export const savesSettings = (cell) => cell.scope === "GLOBAL" && SAVED_GP.has(cell.id);
+/* send(v) for the last value given, REST_MS after the last call; the timer functions can be a test's */
+export function whenRested(send, { ms = REST_MS, later = setTimeout, cancel = clearTimeout } = {}) {
+  let t = null, v;
+  return (nv) => { v = nv; if (t !== null) cancel(t); t = later(() => { t = null; send(v); }, ms); };
+}
 
 /* the pages this view shows: PAGE_STATUS "app Pages", in the firmware's order, grouped by family (the unit's family buttons) */
 export function shownPages() { return FW.pages.filter((p) => PAGE_STATUS[`${p.scope}:${p.title}`] === "app Pages"); }

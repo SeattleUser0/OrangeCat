@@ -840,7 +840,16 @@ static int web_wire_rule(void)
             }
         }
     }
-    return check("web_wire.h (the web app's page view) reaches a page cell by its id exactly when ed_val's storage is the page's, every cell", cells > 40 && !wrong);
+    {   /* (web-r6) the pages' list of globals a SET saves (web_gp_saved, written to the app's tables) is ed_dev_global's, every global */
+        uint32_t g, saved_wrong = 0, nsaved = 0;
+        for (g = 0; g < (uint32_t)G_COUNT; g++) {
+            nsaved += (uint32_t)(web_gp_saved(g) != 0);
+            if (!web_gp_saved(g) != !ed_dev_global(g)) { saved_wrong++; printf("  global %u: web_gp_saved %d, ed_dev_global %d\n", g, web_gp_saved(g), ed_dev_global(g)); }
+        }
+        wrong += saved_wrong;
+        if (nsaved < 10u) wrong++;
+    }
+    return check("web_wire.h (the web app's page view) reaches a page cell by its id exactly when ed_val's storage is the page's, every cell; its saved globals are ed_dev_global's", cells > 40 && !wrong);
 }
 static int scale_catalogue(void)
 {
