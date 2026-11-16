@@ -1859,6 +1859,26 @@ async function patternProtocol() {
   ok(nativeInfo.motionVersion === 2 && nativeInfo.motionMax === 64 && nativeInfo.patterns === 8,
     "native motion: INFO v2 retains the tagged capabilities, v1 firmware still supported");
   ok(info.patterns === 8 && info.chainRows === 16 && info.backupCaps === 3 && info.fm6.bank === 32,"patterns: tagged INFO preserves preferences, motion, backup and FM6");
+  {   /* (web-r6, Session A's review of web-cmds, item 3) an old positional patch's values at 33..36 are not SET by the audition: on the Nightly those are HOME's macro offsets */
+    const sets=[];const dumpP=Array(92).fill(0);
+    const fake=async(q)=>{const [cmd,a]=q;
+      if(cmd===E.CMD.SET){sets.push(a[1]);return [0];}
+      if(cmd===E.CMD.DUMP)return null;return [0];};
+    const inf={pcount:92,pe0:84,engines:[]};const pt={engine:8,p:Array.from({length:92},(_,i)=>i===33||i===36||i===10?55:null)};
+    const real=E.parse[E.CMD.DUMP];E.parse[E.CMD.DUMP]=()=>({p:dumpP,engine:8});
+    try{await E.auditionPatch(fake,inf,pt,{gEng:20});}finally{E.parse[E.CMD.DUMP]=real;}
+    ok(sets.includes(10)&&!sets.some(i=>i>=33&&i<=36),"audition: a patch's values at 33..36 (HOME's macro offsets) are not written; the sound's are");
+  }
+  {   /* (web-r6, audit E1) the Nightly sends the FM6 / CZ / Prophet tags with those engines "-" in the list: no 6-OP FM tab, no CZ or Prophet panel */
+    const nm=(e)=>[...Array.from(e)].map(c=>c.charCodeAt(0)).concat(0);
+    const names=(f)=>Array.from({length:20},(_,e)=>nm(f(e))).flat();
+    const head=(f)=>[65,0,20,92,27,64,84,...names(f),4];
+    const tags=[0,0x55,1,9,0x4d,1,64,1,0x42,1,3,0x50,1,8,16,0x46,1,8,32,0x43,1,E.CZ.BYTES&127,E.CZ.BYTES>>7,0,0];
+    const night=E.parse[E.CMD.INFO]([...head((e)=>[8,9].includes(e)?"MACRO":"-"),...tags]);
+    const all=E.parse[E.CMD.INFO]([...head((e)=>({12:"FM6",15:"CZ-1",19:"PROPHET"})[e]||"X"),...tags]);
+    ok(night.engines[12]==="-" && night.fm6===null && night.cz===false && night.prophet===false && all.fm6?.bank===32 && all.cz===true,
+      "INFO: an engine the unit lists as \"-\" gets no FM6 / CZ / Prophet tab, though its tag is sent (audit E1)");
+  }
   ok(eq(E.req.pattern(2,1,7)[1],[2,1,7]) && E.parse[E.CMD.PATTERN]([2,1,0,7,127,8]).active===7,"patterns: bank selection uses its track and zero-based bank");
   const rows=[{banks:[0,2,4,7],repeat:3},{banks:[7,6,5,4],repeat:1}];
   const request=E.req.bankSong(1,rows);

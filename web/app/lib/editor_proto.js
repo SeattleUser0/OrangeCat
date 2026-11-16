@@ -316,6 +316,12 @@ const parse = {
     const shared=trailer.findIndex((x,i)=>i>=25&&x===0x55&&trailer[i+1]===1);
     o.shared=shared>=0?{version:1,total:trailer[shared+2]|trailer[shared+3]<<7}:null;
     if(o.shared)o.native=null;
+    /* (web-r6, audit E1) the firmware sends the FM6, CZ and Prophet tags whatever is built; an engine the unit does not run reads "-" at its place in the
+       engine list (the Nightly: engines.c), and its commands get no reply: no 6-OP FM tab, no CZ or Prophet panel then */
+    const off=(e)=>o.engines[e]==="-";            /* FM6 12, CZ-1 15, the Prophet 19 */
+    if(off(12))o.fm6=null;
+    if(off(15)){o.cz=false;o.czBanks=0;}
+    if(off(19))o.prophet=false;
     return o;
   },
   [CMD.UI_STATE](a) {
@@ -1391,7 +1397,7 @@ async function auditionPatch(rq, info, pt, opt = {}) {
   for (let i = 0; i < n; i++) {
     const v = pt.p[i];
     if (opt.progress) opt.progress(i, n);
-    if (v == null || v === dump.p[i] || trackOwn(i, info.pe0)) continue;
+    if (v == null || v === dump.p[i] || trackOwn(i, info.pe0) || (i >= 33 && i <= 36)) continue;   /* (web-r6, Session A's review of web-cmds, item 3) 33..36 are HOME's macro offsets: an old positional patch's effect values there would land in a macro */
     await rq(req.set(0, i, v));
   }
   if (pt.fm6 && info.fm6)                         /* a converted DIGITAL sound: its own FM6 patch on the track */
