@@ -75,7 +75,7 @@ Taken from the Melodee and Skiff source and Melodee's storage notes:
 | Resource | Limit |
 |---|---|
 | Processor | JieLi AC791N (WL82), two pi32v2 cores, single-precision FPU (float only, no libm) |
-| Flash | 1 MiB SPI NOR (Puya, JEDEC 0x856014). No larger part exists for this board. |
+| Flash | 1 MiB SPI NOR: Puya P25Q80/P25Q80H (JEDEC 0x856014) or, on units from about autumn 2026, UCUN UC25HQ80 (0xB36014); both accepted, any other id is left alone (FLASH NOT SUPPORTED): docs/orangecat/FLASH_CHIPS.md. No larger part exists for this board. |
 | App code area | 573,440 bytes for the application body (the boot stub and the commit marker are outside it), executed in place from flash. 512,164 bytes used with the GUI work, the size audit and the tracker change (October 23, 2026): 65,084 free. |
 | User data area | 436 KB above 0x93000: the pack area (10 sectors at 0x93000, the asset pack's alone since 0.9.1), the module area (12 sectors at 0xC8000, engine modules), the user preset library (a group of 23 sectors outside both, 22 banks and one spare, lib_group.c), the record store (projects, phrases, timed notes, the frozen table), the sample slot, settings, the update staging; the retired engines' old bank objects (Prophet, CZ-1, native FM6) are retired by the build and read as empty; see 8.4 |
 | SRAM | 96 KB for data and variables, about 336 KB pool for audio buffers and engine state, plus a small RAM code region |

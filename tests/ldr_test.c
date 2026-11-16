@@ -17,6 +17,7 @@ static uint8_t nor[0x100000], *logical;
 static size_t logical_len;
 static uint8_t rx[1024];
 static uint32_t rx_len, rx_full, now_ms, requests, erases, bad_range, record_cleared, f0_asked;
+static uint32_t noflash_said, progs;               /* (Round 27) the OTA_NOFLASH request's address; every program */
 static int marker_erase_stuck;
 
 static uint32_t pack7(const uint8_t *in, uint32_t n, uint8_t *out)
@@ -54,6 +55,7 @@ static int ota_wire_send(const uint8_t *p, uint32_t n)
     m[3] = (uint8_t)(len + 8); m[4] = (uint8_t)((len + 8) >> 8); m[5] = 0; m[6] = 0;
     memcpy(m + 7, &addr, 4);
     m[11] = (uint8_t)len; m[12] = (uint8_t)(len >> 8); m[13] = 0;
+    if (addr >= 0xEE000000u && addr < 0xEF000000u) noflash_said = addr;   /* (Round 27) FLASH NOT SUPPORTED */
     if (addr >= 0xE0000000u) {
         f0_asked += addr == 0xF0000000u;
         memset(m + 14, 0, len);
@@ -79,6 +81,8 @@ static void ota_show(uint32_t step, int32_t code) { (void)step; (void)code; }
 static void ota_commit(const uint8_t *parm) { (void)parm; }
 #include "../firmware/src/ota.c"
 
+static uint32_t ldr_jedec_id = 0x856014u, ldr_jedec_asks;   /* (Round 27) the flash part the test sets */
+static uint32_t ldr_jedec(void) { ldr_jedec_asks++; return ldr_jedec_id; }
 static int ldr_fread(uint32_t off, void *p, uint32_t n) { memcpy(p, nor + off, n); return 0; }
 static int ldr_erase(uint32_t off)
 {
@@ -94,6 +98,7 @@ static int ldr_prog(uint32_t off, const void *p, uint32_t n)
 {
     const uint8_t *s = p;
     uint32_t i;
+    progs++;
     if (prog_fail_after && !--prog_fail_after) return -1;
     /* Programming is restricted to the application. */
     if (off < 0x4000u || off + n > 0x93000u || ((off & 0xFFu) + n) > 256u || (off + n > 0x8E000u && off < 0x91000u)) bad_range++;   /* (option A) never a byte of the tail region */
@@ -231,6 +236,27 @@ int main(int argc, char **argv)
     erases = 0; requests = 0;
     rc = ldr_session();
     bad += check("re-run with the same package erases nothing", rc == 0 && erases == 0);
+    {   /* (Round 27, FLASH_CHIPS.md) the flash part: an unknown JEDEC id is refused before anything is read or erased, and the host is told (OTA_NOFLASH | id);
+         * the UCUN UC25HQ80 (0xB36014) installs as the Puya part does */
+        static uint8_t before[0x100000];
+        memcpy(nor, old + ofo, LDR_APP_HI);
+        tail_fill(nor);                              /* (the tail region's stand-ins: area_ok checks them) */
+        memcpy(before, nor, sizeof before);
+        ldr_jedec_id = 0x123456u; erases = progs = requests = 0; noflash_said = 0;
+        rc = ldr_session();
+        bad += check("unknown flash id: refused (-18), FLASH NOT SUPPORTED to the host", rc == -18 && noflash_said == (0xEE000000u | 0x123456u) && requests == 1u);
+        bad += check("unknown flash id: nothing erased, programmed or changed", !erases && !progs && !memcmp(before, nor, sizeof before));
+        ldr_jedec_id = 0xC86014u; erases = progs = 0; noflash_said = 0;   /* (another vendor's 1 MiB part: not on the list) */
+        rc = ldr_session();
+        bad += check("a part not on the list (0xC86014): refused, nothing written", rc == -18 && !erases && !progs && noflash_said == 0xEEC86014u);
+        ldr_jedec_id = 0xB36014u; erases = progs = 0; noflash_said = 0;
+        rc = ldr_session();
+        {
+            uint32_t key; ldr_chip_key(&key);
+            bad += check("UCUN UC25HQ80 (0xB36014): installs, area == the package's", rc == 0 && erases && progs && !noflash_said && area_ok(nor, logical + nfo, key));
+        }
+        ldr_jedec_id = 0x856014u;
+    }
     /* a package for another chip key is refused before any erase */
     {
         uint8_t save = logical[nfo + 0x4000 + 5];

@@ -383,6 +383,7 @@ static int ed_flash_stop(void)
 #include "editor_cz.c"
 #include "editor_native.c"
 #include "editor_library.c"
+#include "editor_flash.c"                              /* (Round 27) command 134 FLASH_ID: the flash part, read only (docs/orangecat/FLASH_CHIPS.md) */
 #include "editor_prophet.c"
 #include "editor_cpu_lab.h"
 #if OC_HW_TEST
@@ -615,7 +616,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         if (!na) return;
         ed_begin(ED_EXT);
         ed_b(a[0]);
-        if (ed_kit_handle(128u + a[0], a + 1, na - 1u) || ed_fx_handle(128u + a[0], a + 1, na - 1u)) ed_send();
+        if (ed_kit_handle(128u + a[0], a + 1, na - 1u) || ed_fx_handle(128u + a[0], a + 1, na - 1u) || ed_flash_handle(128u + a[0], a + 1, na - 1u)) ed_send();
         return;
     }
     if (!ed_args_ok(cmd, a, na))
@@ -1433,6 +1434,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             ed_b(tl); ed_b(tl >> 7); ed_b(tl >> 14);
             for (i = 0; i < 5u; i++) ed_b(tc >> (7u * i));
         }
+        ed_b(ED_FLASH_VERDICT);                            /* (Round 27, appended) the flash part: 0 FLASH NOT SUPPORTED (nothing is written), 1 Puya, 2 UCUN (FLASH_ID 134 has the rest) */
         break;
     }
     case ED_PACK_BEGIN: case ED_PACK_WRITE: case ED_PACK_END: case ED_PACK_ERASE: {
@@ -1489,6 +1491,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             for (k = 0; k < 5u; k++) ed_b(mpick >> (7u * k));
         }
         ed_fw_image();                                      /* (Round 26) and the image the unit runs: the commit marker's body length and CRC, the CRC of the rest the loader writes */
+        ed_b(ED_FLASH_VERDICT);                             /* (Round 27, appended) the flash part, as PACK_INFO's last byte */
         break;
     }
     case ED_ENGINES: {                                     /* (0.11.0) -> nengines, then per engine number: source (0 not available: retired, or a module's number with none registered; 1 built in;

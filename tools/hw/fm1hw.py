@@ -11,9 +11,11 @@
                                                  N = 1..4 x MACRO, SHAPES, DRUM-X, MIX: worst, budget, late, load (SETS)
   fm1hw.py library [--backup FILE] [--store-slot N]  BACKUP_LIST against a backup file, the shared library's list; a store to a free slot
   fm1hw.py snapshot FILE.json / putback FILE.json  the tracks' engine, preset, mix and steps, saved and written back
+  fm1hw.py flashid [--json]                      (Round 27) the flash part, read only (editor 134 FLASH_ID): JEDEC id, status registers, SFDP,
+                                                 the firmware's verdict (docs/orangecat/FLASH_CHIPS.md)
 
 What it sends: TRACK (27), PRESET (8), TRACK_MIX (28), TRACK_STEP (30), GET / SET of the global CLK (2, 3), DESC (5),
-AUDIO_STATS (72), INFO (1), PACK_INFO (115) and MOD_INFO (120) (read only), and MIDI Start / Clock / Stop.
+AUDIO_STATS (72), INFO (1), PACK_INFO (115) and MOD_INFO (120) (read only), FLASH_ID (134, through command 0: read only), and MIDI Start / Clock / Stop.
 The transport runs on the PC's MIDI clock: CLK is set to USB for a run and put back after it (a normal build has no
 editor command for PLAY). It never sends a pack or module command or a backup restore; `library` reads BACKUP_LIST (65) and the
 shared library (80, list and get) and stores to a library slot only when given --store-slot (a free one). A flash goes through
@@ -518,6 +520,98 @@ def table(u, seconds, label, out, which="heavy"):
     return rows
 
 
+# ---- (Round 27) editor 134 FLASH_ID: the flash part, read only (web/EDITOR_PROTOCOL.md, docs/orangecat/FLASH_CHIPS.md)
+FLASH_PARTS = {0: "FLASH NOT SUPPORTED", 1: "Puya P25Q80/P25Q80H (0x856014)", 2: "UCUN UC25HQ80 (0xB36014)"}
+FLASH_RC = {0: "read", 1: "a write was in progress: SR1 only", 2: "not read (the flash interface in a mode the driver does not handle)"}
+
+
+def parse_flashid(r):
+    """the reply's data after the command byte 0: [6, version, verdict, writes, boot id 4x7, rc, id 4x7, SR1 SR2 SR3 2x7 each, sfdp_ok,
+    16 SFDP bytes 2x7 each, n, n BFPT bytes 2x7 each, SFC_CON 5x7]"""
+    if not r or r[0] != 6:
+        raise ValueError("not a FLASH_ID reply")
+    i = 1
+
+    def b():
+        nonlocal i
+        i += 1
+        return r[i - 1]
+
+    def u24():
+        return b() | b() << 7 | b() << 14 | b() << 21
+
+    def u8():
+        return b() | b() << 7
+    o = {"version": b(), "verdict": b(), "writes": b() == 1, "boot_id": u24(), "rc": b()}
+    o["id"] = u24()
+    o["sr1"], o["sr2"], o["sr3"] = u8(), u8(), u8()
+    o["sfdp_ok"] = b() == 1
+    o["sfdp"] = [u8() for _ in range(16)]
+    n = b()
+    o["bfpt"] = [u8() for _ in range(n)]
+    o["sfc_con"] = sum(b() << (7 * k) for k in range(5))
+    return o
+
+
+def decode_bfpt(t):
+    """the JESD216 basic parameter table's fields that matter to the drivers (FLASH_CHIPS.md); a table shorter than a field leaves it out"""
+    dw = [int.from_bytes(bytes(t[k:k + 4]), "little") for k in range(0, len(t) - 3, 4)]
+    out = {}
+    if len(dw) >= 1:
+        out["4k_erase"] = "yes" if dw[0] & 3 == 1 else "no"
+        out["4k_erase_opcode"] = f"0x{(dw[0] >> 8) & 0xFF:02X}"
+    if len(dw) >= 2:
+        bits = (1 << (dw[1] & 0x7FFFFFFF)) if dw[1] >> 31 else dw[1] + 1
+        out["density_bytes"] = bits // 8
+    if len(dw) >= 9:
+        out["erase_types"] = [{"size": 1 << sz, "opcode": f"0x{op:02X}"} for sz, op in
+                              ((dw[7] & 0xFF, (dw[7] >> 8) & 0xFF), ((dw[7] >> 16) & 0xFF, dw[7] >> 24),
+                               (dw[8] & 0xFF, (dw[8] >> 8) & 0xFF), ((dw[8] >> 16) & 0xFF, dw[8] >> 24)) if sz]
+    if len(dw) >= 11:
+        mult = 2 * ((dw[9] & 0xF) + 1)
+        units = (1, 16, 128, 1000)
+        typ = [((dw[9] >> s0) & 0x1F, (dw[9] >> s1) & 3) for s0, s1 in ((4, 9), (11, 16), (18, 23), (25, 30))]
+        out["erase_ms_typ_max"] = [[(c + 1) * units[u], (c + 1) * units[u] * mult] for c, u in typ]
+        pmult = 2 * ((dw[10] & 0xF) + 1)
+        out["page_size"] = 1 << ((dw[10] >> 4) & 0xF)
+        pp = (((dw[10] >> 8) & 0x1F) + 1) * (64 if dw[10] >> 13 & 1 else 8)
+        out["page_program_us_typ_max"] = [pp, pp * pmult]
+        ce = (((dw[10] >> 24) & 0x1F) + 1) * (16, 256, 4000, 64000)[(dw[10] >> 29) & 3]
+        out["chip_erase_ms_typ_max"] = [ce, ce * pmult]
+    if len(dw) >= 15:
+        out["qe_requirement"] = (dw[14] >> 20) & 7      # JESD216B: 0 none, 1/4/5 SR2 bit 1, 2 SR1 bit 6, 3 SR2 bit 7, 6 SR2 bit 1 written with 0x31
+    return out
+
+
+def flashid(u):
+    r = u.req(0, [6], timeout=2.0)
+    o = parse_flashid(r)
+    o["verdict_text"] = FLASH_PARTS.get(o["verdict"], f"verdict {o['verdict']}")
+    o["rc_text"] = FLASH_RC.get(o["rc"], f"rc {o['rc']}")
+    if o["sfdp_ok"]:
+        o["sfdp_rev"] = f"{o['sfdp'][5]}.{o['sfdp'][4]}"
+        o["bfpt_decoded"] = decode_bfpt(o["bfpt"])
+    return o
+
+
+def flashid_text(o):
+    hx = lambda b: " ".join(f"{x:02X}" for x in b)
+    lines = [f"verdict     {o['verdict_text']}; the firmware {'writes the flash' if o['writes'] else 'leaves the flash alone'}",
+             f"boot id     0x{o['boot_id']:06X} (read by persist_boot)",
+             f"read now    {o['rc_text']}",
+             f"JEDEC id    0x{o['id']:06X}",
+             f"SR1 0x{o['sr1']:02X}  SR2 0x{o['sr2']:02X}  SR3 0x{o['sr3']:02X}   (Puya positions: SR1 BP4..0 = bits 6..2, SRP0 bit 7; "
+             f"SR2 QE bit 1, LB1..3 bits 3..5, CMP bit 6, SUS bits 2 and 7)",
+             f"SFC_CON     0x{o['sfc_con']:08X} (read mode, bits 11:8: {(o['sfc_con'] >> 8) & 15}; the SDK's sfc_run_mode order: "
+             f"0 read, 1 fast read, 2..4 dual, 5..7 quad)",
+             f"SFDP        {'header ' + hx(o['sfdp']) if o['sfdp_ok'] else 'no SFDP signature'}"]
+    if o["sfdp_ok"]:
+        lines.append(f"BFPT        rev {o['sfdp_rev']}, {len(o['bfpt'])} bytes: {hx(o['bfpt'])}")
+        for k, v in o["bfpt_decoded"].items():
+            lines.append(f"  {k:24} {v}")
+    return "\n".join(lines)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--port")
@@ -533,6 +627,7 @@ def main():
     s = sub.add_parser("library"); s.add_argument("--backup"); s.add_argument("--store-slot", type=int); s.add_argument("--name", default="HW TEST")
     s = sub.add_parser("snapshot"); s.add_argument("file")
     s = sub.add_parser("putback"); s.add_argument("file")
+    s = sub.add_parser("flashid"); s.add_argument("--json", action="store_true")
     a = ap.parse_args()
     if a.cmd == "flash":
         flash(a.package, a.expect, a.port)
@@ -554,6 +649,9 @@ def main():
             Path(a.file).write_text(json.dumps(u.snapshot()) + "\n")
         elif a.cmd == "putback":
             u.putback(json.loads(Path(a.file).read_text()))
+        elif a.cmd == "flashid":
+            o = flashid(u)
+            print(json.dumps(o, indent=1) if a.json else flashid_text(o))
     finally:
         u.close()
     return 0

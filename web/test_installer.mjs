@@ -91,4 +91,5 @@ assert.doesNotMatch(template, /build-(?:rc-|nightly-)?single|singleWhy|fallback-
 // 0.11.2: the whole set (firmware, pack, modules) against a mocked unit
 await import("./test_installer_set.mjs");
 await import("./test_installer_page.mjs");
+await import("./test_flash_refuse.mjs");   // (Round 27) FLASH NOT SUPPORTED: the page refuses, nothing written
 console.log("installer: dual-core release/channel selection, cache separation, fetch races, language, write lock and scrolling passed");

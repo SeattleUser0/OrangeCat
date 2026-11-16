@@ -8,6 +8,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import struct
 import sys
 import tempfile
@@ -84,6 +85,7 @@ class FakeROM(R.Link):
         self.corrupt_protected = False
         self.output = None
         self.calls = []
+        self.flash_id = 0x856014  # (Round 27) the part the ROM loader reports: Puya; the UCUN part and unknown ids below
 
     def transfer(self, cdb, incoming=0, outgoing=None):
         inquiry = bytearray(36)
@@ -104,7 +106,7 @@ class FakeROM(R.Link):
         if cmd == 0xFC0A:
             data = bytearray(14)
             data[0] = 3
-            data[2:6] = (0x856014).to_bytes(4, "little")
+            data[2:6] = self.flash_id.to_bytes(4, "little")
             return bytes(data)
         address = struct.unpack_from(">I", args)[0]
         if cmd == 0xFD05:
@@ -213,6 +215,35 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(self.link.nor[:R.APP_LO], self.before[:R.APP_LO])
         self.assertEqual(self.link.nor[R.APP_HI:], self.before[R.APP_HI:])
         self.assertEqual(self.link.nor[R.APP_LO:R.APP_HI], self.package.flash[R.APP_LO:])
+
+    def test_ucun_flash_restores(self):
+        # (Round 27, docs/orangecat/FLASH_CHIPS.md) the UCUN UC25HQ80 (0xB36014) is restored as the Puya part is
+        self.link.flash_id = 0xB36014
+        result = R.recover(self.link, self.package, bytes(512), self.output, True)
+        self.assertEqual(self.link.erases, [R.APP_LO + R.SECTOR])
+        self.assertTrue(result["full_flash_verified"])
+        self.assertEqual(self.link.nor[R.APP_LO:R.APP_HI], self.package.flash[R.APP_LO:])
+
+    def test_unknown_flash_refused_before_any_access(self):
+        for flash_id in (0x123456, 0xC86014, 0, 0xFFFFFF):
+            self.link.flash_id = flash_id
+            self.link.calls = []
+            out = self.folder / f"session-{flash_id:06x}"
+            out.mkdir()
+            self.link.output = out
+            with self.assertRaisesRegex(R.RecoveryError, "FLASH NOT SUPPORTED"):
+                R.recover(self.link, self.package, bytes(512), out, True)
+            self.assertNotIn(0xFD05, self.link.calls)
+            self.assertEqual(self.link.erases, [])
+            self.assertEqual(self.link.nor, self.before)
+
+    def test_flash_ids_match_the_firmware_header(self):
+        # the tool's list is firmware/hal/fm1_flash_id.h's FL_JEDEC_OK, mirrored (the tool is bundled on its own)
+        header = (Path(__file__).resolve().parents[1] / "firmware/hal/fm1_flash_id.h").read_text()
+        ids = {int(v, 16) for v in re.findall(r"#define FL_JEDEC_\w+\s+(0x[0-9A-Fa-f]+)u", header)}
+        ok = re.search(r"#define FL_JEDEC_OK\(id\) (.*)", header).group(1)
+        self.assertEqual(ids, set(R.FLASH_JEDEC_OK))
+        self.assertEqual(ok.count("=="), len(ids))
 
     def test_chip_key_mismatch_precedes_flash_access(self):
         self.link.key = 0x1234

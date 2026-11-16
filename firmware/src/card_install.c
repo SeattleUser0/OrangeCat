@@ -17,6 +17,12 @@
 #ifndef FB_FX
 #define FB_FX 1
 #endif
+/* (Round 27, docs/orangecat/FLASH_CHIPS.md) a flash part persist_boot did not accept: no install starts, the row says why (st_erase / st_prog refuse it as well) */
+#if MELODEE_FLASH
+#define FB_FLASH_GATE() do { if (!flash_ok) { str_cpy(fb.msg, "FLASH NOT SUPPORTED", sizeof fb.msg); return 1; } } while (0)
+#else
+#define FB_FLASH_GATE() ((void)0)
+#endif
 #if FB_PAK
 /* (0.8.0) the pack file at (fb.path, e) installed: 0 done, else fb.msg says why. Reads it in 512-byte pieces: the header, the
  * tables to oc_pack_write, the header again to oc_pack_end (it is programmed last). */
@@ -79,6 +85,7 @@ static int fb_pak_file(const char *p, uint32_t size, int dry)
 static int fb_install(const fb_ent_t *e)
 {
     char p[FB_PATH + FB_NAME + 2u];
+    FB_FLASH_GATE();
     fb_file(p, e->name);
     if (fb_pak_file(p, e->size, 0)) return 1;
     fb.packed = 1;
@@ -359,6 +366,7 @@ static int fb_mod_file(const char *p, uint32_t size, int armed, uint32_t q, int 
 static int fb_install_mod(const fb_ent_t *e)
 {
     char p[FB_PATH + FB_NAME + 2u];
+    FB_FLASH_GATE();
     int armed = fb.ask == (uint8_t)(fb.sel + 1u);      /* (0.10.1) the in-place question was asked on this row; any other press drops it */
     fb.ask = 0;
     fb.setq = 0;
@@ -414,6 +422,7 @@ static int fb_install_set(const fb_ent_t *e)
     uint8_t nss[OC_SET_OCM], anyfx = 0;
     int8_t plans[OC_SET_OCM];
 #endif
+    FB_FLASH_GATE();
     uint8_t ask0 = fb.ask, q0 = fb.setq;
     uint32_t k0 = 0;
     fb.ask = 0;
