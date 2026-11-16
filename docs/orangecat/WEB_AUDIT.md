@@ -113,10 +113,19 @@ motion and REC-held clears remain: A33, A26, A35, A34). A21 (fixed in round 1 by
   `docs/orangecat/WEB_CMDS.md` says what to review. STEP:GRID, TRACK:MOTION and DXLANE, which were listed with these, needed no command (STEP_SET, MOTION 64, KIT_GET / KIT_PUT exist):
   they are in web-r3.
 
-## Not fixed (after round 3)
+## Round 6 (web-r6, 2026-11-16): what was left that needs no new command
 
-Web app: A12 A37 and the parts of A19, A27 (values), A57 (REC-held clears); A3 A23 A41 A58 only on `web-cmds`; the needs-command items A4 A34 A36 A38 A40 A47 (Session A items 2 to 7). Other pages: B3..B32,
-E1 E6 E7 E11.
+Most used first (the installer page and the controls guide, then the web app, the old editor, the unpublished manual):
+- **The controls guide** for Nightly v0.16.0-c5a112 (below, "For Session A").
+- **Closed by the merge of web-cmds into linux-hw** (checked on this tree: `FW.refused` lists only the padding globals 10, 11, 24..26, and every page cell's wire is `same`, `packed`, `kit` or `recq`, none `no`): A3 (the HOME macro dials write), A23 (SLIDE TIME writes), A41 (BOOT), A58 (the DRUM channel and the WEIGHTS), and with them the parts of A19 and A48 that waited on them.
+- **Session A's review of web-cmds, item 2** (each SET of a saved setting erases a settings sector): the app's Pages tab and the editor send A4, BUDGET, BOOT, the DRUM channel and the WEIGHTS once the value has rested 1 s, the last value only; every other cell as before. The list is the firmware's: `tests/web_wire.h` `web_gp_saved`, held equal to `editor.c` `ed_dev_global` by `tests/editor_test.c`, written by `tests/web_tables.c` into the app's tables (`FW.saved.gp`: 4..9, 13, 17, 21, 41); `test_pages.mjs` and `test_web.mjs` hold the app and the editor to it.
+- **Item 3** (the editor's audition): `auditionPatch` no longer SETs ids 33..36 (HOME's macro offsets); `test_web.mjs` fails without the fix.
+- **E1, the page side**: the editor shows no 6-OP FM tab and no CZ or Prophet panel for an engine INFO lists as "-" (the Nightly), though the firmware still sends the tags (Session A item 6 stays for the firmware side); `test_web.mjs` fails without the fix.
+- **B3..B32, closed as superseded**: the Melodee manual (`web/manual/index.html`) is not published (`make_site.py`: Orange Cat runs installer_only; `mirror_site_test.py` holds that no page links it), and the published controls guide covers each of its topics from the firmware's tables (pages and their order, knob labels and ranges, MENU rows, HOME as SHIFT, SAVE / PROJECT, REC held, NOTES / TRACKER / FEEL / GRID / GROOVE / CHAIN / PHRASES / PERFORM, the FX order, DUB TAPE and its CCs, SLIDE, the four tracks, the knob colors). (B1 and B2 were already off the open list after round 3.) The manual's file stays as Melodee's, unpublished.
+
+## Not fixed (after round 6)
+
+Web app: only needs-command items: A4 A12 (DUB's HOME picture: the scene, item 2) A27's values (item 9) A34 and A57's REC-held clears (item 3) A36 A37 A38 A40 (item 4) A47 and A19's menu rows (item 5). Other pages: E6 E7 (firmware), E1's firmware side (item 6), E11 (the editor's offline mock still uses the all-engines host build's tables; it affects only `editor.html?mock=1` and the editor's tests, and generating it is a build step of its own: left for a round of its own).
 
 ## For Session A: commands the firmware lacks (not added here)
 
@@ -154,8 +163,8 @@ settings) and `params.c` (WEIGHT_DESC hoisted, 7 lines). `DESC` is unchanged. `t
 
 Independent review of e23b769f's firmware (editor.c, params.c, the tests). Merged into r22-int with one fix:
 1. **Fixed (was blocking):** `ed_macro` accepted a macro's SET / TRACK_PARAM while MENU > HOME PAGE is TRACKS (the default), where the unit shows no macro knob and `mac_commit` zeroes the offsets: an offset the owner cannot see or centre. Now `home_pic_on() && ...`; `tests/editor_test.c` checks the refusal in TRACKS and the write in PICTURE.
-2. **For Session D, not fixed:** a SET of a device setting erases a settings sector per changed value when the unit is idle (`ed_dev_put` -> `settings_save()`; as A4 and BUDGET already did; eight more ids now). Debounce: save about 1 s after the last device SET. The page should not send these on every key repeat.
-3. **For Session D, not fixed:** the editor's audition (`web/editor.html` auditionPatch) SETs every differing id except `trackOwn`, which leaves out 48 but not 33..36: an old positional patch file's effect values land in a macro (PICTURE mode). Skip 33..36 in audition.
+2. **For Session D: fixed in web-r6** (sent once the value rests, below). A SET of a device setting erases a settings sector per changed value when the unit is idle (`ed_dev_put` -> `settings_save()`; as A4 and BUDGET already did; eight more ids now). Debounce: save about 1 s after the last device SET. The page should not send these on every key repeat.
+3. **For Session D: fixed in web-r6.** The editor's audition (`web/editor.html` auditionPatch) SETs every differing id except `trackOwn`, which leaves out 48 but not 33..36: an old positional patch file's effect values land in a macro (PICTURE mode). Skip 33..36 in audition.
 4. Tests to add: the save itself (the test builds with MELODEE_FLASH 0), the lower clamps, ids 11 and 24..26, a DESC assertion for 4..9 and 33..36, a job with OC_HOME_PIC=0 and one with OC_SLIDE_TIME=0; `_Static_assert`s tying G_WP5..G_SAFETY to `WEIGHT_DESC` and VOICE_KINDS.
 Checked and fine: every write clamped by the unit's descriptor; the editor runs in the main loop like the unit's own pages; `settings_save()` defers while playing; refused ids answer 0; DESC untouched; `param_reserved` unchanged (loads still zero 33..36, motion does not record them).
 
