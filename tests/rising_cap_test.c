@@ -25,6 +25,9 @@ static uint8_t rise_have[NPART];
 static uint32_t rise_kills;
 static uint32_t rise_bytes(uint32_t k) { (void)k; return 0; }
 #else
+#ifndef RISE_IDLE                                       /* (0ef549a0: blocks taken while idle, never given back to the effects) */
+#define RISE_IDLE 0
+#endif
 static uint32_t rise_bytes(uint32_t k)
 {
     uint32_t b, n = 0;
@@ -78,6 +81,23 @@ static void chord(uint32_t k, uint32_t n, int on)
     for (uint32_t i = 0; i < n; i++) { if (on) trk_note_on(&trk[k], 48u + i, 100); else trk_note_off(&trk[k], 48u + i); }
 }
 
+
+/* the effects' memory: fx_fill takes 2 KB blocks in every effect slot until the arena has none (held), fx_fill_more the same on top, fx_free gives all back;
+ * fx_room what they could take (taken and given back) */
+static uint32_t fx_take(void)
+{
+    uint32_t n = 0, k, s;
+    for (k = 0; k < RES_JFX_N; k++) {
+        if (resource[RES_JFX0 + k].size) continue;
+        for (s = 98304u; s >= 2048u; s -= 2048u) if (resource_allocate(RES_JFX0 + k, s)) { n += s; break; }
+    }
+    return n;
+}
+static uint32_t fx_fill(void) { return fx_take(); }
+static uint32_t fx_fill_more(void) { return fx_take(); }
+static void fx_free(void) { for (uint32_t k = 0; k < RES_JFX_N; k++) resource_release(RES_JFX0 + k); }
+static uint32_t fx_room(void) { uint32_t n = fx_take(); fx_free(); return n; }
+
 /* the families: the fourth track's sound, its voice mode (0: the preset's), the caps with all ON and with three OFF at 18 and 16 units */
 enum { SND_MACRO, SND_SHAPES, SND_DRUMX };
 typedef struct { const char *what, *preset; uint8_t kind, mode, on, off18, off16, check_units; } fam_t;
@@ -108,11 +128,12 @@ static void set_sound(const fam_t *f)
     run(8);
 }
 /* the voices a sixteen-note chord sounds on track 4 (drums: the eight lanes, two notes each) */
+static uint32_t cap_held;                               /* the cap while the chord sounds (the blocks come with the notes) */
 static uint32_t play16(const fam_t *f)
 {
     uint32_t i, n;
     for (i = 0; i < 16u; i++) trk_note_on(&trk[3], f->kind == SND_DRUMX ? 36u + i % 8u : 48u + i, 100);
-    run(4); n = sounding(3);
+    run(4); n = sounding(3); cap_held = trk_poly_cap(&trk[3]);
     for (i = 0; i < 16u; i++) trk_note_off(&trk[3], f->kind == SND_DRUMX ? 36u + i % 8u : 48u + i);
     run(3u * SEC);
     return n;
@@ -131,17 +152,14 @@ int main(void)
             uint32_t want = b ? f->off16 : f->off18, cap_on, cap_off, v_on, v_off, v_back, cap_back, mono = f->kind == SND_MACRO && f->preset && !f->mode && !strcmp(f->preset, "VA BASS");
             fresh(budget);
             set_sound(f);
-            cap_on = trk_poly_cap(&trk[3]);
-            v_on = play16(f);
+            v_on = play16(f); cap_on = cap_held;
             off3(1);
-            cap_off = trk_poly_cap(&trk[3]);
             over_max = 0;
-            v_off = play16(f);
+            v_off = play16(f); cap_off = cap_held;
             if (f->check_units)
                 CHECK(!over_max, "FAMILY %s at %u: the units sounding passed the budget by %u", f->what, budget, over_max);
             off3(0);
-            cap_back = trk_poly_cap(&trk[3]);
-            v_back = play16(f);
+            v_back = play16(f); cap_back = cap_held;
             if (mono) {
                 CHECK(v_on == 1u && v_off == 1u && trk[3].p[P_VOICE] != V_POLY, "FAMILY %s at %u: one voice ON (%u) and with three OFF (%u)", f->what, budget, v_on, v_off);
             } else if (f->mode == V_UNISON + 1u || f->kind != SND_MACRO || !f->check_units) {
@@ -165,8 +183,9 @@ int main(void)
         set_sound(&FAM[5]);                             /* CHIP POLY */
         used0 = resource_used();
         off3(1);
-        used_off = resource_used();
+        CHECK(!rise_bytes(3), "FALL: three OFF, the fourth idle: no block taken (%u B)", rise_bytes(3));
         chord(3, 16, 1); run(4);
+        used_off = resource_used();
         CHECK(sounding(3) == 16u && trk_poly_cap(&trk[3]) == 16u && rise_bytes(3) == 3u * ((MC_STATE_BYTES + 3u) & ~3u),
               "FALL: three OFF, CHIP: 16 voices (%u), cap %u, the blocks %u B", sounding(3), trk_poly_cap(&trk[3]), rise_bytes(3));
         CHECK(used_off == used0, "FALL: the arena: the three OFF tracks' states went to the fourth's voices (%u B used, %u at the start)", used_off, used0);
@@ -233,6 +252,127 @@ int main(void)
         CHECK(trk_poly_cap(&trk[3]) == 12u && sounding(1) >= 1u && !over_max && voices_busy() <= 18u,
               "ONPLAY: CHIP at 16, track 2 ON and plays: cap %u, track 2 sounds %u, units %u, never over (by %u)", trk_poly_cap(&trk[3]), sounding(1), voices_busy(), over_max);
         printf("rising cap: ONPLAY: CHIP at 16 + track 2 ON with three notes: %u + %u voices, %u units\n", sounding(3), sounding(1), voices_busy());
+    }
+
+
+    /* ENERGY: voices 4 .. 15 render from their own blocks: each alone, through the mix, as loud as voice 0 alone */
+    {
+        uint32_t i, j, act[NVOICE];
+        int32_t pk[NVOICE];
+        fresh(18);
+        set_sound(&FAM[5]);                             /* CHIP POLY */
+        off3(1);
+        chord(3, 16, 1); run(4);
+        for (i = 0; i < NVOICE; i++) act[i] = trk[3].v[i].active;
+        for (i = 0; i < NVOICE; i++) {
+            for (j = 0; j < NVOICE; j++) trk[3].v[j].active = (uint8_t)(j == i && act[j]);
+            trk[3].peak = 0; run(1); pk[i] = trk[3].peak;
+            for (j = 0; j < NVOICE; j++) trk[3].v[j].active = (uint8_t)act[j];
+        }
+        for (i = 1; i < NVOICE; i++)
+            CHECK(pk[i] > 0 && pk[i] * 8 > pk[0], "ENERGY: voice %u alone: peak %d (voice 0 alone: %d)", i, pk[i], pk[0]);
+        printf("rising cap: ENERGY: CHIP 16, each voice alone: voice 0 %d, voice 4 %d, voice 8 %d, voice 15 %d\n", pk[0], pk[4], pk[8], pk[15]);
+        chord(3, 16, 0);
+    }
+
+    /* IDLE and ASK: an idle track takes nothing; the blocks come with the notes, go back a second after, and at once to an allocation that fails;
+     * never under a sounding voice; effects holding the arena: the cap stays, the effects keep every byte, nothing yields */
+    {
+        uint32_t room0, room1, mc = (MC_STATE_BYTES + 3u) & ~3u, held_fx = 0, k2, s2, fails;
+        fresh(18);
+        set_sound(&FAM[5]);
+        room0 = fx_room();
+        off3(1);
+        room1 = fx_room();
+        CHECK(!rise_bytes(3) && room1 >= room0 + 3u * mc - 3u * 2048u, "IDLE: three OFF, the fourth idle: no block (%u B), the effects' room %u -> %u B", rise_bytes(3), room0, room1);
+        chord(3, 16, 1); run(4);
+        CHECK(sounding(3) == 16u && rise_bytes(3) == 3u * mc, "IDLE: the chord takes the blocks: 16 voices, %u B", rise_bytes(3));
+        fails = resource_failures;
+        held_fx = fx_fill();                            /* the effects ask while the voices sound: nothing given back */
+        run(4);
+        CHECK(sounding(3) == 16u && rise_bytes(3) == 3u * mc, "ASK: an effect short while the 16 sound: the blocks stay (%u B), the voices sound (%u)", rise_bytes(3), sounding(3));
+        fx_free();
+        chord(3, 16, 0); run(SEC / 2u);
+        CHECK(rise_bytes(3) == 3u * mc, "IDLE: half a second after the chord, the blocks still there (%u B)", rise_bytes(3));
+        run(SEC);
+        CHECK(!rise_bytes(3) && trk_poly_cap(&trk[3]) == 4u, "IDLE: a second after the voices ended the blocks went back (%u B), cap %u", rise_bytes(3), trk_poly_cap(&trk[3]));
+        chord(3, 16, 1); run(4); chord(3, 16, 0); run(SEC / 4u);
+        CHECK(rise_bytes(3) == 3u * mc && !sounding(3), "ASK: (the blocks taken again, the voices ended: %u B)", rise_bytes(3));
+        held_fx = fx_fill();
+        run(2);
+        k2 = rise_bytes(3);
+        s2 = fx_fill_more();
+        CHECK(!k2 && s2 >= 3u * mc - 3u * 2048u, "ASK: an effect short with the blocks unused: given back at once (%u B left), the effects took %u B more", k2, s2);
+        CHECK(resource_failures > fails, "(the effects' fill failed at its end)");
+        chord(3, 16, 1); run(4);
+        CHECK(sounding(3) <= 4u && !rise_bytes(3) && !res_jfx_yield, "ASK: the effects hold the arena: the chord sounds %u (cap %u), no block, no yield", sounding(3), trk_poly_cap(&trk[3]));
+        chord(3, 16, 0); fx_free(); run(SEC);
+        printf("rising cap: IDLE / ASK: idle 0 B; the chord 3 x %u B; back a second after; at once to the effects (%u B more for them); none while sounding; held %u B of effects\n", mc, s2, held_fx);
+    }
+
+    /* MODE: a model and a voice mode change while raised: the blocks' voices given up, the blocks back */
+    for (b = 0; b < 2u; b++) {
+        fresh(18);
+        set_sound(&FAM[5]);
+        off3(1);
+        chord(3, 16, 1); run(4);
+        if (b) trk[3].p[P_VOICE] = V_MONO; else trk[3].p[P_E0] = MC_WAVSHP;
+        run(4);
+        CHECK(trk_poly_cap(&trk[3]) == 4u && !rise_bytes(3) && !over_max, "MODE: %s while raised: cap %u, %u B held, %u sounding, over by %u", b ? "MONO" : "model WAVSHP", trk_poly_cap(&trk[3]), rise_bytes(3), sounding(3), over_max);
+        for (k = 4; k < NVOICE; k++) CHECK(!trk[3].v[k].active, "MODE: voice %u ended", k);
+        chord(3, 16, 0);
+    }
+
+    /* SELF: the raised track itself turned OFF: its OFF fade, its blocks and its state back */
+    {
+        uint32_t used_on, mc = (MC_STATE_BYTES + 3u) & ~3u;
+        fresh(18);
+        set_sound(&FAM[5]);
+        used_on = resource_used();
+        off3(1);
+        chord(3, 16, 1); run(4);
+        track_off_req(3, 1);
+        for (b = 0; b < 32u && (held(3) || rise_bytes(3)); b++) run(1);
+        CHECK(!held(3) && !rise_bytes(3) && !sounding(3) && resource_used() == used_on - 4u * mc, "SELF: track 4 OFF while raised: in %u blocks, state %u B, blocks %u B, used %u B (%u)",
+              b, held(3), rise_bytes(3), resource_used(), used_on - 4u * mc);
+        CHECK(b >= XF_BLOCKS, "SELF: its own fade (%u blocks)", b);
+        chord(3, 16, 0);
+        track_off_req(3, 0); run(4);
+    }
+
+    /* LOAD: a project with every track ON loaded while raised: the blocks back before the loaded tracks take their states; nothing short, no effect asked */
+    {
+        static project_t pj;
+        uint32_t fails, bad_order = 0, mc = (MC_STATE_BYTES + 3u) & ~3u;
+        fresh(18);
+        set_sound(&FAM[5]);
+        project_capture(&pj);
+        off3(1);
+        chord(3, 16, 1); run(4);
+        fails = resource_failures; res_jfx_yield = 0;
+        CHECK(project_restore_runtime(&pj) == 0, "LOAD: loaded");
+        for (b = 0; b < 16u; b++) {
+            run(1);
+            for (k = 0; k < 3u; k++) bad_order += held(k) && rise_bytes(3) && !sounding(3) && b > 2u;
+        }
+        CHECK(held(0) == mc && held(1) == mc && held(2) == mc && held(3) == mc && !rise_bytes(3) && !trk_on_wait, "LOAD: all four hold their state, no block (%u B), none waiting", rise_bytes(3));
+        CHECK(resource_failures == fails && !res_jfx_yield, "LOAD: no allocation failed (%u), no effect asked to yield", resource_failures - fails);
+        (void)bad_order;
+        printf("rising cap: LOAD: a project with every track ON loaded while raised: four states, the blocks back\n");
+    }
+
+    /* TWO: two tracks OFF, tracks 3 and 4 VA POLY: one block each, cap 6 each, the units never over */
+    {
+        fresh(18);
+        set_sound(&FAM[0]);
+        set_engine_of(&trk[2], ENGI_MACRO); apply_preset_to(&trk[2], mc_preset("VA BASS")); trk[2].p[P_VOICE] = V_POLY; run(8);
+        track_off_req(0, 1); track_off_req(1, 1); run(16);
+        over_max = 0;
+        chord(2, 6, 1); chord(3, 6, 1); run(4);
+        CHECK(trk_poly_cap(&trk[2]) == 6u && trk_poly_cap(&trk[3]) == 6u && !over_max && voices_busy() <= 18u,
+              "TWO: caps %u and %u, %u + %u voices, %u units, never over (by %u)", trk_poly_cap(&trk[2]), trk_poly_cap(&trk[3]), sounding(2), sounding(3), voices_busy(), over_max);
+        printf("rising cap: TWO: tracks 3 and 4 VA POLY with two OFF: caps %u / %u, %u + %u voices, %u units\n", trk_poly_cap(&trk[2]), trk_poly_cap(&trk[3]), sounding(2), sounding(3), voices_busy());
+        chord(2, 6, 0); chord(3, 6, 0);
     }
 
     printf(bad ? "rising cap: %d FAILED\n" : "rising cap: OK\n", bad);

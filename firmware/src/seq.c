@@ -1788,6 +1788,7 @@ static void events_block(uint32_t n)
         RING_PUBLISH();
         midi_in_overflow = 0;
     }
+    rise_block();                                     /* (Round 28 item 1) the rising cap's blocks given back, before every track's engine_block (its takes) and the block's notes (voice.c) */
     for (i = 0; i < NTRK; i++) {
         track_t *t = &trk[i];
         if ((pr >> i) & 1u) {
@@ -1813,7 +1814,6 @@ static void events_block(uint32_t n)
         t->armp = t->p[P_AMODE];
         t->aholdp = t->p[P_AHOLD];
     }
-    rise_block();                                     /* (Round 28 item 1) the rising cap's blocks, after every OFF and ON of this block, before its notes (voice.c) */
     audition_tick(n);
     keyboard_block();
     uint32_t midi_dispatch_left=64u;
