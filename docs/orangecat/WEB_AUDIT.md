@@ -190,6 +190,18 @@ Checked and fine: every write clamped by the unit's descriptor; the editor runs 
 
 **Tests.** Full SAN=1 suite through `tools/suite_lock.sh` (slot 1, suites.slice, `--parallel 3`) in a checkout pinned at b77d60ed after `ci_step.py build`: **passed, 280 jobs, 16,889 s** (other sessions' builds and suites ran beside it). Web app tests 164 pass. This entry is a doc-only commit on top of b77d60ed.
 
+## For Session A: web-r6 again, the guide for Nightly v0.16.0-dc0c9e (linux-hw 49d3625f merged)
+
+**Ready: yes.** web-r6 now has one more commit, d89aa6db. It merges linux-hw 49d3625f and updates the guide. It changes no firmware and no web app code: only `controls_src.json` and what `gen_controls.mjs` makes from it, plus this file. It replaces the web-r6 entry below; merge web-r6 as it is.
+
+**The guide.** The header names build dc0c9e, commit dc0c9e7f, November 16, 2026, and tables 9585985a. fw_tables.js matches the merged firmware (`gen_fw_tables --check`). Changes for BUILD.md 7.40's "For Session D" items:
+- Track OFF, GLO + OCT+ on the selected track. The GLO lines and the footer "RESTART, UNDO, TRK OFF" came with the merge (GLO DONE is gone).
+- OFF in three places: a TRACKS row (the Stage), greyed like a muted row; the PICTURE page's sound line; the MIXER strip, where Mute goes. A track turned ON says WAIT in the accent color until it has its memory back.
+- New section "Flash chips": Puya P25Q80 (0x856014) and UCUN UC25HQ80 (0xB36014) are both supported. The UC25HQ80 is tested in simulation only until a unit with it is tried. On any other chip the unit and the page say FLASH NOT SUPPORTED and nothing is written. The page refuses a package that does not know the unit's chip. A UC25HQ80 unit on an older Orange Cat needs the ROM recovery.
+- Two new "differs" lines: track OFF with the TRK OFF footer, and the two flash chips.
+
+**Tests.** Full SAN=1 suite through `tools/suite_lock.sh` (slot 1, suites.slice, `--parallel 3`) in a checkout pinned at d89aa6db, after `ci_step.py build`: **passed, 285 jobs, 12,266 s**. Also passing: the web app's 168 tests, `web/test_web.mjs`, test_flash_refuse, test_installer, test_installer_page and `gen_proto --check`. This entry is a doc-only commit on top of d89aa6db.
+
 ## For Session A: web-r6 (from linux-hw 5c9ba403, web-r5 merged)
 
 **Ready: yes.** Branch web-r6, head d45b4b5c plus this doc-only entry. Commits: 6a237968 (merge of web-r5), e1d01497 (the guide for c5a112), f68bdc30 (editor: E1 and the audition), c19302a8 (the debounce of the unit's saved settings), d45b4b5c (this file's round 6).
@@ -198,7 +210,7 @@ Checked and fine: every write clamped by the unit's descriptor; the editor runs 
 - PRESETS: one sound a click, slow or fast, wrapping at both ends; a fast turn loads when it rests. ALL, FAV, RECENT and the categories list only sounds whose engine and model are installed (BUILD.md 7.36); nothing is deleted, a hidden track sound says MODULE MISSING and the first click goes to its neighbour. A MACRO sound is listed only while its model is installed.
 - New section "Install writes only what changed" (MOD_INFO and PACK_INFO CRCs, BUILD.md 7.38): a current module, pack or firmware is skipped, so a second install in a row writes nothing; the "erased first" question appears only when a module really changes; older firmware behaves as before.
 - Two new "differs" lines (the PRESETS wrap and filter; Install leaving current items alone).
-- Track OFF: **not added.** It is not built and not named yet (BUILD.md 7.39); it goes in when you name the control.
+- Track OFF: not added in this commit (not built then); added in d89aa6db above.
 
 **The fixes (open items needing no new command, most used first).**
 - Review item 2: the unit's saved settings (GLOBAL 4..9, 13, 17, 21, 41) are sent once, when the knob rests (1 s), in the app and the editor, so a turn no longer writes flash per step. The list comes from `web_gp_saved` in tests/web_wire.h through fw_tables.js (`FW.saved.gp`), and editor_test holds it equal to `ed_dev_global`.
