@@ -715,6 +715,7 @@ if core; then
     # (VA 3, FM BELL 4, MALLET 10: one MALLET track alone sounds 2 voices, 20 of 18 units). Its cases are to be derived again with the rising cap (BUILD.md 7.31 item 4, not built).
     # t "the voice budget by track (round 23): one track alone reaches its engine's cap or the units, four busy tracks as before, released tracks change nothing" voice_share_test -O2 -DOC_TRK_RELEASE=1 -DMELODEE_MACRO_PICK=0 $FW
     t "the automatic release (round 23): a track with nothing to play gives its engine state back; never under a voice, notes, a staged pattern, arming, the selection; the retakes, a failed one, the arena's bytes, the same samples" track_release_test -O1 -DOC_TRK_RELEASE=1 $FW
+    t "the rising cap (Round 28 item 1): with three tracks OFF the fourth's MACRO cap rises to what the units allow (VA 6 / 5, VA-VCF 9 / 8, CHIP 16), mono, UNISON, large models, SHAPES, DRUM-X unchanged; ON again it falls back, the leaving block's voices given up with the one-block fade; the units never over the budget" rising_cap_test -O1 $FW
     t "track OFF (Round 27 item 3): MACRO, SHAPES, DRUM-X fade out and give their state back, silent to keys, MIDI, arp and the sequencer, kept steps and sound, ON at the launch point, a project with OFF tracks, three OFF, a retake that waits (no effect yields), GLO + OCT+" track_off_test -O1 $FW
     t "audio: calibrated reservations, release tails and overlapping hits" audio_admission_test -O2 $FW
     t "USB audio: four isolated track stems through the real mixer" usb_audio_tracks_test -O2 $FW

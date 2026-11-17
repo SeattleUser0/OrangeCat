@@ -196,13 +196,16 @@ class Unit:
         return {"sounding": f[20], "gated": f[21], "sheds": f[24], "kills": f[25]}
 
     def trk_off(self, mask=None):
-        """(Round 27, BUILD.md 7.40) AUDIO_STATS [0, 11 (, mask)], schema 23: the tracks OFF, the arena, each track's state and voices; mask: set the OFF bits first"""
+        """(Round 27, BUILD.md 7.40) AUDIO_STATS [0, 11 (, mask)], schema 23 (24: Round 28's caps, rise_bytes): the tracks OFF, the arena, each track's state and voices; mask: set the OFF bits first"""
         d = self.req(72, [0, 11] + ([mask & 15] if mask is not None else []))
-        if d[0] != 23:
-            raise RuntimeError(f"AUDIO_STATS [0, 11]: schema {d[0]}, not 23 (a firmware without track OFF)")
+        if d[0] not in (23, 24):
+            raise RuntimeError(f"AUDIO_STATS [0, 11]: schema {d[0]}, not 23 or 24 (a firmware without track OFF)")
         f = [sum(d[1 + i * 5 + j] << (7 * j) for j in range(5)) for i in range((len(d) - 1) // 5)]
-        return {"off": f[0], "acted": f[1], "released": f[2], "waiting": f[3], "launch_wait": f[4], "arena": f[5], "used": f[6], "peak": f[7],
-                "failures": f[8], "state_bytes": f[9:13], "voices": f[13:17], "offs": f[17], "off_bytes": f[18], "ons": f[19], "blocks_waited": f[20]}
+        r = {"off": f[0], "acted": f[1], "released": f[2], "waiting": f[3], "launch_wait": f[4], "arena": f[5], "used": f[6], "peak": f[7],
+             "failures": f[8], "state_bytes": f[9:13], "voices": f[13:17], "offs": f[17], "off_bytes": f[18], "ons": f[19], "blocks_waited": f[20]}
+        if d[0] >= 24:                                  # (Round 28 item 1, BUILD.md 7.42) the rising cap: each track's POLY cap now, the bytes of its rising blocks
+            r.update(caps=f[21:25], rise_bytes=f[25:29])
+        return r
 
     @staticmethod
     def _parse(d):
