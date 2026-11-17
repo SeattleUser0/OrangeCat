@@ -337,6 +337,33 @@ int main(void)
         printf("rising cap: RACE: an effect short: the blocks given back, the effect takes %u B, the notes take none for %u blocks; then 16 again\n", s3, (unsigned)RISE_HOLD);
     }
 
+
+    /* BIG and CAP: a request that fails every block keeps the takes off only when a block could hold it, and never for good */
+    {
+        uint32_t mc = (MC_STATE_BYTES + 3u) & ~3u, i, got = 0;
+        fresh(18);
+        set_sound(&FAM[5]);
+        off3(1); run(RISE_HOLD * 2u + 2u);
+        for (i = 0; i < 8u; i++) { CHECK(!resource_allocate(RES_JFX0, 80000u), "BIG: (the request does not fit)"); run(1); }   /* larger than a block: asks nothing */
+        resource_allocate(RES_JFX0, 80000u);
+        chord(3, 16, 1); run(1);
+        CHECK(rise_bytes(3) == 3u * mc && sounding(3) == 16u, "BIG: a request larger than a block failing every block: the chord takes the blocks (%u B, %u sounding)", rise_bytes(3), sounding(3));
+        chord(3, 16, 0); run(SEC / 4u);
+        fresh(18);
+        set_sound(&FAM[5]);
+        off3(1); run(RISE_HOLD * 2u + 2u);
+        for (i = 0; i < 3u * RISE_HOLD && !got; i++) {   /* an effect's request a block could hold, failing every block (as a resource_get each block) */
+            res_rise_ask = 1;
+            trk_note_on(&trk[3], 48u + i % 16u, 100);
+            run(1);
+            got = rise_bytes(3) != 0;
+        }
+        uint32_t took = i;
+        CHECK(got && i >= RISE_HOLD - 2u && i <= 2u * RISE_HOLD + 2u, "CAP: a request a block could hold failing every block: the notes take a block after %u blocks (the hold at most %u)", i, (unsigned)RISE_HOLD);
+        for (i = 0; i < 16u; i++) trk_note_off(&trk[3], 48u + i);
+        printf("rising cap: BIG / CAP: a larger request asks nothing; one a block could hold, failing every block, holds the takes off %u blocks\n", took);
+    }
+
     /* MODE: a model and a voice mode change while raised: the blocks' voices given up, the blocks back */
     for (b = 0; b < 2u; b++) {
         fresh(18);

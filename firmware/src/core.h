@@ -22,6 +22,7 @@
 #define NVOICE 16                /* voice slots per part (FM6 plays Dexed's 16) */
 #define NPOLY 8                  /* the voices of an engine without its own cap (its per-voice state: engines.c eng_state) */
 #define NPART 4                  /* synth parts: tracks 1..4 */
+#define OC_RISE_BYTES 11264u      /* (Round 28) a rising block: MACRO's part (MC_STATE_BYTES, checked in engines.c); a failed request larger than this asks nothing of the rising cap */
 #define OC_RISE_N 3u             /* (Round 28 item 1) the rising cap's state blocks: one an OFF track (NPART - 1: one track at least plays; voice.c rise_block) */
 #ifndef MELODEE_RAM_AUDIO
 #define MELODEE_RAM_AUDIO 0       /* resident audio profile: full audio graph executes in SRAM */

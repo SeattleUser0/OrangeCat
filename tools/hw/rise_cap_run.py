@@ -14,8 +14,8 @@ track sounds its risen cap the whole run. The effects that run: the reverb, the 
 the OFF tracks are not mixed, so their sends feed nothing), and in heavy:1 DUB TAPE on track 4; no FX layer. Each run's row is the test's own (late,
 worst_us, load_pct, ...) with three fields added: "rise" (AUDIO_STATS [0, 11] at the start and at the end of the hold: the fourth's voices, its cap and
 the bytes of its rising blocks, schema 24), "rise_fx" (jfx_full and track 4's DUB instance before the chord, at its start, at the end) and
-"rise_verdict": PASS (late 0), LATE, or INVALID (with "rise_invalid_why") when FX FULL or DUB FULL showed at any read, or in heavy:1 DUB TAPE on track 4
-was not running with its memory: an INVALID run measured less than the heavy cell and is not a pass. Before the chord one note on track 4 lets the
+"rise_verdict": PASS (late 0), LATE, or INVALID (with "rise_invalid_why") when FX FULL or DUB FULL showed at any read, the arena's failed allocations
+(AUDIO_STATS [0, 11] failures, read at the row's start and end: "rise_failures_delta") grew at all, or in heavy:1 DUB TAPE on track 4 was not running with its memory: an INVALID run measured less than the heavy cell and is not a pass. Before the chord one note on track 4 lets the
 sends' buses take their memory, and in heavy:1 the run waits (5 s at most) for DUB to run. --off 0 is the control: the same program with every track ON (cap 4; tracks 1 to 3 play the
 heavy program's KICK 909, DRUM-X TECHNO RAW and SHAPES CSAW BASS; DUB on track 4 as well).
 
@@ -82,9 +82,10 @@ def main():
             gid = u.global_id("ROUT")
             state["rout"] = (gid, u.get_global(gid))
             u.set_global(gid, 0)                         # CH1-4
-        stats11(u, a.off)
+        f0 = stats11(u, a.off)["failures"]               # the arena's failed allocations at the row's start (jfx_full is not sticky: a denial between reads shows here)
         state.pop("fx", None); state.pop("rise", None)
         row = orig_run(u, name, cell)
+        f1 = stats11(u)["failures"]
         # the verdict: INVALID (not a pass) when an effect the run is meant to load did not run: DUB TAPE on track 4 not running with its memory, or
         # FX FULL / DUB FULL (jfx_full) at any read (before the chord, at its start, at the end, and the test's own polls in heavy:1)
         fx, why = state.get("fx", {}), []
@@ -94,12 +95,16 @@ def main():
             if not f: why.append(f"no read {at}"); continue
             if f["full"]: why.append(f"jfx_full 0x{f['full']:02x} {at}")
             if dub and not f["ok"]: why.append(f"DUB on track 4 not running {at}: {f['dub4']}")
+        if f1 != f0:
+            why.append(f"{f1 - f0} allocation(s) failed during the row (an effect or a rising block denied memory)")
         for p in row.get("dub_polls_changes") or []:
             if p[3]: why.append(f"jfx_full 0x{p[3]:02x} at {p[0]} s")
         row["rise"] = state.get("rise")
         row["rise_fx"] = fx
         row["rise_verdict"] = "INVALID" if why else ("PASS" if row.get("late") == 0 else "LATE")
         row["rise_invalid_why"] = why
+        row["rise_failures_delta"] = f1 - f0
+        print(f"rise_cap_run: {name} {':'.join(cell)}: {row['rise_verdict']}, late {row.get('late')}, failures +{f1 - f0}" + (f" ({'; '.join(why)})" if why else ""), flush=True)
         return row
 
     def play_chain(u, play_s, dub):

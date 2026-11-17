@@ -167,7 +167,9 @@ static __attribute__((noinline)) void *resource_allocate(uint32_t id, uint32_t b
         }
     }
     resource_failures++;
-    res_rise_ask = 1;                  /* ((Round 28) the rising cap gives back its blocks with no voice active: voice.c rise_block) */
+    if (size <= OC_RISE_BYTES && (RES_IS_JFX(id) || id < RES_NOTE_HISTORY))
+        res_rise_ask = 1;              /* ((Round 28) an effect or a track's state that a rising block could hold: the rising cap gives back its blocks with no voice
+                                        * active (voice.c rise_block); a larger request, the note history, the record undo ask nothing */
     return 0;                          /* leave an existing allocation intact */
 }
 

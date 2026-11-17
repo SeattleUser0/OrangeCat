@@ -1026,7 +1026,7 @@ static void engine_block(track_t *t)
  * fewer; (2) when the pool is smaller than the blocks kept (a track turned ON: the track keeping the most gives its last, ties the higher track); (3) when
  * its four voices have been silent for RISE_IDLE blocks (about a second); (4) at once when it has no voice active and an allocation of anything else
  * failed (res_rise_ask, resources.c: an effect growing, a track's take): never one with a voice sounding; and for RISE_HOLD blocks after such a failure
- * (125 ms) no note takes a block, so the effect that asked (it asks again after the release, later in the same block's mix) gets the memory. The silence
+ * (125 ms; armed again at most every 250 ms; only a request a block could hold: an effect's or a track state's of 11,264 B or less) no note takes a block, so the effect that asked (it asks again after the release, later in the same block's mix) gets the memory. The silence
  * counts ignore the transport: a second after STOP the blocks go back, and the first chord after PLAY takes them again. A block leaving has its voices given up as a voice
  * taken for another track is (voice_kill: stage 4, the envelope to 0 over one block with the block's amplitude ramp, no click; an OFF's or an engine
  * change's own fade ends them instead), and goes back to the arena when none is active (the next block). */
@@ -1034,7 +1034,8 @@ static void engine_block(track_t *t)
 static uint16_t rise_idle[NPART][OC_RISE_N];
 static uint32_t rise_asks, rise_held_off;
 #define RISE_HOLD (FS / CTL / 8u)                        /* blocks after an allocation failed in which no note takes a block (172: 125 ms): the one asking gets it */
-static uint16_t rise_hold;
+static uint16_t rise_hold, rise_since = 2u * RISE_HOLD; /* blocks since the hold was last armed: armed again only after 2 x RISE_HOLD (a request that fails every
+                                                         * block keeps the takes off at most half the time) */
 static uint32_t rise_want(const track_t *t)
 {
     uint32_t k = (uint32_t)(t - trk), u, n;
@@ -1100,8 +1101,12 @@ static void rise_block(void)
 {
     uint32_t k, i, j, kept = 0, pool = rise_pool(), want, ask = res_rise_ask;
     res_rise_ask = 0;
-    if (ask) rise_asks++, rise_hold = (uint16_t)RISE_HOLD;
-    else if (rise_hold) rise_hold--;
+    if (rise_since < 2u * RISE_HOLD) rise_since++;
+    if (rise_hold) rise_hold--;
+    if (ask) {
+        rise_asks++;
+        if (rise_since >= 2u * RISE_HOLD) rise_hold = (uint16_t)RISE_HOLD, rise_since = 0;
+    }
     for (k = 0; k < NPART; k++) {
         track_t *t = &trk[k];
         want = rise_want(t);

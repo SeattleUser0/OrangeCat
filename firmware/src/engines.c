@@ -181,6 +181,7 @@ static mc_part_t *mc_part(uint32_t part) { return resource_get(RES_ENGINE0 + par
 /* (Round 28 item 1, the rising cap: voice.c rise_block) a MACRO track's voices 4 .. 15 live in further blocks of the same layout (a pl_part_t each: four
  * voice heads and four model states), block b holding voices 4b .. 4b + 3. rise_slot[k][b - 1]: 1 + the pool block (RES_RISE0 + j) that is track k's block b,
  * 0 none. Block 0 is the track's own state. A block not held reads 0 (its voices are silent): nothing here allocates (voice.c takes and gives back) */
+_Static_assert(((MC_STATE_BYTES + 3u) & ~3u) == OC_RISE_BYTES, "core.h OC_RISE_BYTES is a rising block");
 static uint8_t rise_slot[NPART][OC_RISE_N];
 static mc_part_t *mc_vpart(uint32_t part, uint32_t b)
 {
