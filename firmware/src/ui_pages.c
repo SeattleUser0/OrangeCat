@@ -684,7 +684,7 @@ static void pv_meter(uint32_t k, uint16_t c)
 static void pv_strip(uint32_t k)
 {
     track_t *t = &trk[k];
-    uint32_t sel = k == song.sel, mute = t->p[P_MUTE] != 0, arm = (song.rec >> k) & 1u, lvl = trk_level(k), sig;
+    uint32_t sel = k == song.sel, off = trk_off(k) || ((trk_on_wait >> k) & 1u), mute = t->p[P_MUTE] != 0 || off, arm = (song.rec >> k) & 1u, lvl = trk_level(k), sig;   /* ((Round 27) OFF: greyed as muted, the word OFF where Mute is) */
     uint32_t hot = sel && ui.hot_t ? ui.hot_col + 1u : 0u;   /* 1 LEVEL, 2 PAN, 3 FREEZE (0.4.20), 4 MUTE */
     const char *fw = frz_word(k, song.playing);         /* (Orange Cat 0.4.20) */
     uint32_t fst = frz_state(k);                        /* (0.5.6) 2 the phrase frozen, 1 a freeze being made */
@@ -698,7 +698,7 @@ static void pv_strip(uint32_t k)
     if (m < pvm.meter[k] - 1)
         m = pvm.meter[k] - 1;                           /* (falls ~2 dB a frame) */
     sound_name(t, nm);
-    sig = str_hash(str_hash(1u + sel * 2u + mute * 4u + arm * 8u + hot * 16u, nm), fw) + lvl * 7919u +
+    sig = str_hash(str_hash(1u + sel * 2u + mute * 4u + arm * 8u + hot * 16u + off * 32u + (uint32_t)trk_off(k) * 64u, nm), fw) + lvl * 7919u +
           (uint32_t)(pan + 128) * 104729u + (uint32_t)h * 31u + ux.gen * 977u + ux.pal * 31u;
     if (!ui.force && sig == pvm.strip[k]) {
         if (m != pvm.meter[k]) {                        /* the meter alone */
@@ -743,7 +743,9 @@ static void pv_strip(uint32_t k)
             cv_rrect(PV_MIX_BAR_X, ly, (int32_t)lvl * PV_MIX_BAR_W / 127 < 4 ? 4 : (int32_t)lvl * PV_MIX_BAR_W / 127, 5, 2,
                      MXBAR, T_LINE);
         pv_meter_draw(k, PV_MIX_BAR_X, ly + 7, tc, bg);
-        if (mute) {
+        if (off) {                                      /* (Round 27) OFF, or ON and waiting for its memory: the word where Mute is */
+            cv_text_r(228, ty_y(ly + 5, lf), lf, trk_off(k) ? "OFF" : "WAIT", trk_off(k) ? T_TEXT : T_ACCENT, bg);
+        } else if (mute) {
             cv_text_r(228, ty_y(ly + 5, lf), lf, "Mute", hot == 4u ? MXC(3, T_TEXT) : T_REC, bg);
         } else if (fw[0]) {                             /* (Orange Cat 0.4.20) frozen or freezing */
             cv_text_r(228, ty_y(ly + 5, lf), lf, fw, hot == 3u ? MXC(2, T_TEXT) : fst == 2u ? T_THEME : fst ? T_TEXT : T_REC, bg);

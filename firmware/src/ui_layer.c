@@ -41,7 +41,7 @@ typedef struct {
 static const layer_t LAYERS[LAYER_N] = {
     {0, 0, 0, "", {{0, 0}, {0, 0}, {0, 0}}},
     {0, 0, 0, "", {{0, 0}, {0, 0}, {0, 0}}},
-    {B_GLO, LK_SET, FAM_HOME, "[GLO] SET", {{KC_PLAY, "RESTART"}, {KC_OCTDN, "UNDO"}, {KC_GLO, "DONE"}}},
+    {B_GLO, LK_SET, FAM_HOME, "[GLO] SET", {{KC_PLAY, "RESTART"}, {KC_OCTDN, "UNDO"}, {KC_OCTUP, "TRK OFF"}}},   /* ((Round 27) OCT+: the selected track OFF / ON; was GLO DONE) */
     {B_SCL, LK_SET, FAM_SCL, "[SCL] SET", {{KC_KEYS, "ROOT"}, {KC_OCTDN, "UNDO"}, {KC_SCL, "DONE"}}},
     {B_ARP, LK_SET, FAM_HOME, "[ARP] PERF", {{KC_SAVE, "+ KEY: STORE"}, {KC_OCTDN, "UNDO"}, {0, 0}}},
     {B_FX, LK_HOLD, FAM_HOME, "[FX] PUNCH", {{KC_KEYS, "HOLD: EFFECT"}, {KC_OCTDN, "ALL OFF"}, {0, 0}}},
@@ -101,6 +101,8 @@ static const char *layer_head(void)
 static uint32_t layer_open(void) { return ui.ly && (ui.ly_t0 & LY_OPEN) && ly_down(ui.ly) && layer_allowed() ? ui.ly : 0u; }
 static int layer_set_open(void) { return layer_open() && LAYERS[layer_open()].kind==LK_SET; }
 static uint32_t layer_held(void) { return ui.ly && ly_down(ui.ly) && layer_allowed(); }
+/* (Round 27) GLO held and alive (not pressed under a dialog, the menu or NAME: LY_DEAD), its map perhaps not open yet: GLO + OCT is a tap of GLO's */
+static int glo_oct_ok(void) { return ui.ly == LAYER_GLO && layer_held() && !(ui.ly_t0 & LY_DEAD); }
 
 /* each pass, before the keys: what the ISR (seq.c keyboard_block) gives to a layer. Armed: its button; none
  * armed: any layer button not already down (one pressed meanwhile is armed below; one held over from before
@@ -398,6 +400,22 @@ static int layer_play(void)
     return 1;
 }
 
+/* (Round 27 item 3) GLO + OCT+ (a tap, on release, as OCT-'s): track k OFF, or ON again. OFF: not rendered, its engine state back to the arena, its
+ * steps, sound, motion and mix kept, its keys and MIDI silent (voice.c trk_off_block). ON: its state taken again; playing, it comes in at the launch
+ * point (LAUNCH, as a staged MUTE). OCT- (put back) does not undo it: an OFF is not a mix setting */
+static void glo_track_off(uint32_t k)
+{
+    char m[24];
+    if (k >= trk_n()) return;
+    track_off_req(k, !trk_off(k));
+    str_cpy(m, "T1 OFF", sizeof m);
+    m[1] = (char)('1' + k);
+    if (!trk_off(k)) {
+        str_cpy(m + 3, song.playing ? "ON AT " : "ON", 8);
+        if (song.playing) str_cpy(m + str_len(m), LAUNCH_NAME[lists.launch % OCL_NLAUNCH], 6);
+    }
+    ui_message(m);
+}
 /* OCT- / OCT+ in a SET layer: no octave; OCT- let go puts back what the layer changed. Returns the taps left */
 static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
 {
@@ -415,6 +433,8 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
         fx_oct = 0;
     }
     if (layer_set_open())
+        lys.oct |= (uint8_t)(((pressed >> dn) & 1u) | ((pressed >> up) & 1u) << 1);
+    else if (glo_oct_ok())                              /* (Round 27) GLO down, its map not open yet (OCT is the combo that opens it): OCT+ and OCT- are GLO's, never the octave nor a page's */
         lys.oct |= (uint8_t)(((pressed >> dn) & 1u) | ((pressed >> up) & 1u) << 1);
     mine = oct & lys.oct;
     if (mine & 1u) {                                    /* OCT-: back to when it opened */
@@ -441,6 +461,8 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
             ui_message("SCALE PUT BACK");
         }
     }
+    if ((mine & 2u) && lys.l == LAYER_GLO && (layer_open() == LAYER_GLO || glo_oct_ok() || ui.lock == LAYER_GLO))             /* (Round 27) GLO + OCT+: the selected track OFF / ON (UI_DESIGN.md, decisions: track OFF) */
+        glo_track_off(song.sel);
     lys.oct &= (uint8_t)(((fm1_in.buttons >> dn) & 1u) | ((fm1_in.buttons >> up) & 1u) << 1);
     return oct & ~mine;
 }

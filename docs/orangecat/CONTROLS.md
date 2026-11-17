@@ -2,7 +2,7 @@
 
 # Orange Cat controls
 
-For the Nightly v0.16.0-c5a112 and later (firmware commit c5a112e3, November 14, 2026). Made from the firmware's tables 46323678: when they change, this page is made again.
+For the Nightly v0.16.0-dc0c9e and later (firmware commit dc0c9e7f, November 16, 2026). Made from the firmware's tables 9585985a: when they change, this page is made again.
 
 What every knob, button and key does on the unit, page by page. It describes the Nightly build: the new interface with HOME's pictures, the four knobs and the EDIT sheets, with the FX order SENDS first and the track's own effects last.
 
@@ -65,9 +65,9 @@ SEQ is not a layer, but with it held the keys are silent pattern keys. SEQ tappe
 
 HOME has up to four pages. MENU > HOME PAGE chooses the first. With TRACKS (the default) a HOME tap on HOME toggles TRACKS and CHORD. With PICTURE it steps PICTURE, DUB, TRACKS, CHORD; DUB is in the turn only while the selected track's ECHO is above 0.
 
-- TRACKS: one row per track in use, with its numeral, sound name and the bar's 16 steps; the selected track is outlined. Under them the notes played over the waveform. A muted track is grey and says MUTE in red where its role (DRUMS, CHORDS, T1) stands; a frozen track is grey-blue and says FROZEN. KNOB 1 to 4 are the selected engine's first four values; they drop in over the rows when turned.
+- TRACKS: one row per track in use, with its numeral, sound name and the bar's 16 steps; the selected track is outlined. Under them the notes played over the waveform. A muted track is grey and says MUTE in red where its role (DRUMS, CHORDS, T1) stands; a frozen track is grey-blue and says FROZEN. A track turned OFF (GLO held, OCT+ tapped) is grey and says OFF there; turned ON again it says WAIT in the accent color until it has its memory back. KNOB 1 to 4 are the selected engine's first four values; they drop in over the rows when turned.
 - CHORD: the twelve notes as a wheel in fifths with the song's key. Notes sounding on the tracks are lit in the track colors and the chord is named in the middle. The knobs drop in over the wheel.
-- PICTURE: the sound line (track, sound name, its place in the factory list; a knob turned shows its name and value there), four dials in the knob colors (blue, green, white, orange), a value row and the engine's picture. PACK MISSING in red means the asset pack is not installed. A macro knob moves around the sound as stored (-64 to +63); going back to TRACKS keeps the offsets in the sound. While the selected track is muted its numeral is grey and the line says MUTE in red at the right (also on DUB).
+- PICTURE: the sound line (track, sound name, its place in the factory list; a knob turned shows its name and value there), four dials in the knob colors (blue, green, white, orange), a value row and the engine's picture. PACK MISSING in red means the asset pack is not installed. A macro knob moves around the sound as stored (-64 to +63); going back to TRACKS keeps the offsets in the sound. While the selected track is muted its numeral is grey and the line says MUTE in red at the right (also on DUB). A track turned OFF says OFF there instead, and WAIT in the accent color while a track turned ON waits for memory.
 - DUB: the tape loop and the performance keys, see "DUB performance view".
 - On every HOME page: SELECT turns HOME SELECT (BPM at first). PRESETS browses the sounds, one a click, wrapping at both ends; a fast turn loads when it rests. EDIT opens the EDIT sheets. ENV, LFO, SCL, ARP, FX, GLO, SAVE and SEQ open their pages. OCT- and OCT+ shift the octave. PLAY plays what it played last. REC held (stopped) clears the selected track. SAVE opens PROJECT.
 
@@ -101,7 +101,7 @@ EDIT opens a sheet: a tab with rows, each row a page. From HOME, or from a page 
 
 Hold GLO for the hold time (MENU > HOLD, 0.3 to 0.6 s, 0.4 s at first), or press a key or knob while it is down. Tap it quickly and GLO opens MIXER, then GLOBAL, SYSTEM, WEIGHTS and WEIGHTS 2.
 
-The screen's footer: RESTART, UNDO, DONE.
+The screen's footer: RESTART, UNDO, TRK OFF.
 
 | Key | Does |
 |---|---|
@@ -114,7 +114,8 @@ KNOB 1 to 4: LEVEL of T1 to T4 (recorded as motion when armed).
 
 - SELECT: what MENU > GLO SELECT says (BPM at first).
 - PLAY: RESTART from the top without stopping.
-- OCT- (on release): puts back the mutes, levels and BPM from when the layer opened ("MIX PUT BACK"). OCT+ does nothing.
+- OCT- (on release): puts back the mutes, levels and BPM from when the layer opened ("MIX PUT BACK"). It does not undo a track OFF.
+- OCT+ (a tap, on release): the selected track OFF, or ON again ("T2 OFF", "T2 ON", playing "T2 ON AT LOOP"). An OFF track is not played and gives its memory back; its steps, sound and mix are kept, its keys and MIDI make no sound, the Stage row says OFF. Turned ON it takes its memory back (WAIT while there is none) and plays from the next launch point (ARP's LAUNCH). Works on every page, the DUB page too.
 
 ### [SCL] SET
 
@@ -562,7 +563,7 @@ MIXER is the first page GLO opens (the owner's name for it is TRACKS).
 - KNOB 3: FREEZE. Right freezes the selected track's phrase to a card file, left unfreezes. Needs a card in a powered hub.
 - KNOB 4: MUTE (OFF or ON). Right is on, left is off.
 
-- One row a track with its level bar and values in the knob colors. Unused tracks show a grey "Add track" row (MENU > UNUSED TRACKS). OCT+ held opens the sheet Track n / card: Assign clip (a WAV from the card). REC held (stopped) clears every track's steps, notes and own effects.
+- One row a track with its level bar and values in the knob colors. A track turned OFF (GLO held, OCT+ tapped) shows OFF where Mute goes, and WAIT in the accent color while a track turned ON waits for memory. Unused tracks show a grey "Add track" row (MENU > UNUSED TRACKS). OCT+ held opens the sheet Track n / card: Assign clip (a WAV from the card). REC held (stopped) clears every track's steps, notes and own effects.
 
 ### SAVE: projects and sounds
 
@@ -826,6 +827,13 @@ Before it writes, the page asks the FM-1 for a checksum of each module, of the a
 - The firmware is flashed only when it is another build (a new Nightly, another version, a bench build). The same build installed again is left as it is.
 - A firmware older than this Nightly sends no checksums: on it the page works as before (the firmware always flashed, the MACRO models module always written).
 
+## Flash chips
+
+FM-1 units ship with one of two flash chips: Puya P25Q80 (JEDEC 0x856014, the first units) or UCUN UC25HQ80 (0xB36014, units from about autumn 2026). This Nightly supports both. The UC25HQ80 is tested in simulation only until a unit with it is tried; the installer page says so.
+
+- On any other chip Orange Cat writes nothing: the unit and the page say FLASH NOT SUPPORTED.
+- The page refuses a package whose firmware does not know the unit's chip (Standard 0.15.0 onto a UC25HQ80 unit). A UC25HQ80 unit still on an older Orange Cat cannot be updated from the page; it needs the ROM recovery.
+
 ## Modules that do not fit: the page asks first
 
 The modules sit in the module area and the tail region in the order they were installed. When the set you ticked (a bigger pick of models, say) does not fit beside the modules as they sit now, the installer page works out an order that does. It never moves anything without asking: the page says which modules it would take off the FM-1 and install again, and Install waits for your answer.
@@ -893,4 +901,6 @@ These points in older documents or notes do not match the Nightly. This guide fo
 - SPRING, SHIMR and RESO, and GLITCH, TAPE STOP, SHUFFLE and FREEZE, are no longer in the firmware: they play only from their modules (REVERB MODES, FX LAYER). Older notes say the firmware plays them without a module.
 - PRESETS wraps at both ends on a fast turn too, and lists only sounds that can play; older notes say a fast turn stops at the ends and that every user sound is listed.
 - Install leaves what is already in the FM-1 alone (firmware, pack, modules); older notes say every Install flashes the firmware and writes the MACRO models module again.
+- GLO + OCT+ turns the selected track OFF or ON, and GLO's footer reads TRK OFF where it said DONE; older notes have no track OFF.
+- Both FM-1 flash chips are supported (Puya P25Q80 and UCUN UC25HQ80); older notes and older firmware know only the Puya chip, and a UC25HQ80 unit on them loses its saves at power-off.
 - A muted track says MUTE on HOME's TRACKS page and a frozen one says FROZEN, where its role stands; older notes say a muted track is only grey.

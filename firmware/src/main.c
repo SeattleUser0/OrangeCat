@@ -190,6 +190,11 @@ static void fm1_main(void)
     lcd_sync();
     dsp_tables_init();                        /* the RAM lookup tables (FM6), before anything renders */
     persist_boot();
+    if (ui_flash_unsupported) {               /* (Round 27, FLASH_CHIPS.md) a flash part hal/fm1_flash_id.h does not know: said on the splash, nothing is written */
+        draw_text_box(0, 190, 240, TY_TX, "FLASH NOT SUPPORTED", T_THEME, 1);
+        lcd_sync();
+        fm1_delay_ms(2000);
+    }
 #if MELODEE_OTA
     if (flash_ok && boot_work.state != 2u)
         ota_boot_cleanup();                             /* staging area left by an update */
@@ -248,6 +253,7 @@ static void fm1_main(void)
     glo_restore();                            /* CLK TUNE MIDI ROUT as last used, */
     project_boot();                           /* then the BOOT project or the template (theirs win) */
     pack_boot_notice(bootguard.failed);       /* (Orange Cat 0.8.1) PACK MISSING once, if a track needs the asset pack */
+    if (ui_flash_unsupported) ui_message("FLASH NOT SUPPORTED");   /* (Round 27) and once more in the top bar, after the boot notices */
 #if OC_MODULES && MELODEE_FLASH
     oc_mod_ban_notice();                      /* (Orange Cat 0.10.1) MODULE BANNED <engine> once, for a module the crash count banned at this boot */
 #endif
@@ -331,6 +337,13 @@ static void fm1_main(void)
             panic_req = (1u << NTRK) - 1u;               /* every track (bit per track) */
             if (flash_ok)
                 ota_session();                          /* returns only if nothing was committed */
+            else {                                      /* (Round 27) a flash part hal/fm1_flash_id.h does not accept: before this round the request was dropped in silence */
+                ota_say_noflash(flash_jedec);           /* the page / fm1_install.py: FLASH NOT SUPPORTED, nothing written */
+                lcd_fill(0, 0, 240, 240, T_BG);
+                draw_text_box(0, 80, 240, TY_VL, "UPDATE", T_TEXT, 1);
+                draw_text_box(0, 128, 240, TY_TX, "FLASH NOT SUPPORTED", T_THEME, 1);
+                fm1_delay_ms(1500);
+            }
             lcd_fill(0, 0, 240, 240, T_BG);
             ui.force = 1;
         }

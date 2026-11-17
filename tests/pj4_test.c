@@ -467,7 +467,7 @@ static void cv_fixture(uint32_t nslots, const uint32_t (*use)[16], uint32_t base
 static void cv_mk(uint32_t slot, pj4_head_t *h) { *h = mkhead(slot ? "TWO" : "ONE", 1000 + slot); }
 static uint8_t cv_status[4];
 static uint32_t cv_over[4];
-static int cv_run(void *a) { (void)a; pj4_boot(&WS, cv_names, cv_work, cv_mk, cv_status, cv_over); return 0; }
+static int cv_run(void *a) { (void)a; pj4_boot(&WS, cv_names, cv_work, cv_mk, cv_status, cv_over, 0); return 0; }
 /* slot s converted: every phrase it names is its own, the repack of the old one, and the old record's bytes ride in OJ3B */
 static int cv_slot_ok(uint32_t s)
 {
@@ -568,7 +568,7 @@ static int rs_run(void *a)
     if (dead) return -1;
     cv_fixture(1, (const uint32_t (*)[16]) & (const uint32_t[16]){2, 3, 0xFFFF}, 9000);   /* the old backup's records */
     if (dead) return -1;
-    pj4_boot(&WS, cv_names, cv_work, cv_mk, cv_status, cv_over);
+    pj4_boot(&WS, cv_names, cv_work, cv_mk, cv_status, cv_over, 0);
     return 0;
 }
 static int rs_chk(void *a, int finished)

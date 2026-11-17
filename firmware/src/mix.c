@@ -399,7 +399,7 @@ static __attribute__((noinline)) void mix_part(track_t *t,uint32_t n)
     uint32_t ti=(uint32_t)(t-trk)%NTRK;
     if(slicer_routes(ti)){mix_dl=sl_l;mix_dr=sl_r;}else{mix_dl=mix_l;mix_dr=mix_r;}   /* (0.6.0) the SLICER's bus */
     mix_part_engine(t,n);
-    if(((mix_frozen>>ti)&1u) && mix_frz_take){mix_send_gains(t);mix_frz_take(t,n);}   /* (Orange Cat 0.5.6) its frozen
+    if(((mix_frozen>>ti)&1u) && mix_frz_take && !trk_off_silent(ti)){   /* ((Round 27) an OFF track's take is silent too) */mix_send_gains(t);mix_frz_take(t,n);}   /* (Orange Cat 0.5.6) its frozen
                                                          * phrase's take, after its engine (card_freeze.c): its sends too */
     mix_dl=mix_l;mix_dr=mix_r;
 }

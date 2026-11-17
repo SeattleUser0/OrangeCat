@@ -314,6 +314,9 @@ class Updater:
                 continue
             fl, addr, n = r
             last = time.monotonic()
+            if 0xEE000000 <= addr < 0xEF000000:   # (Round 27, docs/orangecat/FLASH_CHIPS.md: ota.c OTA_NOFLASH | JEDEC id)
+                raise InstallError("flash", f"FLASH NOT SUPPORTED: the FM-1's flash chip (JEDEC {addr & 0xFFFFFF:06X}) is not one "
+                                   "this firmware knows; nothing was written")
             if addr in (FINISH_CHECK, FINISH_WRITE):
                 link.send(response(addr, b"success\0"))
                 if addr == finish:

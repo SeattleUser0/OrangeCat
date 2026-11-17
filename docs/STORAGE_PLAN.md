@@ -74,7 +74,7 @@ compared value by value with the old generator's.
 
 ## Where we stand (before the work)
 
-The FM-1 has a 1 MiB SPI NOR (Puya, JEDEC `0x856014`, checked at boot by `persist_boot`). There is no
+The FM-1 has a 1 MiB SPI NOR (Puya, JEDEC `0x856014`, or UCUN UC25HQ80, `0xB36014`, since Round 27; checked at boot by `persist_boot` against `firmware/hal/fm1_flash_id.h`, docs/orangecat/FLASH_CHIPS.md). There is no
 larger part to move to, so every gain is a reallocation.
 
 | Region | Sectors | Bytes | Notes |

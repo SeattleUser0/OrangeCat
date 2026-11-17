@@ -1068,7 +1068,7 @@ static int pack_protocol(void)
     request(ED_PACK_INFO, 0, 0);
     bad += check("PACK_INFO: this build's pack, its stored length", host_wire[5] == 1 && (host_wire[7] | host_wire[8] << 7 | host_wire[9] << 14) == OC_PACK_LEN);
     bad += check("the flash holds the pack byte for byte", !memcmp(host_pack, pak, len));
-    bad += check("PACK_INFO (Round 26): appended, the scene trailer's length and CRC: none, 0 and 0", host_wire_n == 35u &&
+    bad += check("PACK_INFO (Round 26): appended, the scene trailer's length and CRC: none, 0 and 0; (Round 27) then the flash verdict", host_wire_n == 36u && host_wire[34] == 1u &&
                  (host_wire[26] | host_wire[27] << 7 | host_wire[28] << 14) == 0 && (host_wire[29] | host_wire[30] | host_wire[31] | host_wire[32] | host_wire[33]) == 0);
 #if OC_HOME_PIC
     {   /* a whole trailer after the tables, as the page's file carries it: "OCSC", version 1, its length, the CRC of its bytes 16 .. length */
@@ -1623,7 +1623,7 @@ static int fw_report(void)
     memset(host_app, 0xFF, sizeof host_app);
     ed_fw_forget(); request(ED_MOD_INFO, 0, 0);
     bad += check("MOD_INFO's image report (Round 26): no commit marker (erased flash): length, body CRC and the rest's CRC 0",
-                 host_wire_n == FWR + 16u && rep_u35(FWR) == 0 && rep_u35(FWR + 5u) == 0 && rep_u35(FWR + 10u) == 0 && host_wire[FWR + 15u] == 0xF7);
+                 host_wire_n == FWR + 17u && rep_u35(FWR) == 0 && rep_u35(FWR + 5u) == 0 && rep_u35(FWR + 10u) == 0 && host_wire[FWR + 15u] == 1u && host_wire[FWR + 16u] == 0xF7);   /* (Round 27) then the flash verdict (1: this host build's part) */
     for (i = 0; i < 0x1000u + len; i++) host_app[i] = (uint8_t)(i * 13u + (i >> 9));
     for (i = 0x92000u - 0x4000u; i < 0x92800u - 0x4000u; i++) host_app[i] = (uint8_t)(i * 7u);   /* cfg_tool and the EQ cfg */
     crc = ocs_crc32(host_app + 0x1000u, len);
@@ -1677,7 +1677,7 @@ static int mod_report(void)
     oc_mod_boot(0);
     song.playing = 0; host_progress = 1;
     request(ED_MOD_INFO, 0, 0);
-    ok = host_wire_n == REP0 + 1u + 10u * OC_MOD_STARTS + 15u + 1u && host_wire[REP0] == OC_MOD_STARTS && host_wire[host_wire_n - 1u] == 0xF7;
+    ok = host_wire_n == REP0 + 1u + 10u * OC_MOD_STARTS + 15u + 1u + 1u && host_wire[REP0] == OC_MOD_STARTS && host_wire[host_wire_n - 1u] == 0xF7;   /* (+ 1: Round 27's flash verdict) */
     for (s = 0; s < OC_MOD_STARTS; s++) ok &= rep_crc(s) == 0 && rep_hpg(s) == 0;
     bad += check("MOD_INFO's report (Round 26): appended after the low sectors' byte, the count of starts and 10 bytes a start; an empty area: every CRC 0", ok);
     c = install_image(ENGI_SHAPES, 0, 3000u);

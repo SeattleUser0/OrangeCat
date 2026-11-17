@@ -55,6 +55,10 @@ enum { ED_CORE1_TEST = 79 };                         /* test builds only: CPU1 f
 static void core1_test_stall(void *unused) { (void)unused; for (;;) ; }
 #endif
 
+/* (Round 27 re-review) a write the flash did not take (storage_hw.c ST_FLASH_SLOW: the part finished only past the driver's limit; -6: the write gate
+ * refused it): the pack and module commands answer rc 9, which the installer page shows as a flash error (before, -4 / -5 read as "the old pairs are
+ * still moving" / "no start free") */
+#define ED_RC_FLASH(r) ((r) == -20 || (r) == -6)
 static uint8_t ed_out[1024];                        /* the longest: a NAMES page (PROPHET pages its 201) */
 static uint32_t ed_n;
 /* (0.15.0) by command byte: frames with the editor's header handled (ed_handle), replies and pushes put whole into USB's SysEx queue
@@ -383,6 +387,7 @@ static int ed_flash_stop(void)
 #include "editor_cz.c"
 #include "editor_native.c"
 #include "editor_library.c"
+#include "editor_flash.c"                              /* (Round 27) command 134 FLASH_ID: the flash part, read only (docs/orangecat/FLASH_CHIPS.md) */
 #include "editor_prophet.c"
 #include "editor_cpu_lab.h"
 #if OC_HW_TEST
@@ -577,7 +582,7 @@ static int ed_fx_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
         if (transport_busy()) rc = 2;
         else {
             r = cmd == ED_FX_BEGIN ? oc_fxmod_begin(ed_fx_id_get(a), a[5], a[6] | (uint32_t)a[7] << 7 | (uint32_t)a[8] << 14) : oc_fxmod_remove(ed_fx_id_get(a));
-            rc = r == 0 ? 0u : r == -1 ? 1u : r == -4 ? 4u : r == -5 ? 5u : 2u;
+            rc = r == 0 ? 0u : r == -1 ? 1u : r == -4 ? 4u : r == -5 ? 5u : ED_RC_FLASH(r) ? 9u : 2u;   /* (Round 27) 9: the flash did not take the write */
         }
         ed_b(rc); ed_b(mw.done); ed_b(mw.done >> 7); ed_b(mw.done >> 14);
         return 1;
@@ -615,7 +620,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         if (!na) return;
         ed_begin(ED_EXT);
         ed_b(a[0]);
-        if (ed_kit_handle(128u + a[0], a + 1, na - 1u) || ed_fx_handle(128u + a[0], a + 1, na - 1u)) ed_send();
+        if (ed_kit_handle(128u + a[0], a + 1, na - 1u) || ed_fx_handle(128u + a[0], a + 1, na - 1u) || ed_flash_handle(128u + a[0], a + 1, na - 1u)) ed_send();
         return;
     }
     if (!ed_args_ok(cmd, a, na))
@@ -973,6 +978,31 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             break;
         }
 #endif
+        if ((na == 2u || na == 3u) && a[1] == 11u) {
+            /* (Round 27 item 3, BUILD.md 7.40) [flags, 11]: the tracks OFF, schema 23: 23, then 5 x 7 bits each: the OFF bits (voice.c trk_off_bits), the bits
+             * the audio side has acted on (trk_off_seen), the released states (eng_rel), the tracks ON and waiting for their memory (trk_on_wait), the tracks
+             * whose sequencer notes wait for the launch point (seq_off_quiet); the arena's capacity, used, peak, failures; each track's engine state held
+             * (bytes, four); the voices sounding (active, not given up) on each track (four); the counts: OFFs acted on, the bytes they gave back, ONs,
+             * blocks waited. [flags, 11, mask]: sets the OFF bits to mask first (as GLO + OCT+ does, for a bench run), then the same reply. Flag 1 is not used. */
+            uint32_t k, v[21];
+            if (na == 3u) for (k = 0; k < NTRK && k < trk_n(); k++) track_off_req(k, (int)((a[2] >> k) & 1u));   /* (the tracks in use: a place not in use is left as it is) */
+            fm1_irq_off();
+            v[0] = trk_off_bits; v[1] = trk_off_seen; v[2] = 0;
+            for (k = 0; k < NPART; k++) v[2] |= (uint32_t)(eng_rel[k] != 0) << k;
+            v[3] = trk_on_wait; v[4] = seq_off_quiet;
+            v[5] = RESOURCE_CAPACITY; v[6] = resource_used(); v[7] = resource_peak; v[8] = resource_failures;
+            for (k = 0; k < 4u; k++) {
+                uint32_t i, n = 0;
+                v[9 + k] = k < NPART ? resource[RES_ENGINE0 + k].size : 0u;
+                for (i = 0; k < NPART && i < NVOICE; i++) n += trk[k].v[i].active && trk[k].v[i].stage != 4u;
+                v[13 + k] = n;
+            }
+            v[17] = trk_off_n; v[18] = trk_off_bytes; v[19] = trk_on_n; v[20] = trk_on_waits;
+            fm1_irq_on();
+            ed_b(23);
+            for (k = 0; k < 21u; k++) ed_bk_u32(v[k]);
+            break;
+        }
         if ((na == 2u || na == 5u || na == 6u) && a[1] == 6u) {
             /* (0.15.0) [flags, 6]: the cost caps (voice.c voice_cap_room), schema 15 (Release 2; 13 before: three fields a class, no third cap column): 15, then 5 x 7 bits each: engaged now, times
              * engaged, halves engaged, extra UNISON voices refused, the shared effects ran last block, N (3: MODAL, FM6, the Prophet); then
@@ -1433,6 +1463,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             ed_b(tl); ed_b(tl >> 7); ed_b(tl >> 14);
             for (i = 0; i < 5u; i++) ed_b(tc >> (7u * i));
         }
+        ed_b(ED_FLASH_VERDICT);                            /* (Round 27, appended) the flash part: 0 FLASH NOT SUPPORTED (nothing is written), 1 Puya, 2 UCUN (FLASH_ID 134 has the rest) */
         break;
     }
     case ED_PACK_BEGIN: case ED_PACK_WRITE: case ED_PACK_END: case ED_PACK_ERASE: {
@@ -1445,13 +1476,13 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         int r = 0;
         if (cmd != ED_PACK_ERASE || na <= 1u) {
             if (transport_busy()) { rc = 2; }
-            else if (cmd == ED_PACK_BEGIN && (na == 3u || (na == 4u && a[3] <= 1u))) r = oc_pack_begin(v), rc = r == -1 ? 1u : r == -4 ? 4u : r ? 2u : 0u;
+            else if (cmd == ED_PACK_BEGIN && (na == 3u || (na == 4u && a[3] <= 1u))) r = oc_pack_begin(v), rc = r == -1 ? 1u : r == -4 ? 4u : ED_RC_FLASH(r) ? 9u : r ? 2u : 0u;
             else if (cmd == ED_PACK_WRITE && na > 3u && (got = ed_unpack7(a + 3, na - 3u, ed_smp_buf, 256u)) != 0)
-                r = oc_pack_write(v, ed_smp_buf, got), rc = r == -1 ? 1u : r ? 2u : 0u;
+                r = oc_pack_write(v, ed_smp_buf, got), rc = r == -1 ? 1u : ED_RC_FLASH(r) ? 9u : r ? 2u : 0u;
             else if (cmd == ED_PACK_END && ed_unpack7(a, na, ed_smp_buf, 512u) == 512u)
-                r = oc_pack_end(ed_smp_buf), rc = r == -1 ? 1u : r ? 2u : 0u;
+                r = oc_pack_end(ed_smp_buf), rc = r == -1 ? 1u : ED_RC_FLASH(r) ? 9u : r ? 2u : 0u;
             else if (cmd == ED_PACK_ERASE && (na == 0u || a[0] <= 1u))
-                r = oc_pack_erase(), rc = r == -4 ? 4u : r ? 2u : 0u;
+                r = oc_pack_erase(), rc = r == -4 ? 4u : ED_RC_FLASH(r) ? 9u : r ? 2u : 0u;
         }
         ed_b(rc); ed_b(pk.done); ed_b(pk.done >> 7); ed_b(pk.done >> 14);
         break;
@@ -1489,6 +1520,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             for (k = 0; k < 5u; k++) ed_b(mpick >> (7u * k));
         }
         ed_fw_image();                                      /* (Round 26) and the image the unit runs: the commit marker's body length and CRC, the CRC of the rest the loader writes */
+        ed_b(ED_FLASH_VERDICT);                             /* (Round 27, appended) the flash part, as PACK_INFO's last byte */
         break;
     }
     case ED_ENGINES: {                                     /* (0.11.0) -> nengines, then per engine number: source (0 not available: retired, or a module's number with none registered; 1 built in;
@@ -1595,7 +1627,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             else if (cmd == ED_MOD_END && ed_unpack7(a, na, ed_smp_buf, 256u) == 256u) r = oc_mod_end(ed_smp_buf);
             else if (cmd == ED_MOD_REMOVE && na == 1u) r = oc_mod_remove(a[0]);
             else r = -1;
-            rc = r == 0 ? 0u : r == -1 ? 1u : r == -4 ? 4u : r == -5 ? 5u : r == -7 ? 7u : r == -8 ? 8u : 2u;
+            rc = r == 0 ? 0u : r == -1 ? 1u : r == -4 ? 4u : r == -5 ? 5u : r == -7 ? 7u : r == -8 ? 8u : ED_RC_FLASH(r) ? 9u : 2u;
         }
         ed_b(rc); ed_b(mw.done); ed_b(mw.done >> 7); ed_b(mw.done >> 14);
         break;

@@ -62,6 +62,7 @@ typedef struct {                               /* one track */
     int16_t p[P_COUNT];
     uint8_t engine, preset;
     int8_t mpc_octave;
+    uint8_t off;                               /* (Release 3) the track is OFF (voice.c trk_off): saved in the tagged word PROJ_OFF_WIRE */
     step_t step[NSTEP];
 } proj_trk_t;
 typedef struct {
@@ -128,6 +129,7 @@ static uint8_t proj_p5_origin_value(const project_t *p,uint32_t track)
 #define PROJ_P5_ORIGIN_TAG1 0x35u
 #define PROJ_P5_ORIGIN_MAX 128u /* native Prophet user collection */
 #define PROJ_MPC_OCT_WIRE (PROJ_TONE_WIRE - 2u) /* tagged bank octaves in the unused project tail */
+#define PROJ_OFF_WIRE (PROJ_MPC_OCT_WIRE - 2u)  /* (Release 3) the tracks that are OFF: a tagged word 0xB000 | bit k (the tail before the octaves; 0: none; any other tag: none) */
 #define TMPL_MPC_OCT_G G_RESERVED25             /* template metadata only; remains an inert runtime global */
 
 /* Four signed octaves in a tagged 16-bit word; zero is an older record (all banks at zero).
@@ -154,7 +156,7 @@ static int mpc_octaves_unpack(int8_t oct[NTRK], uint32_t word)
     return 1;
 }
 typedef union { uint32_t align; uint8_t raw[PROJ_STORE_SIZE]; } project_store_t;
-_Static_assert(G_DTIME == PROJ_GLOBALS && G_BUDGET==41u && G_COUNT==76u && PROJ_JFX_N <= 56u &&
+_Static_assert(G_DTIME == PROJ_GLOBALS && G_BUDGET==41u && G_COUNT==76u && PROJ_JFX_N <= 54u &&   /* ((Round 27, the review) 54: the two ids below MPC_OCT are PROJ_OFF_WIRE's */
                P_DIST == PROJ_OLD_P_FX && P_REV == PROJ_OLD_P_SEND && P_JRES6 == 113u && P_COUNT == 124u,
                "global ids, the effect ids and the wire header stay fixed (a change: a new magic and a conversion)");
 /* (0.6.0) the global effect settings of a record from before FUN23: the new defaults; the leveler off, so a converted
@@ -208,7 +210,7 @@ static int proj_ok(const project_t *q)
     if (q->magic != PROJ_MAGIC || q->size != sizeof *q || q->sum != proj_sum(q) ||
         q->sel >= NTRK || q->parts > NPART || q->phys > PROJ_PHYS ||
         !chain_valid(&q->chain) || !motion_valid(&q->motion)) return 0;
-    for (uint32_t k = 0; k < NTRK; k++) if (q->t[k].engine >= NENGINES || q->t[k].mpc_octave < -3 || q->t[k].mpc_octave > 3 || q->pattern[k] >= NPAT || !drum_patch_valid(&q->drum[k]) || !p5_patch_valid(&q->p5[k])) return 0;
+    for (uint32_t k = 0; k < NTRK; k++) if (q->t[k].engine >= NENGINES || q->t[k].mpc_octave < -3 || q->t[k].mpc_octave > 3 || q->t[k].off > 1u || q->pattern[k] >= NPAT || !drum_patch_valid(&q->drum[k]) || !p5_patch_valid(&q->p5[k])) return 0;
     for (uint32_t i = 0; i < RECORD_MAX; i++) if (recording_load_rule(&q->recording[i]) < 0) return 0;   /* (Round 25) an older build's event (recording_legacy) does not refuse it: proj_drop_old drops it */
     return 1;
 }
@@ -363,6 +365,11 @@ static int proj_pack(project_store_t *out, const project_t *q)
     for(t=0;t<NTRK;t++){b[pos++]=(uint8_t)q->user[t];b[pos++]=(uint8_t)(q->user[t]>>8);}
     b[PROJ_MPC_OCT_WIRE] = (uint8_t)octword;
     b[PROJ_MPC_OCT_WIRE+1u] = (uint8_t)(octword >> 8);
+    {
+        uint32_t offw = 0;
+        for (t = 0; t < NTRK; t++) { if (q->t[t].off > 1u) return 0; offw |= (uint32_t)q->t[t].off << t; }
+        if (offw) { offw |= 0xB000u; b[PROJ_OFF_WIRE] = (uint8_t)offw; b[PROJ_OFF_WIRE + 1u] = (uint8_t)(offw >> 8); }
+    }
     memcpy(b + PROJ_FM6_OFF, q->fm6, sizeof q->fm6);
     for (t = 0; t < NTRK; t++) {
         if (!cz_patch_valid(q->cz[t].raw)) return 0;
@@ -529,6 +536,10 @@ static int proj_unpack(project_t *q, const uint8_t *b)
         int8_t oct[NTRK];
         if (!mpc_octaves_unpack(oct, b[PROJ_MPC_OCT_WIRE] | (uint32_t)b[PROJ_MPC_OCT_WIRE+1u] << 8)) return 0;
         for (t = 0; t < NTRK; t++) q->t[t].mpc_octave = oct[t];
+        {   /* (Release 3) the OFF word: a record of before has zeros there; another tag is read as none */
+            uint32_t offw = b[PROJ_OFF_WIRE] | (uint32_t)b[PROJ_OFF_WIRE + 1u] << 8;
+            for (t = 0; t < NTRK; t++) q->t[t].off = (uint8_t)((offw & 0xF000u) == 0xB000u ? (offw >> t) & 1u : 0u);
+        }
     }
     if (!chain_valid(&q->chain) || !motion_valid(&q->motion)) return 0;
     for (t = 0; t < NTRK; t++)
@@ -650,6 +661,10 @@ static const void *const pj4_keep[] __attribute__((used)) = {pj4_save, pj4_phras
 #endif
 #include "oc_pool.c"             /* (Orange Cat 0.3) the pattern pool of 64, kept in it */
 #include "oc_project.c"          /* (Orange Cat 0.3) the project slots: a small record each, their banks in the pool */
+#if OC_PJ4
+#include "oc_pj4_proj.c"          /* (Release 3 step 7, step 2) the project's sections: the old record split, the sections read back (PROJECT_FORMAT_R3.md 4) */
+static const void *const pj4p_keep[] __attribute__((used)) = {pj4p_split, pj4p_read};   /* (nothing calls them until the loader does: OC_PJ4=1 links them so their size is counted) */
+#endif
 #include "oc_lists.c"            /* (Orange Cat 0.3, 4c) each track's list of pool patterns; the banks its cache */
 
 /* FNV of each slot's stored bytes, as last written or read (0: unknown): autosave writes only what differs */
@@ -740,6 +755,7 @@ static void project_capture(project_t *p)
 #endif
         p->t[i].engine = trk[i].eng_req;
         p->t[i].mpc_octave = trk[i].mpc_octave;
+        p->t[i].off = (uint8_t)trk_off(i);
         p->t[i].preset = trk[i].preset;
         if(user_of(&trk[i])<UP_SLOTS)p->user[i]=(uint16_t)(user_of(&trk[i])+1u);
         p->pattern[i] = trk[i].pattern;
@@ -1083,6 +1099,8 @@ static int project_restore_runtime(const project_t *input)
         oc_mod_note_engine(e, (uint32_t)(uint16_t)s->p[P_E0]);                          /* (0.11.1) the module's use is marked now, before audio renders it (the main loop's pass comes later) */
 #endif
         t->mpc_octave = (int8_t)clamp(s->mpc_octave, -3, 3);
+        if (trk_off(k) && !s->off) trk_on_load |= (uint8_t)(1u << k);   /* ((Round 27) turned ON by the load: its state taken as a load takes it, voice.c) */
+        trk_off_set(k, s->off != 0u);                                     /* (Release 3) the explicit OFF, from the project */
         t->user = 0; t->user_native=0;                                    /* (no user preset slot is saved) */
         for (i = 0; i < P_COUNT; i++) {                 /* every value back inside its range */
             const param_desc_t *d = param_desc_of(e, i);
@@ -1611,6 +1629,12 @@ static void project_boot(void)
 #include "slice_store.c"                          /* SLICE's MAN slices, kept in the user slots */
 #endif
 #if MELODEE_FLASH
+#include "../hal/fm1_flash_id.h"                  /* (Round 27) the accepted JEDEC ids: FL_JEDEC_OK */
+static uint32_t flash_jedec;                    /* (Round 27) the id persist_boot read (editor 134 FLASH_ID reports it) */
+/* (Round 27) the parts this build accepts, declared in the image for the installer page (fm1_flash_id.h FL_IDS_DECL_*; read by persist_boot so the
+ * linker keeps it) */
+static const struct { char magic[12]; uint32_t version, n, id[FL_IDS_DECL_N], check; } fl_ids_decl __attribute__((used, aligned(4))) =
+    { {'O', 'C', '-', 'F', 'L', 'A', 'S', 'H', '-', 'I', 'D', 'S'}, 1u, FL_IDS_DECL_N, {FL_JEDEC_PUYA_P25Q80, FL_JEDEC_UCUN_UC25HQ80}, FL_IDS_DECL_CHECK };
 static persist_t persist_saved;
 static uint8_t persist_pending;                 /* 1 requested, 2 waiting after a flash error */
 static uint8_t persist_repair;                  /* boot repair must retry even when RAM equals defaults */
@@ -1626,10 +1650,14 @@ static void persist_boot(void)                    /* before settings_init / pane
     persist_t p;
     boot_work.state = 0;
     uint32_t f = irq_save();
-    flash_ok = FL_FAR(fl_jedec_ram)() == 0x856014u;       /* the expected 1 MiB part, else stay RAM-only */
+    flash_jedec = FL_FAR(fl_jedec_ram)();
     irq_restore(f);
-    if (!flash_ok)
+    (void)*(const volatile uint32_t *)&fl_ids_decl.n;   /* (the declaration referenced: --gc-sections keeps it) */
+    flash_ok = FL_JEDEC_OK(flash_jedec);           /* (Round 27) Puya P25Q80(H) or UCUN UC25HQ80 (hal/fm1_flash_id.h); any other part: the flash is left alone */
+    if (!flash_ok) {
+        ui_flash_unsupported = 1;                  /* every save's outcome says FLASH NOT SUPPORTED (ui.c ui_message); main.c shows it at boot */
         return;
+    }
 #if (OC_SFC_PROBE || OC_BOOT_SAMPLE) && defined(FM1_IRQ_TARGET)
     fl_probe_boot_sample();                        /* (Round 22, the stub window's bench gate) what the reset left, before the window is set */
 #endif

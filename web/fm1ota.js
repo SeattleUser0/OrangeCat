@@ -21,7 +21,7 @@ export const STOCK_LOADER = "ota-FM-1_015";
 
 // errors carry a code the pages translate: notfound, model, stopped, noloader, lost, noreturn,
 // mismatch (detail: the identity the device reports), badreq, wrongloader (detail: the loader's
-// identity). A step-1 error has lastRead: the last image address the running firmware read.
+// identity), (Round 27) flash (detail: the JEDEC id the unit refused: FLASH NOT SUPPORTED, nothing written). A step-1 error has lastRead: the last image address the running firmware read.
 function fail(code, msg, detail = "") { const e = new Error(msg); e.code = code; e.detail = detail; return e; }
 
 export function pack7(data) {
@@ -162,6 +162,10 @@ export class Updater {
       const r = parseRequest(pkt);
       if (!r) continue;
       last = Date.now();
+      if (r.addr >= 0xEE000000 && r.addr < 0xEF000000) {   // (Round 27, FLASH_CHIPS.md: ota.c OTA_NOFLASH | id) the unit's flash part is not one its firmware or loader knows
+        const id = (r.addr & 0xFFFFFF).toString(16).toUpperCase().padStart(6, "0");
+        throw fail("flash", `FLASH NOT SUPPORTED: the FM-1's flash chip (JEDEC ${id}) is not one this firmware knows; nothing was written`, id);
+      }
       if (r.addr === 0xE0000000 || r.addr === 0xF0000000) {
         link.send(response(r.addr, [...new TextEncoder().encode("success"), 0]));
         if (r.addr === finishAddr) return { served, finished: true };

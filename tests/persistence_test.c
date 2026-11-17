@@ -55,8 +55,10 @@ static int erase_error, fail_after = -1;
 static int erase_fail_after = -1;           /* (0.10.1) like fail_after, for erases: the nth erase from now and every later one fails (a power cut between erases) */
 static uint32_t erases, preset_reads;
 static int st_read(uint32_t off, void *dst, uint32_t n) { preset_reads++; memcpy(dst, nor + off, n); if (host_irq_point && !host_irq_masked) host_irq_point(); return 0; }
+static uint32_t st_gate_refused;            /* (Round 27) writes refused with flash_ok 0, as storage_hw.c and the driver's write gate (fm1_flash.h fl_id_gate) refuse them on the device */
 static int st_erase(uint32_t off)
 {
+    if (!flash_ok) { st_gate_refused++; return -6; }
     erases++;
     if (boot_trace && (!boot_syncs || boot_work.state != 1u || boot_work.done >= boot_work.total)) boot_trace_bad++;
     if (erase_error) return -8;
@@ -69,6 +71,7 @@ static int st_prog(uint32_t off, const void *src, uint32_t n)
 {
     const uint8_t *s = src;
     uint32_t i;
+    if (!flash_ok) { st_gate_refused++; return -6; }
     if (fail_after == 0) return -9;
     if (fail_after > 0) fail_after--;
     for (i = 0; i < n; i++) nor[off + i] &= s[i];
@@ -76,7 +79,8 @@ static int st_prog(uint32_t off, const void *src, uint32_t n)
 }
 static uint32_t irq_save(void) { return 0; }
 static void irq_restore(uint32_t f) { (void)f; }
-static uint32_t fl_jedec_ram(void) { return 0x856014u; }   /* (persist_boot: the expected part) */
+static uint32_t host_jedec = 0x856014u;                     /* (Round 27) the part persist_boot reads: tests/flash_chips_test.c sets the others */
+static uint32_t fl_jedec_ram(void) { return host_jedec; }   /* (persist_boot: the expected part) */
 static void fl_plain_window_init(void) {}
 #define FL_FAR(fn) (fn)
 #include "../firmware/src/storage.c"

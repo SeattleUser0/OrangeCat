@@ -364,7 +364,15 @@ static void ui_say(const char *a, const char *b)
     ui.msg2[0] = 0;
 }
 
-static void ui_message(const char *s) { ui_say(s, ""); }
+/* (Round 27, docs/orangecat/FLASH_CHIPS.md) set by persist_boot when the flash's JEDEC id is not one of hal/fm1_flash_id.h's: nothing is written to the flash, and every
+ * message that reports a save's or an erase's outcome (an error, or the RAM-only "(RAM)" forms) says FLASH NOT SUPPORTED instead: the unit never claims a save it did not make */
+static uint8_t ui_flash_unsupported;
+static int ui_save_outcome(const char *s)
+{
+    uint32_t n = str_len(s);
+    return (n >= 5u && str_eq(s + n - 5u, "(RAM)")) || (n >= 10u && str_eq(s + n - 10u, "SAVE ERROR")) || str_eq(s, "ERASE ERROR");
+}
+static void ui_message(const char *s) { ui_say(ui_flash_unsupported && ui_save_outcome(s) ? "FLASH NOT SUPPORTED" : s, ""); }
 /* (Orange Cat 0.8.0) the selected track's engine is SHAPES or MACRO and the asset pack is not there (oc_pack.h): it plays nothing, and
  * the screen says so: when the engine is chosen (force), and when a key is played on it (not over another word) */
 /* (round 14) an engine that ships as a module and is not installed (SHAPES since MELODEE_SHAPES=0): the track keeps its music and settings, plays nothing (the slot is

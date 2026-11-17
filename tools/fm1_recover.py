@@ -32,6 +32,9 @@ from fm1_install import STOCK_V15_SHA256, logical_image, product_of
 from fm1pkg_make import chipkey_decode, crc16, enc, sfc
 
 APP_LO, APP_HI, FLASH_SIZE, SECTOR = 0x4000, 0x93000, 0x100000, 4096
+# (Round 27) the accepted JEDEC ids: firmware/hal/fm1_flash_id.h's FL_JEDEC_OK, mirrored here (this file is bundled on its own);
+# tests/recovery_test.py checks the two lists agree. Puya P25Q80/P25Q80H, UCUN UC25HQ80 (docs/orangecat/FLASH_CHIPS.md)
+FLASH_JEDEC_OK = (0x856014, 0xB36014)
 VERSION = "1.4.5"
 LOADER_SHA256 = "d9de9f1c81a3bb52998e5bced678f0ca851223014a7d43965b03f0719a44eb55"
 LOADER_ADDRESS = 0x1C02000
@@ -240,8 +243,9 @@ class Link:
         key_data = self.command(0xFC09, struct.pack(">I", 0xAC6900))
         key = int.from_bytes(cipher(key_data[4:6][::-1]), "little")
         info = self.command(0xFC0A)
-        require(info[0] == 3 and int.from_bytes(info[2:6], "little") == 0x856014,
-                "Unexpected flash type or capacity; refusing recovery")
+        flash_id = int.from_bytes(info[2:6], "little")
+        require(info[0] == 3 and flash_id in FLASH_JEDEC_OK,
+                f"FLASH NOT SUPPORTED: unexpected flash type or id ({info[0]}, {flash_id:06X}); refusing recovery, nothing written")
         return key
 
     def read_flash(self, address, length):

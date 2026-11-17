@@ -715,6 +715,7 @@ if core; then
     # (VA 3, FM BELL 4, MALLET 10: one MALLET track alone sounds 2 voices, 20 of 18 units). Its cases are to be derived again with the rising cap (BUILD.md 7.31 item 4, not built).
     # t "the voice budget by track (round 23): one track alone reaches its engine's cap or the units, four busy tracks as before, released tracks change nothing" voice_share_test -O2 -DOC_TRK_RELEASE=1 -DMELODEE_MACRO_PICK=0 $FW
     t "the automatic release (round 23): a track with nothing to play gives its engine state back; never under a voice, notes, a staged pattern, arming, the selection; the retakes, a failed one, the arena's bytes, the same samples" track_release_test -O1 -DOC_TRK_RELEASE=1 $FW
+    t "track OFF (Round 27 item 3): MACRO, SHAPES, DRUM-X fade out and give their state back, silent to keys, MIDI, arp and the sequencer, kept steps and sound, ON at the launch point, a project with OFF tracks, three OFF, a retake that waits (no effect yields), GLO + OCT+" track_off_test -O1 $FW
     t "audio: calibrated reservations, release tails and overlapping hits" audio_admission_test -O2 $FW
     t "USB audio: four isolated track stems through the real mixer" usb_audio_tracks_test -O2 $FW
     t "boot stub: CRCs, rescue keys, damaged staging and retry fallback" boot_stub_test -O2
@@ -868,6 +869,9 @@ if core && [ $TABLES = 1 ]; then
         -DMELODEE_BENCH_SILENT=1 $FW
     t "384 shared presets: all-engine capacity, conversion, torn writes and high-slot identity" unified_presets_test $FW
     t "persistence: deferred settings, retry and failed-save rollback" persistence_test $FW
+    t "flash chips (Round 27): Puya and UCUN save and read back, an unknown JEDEC id writes nothing and says FLASH NOT SUPPORTED, editor 134 FLASH_ID" flash_chips_test $FW
+    t "flash driver (Round 27): the write gate, and XIP never back on while the part is busy (a slow part waited out, the watchdog fed)" flash_wait_test
+    t "OTA staging (Round 27 review): the LOADER.BIN head read back; a head the flash did not take fails the stage" ota_head_test
     t "first boot: foreign settings, safe defaults, ownership and interrupted cleanup" settings_origin_test $FW
     t "first boot: reset unsupported preset banks, preserve good entries and retry cuts" preset_boot_reset_test $FW
     t "storage safety: protect unreadable records until confirmed replacement" storage_safety_test $FW
@@ -892,6 +896,7 @@ if core && [ $TABLES = 1 ]; then
     t "Release 3 control-note flag (8.2b): recording_valid, the project record's pitch code 63, a Release 2 reader refuses it, an ordinary 124 to 127 stays a note" ctl_flag_test -O1 $FW
     t "Orange Cat pattern pool: banks round trip through flash, chunks, the fullest pattern, no room, power cuts" oc_pool_test -O1 $FW
     t "Orange Cat project store: SAVE and load through the pool, two slots, PATTERNS FULL, FBKK, power cuts" oc_project_test -O1 $FW
+    t "Release 3 project sections: the conversion splits the old record into GLOB, TRKS (ids, the OFF flag), NATV, LIST, SCNS, PERF, FRZR and the sections put it back byte for byte; a power cut at every program and erase" pj4_sec_test -O1 $FW -DOC_PJ4=1
     t "Orange Cat lists: new patterns kept, any track any pattern, the bank cache, projects share patterns" oc_lists_test -O1 $FW
     t "double-tap layers, SCREEN OFF, LFO 2 SYNC / TRIG / POL" layer_screen_test \
         -O1 -DMELODEE_USB_AUDIO=1 $FW

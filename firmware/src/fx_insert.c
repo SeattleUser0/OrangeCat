@@ -278,7 +278,7 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
         uint32_t blocks = 0u, sp, R = 2u;
         float need = 0.0f;
         fx_ictx_t c;
-        int on = k < nt && kn->on(t), deb = 0, live = d->state == FXS_RUN || d->state == FXS_RAMP;
+        int on = k < nt && !trk_off_silent(k) && kn->on(t), deb = 0, live = d->state == FXS_RUN || d->state == FXS_RAMP;
         d->run = 0;
         c.beat = beat; c.k = (uint8_t)k; { uint32_t j; for (j = 0; j < FX_NTRIG; j++) c.trig[j] = (uint8_t)(fx_trig[k & 3u][j] | (j >= 2u && j < 6u && (dub_rec[k & 3u][j - 2u] || ((struck[k & 3u] >> (j - 2u)) & 1u)) ? 127u : 0u));   /* (8.2b) live OR recorded; (Round 24) a recorded strike that began and ended since the last block counts for this one */ } c.pad[0] = c.pad[1] = 0; c.kw2 = d->kw[2];
         if (on) d->idle = 0;

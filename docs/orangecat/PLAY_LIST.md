@@ -1,3 +1,15 @@
+# Orange Cat Nightly v0.16.0-dc0c9e (Round 27): what changed for you since c5a112
+
+Written November 16, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. **This Nightly is on the test unit, installed from the live page with the page's defaults.**
+
+1. **Flash chips.** Orange Cat supports both FM-1 flash chips: Puya P25Q80 (0x856014) and UCUN UC25HQ80 (0xB36014). Before this Nightly a UC25HQ80 unit would have lost every save at power-off, and the update loader had no chip check at all. On any other chip Orange Cat writes nothing and says FLASH NOT SUPPORTED. **Tried on a unit: only the Puya chip** (the test unit reads 0x856014). The UC25HQ80 is host-tested only; the installer page says so. A UC25HQ80 unit still on an older Orange Cat cannot be updated from the page: it needs the ROM recovery tool.
+2. **Track OFF:** select a track, hold **GLO** and tap **OCT+**. The track stops sounding and gives its memory back (about 11 KB a MACRO track; 33.8 KB for three on the test unit); its steps, sound and mix stay; its keys and MIDI channel make no sound; its row says OFF. The same again turns it ON: at once when stopped, at the loop's end when playing (WAIT if the memory is not free yet). OFF is saved with the project.
+3. **Merged:** the controls guide for 229d4c (Session D) and Session C's OFF bit and project sections (the new format stays switched off).
+4. **Your decision, for the format revision** (Session C's question): today a phrase you keep is written to the shared pool at once, even in a project never saved. In the new format a phrase belongs to a saved project. Where should a kept phrase go before you save: (1) every keep saves the whole project (safe, more flash wear, an unsaved project takes a slot at its first keep); (2) it waits for the next SAVE or autosave (a power cut before that loses it); (3) a separate working area (does not fit the flash)?
+5. **Image:** 535,808 B. **Tested:** full SAN=1 suite green on 30ad3dc2 (285 jobs); the Nightly adds a page note and text.
+
+---
+
 # Orange Cat Nightly v0.16.0-c5a112 (Round 26): what changed for you since 229d4c
 
 Written November 15, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. **This Nightly is on the test unit, installed from the live page with the page's defaults.**
