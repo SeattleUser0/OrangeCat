@@ -1025,12 +1025,16 @@ static void engine_block(track_t *t)
  * of events_block, before every track's engine_block: a block leaving is free before an ON's or a load's take of the same block): (1) when the track wants
  * fewer; (2) when the pool is smaller than the blocks kept (a track turned ON: the track keeping the most gives its last, ties the higher track); (3) when
  * its four voices have been silent for RISE_IDLE blocks (about a second); (4) at once when it has no voice active and an allocation of anything else
- * failed (res_rise_ask, resources.c: an effect growing, a track's take): never one with a voice sounding. A block leaving has its voices given up as a voice
+ * failed (res_rise_ask, resources.c: an effect growing, a track's take): never one with a voice sounding; and for RISE_HOLD blocks after such a failure
+ * (125 ms) no note takes a block, so the effect that asked (it asks again after the release, later in the same block's mix) gets the memory. The silence
+ * counts ignore the transport: a second after STOP the blocks go back, and the first chord after PLAY takes them again. A block leaving has its voices given up as a voice
  * taken for another track is (voice_kill: stage 4, the envelope to 0 over one block with the block's amplitude ramp, no click; an OFF's or an engine
  * change's own fade ends them instead), and goes back to the arena when none is active (the next block). */
 #define RISE_IDLE (FS / CTL)                             /* blocks a kept block's voices are all silent before it goes back: one second */
 static uint16_t rise_idle[NPART][OC_RISE_N];
-static uint32_t rise_asks;
+static uint32_t rise_asks, rise_held_off;
+#define RISE_HOLD (FS / CTL / 8u)                        /* blocks after an allocation failed in which no note takes a block (172: 125 ms): the one asking gets it */
+static uint16_t rise_hold;
 static uint32_t rise_want(const track_t *t)
 {
     uint32_t k = (uint32_t)(t - trk), u, n;
@@ -1061,6 +1065,10 @@ static int rise_take(track_t *t)
     for (i = 0; i < NPART; i++) kept += rise_keep[i];
     if (rise_keep[k] >= rise_want(t) || kept >= rise_pool())
         return 0;
+    if (rise_hold) {                                    /* (an allocation failed lately: the memory is the one asking's, the note takes a voice of its own) */
+        rise_held_off++;
+        return 0;
+    }
     rise_idle[k][rise_keep[k]] = 0;
     if (rise_have[k] > rise_keep[k] && rise_ok(k, rise_keep[k])) {   /* a leaving block: kept again, its voices as they are */
         rise_keep[k]++;
@@ -1092,7 +1100,8 @@ static void rise_block(void)
 {
     uint32_t k, i, j, kept = 0, pool = rise_pool(), want, ask = res_rise_ask;
     res_rise_ask = 0;
-    if (ask) rise_asks++;
+    if (ask) rise_asks++, rise_hold = (uint16_t)RISE_HOLD;
+    else if (rise_hold) rise_hold--;
     for (k = 0; k < NPART; k++) {
         track_t *t = &trk[k];
         want = rise_want(t);

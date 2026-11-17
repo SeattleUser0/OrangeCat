@@ -28,6 +28,9 @@ static uint32_t rise_bytes(uint32_t k) { (void)k; return 0; }
 #ifndef RISE_IDLE                                       /* (0ef549a0: blocks taken while idle, never given back to the effects) */
 #define RISE_IDLE 0
 #endif
+#ifndef RISE_HOLD                                       /* (49c424e0: no hold after a failed allocation) */
+#define RISE_HOLD (FS / CTL / 8u)
+#endif
 static uint32_t rise_bytes(uint32_t k)
 {
     uint32_t b, n = 0;
@@ -285,6 +288,7 @@ int main(void)
         off3(1);
         room1 = fx_room();
         CHECK(!rise_bytes(3) && room1 >= room0 + 3u * mc - 3u * 2048u, "IDLE: three OFF, the fourth idle: no block (%u B), the effects' room %u -> %u B", rise_bytes(3), room0, room1);
+        run(RISE_HOLD + 2u);                            /* (the probe's own failures hold the takes: the effects asked) */
         chord(3, 16, 1); run(4);
         CHECK(sounding(3) == 16u && rise_bytes(3) == 3u * mc, "IDLE: the chord takes the blocks: 16 voices, %u B", rise_bytes(3));
         fails = resource_failures;
@@ -308,6 +312,29 @@ int main(void)
         CHECK(sounding(3) <= 4u && !rise_bytes(3) && !res_jfx_yield, "ASK: the effects hold the arena: the chord sounds %u (cap %u), no block, no yield", sounding(3), trk_poly_cap(&trk[3]));
         chord(3, 16, 0); fx_free(); run(SEC);
         printf("rising cap: IDLE / ASK: idle 0 B; the chord 3 x %u B; back a second after; at once to the effects (%u B more for them); none while sounding; held %u B of effects\n", mc, s2, held_fx);
+    }
+
+
+    /* RACE: an effect short while the blocks are silent: given back, and the notes of the next blocks (the same block's events come before the effects'
+     * retry in the mix) do not take them again for RISE_HOLD blocks: the effect gets them; after the hold a chord takes blocks again */
+    {
+        uint32_t mc = (MC_STATE_BYTES + 3u) & ~3u, s3, i;
+        fresh(18);
+        set_sound(&FAM[5]);
+        off3(1);
+        chord(3, 16, 1); run(4); chord(3, 16, 0); run(SEC / 4u);
+        CHECK(rise_bytes(3) == 3u * mc && !sounding(3), "RACE: (the blocks held, the voices ended: %u B)", rise_bytes(3));
+        fx_fill();
+        run(1);                                         /* the blocks given back at this block's start ... */
+        for (i = 0; i < 16u; i++) trk_note_on(&trk[3], 64u + i, 100);   /* ... and this block's notes, past the cap */
+        s3 = fx_fill_more();                            /* the effect's retry, later in the block */
+        CHECK(!rise_bytes(3) && s3 >= 3u * mc - 3u * 2048u && sounding(3) <= 4u, "RACE: the effect gets the blocks (%u B), not the notes (%u B held, %u sounding)", s3, rise_bytes(3), sounding(3));
+        for (i = 0; i < 16u; i++) trk_note_off(&trk[3], 64u + i);
+        fx_free(); run(RISE_HOLD + 2u);
+        chord(3, 16, 1); run(4);
+        CHECK(rise_bytes(3) == 3u * mc && sounding(3) == 16u, "RACE: after the hold a chord takes the blocks again (%u B, %u sounding)", rise_bytes(3), sounding(3));
+        chord(3, 16, 0);
+        printf("rising cap: RACE: an effect short: the blocks given back, the effect takes %u B, the notes take none for %u blocks; then 16 again\n", s3, (unsigned)RISE_HOLD);
     }
 
     /* MODE: a model and a voice mode change while raised: the blocks' voices given up, the blocks back */
