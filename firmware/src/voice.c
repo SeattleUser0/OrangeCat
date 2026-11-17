@@ -416,6 +416,32 @@ static voice_t *voice_reuse(track_t *t, voice_t *v)
     return v;
 }
 
+/* (Round 28 item 1, BUILD.md 7.42) THE RISING CAP. A track's POLY cap is its engine's (trk_nvoice: MACRO 4, a large model 1); the budget's units bound
+ * every track's sounding voices together (voice_room). An engine's cap is the state it has for voices: MACRO's part holds four. When tracks are OFF (the
+ * explicit OFF, trk_off), each OFF track's place lends one block of MACRO state (MC_STATE_BYTES, four more voices: engines.c mc_vpart) to a playing MACRO
+ * track whose sound plays POLY and whose model is not a large one, and that track's cap rises to the lower of its blocks' voices and the voices of its model
+ * that the budget's units allow alone (voice_budget() / voice_units(): VA 3 units, 6 of 18; NOISE, VA-VCF, TERRAN 2: 9; CHIP 1: 16), never below the
+ * engine's own cap. MONO, LEGATO and UNISON keep their voices (UNISON's stack is the sound's: trk_nvoice), so does every other engine. rise_keep[k]: the
+ * blocks counted for track k's cap; rise_block (below, once a block) takes and gives them back */
+#if MELODEE_MACRO
+#define OC_RISE_CAP 1                                    /* (the tests: this firmware has the rising cap) */
+static uint8_t rise_keep[NPART], rise_have[NPART];       /* blocks counted for the cap; blocks held (more than kept: the last ones are leaving) */
+static uint32_t rise_fail_gen, rise_grants, rise_drops, rise_kills;   /* (a take that failed is asked again after a release: resource_gen) and the counts */
+static uint32_t trk_poly_cap(const track_t *t)
+{
+    uint32_t own = trk_nvoice(t), k = (uint32_t)(t - trk) % NPART, n, u;
+    if (!rise_keep[k] || t->engine != ENGI_MACRO || own != MC_POLY || trk_vmode(t) != V_POLY)
+        return own;
+    n = MC_POLY * (1u + rise_keep[k]);
+    u = voice_units(t);
+    if (u && voice_budget() / u < n) n = voice_budget() / u;
+    n = n < NVOICE ? n : NVOICE;
+    return n > own ? n : own;
+}
+#else
+static uint32_t trk_poly_cap(const track_t *t) { return trk_nvoice(t); }
+#endif
+
 /* POLY allocation (within the engine's voice cap). DRUM: reuse its lane; other engines: the same note.
  * Else a free voice: ROTATE takes
  * the next one round-robin (release tails ring out), REUSE (or any GLIDE) takes
@@ -427,7 +453,7 @@ static voice_t *voice_reuse(track_t *t, voice_t *v)
 static voice_t *voice_alloc(track_t *t, uint32_t note)
 {
     const engine_t *e = ENGINES[t->engine];
-    uint32_t i, np = trk_nvoice(t), best = np, low = np, nfree = 0;
+    uint32_t i, np = trk_poly_cap(t), best = np, low = np, nfree = 0;   /* ((Round 28) the cap, risen while tracks are OFF) */
     int32_t bd = 0x7FFFFFFF;
     if (e->alloc) {                                     /* the engine's own choice (FM6: Dexed's) */
         voice_t *v = &t->v[e->alloc(t, note) % np];
@@ -981,6 +1007,104 @@ static void engine_block(track_t *t)
     for (i = 0; i < 8u; i++)                            /* the engine's own values, for a later fade */
         t->pe_old[i] = t->p[P_E0 + i];
 }
+
+#if MELODEE_MACRO
+/* (Round 28 item 1) the rising cap's blocks (above, trk_poly_cap), once a block in the audio interrupt after every track's engine_block (seq.c events_block:
+ * an OFF's state is back, an ON has asked for its own) and before the block's notes. The pool: one block a track OFF among those in use (at most OC_RISE_N).
+ * A track wants the blocks that its model's voices under the budget need beyond its own four (0: not MACRO, not POLY, a large model, an engine change
+ * asked, OFF, waiting, released). (1) A track wanting fewer than it keeps keeps fewer. (2) The pool smaller than the blocks kept (a track turned ON): the
+ * track keeping the most gives its last block (ties: the higher track). (3) A block no longer kept leaves: its voices (4b .. 4b + 3) are given up as a voice
+ * taken for another track is (voice_kill: stage 4, the envelope to 0 over one block with the block's amplitude ramp, no click; an engine fade or the
+ * OFF's under way ends them itself), and the block goes back to the arena when none is active (the next block). (4) The pool larger: blocks to the
+ * tracks that want more, one at a time in track order (a leaving one kept again first; else a fresh one, from free memory only: resource_allocate, no
+ * effect yields, nothing dropped; short, asked again after a release). Blocks stay with their track while it wants them (no voice moves on a change
+ * elsewhere). */
+static uint32_t rise_want(const track_t *t)
+{
+    uint32_t k = (uint32_t)(t - trk), u, n;
+    if (k >= trk_n() || trk_off(k) || ((trk_on_wait >> k) & 1u) || eng_rel[k] || !resource[RES_ENGINE0 + k].size)
+        return 0;
+    if (t->engine != ENGI_MACRO || t->eng_req != t->engine || eng_mod[ENGI_MACRO] || trk_vmode(t) != V_POLY || trk_nvoice(t) != MC_POLY)
+        return 0;
+    u = voice_units(t);
+    n = u ? voice_budget() / u : 0u;
+    n = n < NVOICE ? n : NVOICE;
+    n = n > MC_POLY ? (n + MC_POLY - 1u) / MC_POLY - 1u : 0u;
+    return n < OC_RISE_N ? n : OC_RISE_N;
+}
+static void rise_block(void)
+{
+    uint32_t k, i, j, pool = 0, kept = 0, more, want[NPART];
+    for (k = 0; k < NPART; k++) {
+        pool += k < trk_n() && trk_off(k);
+        want[k] = rise_want(&trk[k]);
+        for (i = 0; i < rise_keep[k]; i++)              /* (a block the arena no longer holds, after a reset of it: not counted from there) */
+            if (!rise_slot[k][i] || resource[RES_RISE0 + rise_slot[k][i] - 1u].size != ((MC_STATE_BYTES + 3u) & ~3u))
+                want[k] = want[k] < i ? want[k] : i;
+        if (rise_keep[k] > want[k]) rise_keep[k] = (uint8_t)want[k];
+        kept += rise_keep[k];
+    }
+    pool = pool < OC_RISE_N ? pool : OC_RISE_N;
+    while (kept > pool) {
+        uint32_t m = 0;
+        for (k = 1; k < NPART; k++)
+            if (rise_keep[k] >= rise_keep[m]) m = k;
+        rise_keep[m]--;
+        kept--;
+    }
+    for (k = 0; k < NPART && kept < pool; k++)          /* a leaving block wanted again: kept, its voices as they are */
+        while (rise_have[k] > rise_keep[k] && rise_keep[k] < want[k] && kept < pool) {
+            rise_keep[k]++;
+            kept++;
+        }
+    for (k = 0; k < NPART; k++) {
+        track_t *t = &trk[k];
+        while (rise_have[k] > rise_keep[k]) {
+            uint32_t lo = MC_POLY * rise_have[k], any = 0;
+            for (i = lo; i < lo + MC_POLY && i < NVOICE; i++) {
+                voice_t *v = &t->v[i];
+                if (!v->active)
+                    continue;
+                any = 1;
+                if (v->stage != 4u && !t->xf_on) {
+                    voice_kill(v);
+                    rise_kills++;
+                }
+            }
+            if (any)
+                break;
+            j = rise_slot[k][rise_have[k] - 1u];
+            if (j) resource_release(RES_RISE0 + j - 1u);
+            rise_slot[k][rise_have[k] - 1u] = 0;
+            rise_have[k]--;
+            rise_drops++;
+        }
+    }
+    for (more = 1; more && kept < pool && rise_fail_gen != resource_gen + 1u;) {
+        more = 0;
+        for (k = 0; k < NPART && kept < pool; k++) {
+            if (rise_keep[k] >= want[k] || rise_have[k] > rise_keep[k])
+                continue;
+            for (j = 0; j < OC_RISE_N && resource[RES_RISE0 + j].size; j++)
+                ;
+            if (j == OC_RISE_N)
+                break;
+            if (!resource_allocate(RES_RISE0 + j, MC_STATE_BYTES)) {
+                rise_fail_gen = resource_gen + 1u;
+                break;
+            }
+            rise_slot[k][rise_have[k]] = (uint8_t)(j + 1u);
+            rise_have[k]++;
+            rise_keep[k]++;
+            kept++;
+            rise_grants++;
+            more = 1;
+        }
+    }
+}
+#else
+static void rise_block(void) {}
+#endif
 
 /* one control tick (CTL samples) of the amplitude envelope; returns Q15 */
 static int32_t env_tick(track_t *t, voice_t *v)

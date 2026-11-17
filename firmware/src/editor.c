@@ -979,12 +979,14 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         }
 #endif
         if ((na == 2u || na == 3u) && a[1] == 11u) {
-            /* (Round 27 item 3, BUILD.md 7.40) [flags, 11]: the tracks OFF, schema 23: 23, then 5 x 7 bits each: the OFF bits (voice.c trk_off_bits), the bits
+            /* (Round 27 item 3, BUILD.md 7.40) [flags, 11]: the tracks OFF, schema 24 (23 before Round 28): 24, then 5 x 7 bits each: the OFF bits (voice.c trk_off_bits), the bits
              * the audio side has acted on (trk_off_seen), the released states (eng_rel), the tracks ON and waiting for their memory (trk_on_wait), the tracks
              * whose sequencer notes wait for the launch point (seq_off_quiet); the arena's capacity, used, peak, failures; each track's engine state held
              * (bytes, four); the voices sounding (active, not given up) on each track (four); the counts: OFFs acted on, the bytes they gave back, ONs,
-             * blocks waited. [flags, 11, mask]: sets the OFF bits to mask first (as GLO + OCT+ does, for a bench run), then the same reply. Flag 1 is not used. */
-            uint32_t k, v[21];
+             * blocks waited. [flags, 11, mask]: sets the OFF bits to mask first (as GLO + OCT+ does, for a bench run), then the same reply. Flag 1 is not used.
+             * (Round 28 item 1, schema 24) then each track's POLY voice cap now (voice.c trk_poly_cap: risen while tracks are OFF; four) and the bytes of the
+             * rising cap's blocks it holds (four) */
+            uint32_t k, v[29];
             if (na == 3u) for (k = 0; k < NTRK && k < trk_n(); k++) track_off_req(k, (int)((a[2] >> k) & 1u));   /* (the tracks in use: a place not in use is left as it is) */
             fm1_irq_off();
             v[0] = trk_off_bits; v[1] = trk_off_seen; v[2] = 0;
@@ -998,9 +1000,17 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                 v[13 + k] = n;
             }
             v[17] = trk_off_n; v[18] = trk_off_bytes; v[19] = trk_on_n; v[20] = trk_on_waits;
+            for (k = 0; k < 4u; k++) {
+                v[21 + k] = k < NPART ? trk_poly_cap(&trk[k]) : 0u;
+                v[25 + k] = 0;
+#if MELODEE_MACRO
+                for (uint32_t b = 0; k < NPART && b < rise_have[k]; b++)
+                    if (rise_slot[k][b]) v[25 + k] += resource[RES_RISE0 + rise_slot[k][b] - 1u].size;
+#endif
+            }
             fm1_irq_on();
-            ed_b(23);
-            for (k = 0; k < 21u; k++) ed_bk_u32(v[k]);
+            ed_b(24);
+            for (k = 0; k < 29u; k++) ed_bk_u32(v[k]);
             break;
         }
         if ((na == 2u || na == 5u || na == 6u) && a[1] == 6u) {

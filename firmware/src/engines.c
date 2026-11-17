@@ -178,6 +178,17 @@ static fm6_part_t *fm6_part(uint32_t part) { return resource_get(RES_ENGINE0 + p
 static dxe_part_t *dxe_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(dxe_part_t)); }   /* (0.9.0) DRUM-X */
 #if MELODEE_MACRO
 static mc_part_t *mc_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, MC_STATE_BYTES); }   /* (Release 3) one block for any model, the picked ones too */
+/* (Round 28 item 1, the rising cap: voice.c rise_block) a MACRO track's voices 4 .. 15 live in further blocks of the same layout (a pl_part_t each: four
+ * voice heads and four model states), block b holding voices 4b .. 4b + 3. rise_slot[k][b - 1]: 1 + the pool block (RES_RISE0 + j) that is track k's block b,
+ * 0 none. Block 0 is the track's own state. A block not held reads 0 (its voices are silent): nothing here allocates (voice.c takes and gives back) */
+static uint8_t rise_slot[NPART][OC_RISE_N];
+static mc_part_t *mc_vpart(uint32_t part, uint32_t b)
+{
+    uint32_t j;
+    if (!b) return mc_part(part);
+    j = b <= OC_RISE_N ? rise_slot[part % NPART][b - 1u] : 0u;
+    return j && resource[RES_RISE0 + j - 1u].size == ((MC_STATE_BYTES + 3u) & ~3u) ? resource[RES_RISE0 + j - 1u].ptr : 0;
+}
 #endif
 #if MELODEE_SHAPES
 static sh_part_t *sh_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(sh_part_t)); }
