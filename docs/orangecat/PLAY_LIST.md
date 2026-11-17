@@ -1,3 +1,15 @@
+# Orange Cat Nightly v0.16.0-a5b382 (Round 28): what changed for you since dc0c9e
+
+Written November 17, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. **This Nightly is on the test unit, installed from the live page with the page's defaults.**
+
+1. **Track OFF:** select a track, hold **GLO** and tap **OCT+** (the same again turns it ON). An OFF track stops sounding, gives its memory back, keeps its steps and sound; its row says OFF.
+2. **The rising cap (new):** when tracks are OFF, a MACRO track playing POLY can use their memory for more voices, up to what the unit's voice budget allows: a CHIP sound up to 16 voices, VCF and NOISE up to 9, VA up to 6; heavier models, SHAPES, DRUM-X and mono sounds stay as they are. It only takes memory that is free, and gives it back to the effects first. **Measured honestly:** no late audio in any run with it, but under a heavy test load with the effects on, the effects held the memory and the big track got one extra block only (4 -> 6 voices). The full proof with DUB on the big track did not run (DUB could not get its memory in that test, even with every track ON); that test is rebuilt next round. Try it: three tracks OFF, one CHIP track, a big chord.
+3. **Your other two units were not connected this round**, so nothing was read from them. When you connect one (by USB, switched on), I read only what its firmware says about its flash chip and write nothing.
+4. **Format revision:** your decision (option 2) is recorded; Session C builds the loader that way. A conversion problem I found (very large recordings inside an old record) is written up for Session C with a failing test.
+5. **Image:** 537,448 B. **Tested:** full SAN=1 suite green on a5b382c5 (286 jobs), the Nightly's own commit.
+
+---
+
 # Orange Cat Nightly v0.16.0-dc0c9e (Round 27): what changed for you since c5a112
 
 Written November 16, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. **This Nightly is on the test unit, installed from the live page with the page's defaults.**
