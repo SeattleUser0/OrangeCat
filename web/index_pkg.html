@@ -56,6 +56,7 @@
   <p class="small" data-t="beta"></p>
   <p class="small"><span data-t="brick"></span>
     <a href="https://github.com/SeattleUser0/OrangeCat/blob/main/docs/RECOVERY.md" target="_blank" rel="noopener" style="color:inherit" data-t="recoveryLink"></a></p>
+  <p class="small"><span data-t="flashChips"></span></p>
   <p><label><span data-t="releaseTitle"></span><br><select id="release"></select></label></p>
   <fieldset id="builds">
     <legend data-t="buildsTitle"></legend>
@@ -172,6 +173,7 @@ const TEXT = {
     dual: "標準", dualTag: "標準",
     editor: "エディタ（インストール後、パソコンから音色やシーケンスを編集）",
     direct: "USB ケーブルはパソコンに直接つないでください。Probe や Transporter などの機材は不要です。",
+    flashChips: "FM-1 には 2 種類のフラッシュチップがあります: Puya P25Q80（JEDEC 0x856014、最初の出荷）と UCUN UC25HQ80（0xB36014、2026 年秋ごろからの出荷）。Orange Cat は両方に対応しますが、UC25HQ80 の実機ではまだ試していません（ホストのテストのみ）。それ以外のチップには何も書き込みません。",
     brick: "起動保護付きファームウェアの更新が中断した場合は、電源を入れ直すか、OCT− だけを押しながら電源を入れてください。キーのライトが短く3回点滅したら更新モードです。USB を接続し直して、もう一度インストールしてください。以前のファームウェアや長い1回の点滅の場合は、USB 復旧手順を確認してください:",
     recoveryLink: "USB 復旧手順とダウンロード",
     beta: "Orange Cat の不具合は GitHub で知らせてください。このカスタムファームウェアを使ったことで FM-1 が壊れたり不具合が起きたりしても、作者は一切の責任を負いません。自己責任でお使いください。",
@@ -271,6 +273,7 @@ const TEXT = {
     dual: "Standard", dualTag: "standard",
     editor: "Editor (after installing: edit sounds and sequences from the computer)",
     direct: "Connect the USB cable directly to the computer. No probe or Transporter is needed.",
+    flashChips: "FM-1 units ship with one of two flash chips: Puya P25Q80 (JEDEC 0x856014, the first units) or UCUN UC25HQ80 (0xB36014, units from about autumn 2026). Orange Cat supports both, but has not yet been tried on a UC25HQ80 unit (host tests only). On any other chip it writes nothing.",
     brick: "If an update is interrupted on firmware with boot protection, switch the FM-1 on again (or hold OCT− alone while switching on). Three short key-light flashes mean update mode: reconnect USB and press Install again. Older firmware and one long flash need the USB recovery instructions:",
     recoveryLink: "USB recovery instructions and downloads",
     beta: "Please report Orange Cat problems on GitHub. The author accepts no responsibility if your FM-1 is damaged or misbehaves because of this custom firmware. Use it at your own risk.",
