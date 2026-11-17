@@ -149,3 +149,17 @@ The first step is read only. With Round 27 firmware on the unit and the editor p
     ~/fm1-hw/hwvenv/bin/python3 tools/hw/fm1hw.py flashid          # or --json
 
 This sends one editor request, `F0 7D 46 4C 00 06 F7` (FLASH_ID), and prints the verdict, the JEDEC id, SR1/SR2/SR3, SFC_CON and the SFDP table decoded. A unit whose firmware is older than Round 27 does not answer it. The steps after that, each only when the owner says so, are a save and a power cycle, then a module install, then an update.
+
+## Read on the test unit (November 16, 2026; Nightly v0.16.0-dc0c9e; `fm1hw.py flashid`, read-only)
+
+| field | value |
+|---|---|
+| JEDEC id (9Fh) | 0x856014: **Puya P25Q80/P25Q80H**; verdict 1, the firmware writes the flash; the boot's own read the same |
+| SR1 (05h) | 0x00: no block protection (BP4..BP0 0), SRP0 0 |
+| SR2 (35h) | 0x02: **QE = 1** (bit 1 = S9), LB1..LB3 0 (security registers not locked), CMP 0, SUS 0 |
+| SR3 | not read (no 15h in the P25Q80H's command map) |
+| SFDP (5Ah) | header "SFDP", revision 1.0, BFPT 36 bytes: 4 KiB erase 20h, density 1,048,576 B; erase types 4 KiB 20h, 32 KiB 52h, 64 KiB D8h, 256 B 81h |
+| SFC_CON | 0x809803B5: read mode 3 (a dual mode in the SDK's order) |
+
+QE is set on this unit: the vendor's SPL put the part in quad-enable (the datasheet's "QE should never be set to 1 during standard SPI or Dual SPI" concerns WP#/HOLD# becoming IO2/IO3; the board ties them as the vendor intends). Orange Cat writes no status register, so it leaves QE as the vendor set it. The UCUN part's QE position is unverified; nothing in Orange Cat depends on it. **No UCUN unit has been read or tried.** The owner's two other units (his playing unit, the 0.15.0 unit) are to be read one at a time (ROUND 27 report: connect it by USB, switched on, and say so; the read is read-only).
+
