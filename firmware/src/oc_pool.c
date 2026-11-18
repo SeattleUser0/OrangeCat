@@ -308,11 +308,16 @@ static uint32_t ocp_hash_of(const ocs_rec_t *r, uint32_t off, uint32_t len)
  * kept). Stopped only: the erase mutes the audio */
 static ocp_chunk_src_t ocp_cs __attribute__((section(".pool")));
 static int ocp_chunk_write_cp(uint32_t chunk, ocp_gen_t *const *gen, uint32_t cp_j, uint32_t cp_len);
+#if OC_PJ4_LDR
+static int pjp_put_chunk(uint32_t chunk, ocp_gen_t *const *gen);   /* oc_pj4_pool.c: the phrases are held in RAM until the project is saved */
+static int ocp_chunk_write(uint32_t chunk, ocp_gen_t *const *gen) { return pjp_put_chunk(chunk, gen); }
+#else
 static int ocp_chunk_write(uint32_t chunk, ocp_gen_t *const *gen)
 {
     memset(&ocp_cs, 0, sizeof ocp_cs);
     return ocp_chunk_write_cp(chunk, gen, OCP_PER, 0);
 }
+#endif
 /* .. and with pattern cp_j (OCP_PER: none) cp_len bytes of ocp_cs.from at ocp_cs.cp_off (ocp_copy) */
 static int ocp_chunk_write_cp(uint32_t chunk, ocp_gen_t *const *gen, uint32_t cp_j, uint32_t cp_len)
 {
@@ -356,6 +361,10 @@ static int ocp_chunk_write_cp(uint32_t chunk, ocp_gen_t *const *gen, uint32_t cp
 
 /* pool pattern src copied to dst (stopped: an erase mutes the audio). 0 done; 1 src empty or unreadable; else as
  * ocp_chunk_write */
+#if OC_PJ4_LDR
+static int pjp_copy(uint32_t src, uint32_t dst);
+static int ocp_copy(uint32_t src, uint32_t dst) { return pjp_copy(src, dst); }
+#else
 static int ocp_copy(uint32_t src, uint32_t dst)
 {
     ocp_gen_t *gen[OCP_PER] = {0};
@@ -372,6 +381,7 @@ static int ocp_copy(uint32_t src, uint32_t dst)
     }
     return rc;
 }
+#endif
 
 /* save track k's bank as pool pattern id (an empty bank empties it): as ocp_chunk_write */
 static int ocp_save(uint32_t id, uint32_t k, uint32_t bank)
@@ -391,6 +401,7 @@ typedef struct {
     uint32_t off, end;
     uint8_t buf[256];
     uint32_t pos, n;
+    const uint8_t *mem;                        /* (OC_PJ4) a phrase held in RAM (a kept one, not yet saved): read from here, not from r */
 } ocp_rd_t;
 
 static int ocp_rd(ocp_rd_t *rd, void *dst, uint32_t n)
@@ -401,7 +412,8 @@ static int ocp_rd(ocp_rd_t *rd, void *dst, uint32_t n)
             uint32_t k = rd->end - rd->off;
             if (!k) return -1;
             if (k > sizeof rd->buf) k = sizeof rd->buf;
-            if (ocs_at(rd->r, rd->off, rd->buf, k)) return -1;
+            if (rd->mem) memcpy(rd->buf, rd->mem + rd->off, k);
+            else if (ocs_at(rd->r, rd->off, rd->buf, k)) return -1;
             rd->off += k; rd->pos = 0; rd->n = k;
         }
         uint32_t k = rd->n - rd->pos < n ? rd->n - rd->pos : n;
@@ -472,6 +484,10 @@ static int ocp_parse(ocp_rd_t *rd, uint32_t k, ocp_parsed_t *p)
 }
 
 /* pool pattern id opened for reading at its start (rd). 1 there, 0 empty, -1 unreadable */
+#if OC_PJ4_LDR
+static int pjp_open(uint32_t id, ocs_rec_t *r, ocp_rd_t *rd);   /* oc_pj4_pool.c */
+static int ocp_open_pattern(uint32_t id, ocs_rec_t *r, ocp_rd_t *rd) { return pjp_open(id, r, rd); }
+#else
 static int ocp_open_pattern(uint32_t id, ocs_rec_t *r, ocp_rd_t *rd)
 {
     uint32_t len[OCP_PER], off[OCP_PER];
@@ -482,6 +498,7 @@ static int ocp_open_pattern(uint32_t id, ocs_rec_t *r, ocp_rd_t *rd)
     rd->r = r; rd->off = off[id % OCP_PER]; rd->end = rd->off + len[id % OCP_PER];
     return 1;
 }
+#endif
 
 /* pool pattern id read whole and checked (rd left at its notes): 0 good (p filled; an empty one: no steps, default
  * timing), 1 not */
@@ -571,6 +588,10 @@ static int ocp_load(uint32_t id, uint32_t k, uint32_t bank, int apply)
 }
 
 /* boot: every pattern's LEN for the PATTERNS page, and its bytes' CRC (after ocs_boot) */
+#if OC_PJ4_LDR
+static void pjp_scan(void);
+static void ocp_scan(void) { pjp_scan(); }
+#else
 static void ocp_scan(void)
 {
     memset(&ocp, 0, sizeof ocp);
@@ -585,3 +606,4 @@ static void ocp_scan(void)
     }
     ocp.gen++;
 }
+#endif

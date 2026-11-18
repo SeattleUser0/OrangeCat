@@ -279,6 +279,10 @@ static int test_cuts(void)
 int main(void)
 {
     int bad = 0;
+#if OC_PJ4_LDR
+    printf("oc pool: skipped under OC_PJ4_LDR=1: it reads and writes the OCS_POOL chunk records, which a project of the revision does not have (its phrases are tested by tests/pj4_test.c, pj4_sec_test.c, oc_project_test.c)\n", "oc pool");
+    return 0;
+#endif
     bad |= test_round_trip();
     bad |= test_full();
     bad |= test_cuts();

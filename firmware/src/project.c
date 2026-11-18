@@ -663,7 +663,17 @@ static const void *const pj4_keep[] __attribute__((used)) = {pj4_save, pj4_phras
 #include "oc_project.c"          /* (Orange Cat 0.3) the project slots: a small record each, their banks in the pool */
 #if OC_PJ4
 #include "oc_pj4_proj.c"          /* (Release 3 step 7, step 2) the project's sections: the old record split, the sections read back (PROJECT_FORMAT_R3.md 4) */
-static const void *const pj4p_keep[] __attribute__((used)) = {pj4p_split, pj4p_read};   /* (nothing calls them until the loader does: OC_PJ4=1 links them so their size is counted) */
+#if OC_PJ4_LDR
+#include "oc_pj4_pool.c"          /* (Release 3 step 7, the loader) the pool and the slots through the format core: what is kept is held in RAM until the project is saved */
+#define PJP_FOLLOW() pjp_follow()
+#define PJP_HOLD(x) (pjp_freeze = (uint8_t)(x))           /* (a track added or removed rebuilds the music through a load: what is kept stays kept) */
+#define PJP_DIRTY pjp_dirty()
+#endif
+#endif
+#ifndef PJP_FOLLOW
+#define PJP_FOLLOW() ((void)0)
+#define PJP_HOLD(x) ((void)0)
+#define PJP_DIRTY 0
 #endif
 #include "oc_lists.c"            /* (Orange Cat 0.3, 4c) each track's list of pool patterns; the banks its cache */
 
@@ -829,7 +839,7 @@ static int project_save_as(uint32_t slot, const char *name)
 
     if (proj_write_slot(slot, proj_wire_u.raw, BANK_STORE_SIZE)) { ui_message("SAVE ERROR"); return 2; }
     proj_name_get(proj_name, (const uint8_t *)p->name);
-    proj_cur = (uint8_t)(slot & 3u);
+    proj_cur = (uint8_t)(slot & 3u); PJP_FOLLOW();
     proj_last_set(slot & 3u);
     proj_base_set(slot);                                /* (round 16) for the autosave */
 #if OC_PROJECT_PAGE
@@ -976,14 +986,14 @@ static void project_autosave(void)
     if (ocl_keep_all())                                 /* (Orange Cat 0.3, 4c) kept to the pool first */
         return;
     {   uint32_t mh;
-        if (proj_base_slot == slot && proj_music_hash(&mh) && mh == proj_base_hash)
+        if (proj_base_slot == slot && proj_music_hash(&mh) && mh == proj_base_hash && !PJP_DIRTY)
             return;                                     /* (round 16) the music is as it was loaded or saved: nothing to write */
     }
     project_capture(p);
     proj_wire_gen++;                                    /* (the staging RAM: a backup's copy there is gone) */
     if (!bank_pack(proj_wire_u.raw, p, 1))
         return;
-    if (bank_hash(proj_wire_u.raw) == proj_saved_hash[slot])
+    if (bank_hash(proj_wire_u.raw) == proj_saved_hash[slot] && !PJP_DIRTY)
         return;                                         /* as saved: nothing to write */
     project_quick_save();
 }
@@ -1052,7 +1062,7 @@ static int project_erase(uint32_t slot)
     slot &= 3u;
     if (proj_write_slot(slot, proj_wire_u.raw, 0)) { ui_message("SAVE ERROR"); return 2; }
     if (proj_cur == slot) {
-        proj_cur = PROJ_NO_SLOT;
+        proj_cur = PROJ_NO_SLOT; PJP_FOLLOW();
         proj_skip_armed = 1;                            /* (round 9) erased: the music left in RAM is not to be autosaved back */
     }
 #if MELODEE_FLASH
@@ -1145,7 +1155,7 @@ static int project_restore_runtime(const project_t *input)
             (void)up_kit_load(&kr, k);
         }
     proj_name_get(proj_name, (const uint8_t *)p->name);
-    proj_cur = PROJ_NO_SLOT;                            /* (project_load: its slot) */
+    proj_cur = PROJ_NO_SLOT; PJP_FOLLOW();                            /* (project_load: its slot) */
     undo_clear();                                       /* (ui.c) the undo levels belong to the old project */
     list_forget();                                      /* (browse.c) the tracks' LISTs too */
     undo_depth++;                                       /* and these loads take none */
@@ -1191,7 +1201,7 @@ static void project_load(uint32_t slot)
         fm1_irq_off(); recording_reconcile(); fm1_irq_on();   /* (ui-fix 7) the other banks are in now (or a record of before the bank store
                                                                * left them empty): every bank mended, once */
 #endif
-        proj_cur = (uint8_t)(slot & 3u);
+        proj_cur = (uint8_t)(slot & 3u); PJP_FOLLOW();
         proj_last_set(slot & 3u);
         proj_base_set(slot);                            /* (round 16) for the autosave */
 #if OC_PROJECT_PAGE
@@ -1489,7 +1499,7 @@ static void template_load(void)
         pat_last[k] = 0;
         pat_sig[k] = steps_sig(&trk[k]);
     }
-    proj_cur = PROJ_NO_SLOT;
+    proj_cur = PROJ_NO_SLOT; PJP_FOLLOW();
     song.g[G_SLOT] = (int16_t)(project_free_slot() + 1u);
     ui_message("TEMPLATE LOADED");
 }
@@ -1535,7 +1545,7 @@ static void project_new_blank(void)
     undo_depth--;
     undo_clear();
     list_forget();
-    proj_cur = PROJ_NO_SLOT;
+    proj_cur = PROJ_NO_SLOT; PJP_FOLLOW();
     proj_name[0] = 0;
     song.sel = 0;
     song.ntrk = NTRK;                                   /* (all four to start with: Stage's sheet removes them) */
@@ -1718,8 +1728,12 @@ static void persist_boot(void)                    /* before settings_init / pane
 #if OC_MODULES
     oc_mod_low_rescan();                           /* (Release 3 step 1) oc_mod_power_on ran before the store was moved out of 0xC2000..0xC7FFF: a module there is found now */
 #endif
+#if OC_PJ4_LDR
+    pjp_boot();                                    /* (Release 3) the old projects converted, the tables of the loaded project's phrases */
+#else
     ocp_scan();
     ocj_scan();
+#endif
     {   /* projects: fill empty RAM slots from flash, so the slot list is right after power-on */
         uint32_t i;
         for (i = 0; i < 4u; i++)

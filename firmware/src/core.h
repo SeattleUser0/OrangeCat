@@ -165,6 +165,9 @@
 #if OC_CLIP_SEL && !OC_CLIP
 #error "OC_CLIP_SEL needs OC_CLIP (each step of the new interface ships behind the one before: UI_BUILD.md)"
 #endif
+#ifndef OC_PJ4_LDR
+#define OC_PJ4_LDR OC_PJ4          /* (the loader: the pool and the slots through the format core. With OC_PJ4 on it is on; OC_PJ4_LDR=0 builds the core and the sections without it: tests/pj4_sec_test.c makes old records that way) */
+#endif
 #ifndef OC_TRK_RELEASE
 #define OC_TRK_RELEASE 0          /* (Round 23, BUILD.md 7.31 "Track OFF: built") the automatic release of an idle, never-played track's engine state (seq.c eng_idle_check).
                                    * (Round 24) THE OWNER DECIDED AGAINST IT: a track gives its memory back only when the owner turns it OFF (the explicit OFF, with the project's
