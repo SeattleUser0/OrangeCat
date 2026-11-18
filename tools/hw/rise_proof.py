@@ -34,8 +34,10 @@ shows FX FULL / DUB FULL; the transport starts, the chord at 1 s, 2 s of warm-up
 poll every second. Per row: late, worst_us, load_pct, voices / caps / rise_bytes (start, end, min over the polls), DUB's state at every poll,
 the FULL bits ORed, the arena's failures delta, the DUB governor's evictions delta, the clock's longest gap, the editor resends; the verdict:
   LATE     late > 0 (it wins over everything else: a late half is a late half);
-  INVALID  (with why and tags) dub_pre: DUB not running with its memory before the window; dub: DUB not running with its memory or DUB FULL at
-           a poll in the window, or a governor eviction; fx: FX FULL at a poll; alloc: an allocation failed in the row (the rise's own take
+  INVALID  (with why and tags) dub_pre: DUB not running with its memory before the window (after a re-arm: when DUB is not running at a
+           row's start, ECHO 0, 34 s stopped and silent so the governor's 32 s peak window holds only quiet halves, ECHO 100); dub: DUB not
+           running with its memory or DUB FULL at a poll in the window; gov (with dub): the DUB governor released DUB in the window (a half
+           with DUB over 85 % of the deadline, 2,465 us); fx: FX FULL at a poll; alloc: an allocation failed in the row (the rise's own take
            included: not by itself a failure of the cap); short: fewer rising blocks than designed; setup: the OFF bits or states, a read
            lost, the clock's gap over 100 ms, the cap / voices not as designed;
   PASS     late 0 and none of the above.
@@ -93,6 +95,8 @@ DESIGN_FX = 11872 + 4096 + 2912 + 1176 + 5632 + 4 * 4096   # the effects' memory
 #   + the chorus 4,096 + 2 more line blocks 8,192)
 MET = ["wall", "cpu0", "cpu1", "voice", "bus", "dub", "wait", "tail_wait", "tail", "idle1"]
 GAP_MS = 100.0
+REARM_S = 34.0                                          # the governor's peak window (8 x 4 s of DUB-less halves, fx_insert.c FX_PK_HALVES) and 2 s
+GOV_LINE_US = 2901 * 85 // 100                          # FX_BACK_US: 2,465 us; readmission wants the DUB-less peak + 450 under it (2,015 us)
 BACKOFF = (0.5, 1.0, 2.0, 4.0, 8.0)
 
 
@@ -532,6 +536,19 @@ class Proof:
             time.sleep(0.3)
         return d
 
+    def rearm(self):
+        """DUB not running at a row's start: the governor released it earlier (fx_insert.c fx_ins_late_half) and admits it again only when the
+        heaviest DUB-less half of the last 32 s plus its 450 us is under 85 % of the deadline (fx_ins_headroom). ECHO 0 clears the release
+        (an OFF instance with no blocks forgets gov, gov_n, held_off), 34 s stopped and silent refill the 32 s peak window with quiet halves,
+        then ECHO 100: the instance starts as in the plan. Logged per row; the release itself is the firmware's, reported, not tuned away"""
+        u = self.u
+        d_before = dub(u)
+        u.select(3)
+        self.setp(P_DUB["ECHO"], 0)
+        time.sleep(REARM_S)
+        self.setp(P_DUB["ECHO"], DUB4["ECHO"])
+        return {"before": d_before, "quiet_s": REARM_S}
+
     def set_off(self, mask):
         u = self.u
         stats11(u, mask)
@@ -556,6 +573,10 @@ class Proof:
         if not off_ok:
             why.append(f"the OFF bits / the ON tracks' states not as meant: {s_off}"); tags.add("setup")
         d0 = self.wait_fx(8.0)
+        rearmed = None
+        if not d0 or not d0["ok"]:
+            rearmed = self.rearm()
+            d0 = self.wait_fx(8.0)
         if not d0 or not d0["ok"]:
             why.append(f"DUB on track 4 not running with its memory before the window (or FULL): {d0}"); tags.add("dub_pre")
         f0, g0, re0 = stats11(u)["failures"], (d0 or {}).get("gov", 0), u.retries
@@ -613,7 +634,8 @@ class Proof:
         if f1 != f0:
             why.append(f"{f1 - f0} allocation(s) failed in the row (the rise's own take counts too)"); tags.add("alloc")
         if g1 != g0:
-            why.append(f"the DUB governor evicted {g1 - g0} instance(s)"); tags.add("dub")
+            why.append(f"the DUB governor released DUB {g1 - g0} time(s) in the row (a half with DUB running passed 85 % of the deadline, "
+                       f"{GOV_LINE_US} us: CPU, not memory)"); tags.update(("dub", "gov"))
         if gap > GAP_MS:
             why.append(f"the clock's longest gap {gap} ms (over {GAP_MS:.0f})"); tags.add("setup")
         if box.get("errors"):
@@ -628,7 +650,7 @@ class Proof:
              "end": end and {k: end[k] for k in ("voices", "caps", "rise_bytes", "used")},
              "min_over_polls": {"voices": box["vmin"], "cap": box["cmin"], "rise_bytes": box["rmin"]},
              "dub_before": d0, "dub_start": box.get("dub_start"), "dub_end": box.get("dub_end"), "full_or": box["full"],
-             "failures_delta": f1 - f0, "gov_delta": g1 - g0, "clock_gap_max_ms": gap, "retries": u.retries - re0,
+             "failures_delta": f1 - f0, "gov_delta": g1 - g0, "rearmed": rearmed, "clock_gap_max_ms": gap, "retries": u.retries - re0,
              "polls": box["polls"], "cores": box.get("cores")}
         self.log(r)
         print(f"rise_proof: {name} {preset} {cond}: {verdict}, late {late}, worst {worst} us" + (f" ({'; '.join(why)})" if why else ""), flush=True)
@@ -654,7 +676,9 @@ class Proof:
         elif any(r["verdict"] == "LATE" for r in rise):
             verdict = "FAIL: late halves with the rise (the controls 0): the rising cap is switched off"
         elif any(r["verdict"] == "INVALID" and "dub" in r["tags"] for r in rise):
-            verdict = "FAIL: with the rise DUB lost its memory in the window (the controls clean): the rising cap is switched off"
+            verdict = ("FAIL: with the rise the DUB governor released DUB (CPU: a half with DUB over 85 % of the deadline; the controls kept it): the rising cap is switched off"
+                       if any(r["verdict"] == "INVALID" and "gov" in r["tags"] for r in rise) else
+                       "FAIL: with the rise DUB lost its memory in the window (the controls clean): the rising cap is switched off")
         elif any(r["verdict"] == "INVALID" for r in rise):
             verdict = "INCOMPLETE: a rise row is INVALID for another reason (see its why and tags): rerun or re-plan"
         else:
