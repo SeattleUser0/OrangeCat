@@ -2,7 +2,7 @@
 
 # Orange Cat controls
 
-For the Nightly v0.16.0-dc0c9e and later (firmware commit dc0c9e7f, November 16, 2026). Made from the firmware's tables 9585985a: when they change, this page is made again.
+For the Nightly v0.16.0-6872dc and later (firmware commit 6872dc4d, November 17, 2026). Made from the firmware's tables 9585985a: when they change, this page is made again.
 
 What every knob, button and key does on the unit, page by page. It describes the Nightly build: the new interface with HOME's pictures, the four knobs and the EDIT sheets, with the FX order SENDS first and the track's own effects last.
 
@@ -77,6 +77,14 @@ HOME's four knobs by engine:
 |---|---|---|
 | MACRO | MODL HARM TIMB MRPH | HARM TIMB MRPH PLUCK (macro) |
 | DRUM-X | MRPH TUNE TONE DECY | MRPH TUNE TONE DECY |
+
+## Tracks OFF lend their memory: more MACRO voices
+
+While tracks are OFF (GLO held, OCT+ tapped), a MACRO track playing POLY can use their memory for more voices, up to what the unit's voice budget allows. With three tracks OFF: a CHIP sound up to 16 voices (12 with two OFF, 8 with one), NOISE, VA-VCF and TERRAN up to 9, VA, GRAIN, CHORD, KICK, HI-HAT and HARP up to 6. A model that is not installed plays VA, so it gets VA's voices.
+
+- The memory is taken only when the notes need it, and only while it is free: the effects keep it otherwise and never give way for it. An idle track holds none.
+- MONO, LEGATO and UNISON, the four-unit models (WAVSHP, FM, SWARM, SNARE, PD, WAVTBL), ADDTV, MODAL, the large models, SHAPES and DRUM-X keep their voices as before.
+- Turning a track ON again takes its memory back at once: the extra voices of the MACRO track stop with a short declick, and the track turned ON may say WAIT for a few milliseconds.
 
 ## EDIT: the sheets
 
@@ -901,6 +909,7 @@ These points in older documents or notes do not match the Nightly. This guide fo
 - SPRING, SHIMR and RESO, and GLITCH, TAPE STOP, SHUFFLE and FREEZE, are no longer in the firmware: they play only from their modules (REVERB MODES, FX LAYER). Older notes say the firmware plays them without a module.
 - PRESETS wraps at both ends on a fast turn too, and lists only sounds that can play; older notes say a fast turn stops at the ends and that every user sound is listed.
 - Install leaves what is already in the FM-1 alone (firmware, pack, modules); older notes say every Install flashes the firmware and writes the MACRO models module again.
+- A MACRO track playing POLY can sound more voices while other tracks are OFF; older notes say a track's voices are fixed by its engine.
 - GLO + OCT+ turns the selected track OFF or ON, and GLO's footer reads TRK OFF where it said DONE; older notes have no track OFF.
 - Both FM-1 flash chips are supported (Puya P25Q80 and UCUN UC25HQ80); older notes and older firmware know only the Puya chip, and a UC25HQ80 unit on them loses its saves at power-off.
 - A muted track says MUTE on HOME's TRACKS page and a frozen one says FROZEN, where its role stands; older notes say a muted track is only grey.

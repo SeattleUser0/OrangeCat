@@ -1,6 +1,6 @@
 {
   "title": "Orange Cat controls",
-  "nightly": { "build": "dc0c9e", "commit": "dc0c9e7f", "date": "November 16, 2026" },
+  "nightly": { "build": "6872dc", "commit": "6872dc4d", "date": "November 17, 2026" },
   "intro": [
     "What every knob, button and key does on the unit, page by page. It describes the Nightly build: the new interface with HOME's pictures, the four knobs and the EDIT sheets, with the FX order SENDS first and the track's own effects last.",
     "Names are the ones on the screen and the panel: KNOB 1 to KNOB 4, SELECT, PRESETS, ALGORITHM, EDIT, HOME, SEQ, GLO, FX, ARP, SCL, ENV, LFO, REC, PLAY, SAVE, OCT- and OCT+. The 27 keys run from F3 to G5. Keys are named by note: F3, F#3, C4.",
@@ -88,6 +88,16 @@
         "- PICTURE: the sound line (track, sound name, its place in the factory list; a knob turned shows its name and value there), four dials in the knob colors (blue, green, white, orange), a value row and the engine's picture. PACK MISSING in red means the asset pack is not installed. A macro knob moves around the sound as stored (-64 to +63); going back to TRACKS keeps the offsets in the sound. While the selected track is muted its numeral is grey and the line says MUTE in red at the right (also on DUB). A track turned OFF says OFF there instead, and WAIT in the accent color while a track turned ON waits for memory.",
         "- DUB: the tape loop and the performance keys, see \"DUB performance view\".",
         "- On every HOME page: SELECT turns HOME SELECT (BPM at first). PRESETS browses the sounds, one a click, wrapping at both ends; a fast turn loads when it rests. EDIT opens the EDIT sheets. ENV, LFO, SCL, ARP, FX, GLO, SAVE and SEQ open their pages. OCT- and OCT+ shift the octave. PLAY plays what it played last. REC held (stopped) clears the selected track. SAVE opens PROJECT."
+      ]
+    },
+    {
+      "id": "rising",
+      "title": "Tracks OFF lend their memory: more MACRO voices",
+      "text": [
+        "While tracks are OFF (GLO held, OCT+ tapped), a MACRO track playing POLY can use their memory for more voices, up to what the unit's voice budget allows. With three tracks OFF: a CHIP sound up to 16 voices (12 with two OFF, 8 with one), NOISE, VA-VCF and TERRAN up to 9, VA, GRAIN, CHORD, KICK, HI-HAT and HARP up to 6. A model that is not installed plays VA, so it gets VA's voices.",
+        "- The memory is taken only when the notes need it, and only while it is free: the effects keep it otherwise and never give way for it. An idle track holds none.",
+        "- MONO, LEGATO and UNISON, the four-unit models (WAVSHP, FM, SWARM, SNARE, PD, WAVTBL), ADDTV, MODAL, the large models, SHAPES and DRUM-X keep their voices as before.",
+        "- Turning a track ON again takes its memory back at once: the extra voices of the MACRO track stop with a short declick, and the track turned ON may say WAIT for a few milliseconds."
       ]
     },
     {
@@ -1314,6 +1324,7 @@
     "SPRING, SHIMR and RESO, and GLITCH, TAPE STOP, SHUFFLE and FREEZE, are no longer in the firmware: they play only from their modules (REVERB MODES, FX LAYER). Older notes say the firmware plays them without a module.",
     "PRESETS wraps at both ends on a fast turn too, and lists only sounds that can play; older notes say a fast turn stops at the ends and that every user sound is listed.",
     "Install leaves what is already in the FM-1 alone (firmware, pack, modules); older notes say every Install flashes the firmware and writes the MACRO models module again.",
+    "A MACRO track playing POLY can sound more voices while other tracks are OFF; older notes say a track's voices are fixed by its engine.",
     "GLO + OCT+ turns the selected track OFF or ON, and GLO's footer reads TRK OFF where it said DONE; older notes have no track OFF.",
     "Both FM-1 flash chips are supported (Puya P25Q80 and UCUN UC25HQ80); older notes and older firmware know only the Puya chip, and a UC25HQ80 unit on them loses its saves at power-off.",
     "A muted track says MUTE on HOME's TRACKS page and a frozen one says FROZEN, where its role stands; older notes say a muted track is only grey."
