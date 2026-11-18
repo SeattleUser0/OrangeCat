@@ -5303,3 +5303,32 @@ Expected `voices` / `cap` at off 0, 7, 3, 0 (18 units): `"CHIP ARP" POLY` 4, 16,
 
 *The unit's end state (November 17).* Nightly **v0.16.0-a5b382** (run 44174760875; linux-hw a5b382c5, the suite's commit) installed from the live page over the bench image: firmware written (64 writes), pack and five modules already current, no question. Flash chip: Puya 0x856014 (FLASH_ID). Modules: SHAPES 1, FX LAYER 2, WHEEL 5, MACRO models 17, DUB TAPE 18. Tracks MACRO 10 / 0 / 1 / 20, all ON, caps 4, no mutes.
 
+### 7.45 Round 29 item 4: what is still missing before Release 3 qualification starts, and the order
+
+RELEASE3_PLAN.md steps 0 to 6 and 8 are done (the module area, SHAPES out of the build set, fw_pages v3, the module-id install path, the generic insert host, DUB, the reverb modes and the FX layer as modules, their resident copies out). What stands between today and step 9 (the qualification plan, 7.37):
+
+| # | Missing | Whose | State today | Why it blocks qualification |
+|---|---|---|---|---|
+| 1 | **The loader** (the runtime reading and writing projects in the new format), on the owner's decision: option 2, a kept phrase waits for the next save or autosave | Session C | being built (r3-format2; not listed) | step 7 is "the format revision, whole"; qualification runs on the format that ships (7.37 "when it runs") |
+| 2 | **The conversion blocker fixed**: GLOB read back with a 4,096 B limit while it can hold 8 KB of recording (tests/pj4_glob_big_test.c fails at 500 notes); the OFF word rewritten without the part's hash; the power-cut test checking phrases too | Session C | written up (UI_BUILD.md "For Session C", Round 28) | a project unreadable after conversion is data loss on the upgrade path Q4(a) tests |
+| 3 | **OC_PJ4 switched on** in the shipped build, with the format core's and the loader's flash cost measured (the body cap 0x89000: 535 KB used today, the revision estimated at about 11.4 KB: PROJECT_FORMAT_R3.md 11.2b) | Session C, then Session A's review and suite | 0 | nothing reaches the image until it is 1 |
+| 4 | **The editor, backup and installer on the new records** (the editor's pool commands to 255 and the paged INFO, backup by (type, id), the installer's warning and backup gate), firmware and web together | Session C with Session D | not built | Q4(a) keeps every saved object byte for byte through the page; the page must back up and warn first |
+| 5 | **The freeze table's runtime use** (frzp still the unit's one record) | Session C | not built | part of the format whole |
+| 6 | **Step 3: scenes v2 with the short fade and Performance Mode** (the fade's arm, hold and commit in the audio interrupt; the slotless staged phrase) | Session C builds; Session A reviews and times the interrupt parts on the unit | not listed | the interrupt parts are exactly what the soak must cover; the soak would run again after it |
+| 7 | **The rising cap's valid proof** (7.44: the unit's all-ON baseline at 0 late, DUB on the big track with its memory, then the rise) | Session A | Round 29 item 1 | the soak's load (Q1) uses the same effects; a cap that can cost DUB its memory must be settled first |
+| 8 | **The qualification's harness pieces** named in 7.37: the soak harness extended for the module set, the FX table and the captures; seqtest's control-note cell (KICK, HOLD, DIVE, RISE through SHIFT and REVERSE); both reviewed with the plan | Session A | not written | 7.37 requires them reviewed before the first run |
+| 9 | **The units for Q4**: a unit to wipe (case b), the owner's stock .fwsc for case (c), and, if one exists, a UCUN unit (the newer chip, untested on hardware) | the owner | the owner's two units not read yet | Q4 (c) and the UCUN question cannot be answered on the test unit alone |
+| 10 | **The guide and the page** naming the candidate (Session D), the owner's note | Session D, Session A | follows each Nightly | the qualified build is the one documented |
+
+**A realistic order.**
+1. Now (Round 29): the rising cap's valid proof (7); the owner's units read (9, the part that is a read).
+2. Session C: the loader on option 2 with the conversion blocker fixed (1, 2), behind OC_PJ4 still 0; Session A reviews it; the host NOR simulator's power-cut series over the loader as well as the conversion.
+3. Session C with Session D: the editor, backup and installer on the new records (4) and the freeze table (5); Session A reviews; still behind the switch.
+4. OC_PJ4 to 1 on a branch: the flash cost measured against the cap; the full suite; a Nightly with it, the upgrade from the previous Nightly and from 0.15.0 Standard tried on the test unit first (the 7.37 Q4(a) run done once as a rehearsal, not as the qualification).
+5. Session C: step 3 (6); Session A's review and timing of its interrupt parts on the unit; a Nightly.
+6. Session A: the qualification harness pieces (8), reviewed with 7.37 by an independent reviewer (its second review).
+7. The owner: the units for Q4 (9).
+8. The candidate: a release branch with everything above, its suite and review; then 7.37 runs (Q1 to Q4) in its drawn order; a failure stops it, is fixed, and the affected parts run again.
+
+Steps 2, 3 and 5 are Session C's and carry most of the time; 6 can be done beside them. Nothing in Session A's part depends on the owner except 7.
+
