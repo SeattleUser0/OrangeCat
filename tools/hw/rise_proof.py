@@ -18,8 +18,8 @@ re-reads the unit and prints MISMATCH for anything not as before and LEFT TO PUT
 
 THE LOAD (7.44 has the arithmetic). Tracks 1 to 3: DRUM-X TECHNO RAW (a 964 B state each), one hit a beat each on its own lane (36, 38, 42; steps
 k, k + 4, k + 8, k + 12 of track k: a lane retriggers itself, so at most one voice a track), sends 0, DUB off. Track 4: the row's MACRO preset
-(CHIP ARP, VCF BRASS, VA BASS) with VCE POLY, no steps, its notes held over MIDI channel 4 (ROUT CH1-4); sends REVERB 48 (ROOM) and CHORUS
-48, DELAY 0 everywhere; DUB TAPE on track 4: ECHO 100, FEEDBACK 55, SEND 100, FILTER 60, SYNC, TIME L 1/16, TIME R 1/8 (0.25 s at 120 BPM:
+(CHIP ARP, VCF BRASS, VA BASS) with VCE POLY, no steps, its notes held over MIDI channel 4 (ROUT CH1-4); sends REVERB 48 (ROOM), CHORUS
+0 (dropped after the first attempt), DELAY 0 everywhere; DUB TAPE on track 4 (ECHO written last, see DUB4): ECHO 100, FEEDBACK 55, SEND 100, FILTER 60, SYNC, TIME L 1/16, TIME R 1/8 (0.25 s at 120 BPM:
 the line's floor of 4 blocks, 16 KB), SPEED 64, SPRING 0 (its tank is still taken: every running instance holds it, fx_insert.c), TAPE
 drive 6 / wow 0. The transport: the PC's clock (fm1hw play, CLK USB, 120 BPM) on pattern bank 7 (its steps saved and put back; its motion
 events, if any, are not played: the track's motion play flag off for the run, put back).
@@ -81,12 +81,16 @@ BANK = 7
 CH = 3                                                  # MIDI channel 4 -> track 4 (ROUT CH1-4)
 HOLD = list(range(60, 76))
 DRUMS = [("DRUM-X", "TECHNO RAW", 36), ("DRUM-X", "TECHNO RAW", 38), ("DRUM-X", "TECHNO RAW", 42)]
-SENDS4 = {P_REV: 48, P_CHO: 48, P_DLY: 0}
-DUB4 = {"ECHO": 100, "FDBK": 55, "SEND": 100, "FILT": 60, "TIML": 24, "TIMR": 46, "SPRG": 0, "SPD": 64, "MODE": 64 | 1, "TAPE": 6 * 12 - 64}
+SENDS4 = {P_REV: 48, P_CHO: 0, P_DLY: 0}                # (the chorus dropped after the first attempt, 7.44: not needed for the question)
+DUB4 = {"FDBK": 55, "SEND": 100, "FILT": 60, "TIML": 24, "TIMR": 46, "SPRG": 0, "SPD": 64, "MODE": 64 | 1, "TAPE": 6 * 12 - 64, "ECHO": 100}
+#   ECHO LAST: the line is sized when ECHO turns on, from the times then, and the size is sticky while it runs (fx_insert.c st_blk); the first
+#   attempt wrote ECHO first, so the line took the track's old times (1/8D, 1/4: 6 blocks, 24 KB) and kept them: 8,192 B over the design
 #   TIML 24 = 1/16, TIMR 46 = 1/8 (dub_t_val(3), dub_t_val(6)); MODE: the layout mark 64 | SYNC; TAPE: drive 6, wow 0 (DUB_WOW_N 12)
 MC_BLOCK = 11264
 UNITS = {"CHIP ARP": 1, "VCF BRASS": 2, "VA BASS": 3}
-DESIGN_FX = 11872 + 4096 + 4096 + 3168 + 2864 + 4 * 4096 + 5632   # the effects' memory as designed (7.44): 48,112 B (the spring's tank included)
+DESIGN_FX = 11872 + 4096 + 2912 + 1176 + 5632 + 4 * 4096   # the effects' memory as designed (7.44, after the first attempt): 42,072 B (the tank and the
+#   pre-delay, DUB's common block, state, spring tank and 4-block line; no chorus; the target's sizes, the unit's 54,360 B of the first attempt = these
+#   + the chorus 4,096 + 2 more line blocks 8,192)
 MET = ["wall", "cpu0", "cpu1", "voice", "bus", "dub", "wait", "tail_wait", "tail", "idle1"]
 GAP_MS = 100.0
 BACKOFF = (0.5, 1.0, 2.0, 4.0, 8.0)
