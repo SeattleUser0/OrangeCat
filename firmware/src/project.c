@@ -821,9 +821,10 @@ static int proj_candidate_tracks(void)
 static uint8_t proj_pend_slot = 0xFFu;
 static uint8_t proj_pend_named;
 static char proj_pend_name[PROJ_NAME_LEN + 1u];
-static uint32_t proj_pend_said;
+static uint32_t proj_pend_said, proj_pend_from;          /* (the last UNSAVED; not tried again before proj_pend_from: 2 s after a borrow that timed out) */
 static void project_pend(uint32_t slot, const char *name)
 {
+    proj_pend_from = fm1_ms;
     proj_pend_slot = (uint8_t)(slot & 3u);
     proj_pend_named = name != 0;
     proj_pend_name[0] = 0;
@@ -839,7 +840,7 @@ static void project_pend_poll(void)
     uint32_t slot;
     char nm[PROJ_NAME_LEN + 1u];
     if (!project_pending()) return;
-    if (transport_busy()) {
+    if (transport_busy() || (int32_t)(fm1_ms - proj_pend_from) < 0) {
         if (fm1_ms - proj_pend_said >= 2000u) { proj_pend_said = fm1_ms; ui_message("UNSAVED"); }
         return;
     }
@@ -884,7 +885,12 @@ static int project_save_as(uint32_t slot, const char *name)
     {
         int wr = proj_write_slot(slot, proj_wire_u.raw, BANK_STORE_SIZE);
 #if OC_BORROW
-        if (wr == 3) { project_pend(slot, name); return 1; }   /* (the transport started between the check and the borrow: it waits for the stop) */
+        if (wr == 3) {                                  /* (the transport started between the check and the borrow, or the borrow timed out: it waits, UNSAVED) */
+            int late = !transport_busy();
+            project_pend(slot, name);
+            if (late) proj_pend_from = fm1_ms + 2000u;
+            return 1;
+        }
         project_pend_drop();                            /* (written, or failed for good: no older one waits) */
 #endif
 #if OC_BORROW && OC_PJ4_LDR
@@ -1247,11 +1253,11 @@ static void proj_last_set(uint32_t slot)
 }
 static void project_load(uint32_t slot)
 {
+    int n = proj_read_slot(slot);
+    if (!n) { ui_message(project_old(slot) ? "OLD FORMAT" : "EMPTY SLOT"); return; }   /* (Round 30 review: a save waiting for the stop still waits) */
 #if OC_BORROW
     project_pend_drop();                                /* (Round 30) a save waiting for the stop was for the music this replaces */
 #endif
-    int n = proj_read_slot(slot);
-    if (!n) { ui_message(project_old(slot) ? "OLD FORMAT" : "EMPTY SLOT"); return; }
     dxe_mute_clear();                                   /* (0.13.1) lane mutes are performance state: a loaded project starts with every lane on */
     if (!project_restore_runtime(&proj_scratch)) {
         if (n == BANK_STORE_SIZE) bank_restore(proj_wire_u.raw);

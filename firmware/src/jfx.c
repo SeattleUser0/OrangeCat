@@ -2439,15 +2439,14 @@ static void jfx_master(int32_t *out, uint32_t n, int perf)
     {
         const fx_rets_t *rt = &fx_ret[fx_rr];           /* (deferred: the last block's) */
 #if OC_BORROW
-        if (RES_BOR_ON()) {                             /* (Round 30 item 1) a save asked for the effects' memory: their returns faded out (res_borrow.c), then let go */
-            int32_t g0 = (int32_t)jfx_bor_g, g1 = (int32_t)jfx_bor_gain_to();
+        if (jfx_bor_g < 32768u || jfx_bor_g0 < 32768u) {   /* (Round 30 item 1) a save asked for the effects' memory: their returns faded out (res_borrow.c), then let go; and back in after */
+            int32_t g0 = (int32_t)jfx_bor_g0, g1 = (int32_t)jfx_bor_g;
             for (i = 0; i < n; i++) {
                 int32_t g = g0 + (int32_t)(((int64_t)(g1 - g0) * (int32_t)(i + 1u)) / (int32_t)n);
                 wet[i] = (int32_t)(((int64_t)rt->wet[i] * g) >> 15);
                 mix_l[i] += (int32_t)(((int64_t)rt->sl[i] * g) >> 15);
                 mix_r[i] += (int32_t)(((int64_t)rt->sr[i] * g) >> 15);
             }
-            jfx_bor_g = (uint32_t)g1;
         } else
 #endif
         for (i = 0; i < n; i++) {                       /* the buses' return and sides */

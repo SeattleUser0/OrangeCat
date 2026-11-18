@@ -308,7 +308,7 @@ static int ocj_write_pj4(uint32_t slot, uint8_t *raw, uint32_t len)
     sz[2] = (uint32_t)sizeof(pj4_ws_t);
     rc = res_borrow(sz, 3u, p);
     pjp_bor_rc = (uint8_t)rc;
-    if (rc == RES_BOR_PLAYING) return 3;
+    if (rc == RES_BOR_PLAYING || rc == RES_BOR_LATE) return 3;   /* (Round 30 review: a timeout too) the save waits, UNSAVED, and is tried again */
     if (rc) return 2;                          /* (the caller says NO MEMORY TO SAVE: pjp_bor_rc) */
     pjp_secp = p[0]; pjp_pkp = p[1]; pjp_wsp = (pj4_ws_t *)(void *)p[2];
     rc = ocj_write_pj4_in(slot, raw, len);

@@ -32,10 +32,17 @@ static void (*res_bor_host_block)(void);                /* a host test: one audi
 #endif
 
 static int res_bor_transport_busy(void);               /* seq.c: playing, counting in, the chain armed or running, a start pending */
+#define RES_BOR_SETTLE (2u * RES_BOR_FADE)              /* (Round 30 review) blocks after the fade the rising cap and DUB get to let go; then the pieces are tried anyway */
+static uint16_t res_bor_settle;
+/* the effects' returns at the end of this block (Q15): faded out for the borrow, faded in again after it (a timeout, a refusal after the fade: no step) */
 static uint32_t jfx_bor_gain_to(void)
 {
-    if (res_bor_st == BOR_FADE) return (uint32_t)res_bor_fade * 32768u / RES_BOR_FADE;
-    return RES_BOR_ON() ? 0u : 32768u;
+    if (res_bor_st == BOR_FADE) {
+        uint32_t g = (uint32_t)res_bor_fade * 32768u / RES_BOR_FADE;
+        return g < jfx_bor_g ? g : jfx_bor_g;
+    }
+    if (RES_BOR_ON()) return 0u;
+    return jfx_bor_g + 32768u / RES_BOR_FADE + 1u >= 32768u ? 32768u : jfx_bor_g + 32768u / RES_BOR_FADE + 1u;
 }
 /* nothing of DUB's sounding or ramping, no rising block held: the effects' memory can go */
 static int res_bor_quiet(void)
@@ -48,6 +55,33 @@ static int res_bor_quiet(void)
 #endif
     return 1;
 }
+/* (Round 30 review) would pieces from..RES_BOR_N fit with the two histories gone? Tried without writing anything, the table put back as it was */
+static int res_bor_fits_without_histories(uint32_t from)
+{
+    struct { void *ptr; uint32_t size; } keep[RES_BOR_N + 2u];   /* (only these entries change in a probe: the pieces tried and the two histories) */
+    uint32_t k, ok = 1, peak = resource_peak, fails = resource_failures, gen = resource_gen;
+    uint8_t lend_used = res_lend_used, ask = res_rise_ask;
+    for (k = 0; k < RES_BOR_N; k++) { keep[k].ptr = resource[RES_BOR0 + k].ptr; keep[k].size = resource[RES_BOR0 + k].size; }
+    keep[RES_BOR_N].ptr = resource[RES_RECORD_UNDO].ptr; keep[RES_BOR_N].size = resource[RES_RECORD_UNDO].size;
+    keep[RES_BOR_N + 1u].ptr = resource[RES_NOTE_HISTORY].ptr; keep[RES_BOR_N + 1u].size = resource[RES_NOTE_HISTORY].size;
+    resource[RES_RECORD_UNDO].size = 0;
+    resource[RES_NOTE_HISTORY].size = 0;
+    res_bor_probe = 1;
+    for (k = from; k < RES_BOR_N && ok; k++)
+        if (res_bor_size[k] && !resource_allocate(RES_BOR0 + k, res_bor_size[k])) ok = 0;
+    res_bor_probe = 0;
+    for (k = 0; k < RES_BOR_N; k++) { resource[RES_BOR0 + k].ptr = keep[k].ptr; resource[RES_BOR0 + k].size = keep[k].size; }
+    resource[RES_RECORD_UNDO].ptr = keep[RES_BOR_N].ptr; resource[RES_RECORD_UNDO].size = keep[RES_BOR_N].size;
+    resource[RES_NOTE_HISTORY].ptr = keep[RES_BOR_N + 1u].ptr; resource[RES_NOTE_HISTORY].size = keep[RES_BOR_N + 1u].size;
+    resource_peak = peak; resource_failures = fails; resource_gen = gen; res_lend_used = lend_used; res_rise_ask = ask;
+    return (int)ok;
+}
+static void res_bor_fail(void)
+{
+    for (uint32_t k = 0; k < RES_BOR_N; k++) resource_release(RES_BOR0 + k);
+    res_bor_no_mem++;
+    res_bor_st = BOR_NO_MEM;
+}
 static void jfx_bor_block(void)
 {
     uint32_t st = res_bor_st;
@@ -58,17 +92,18 @@ static void jfx_bor_block(void)
             return;
         }
         res_bor_fade = (uint16_t)RES_BOR_FADE;
+        res_bor_settle = 0;
         res_bor_st = BOR_FADE;
         st = BOR_FADE;
     }
-    if (!RES_BOR_ON()) {
-        jfx_bor_g = 32768u;
-        return;
-    }
+    jfx_bor_g0 = jfx_bor_g;                             /* (this block's ramp in jfx_master: from the last block's gain to this one's) */
+    jfx_bor_g = jfx_bor_gain_to();
+    if (!RES_BOR_ON()) return;                          /* (after a borrow, a timeout or a refusal after the fade the gain comes back up over RES_BOR_FADE blocks) */
     if (jfx_wait < 2u) jfx_wait = 2u;                   /* (no effect takes a block meanwhile: jfx_take, the SLICER's buffer) */
     if (st == BOR_FADE) {
-        if (res_bor_fade) { res_bor_fade--; return; }
-        if (!res_bor_quiet()) return;
+        if (res_bor_fade) { res_bor_fade--; jfx_bor_g = jfx_bor_gain_to(); return; }
+        if (jfx_bor_g || jfx_bor_g0) return;            /* (the returns reach 0 first, a whole block at 0) */
+        if (!res_bor_quiet() && ++res_bor_settle < RES_BOR_SETTLE) return;   /* (a rising block whose voices cannot be given up, xf_on or an engine change: not waited for) */
         jfx_bus_drain();                                /* (no job out: the buses' memory may go) */
         jfx_free_buses();
         jfx_free_ins_all();
@@ -82,7 +117,8 @@ static void jfx_bor_block(void)
         while (i < RES_BOR_N && !res_bor_size[i]) i++;
         if (i < RES_BOR_N) {
             void *p = resource_allocate(RES_BOR0 + i, res_bor_size[i]);
-            if (!p && (resource[RES_RECORD_UNDO].size || resource[RES_NOTE_HISTORY].size)) {   /* the disposable histories first (resource_get's rule) */
+            if (!p) {                                   /* the disposable histories go only if that makes every piece left fit (else they stay: NO_MEM) */
+                if (!(resource[RES_RECORD_UNDO].size || resource[RES_NOTE_HISTORY].size) || !res_bor_fits_without_histories(i)) { res_bor_fail(); return; }
                 if (resource[RES_RECORD_UNDO].size) {
                     resource_release(RES_RECORD_UNDO); recording_undo_lost = 1;
                     recording_undo_skip |= recording_undo_active; recording_undo_active = 0;
@@ -90,12 +126,7 @@ static void jfx_bor_block(void)
                 resource_release(RES_NOTE_HISTORY);
                 res_bor_dropped++;
                 p = resource_allocate(RES_BOR0 + i, res_bor_size[i]);
-            }
-            if (!p) {
-                for (uint32_t k = 0; k < RES_BOR_N; k++) resource_release(RES_BOR0 + k);
-                res_bor_no_mem++;
-                res_bor_st = BOR_NO_MEM;
-                return;
+                if (!p) { res_bor_fail(); return; }
             }
             res_bor_next = (uint8_t)(i + 1u);
             return;

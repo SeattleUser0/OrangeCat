@@ -796,7 +796,10 @@ static int test_save(void)
     set_engine_of(&trk[0], 3);
     song.playing = 1;
     project_save(0);
-    bad += check("project save while playing: refused, STOP TO SAVE", !project_used(0) && msg_is("STOP TO SAVE"));
+    bad += check("project save while playing: refused, STOP TO SAVE", !project_used(0) && msg_is(OC_BORROW ? "UNSAVED" : "STOP TO SAVE"));   /* (Round 30: with the borrow it waits for the stop) */
+#if OC_BORROW
+    project_pend_drop();
+#endif
     bad += check("user preset save while playing: refused", up_store(0, "X") == 2 && !up_used(0));
     song.playing = 0;
     transport_req = 1;

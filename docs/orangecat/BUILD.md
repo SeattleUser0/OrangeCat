@@ -5453,8 +5453,8 @@ keep a resident buffer only for the sections a load reads while playing.
 or a start pending, refused; else the buses' returns fade over 43 blocks (31 ms, a ramp a sample), DUB's instances ramp out (FX_RAMP, as for CPU1's loss), the rising
 cap's blocks go back (their voices faded, voice_kill), nothing new is taken; at silence the buses' memory and the SLICER buffer go (as at rest: tails faded, then
 cut), then one piece a block. Engine states and hot sets are never touched: a MIDI note during the save plays on its held state (the flash erases themselves silence
-the audio briefly, as before). While held, PLAY, GLO + PLAY, the chain, a scene start, MIDI Start / Continue and a REC-armed note's start wait (seq.c); they run
-when the borrow ends. At the end the pieces go back and the effects take their memory again from silence, as after a stop.
+the audio briefly, as before). While held, PLAY, GLO + PLAY, the chain, a scene start, MIDI Start / Continue and a REC-armed note's start wait (seq.c; that note itself
+sounds unrecorded); they run when the borrow ends. At the end the pieces go back and the effects take their memory again from silence, as after a stop.
 Saves: SAVE (the name screen, hold SAVE, an overwrite) and the autosave while playing write nothing and say **UNSAVED** (again every 2 s); at the stop the save runs
 with the music as it is then (`project_pend_poll`; a load or a new project drops it). The editor's save keeps stopping the transport first (ed_flash_stop), so it
 borrows while stopped. Rename and erase still say STOP TO SAVE. Loads need no borrow (the 4 KB read buffer); the boot's conversion borrows before the audio starts
@@ -5469,6 +5469,28 @@ above its minimum. The PJ4 tests that save (oc_project_pj4 with its power-cut se
 borrow; persistence_test's "pending PLAY" check now expects UNSAVED with the borrow (STOP TO SAVE without). The link check is the build: OC_PJ4=1 fails at
 app.ld:59 on 73f348f8 and passes here. AUDIO_STATS [0, 11] is schema 25 with the borrow (`fm1hw.py trkoff`: borrow_grants, borrow_no_play, borrow_no_mem, borrow_late,
 borrow_dropped, borrow_state, borrow_hold).
+
+**What every save costs while stopped (SAVE, the name screen, hold SAVE, the autosave, the editor's save alike: each runs the whole borrow).** The reverb, delay and
+chorus tails and DUB's lines are faded (31 ms; DUB 6 blocks) and then their memory is let go; the SLICER's STUT and the FX layer's buffer effect stop at once
+(`jfx_sl_lost`, as when the card takes its pool back: not faded); a MACRO track's notes on its rising blocks are ended (voice_kill: the envelope to 0 over a block).
+So an autosave (stopped, untouched 5 s) cuts a long reverb or DUB tail that is still ringing. The effects come back from silence on the next notes.
+
+**Review fixes (Round 30, after d066a82d), each with a test that fails on d066a82d.**
+1. The MIDI clock's resync (an external clock back after a loss) no longer starts the transport while the borrow is held: it waits for the next beat after it
+   (midi_clock.c; borrow_save_test 6).
+2. The two undo histories are dropped only when a probe (nothing written, the table put back) shows that every piece left then fits; refused, they stay
+   (res_borrow.c `res_bor_fits_without_histories`; borrow_arena_test asserts every row's result and the histories, a row where only dropping them fits).
+3. A load that fails (empty slot, OLD FORMAT) leaves a waiting save waiting; only a load that loads drops it (borrow_save_test 7).
+4. A borrow that times out in its fade: the effects' gain ramps back up (no step), the save waits with UNSAVED and is tried again 2 s later; the rising cap's blocks
+   that cannot be given up (xf_on, an engine change pending) are waited for at most 86 blocks, then the pieces are tried anyway (borrow_save_test 8).
+5. Only MIDI Start / Continue waits during a save (a Stop cancels it); notes, note-offs and clocks pass, so the 64-entry queue never fills: a 3 s save under notes,
+   clock and a Start: no overflow, no note left on, the Start runs after (borrow_save_test 9). The unit then starts late by the save's length (the master has moved on).
+6. A REC-armed track's first note during a save: the note sounds and is not recorded; the transport starts when the save ends. The chain's start waits
+   (borrow_save_test 10). The UNSAVED rule is also tested through `autosave_poll` (borrow_arena_test).
+
+*Sizes after the review fixes.* OC_PJ4=1: image 551,140 B, pool 205,844 B, **arena 50,656 B (minimum 49,152: 1,504 to spare)**, data tail 1,560 B (the audio
+step's code in RAM grew by 768 B). The default (OC_PJ4=0): image 537,456 B, arena 76,736 B (73f348f8: 537,464 B, 76,704 B). `borrow_arena_test` now runs at these
+banks; its rows' results are unchanged (and asserted).
 
 **Unit procedure (for the lead; nothing was flashed).**
 1. Back up first: the web app's full backup (or `fm1hw.py` backup) of every project slot and the user sounds. An OC_PJ4=1 image **converts every old project to the

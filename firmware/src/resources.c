@@ -27,7 +27,8 @@ enum { BOR_IDLE, BOR_ASK, BOR_FADE, BOR_TAKE, BOR_HELD, BOR_NO_PLAY, BOR_NO_MEM 
 static volatile uint8_t res_bor_st, res_bor_hold;
 #define RES_BOR_ON() (res_bor_st >= BOR_FADE && res_bor_st <= BOR_HELD)   /* the effects are giving back, or have given back, their memory */
 static uint32_t res_bor_size[RES_BOR_N];
-static uint32_t jfx_bor_g = 32768u;                     /* the effects' returns now (Q15): faded to 0 for the borrow */
+static uint32_t jfx_bor_g = 32768u, jfx_bor_g0 = 32768u;   /* (this block's gain, and the last block's: jfx_master ramps between them) */
+static uint8_t res_bor_probe;                           /* (Round 30 review) res_borrow.c's fit probe: resource_allocate writes nothing */                     /* the effects' returns now (Q15): faded to 0 for the borrow */
 #endif
 static uint8_t recording_undo_lost;
 static uint8_t res_rise_ask;                            /* (Round 28 item 1) an allocation failed: the rising cap's unused blocks go back (voice.c rise_block) */
@@ -178,6 +179,9 @@ static __attribute__((noinline)) void *resource_allocate(uint32_t id, uint32_t b
                 resource[id].ptr = p; resource[id].size = size;
                 if (step >= RESOURCE_BANKS) res_lend_used |= (uint8_t)resource_lent(id);
                 uint32_t *words=p;
+#if OC_BORROW
+                if (!res_bor_probe)                     /* (Round 30 review) a fit probe writes nothing (res_borrow.c) */
+#endif
                 for (uint32_t j=0;j<size/4u;j++)words[j]=0;
                 uint32_t used = resource_used();
                 if (used > resource_peak) resource_peak = used;
