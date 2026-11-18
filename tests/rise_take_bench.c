@@ -3,7 +3,7 @@
 /* Orange Cat Round 29 item 1 (BUILD.md 7.44): the cost of a rising block's take, a HOST reference (not in tests/run_tests.sh; not a unit number).
  * The arena of the unit's size laid out as the proof's three-OFF rows: track 4 MACRO CHIP ARP POLY, tracks 1 to 3 OFF (DRUM-X loaded, states given
  * back), the effects' memory held as the rows' load takes it (the reverb's tank 11,872 B and its model line's first block, the chorus, DUB TAPE's
- * common block, state and four line blocks: placed directly with resource_allocate, as rising_cap_test's fx_take does, so the take's search
+ * common block, state, spring tank (every running instance holds it: fx_insert.c) and four line blocks: placed directly with resource_allocate, as rising_cap_test's fx_take does, so the take's search
  * crosses the same number of live blocks). Timed on the host's clock (CLOCK_MONOTONIC):
  *   ALLOC   resource_allocate(RES_RISE0 + j, MC_STATE_BYTES) alone (the search and the 11,264 B zeroing), released and taken again, REPS times
  *   CHORD   the sixteen-note chord struck in one block (trk_note_on x 16, then that block's mix_block), TAKE: the blocks went back (a second of
@@ -66,7 +66,7 @@ int main(void)
     /* the effects' memory of the rows' load (BUILD.md 7.44): placed first, as the rows let the effects take theirs before the chord */
     {
         static const struct { uint32_t id, bytes; } FX[] = {
-            {JB_REV, sizeof(jrev_t)}, {JB_RX0, JFX_SEG * 2u}, {JB_CHO, CHO_LEN * 2u}, {JB_INSC, sizeof(fx_common_t)}, {JB_INSS0 + 3u, DUB_STATE_BYTES},
+            {JB_REV, sizeof(jrev_t)}, {JB_RX0, JFX_SEG * 2u}, {JB_CHO, CHO_LEN * 2u}, {JB_INSC, sizeof(fx_common_t)}, {JB_INSS0 + 3u, DUB_STATE_BYTES}, {JB_INSP0 + 3u, 5632u},
             {JB_INSG0 + 0u, JFX_SEG * 2u}, {JB_INSG0 + 1u, JFX_SEG * 2u}, {JB_INSG0 + 2u, JFX_SEG * 2u}, {JB_INSG0 + 3u, JFX_SEG * 2u}};
         uint32_t tot = 0;
         for (k = 0; k < NELEM(FX); k++) {
