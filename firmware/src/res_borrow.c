@@ -32,7 +32,7 @@ static void (*res_bor_host_block)(void);                /* a host test: one audi
 #endif
 
 static int res_bor_transport_busy(void);               /* seq.c: playing, counting in, the chain armed or running, a start pending */
-#define RES_BOR_SETTLE (2u * RES_BOR_FADE)              /* (Round 30 review) blocks after the fade the rising cap and DUB get to let go; then the pieces are tried anyway */
+#define RES_BOR_SETTLE (2u * RES_BOR_FADE)              /* (Round 30 review) blocks after the fade the rising cap and DUB get to let go; not quiet by then: NO_QUIET, nothing freed */
 static uint16_t res_bor_settle;
 /* the effects' returns at the end of this block (Q15): faded out for the borrow, faded in again after it (a timeout, a refusal after the fade: no step) */
 static uint32_t jfx_bor_gain_to(void)
@@ -44,12 +44,16 @@ static uint32_t jfx_bor_gain_to(void)
     if (RES_BOR_ON()) return 0u;
     return jfx_bor_g + 32768u / RES_BOR_FADE + 1u >= 32768u ? 32768u : jfx_bor_g + 32768u / RES_BOR_FADE + 1u;
 }
-/* nothing of DUB's sounding or ramping, no rising block held: the effects' memory can go */
+/* nothing of DUB's sounding, ramping or clearing, no instance run by the last block's insert job (and that job merged: fx_done), no rising block held: nothing but this
+ * interrupt can read the effects' memory now. (Round 30 re-review) Asked on two block starts in a row before anything is freed, so a job of the block before is done too */
+static uint8_t res_bor_quiet_n;
+static uint32_t res_bor_no_quiet;
 static int res_bor_quiet(void)
 {
     uint32_t k;
+    if (fx_mask && !fx_done) return 0;
     for (k = 0; k < FX_INS_N; k++)
-        if (fx_ins[k].state == FXS_RUN || fx_ins[k].state == FXS_RAMP || fx_ins[k].state == FXS_CLEAR) return 0;
+        if (fx_ins[k].state == FXS_RUN || fx_ins[k].state == FXS_RAMP || fx_ins[k].state == FXS_CLEAR || fx_ins[k].run) return 0;
 #if MELODEE_MACRO
     for (k = 0; k < NPART; k++) if (rise_have[k]) return 0;
 #endif
@@ -93,6 +97,7 @@ static void jfx_bor_block(void)
         }
         res_bor_fade = (uint16_t)RES_BOR_FADE;
         res_bor_settle = 0;
+        res_bor_quiet_n = 0;
         res_bor_st = BOR_FADE;
         st = BOR_FADE;
     }
@@ -103,7 +108,13 @@ static void jfx_bor_block(void)
     if (st == BOR_FADE) {
         if (res_bor_fade) { res_bor_fade--; jfx_bor_g = jfx_bor_gain_to(); return; }
         if (jfx_bor_g || jfx_bor_g0) return;            /* (the returns reach 0 first, a whole block at 0) */
-        if (!res_bor_quiet() && ++res_bor_settle < RES_BOR_SETTLE) return;   /* (a rising block whose voices cannot be given up, xf_on or an engine change: not waited for) */
+        if (!res_bor_quiet()) {                         /* (Round 30 re-review) never forced: not quiet in RES_BOR_SETTLE blocks (a rising block whose voices cannot be given up,
+                                                         * xf_on or an engine change; an instance still ramping): nothing freed, the effects come back, the save waits (UNSAVED) */
+            res_bor_quiet_n = 0;
+            if (++res_bor_settle >= RES_BOR_SETTLE) { res_bor_no_quiet++; res_bor_st = BOR_NO_QUIET; }
+            return;
+        }
+        if (++res_bor_quiet_n < 2u) return;
         jfx_bus_drain();                                /* (no job out: the buses' memory may go) */
         jfx_free_buses();
         jfx_free_ins_all();
@@ -180,7 +191,7 @@ static int res_borrow(const uint32_t *sizes, uint32_t n, uint8_t **out)
         for (k = 0; k < n; k++) out[k] = res_bor_size[k] ? (uint8_t *)resource[RES_BOR0 + k].ptr : 0;
         return RES_BOR_OK;
     }
-    if (st != BOR_NO_PLAY && st != BOR_NO_MEM) res_bor_late++;
+    if (st != BOR_NO_PLAY && st != BOR_NO_MEM && st != BOR_NO_QUIET) res_bor_late++;
     res_borrow_end();
     return st == BOR_NO_PLAY ? RES_BOR_PLAYING : st == BOR_NO_MEM ? RES_BOR_FULL : RES_BOR_LATE;
 }

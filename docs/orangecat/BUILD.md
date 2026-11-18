@@ -5481,14 +5481,23 @@ So an autosave (stopped, untouched 5 s) cuts a long reverb or DUB tail that is s
 2. The two undo histories are dropped only when a probe (nothing written, the table put back) shows that every piece left then fits; refused, they stay
    (res_borrow.c `res_bor_fits_without_histories`; borrow_arena_test asserts every row's result and the histories, a row where only dropping them fits).
 3. A load that fails (empty slot, OLD FORMAT) leaves a waiting save waiting; only a load that loads drops it (borrow_save_test 7).
-4. A borrow that times out in its fade: the effects' gain ramps back up (no step), the save waits with UNSAVED and is tried again 2 s later; the rising cap's blocks
-   that cannot be given up (xf_on, an engine change pending) are waited for at most 86 blocks, then the pieces are tried anyway (borrow_save_test 8).
-5. Only MIDI Start / Continue waits during a save (a Stop cancels it); notes, note-offs and clocks pass, so the 64-entry queue never fills: a 3 s save under notes,
-   clock and a Start: no overflow, no note left on, the Start runs after (borrow_save_test 9). The unit then starts late by the save's length (the master has moved on).
+4. A borrow that times out in its fade: the effects' gain ramps back up (no step), the save waits with UNSAVED and is tried again 2 s later (borrow_save_test 8;
+   see the re-review's item 3 for blocks that do not let go).
+5. Only MIDI Start / Continue waits during a save (a Stop is dispatched and cancels it); notes, note-offs and clocks pass, so the 64-entry queue never fills: a 3 s save under notes,
+   clock and a Start: no overflow, no note left on, the Start runs after (borrow_save_test 9). The Start then runs placed where the master is (re-review item 1).
 6. A REC-armed track's first note during a save: the note sounds and is not recorded; the transport starts when the save ends. The chain's start waits
    (borrow_save_test 10). The UNSAVED rule is also tested through `autosave_poll` (borrow_arena_test).
 
-*Sizes after the review fixes.* OC_PJ4=1: image 551,140 B, pool 205,844 B, **arena 50,656 B (minimum 49,152: 1,504 to spare)**, data tail 1,560 B (the audio
+**Re-review fixes (after 9bfa48b5), each with a test failing there (borrow_save_test 9, 11, 12).**
+1. A MIDI Start held during a save now runs placed where the master is: the pulses since it are counted and the start takes the place they give (the sequencer
+   catches up from there, as after a resync); the last pulse's time and the tempo carry over.
+2. The master's Stop is no longer held: it is dispatched during the save (midi_clock.lost back to 0) and drops a held Start, so no resync starts the unit afterwards
+   on the clock alone.
+3. The effects' memory is never freed by force. It goes only when nothing but the interrupt can read it: no DUB instance running, ramping or clearing, none run by
+   the last block's insert job (and that job merged, fx_done), no rising block held, on two block starts in a row (a job of the block before is done too). Not so
+   within 86 blocks after the fade: nothing is freed, the effects fade back in, and the save waits (UNSAVED, tried again 2 s later).
+
+*Sizes after the review fixes.* OC_PJ4=1 (after the re-review): image 551,600 B, pool 205,840 B, **arena 50,464 B (minimum 49,152: 1,312 to spare)**, data tail 1,560 B (the audio
 step's code in RAM grew by 768 B). The default (OC_PJ4=0): image 537,456 B, arena 76,736 B (73f348f8: 537,464 B, 76,704 B). `borrow_arena_test` now runs at these
 banks; its rows' results are unchanged (and asserted).
 

@@ -13,6 +13,8 @@
  *   8. a borrow that times out in its fade: the effects' gain comes back up without a step, the save waits (UNSAVED), it is not dropped.
  *   9. a 3 s save under incoming notes and clock with a MIDI Start in it: the queue never overflows, every note-off arrives (no note left on), the Start runs after.
  *  10. the chain's start (chain.armed and a start request) pressed during the save waits too.
+ * (Round 30 re-review, failing on 9bfa48b5) 9 also: the held Start runs placed where the master is (the pulses since it); 11. the master's Stop during a save is taken
+ *  (no resync starts the unit on the clock alone); 12. DUB or the rising cap not quiet: nothing is freed by force, the save waits (UNSAVED).
  */
 #define OC_PROJECT_NO_MAIN
 #include "oc_project_test.c"
@@ -216,6 +218,7 @@ static int t_load_fail_keeps(void)
 }
 static uint32_t bt_dead_after;
 static void bt_block_dies(void) { if (bt_blocks < bt_dead_after) bt_block(); }   /* (the audio stops answering in the fade) */
+static void bt_block_stuck(void) { bt_block(); rise_have[0] = 1; }   /* (a rising block whose voices cannot be given up: xf_on, an engine change) */
 static int t_timeout(void)
 {
     int ok = 1;
@@ -246,7 +249,7 @@ static int t_timeout(void)
 static int t_midi_long_save(void)
 {
     int ok = 1;
-    uint32_t sz[3] = {PJ4_RECMAX, PROJ_STORE_SIZE, (uint32_t)sizeof(pj4_ws_t)}, b, on = 0, k, act = 0, heard = 0;
+    uint32_t sz[3] = {PJ4_RECMAX, PROJ_STORE_SIZE, (uint32_t)sizeof(pj4_ws_t)}, b, on = 0, k, act = 0, heard = 0, after = 0, pos1;
     uint8_t *p[3];
     reset();
     res_bor_host_block = bt_block;
@@ -255,7 +258,7 @@ static int t_midi_long_save(void)
     midi_in_overflow = 0;
     ok &= res_borrow(sz, 3u, p) == RES_BOR_OK;
     for (b = 0; b < 4134u; b++) {                        /* 3 s of blocks while the save's flash work runs */
-        if (b % 29u == 0u) midi_enqueue(0x0Fu | 0xF8u << 8, 1u);          /* 120 bpm: 48 clocks a second */
+        if (b % 29u == 0u) { midi_enqueue(0x0Fu | 0xF8u << 8, 1u); if (b > 100u) after++; }   /* 120 bpm: 48 clocks a second */
         if (b == 100u) midi_enqueue(0x0Fu | 0xFAu << 8, 1u);              /* MIDI Start during the save */
         if (b % 60u == 0u) { midi_enqueue(on ? (0x08u | 0x80u << 8 | 60u << 16) : (0x09u | 0x90u << 8 | 60u << 16 | 100u << 24), 1u); on ^= 1u; }
         fm1_ms += (b & 1u);
@@ -266,17 +269,65 @@ static int t_midi_long_save(void)
     if (on) midi_enqueue(0x08u | 0x80u << 8 | 60u << 16, 1u);
     ok &= !midi_in_overflow;
     res_borrow_end();
+    bt_block();
+    pos1 = midi_clock.pos;
+    if (getenv("BT_DEBUG")) printf("  after the save: playing %u pos %u want >= %u moved %u ok %d\n", song.playing, pos1, (after - 1u) * (MIDI_BEAT_UNITS / 24u), bor_midi_moved, ok);
+    ok &= song.playing == 1 && after > 1u && pos1 >= (after - 1u) * (MIDI_BEAT_UNITS / 24u);   /* (the Start ran after the save, placed where the master is) */
     for (b = 0; b < 400u; b++) bt_block();
-    ok &= song.playing == 1;                             /* (the Start ran after the save) */
+    ok &= song.playing == 1;
     for (uint32_t t = 0; t < NTRK; t++) for (k = 0; k < NVOICE; k++) act += trk[t].v[k].active && trk[t].v[k].gate;
     ok &= act == 0 && heard > 0;                         /* (the notes sounded during the save, every note-off arrived: nothing held) */
     transport_req = 2; bt_block();
     song.g[G_CLOCK] = 0;
     {
         char what[200];
-        snprintf(what, sizeof what, "a 3 s save under notes and clock with a MIDI Start in it: no overflow (%u), notes sounded (%u voice-blocks), none left on (%u), the Start after", midi_in_overflow, heard, act);
+        snprintf(what, sizeof what, "a 3 s save under notes and clock with a MIDI Start in it: no overflow (%u), notes sounded (%u), none left on (%u), the Start after at the master's place (%u pulses)", midi_in_overflow, heard, act, after);
         return check(what, ok);
     }
+}
+static int t_held_stop(void)
+{
+    int ok = 1;
+    uint32_t sz[3] = {PJ4_RECMAX, PROJ_STORE_SIZE, (uint32_t)sizeof(pj4_ws_t)}, b;
+    uint8_t *p[3];
+    reset();
+    res_bor_host_block = bt_block;
+    song.g[G_CLOCK] = 1;
+    bt_block();
+    memset(&midi_clock, 0, sizeof midi_clock);
+    midi_clock.selected = 1; midi_clock_mode(1);
+    midi_clock.lost = 2u; midi_clock.lost_n = 5u; midi_clock.interval_time = 20u;   /* (the master's clock dropped while the unit played; the unit stopped) */
+    ok &= res_borrow(sz, 3u, p) == RES_BOR_OK;
+    midi_enqueue(0x0Fu | 0xFCu << 8, 1u);                /* the master's Stop during the save; its clock goes on */
+    for (b = 0; b < 600u; b++) { if (b % 29u == 0u) midi_enqueue(0x0Fu | 0xF8u << 8, 1u); fm1_ms += b & 1u; bt_block(); }
+    res_borrow_end();
+    for (b = 0; b < 3000u; b++) { if (b % 29u == 0u) midi_enqueue(0x0Fu | 0xF8u << 8, 1u); fm1_ms += b & 1u; bt_block(); ok &= !song.playing; }
+    ok &= midi_clock.lost == 0u;
+    song.g[G_CLOCK] = 0;
+    return check("the master's Stop during a save is taken: no resync starts the unit afterwards on the clock alone", ok);
+}
+static int t_not_quiet(void)
+{
+    int ok = 1;
+    uint32_t e0;
+    reset();
+    fill_all(3, 4);
+    res_bor_host_block = bt_block;
+    ok &= project_save_as(0, "QUIET") == 0;
+    fill_all(4, 4);
+    bt_sends_on();
+    res_bor_host_block = bt_block_stuck;
+    e0 = erases;
+    ok &= project_save(0) == 1 && !strcmp(ui.msg, "UNSAVED") && project_pending() && erases == e0;
+    ok &= bt_pieces_back();
+    res_bor_host_block = bt_block;
+    rise_have[0] = 0;
+    for (uint32_t b = 0; b < 200u; b++) mix_block(bt_out, CTL);
+    ok &= bt_fx_held() && jfx_bor_g == 32768u;
+    fm1_ms += 2500u;
+    project_pend_poll();
+    ok &= !project_pending() && erases > e0;
+    return check("a rising block that does not let go: nothing freed by force, the save waits (UNSAVED) and runs once it has", ok);
 }
 static void bt_block_chain(void) { if (bt_blocks == 5u) { chain.armed = 1; transport_req = 1; } bt_block(); }
 static int t_chain_waits(void)
@@ -299,6 +350,7 @@ static int t_chain_waits(void)
 int main(void)
 {
     int bad = 0;
+    setvbuf(stdout, 0, _IONBF, 0);                       /* (a sanitizer's stop keeps the lines before it) */
     bad |= t_refused_playing();
     bad |= t_unsaved();
     bad |= t_save_stopped();
@@ -309,6 +361,8 @@ int main(void)
     bad |= t_timeout();
     bad |= t_midi_long_save();
     bad |= t_chain_waits();
+    bad |= t_held_stop();
+    bad |= t_not_quiet();
     printf(bad ? "borrow save: FAILED\n" : "borrow save: all passed\n");
     return bad;
 }

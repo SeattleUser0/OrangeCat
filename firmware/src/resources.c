@@ -23,7 +23,7 @@ enum { RES_ENGINE0, RES_NOTE_HISTORY = RES_ENGINE0 + NPART, RES_JFX0,
 #if OC_BORROW
 /* (Round 30 item 1) the borrow (res_borrow.c). res_bor_st: the main loop writes ASK (after setting res_bor_hold) and, at the end, IDLE; the audio interrupt the rest.
  * res_bor_hold: 1 from the ask to the end: no transport start (seq.c), nothing taken by the effects, DUB or the rising cap */
-enum { BOR_IDLE, BOR_ASK, BOR_FADE, BOR_TAKE, BOR_HELD, BOR_NO_PLAY, BOR_NO_MEM };
+enum { BOR_IDLE, BOR_ASK, BOR_FADE, BOR_TAKE, BOR_HELD, BOR_NO_PLAY, BOR_NO_MEM, BOR_NO_QUIET };   /* (NO_QUIET: DUB or the rising cap did not let go in time: nothing freed, the save waits) */
 static volatile uint8_t res_bor_st, res_bor_hold;
 #define RES_BOR_ON() (res_bor_st >= BOR_FADE && res_bor_st <= BOR_HELD)   /* the effects are giving back, or have given back, their memory */
 static uint32_t res_bor_size[RES_BOR_N];

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Orange Cat Round 30 item 1 (BUILD.md 7.47): does a save's borrow fit the arena while stopped, at the device's sizes? (firmware/src/res_borrow.c; build with -DOC_PJ4=1)
- * The banks are the linker's numbers of the OC_PJ4=1 build at r30-borrow after the review (nm build/melodee.elf, _resource*_start and _end): main 50,656 B, low SRAM 26,824 B, data tail
+ * The banks are the linker's numbers of the OC_PJ4=1 build at r30-borrow after the review (nm build/melodee.elf, _resource*_start and _end): main 50,464 B, low SRAM 26,824 B, data tail
  * 1,560 B, retained tail 816 B; the cache RAM's audio part 14,336 B (when its self-test passed); the card pool 36,864 B (lent when the card does not use it).
  * JA_MAIN_BYTES=58848 gives the main bank with Session C's 8 KB kept-phrase buffer (8,192 B more); BT_SEC=4224 the record's sections streamed (Session C: one part).
  * For each case: the boot's hot sets, four engine states, the histories (the note edit's 13,404 B and the recording's undo), the chorus, delay and reverb holding their
@@ -8,7 +8,7 @@
  * (BUILD.md 7.47); checked: what the design promises (below), the engine states and hot sets untouched, every piece back after, the effects' memory taken again.
  * Also checked: the loader's resident RAM leaves the arena its worst-case minimum (the link check's arithmetic: OC_PJ4=0's arena 76,704 B at 73f348f8 less the resident part). */
 #ifndef JA_MAIN_BYTES
-#define JA_MAIN_BYTES 50656u
+#define JA_MAIN_BYTES 50464u
 #endif
 #ifndef BT_SEC
 #define BT_SEC PJ4_RECMAX
@@ -116,7 +116,7 @@ int main(void)
     uint32_t sh = eng_state_size(ENGI_SHAPES), mc = eng_state_size(ENGI_MACRO), dx = eng_state_size(ENGI_DRUMX), need, u;
     const uint32_t e4s[NPART] = {sh, sh, sh, sh}, e4m[NPART] = {mc, mc, mc, mc}, emix[NPART] = {dx, mc, sh, mc};
     const uint32_t e3s[NPART] = {sh, sh, dx, dx};
-    /* want: the result at the numbers this file is built with by default (r30-borrow: main 50,656 B, the save 38,836 B); -1 not checked (another build's numbers) */
+    /* want: the result at the numbers this file is built with by default (r30-borrow: main 50,464 B, the save 38,836 B); -1 not checked (another build's numbers) */
     struct { const char *what; const uint32_t *e; int cache, lend, hist, dub; int want, want_drop; int r, drop; } c[] = {
         {"4 x SHAPES", e4s, 1, 0, 1, 1, 0, 0}, {"4 x SHAPES", e4s, 0, 0, 1, 1, 0, 0}, {"4 x SHAPES", e4s, 1, 15, 1, 1, 1, -1}, {"4 x SHAPES", e4s, 0, 15, 1, 1, 0, 0},
         {"4 x MACRO", e4m, 1, 0, 1, 1, 0, 0}, {"4 x MACRO", e4m, 0, 0, 1, 1, 0, 0}, {"4 x MACRO", e4m, 1, 15, 1, 1, 1, -1},
@@ -169,7 +169,7 @@ int main(void)
         printf("| %s | %s | %s | %s | %s | %u | %s%s |\n", c[k].what, c[k].cache ? "ready" : "off", c[k].lend ? "idle" : "busy", c[k].hist ? "held" : "-",
                c[k].dub ? "2 x 32K" : "-", u, c[k].r ? "GRANTED" : "NO MEMORY", c[k].drop ? " (histories dropped)" : "");
         if (!c[k].r && !ba_hist_kept) bad++, printf("  refused, yet the histories were dropped\n");
-#if JA_MAIN_BYTES == 50656u && BT_SEC == PJ4_RECMAX
+#if JA_MAIN_BYTES == 50464u && BT_SEC == PJ4_RECMAX
         if (c[k].r != c[k].want) bad++, printf("  expected %s\n", c[k].want ? "GRANTED" : "NO MEMORY");
         if (c[k].want_drop >= 0 && c[k].drop != c[k].want_drop) bad++, printf("  expected the histories %s\n", c[k].want_drop ? "dropped" : "kept");
 #endif
