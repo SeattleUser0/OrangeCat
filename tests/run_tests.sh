@@ -901,6 +901,9 @@ if core && [ $TABLES = 1 ]; then
     # (Release 3 step 7, the loader: OC_PJ4=1 puts the pool and the slots through the format core; a keep is held in RAM until the project is saved) the tests of the pool and the projects, run on it
     t "Release 3 loader: the project store's tests on the format core (round trip, slots owning their phrases, FBKK, power cuts, OFF)" oc_project_pj4:oc_project_test -O1 $FW -DOC_PJ4=1
     t "Release 3 loader: a keep is held in RAM until the save, the save commits it, a cut loses it, an unsaved project, the buffer full, projects own their phrases" pj4_loader_test -O1 $FW -DOC_PJ4=1
+    # (Round 30 item 1, BUILD.md 7.47) the stopped-transport borrow of the audio arena: the loader's save scratch lent while stopped
+    t "Round 30 borrow: refused while playing, UNSAVED until the stop, a save with the effects holding memory (faded, given back, taken again), PLAY waits, a power cut at every program and erase" borrow_save_test -O1 $FW -DOC_PJ4=1
+    t "Round 30 borrow: the save's pieces at the device's bank sizes (four large engine states, the effects, DUB, cache and card), the loader's resident RAM within the arena's margin" borrow_arena_test -O1 $FW -DOC_PJ4=1
     t "Release 3 loader: the lists, the bank cache and the pool tests (the OCJ2 and OCJ3 record checks are the old format's and skipped)" oc_lists_pj4:oc_lists_test -O1 $FW -DOC_PJ4=1
     t "Release 3 loader: persistence" persistence_pj4:persistence_test $FW -DOC_PJ4=1
     t "Release 3 loader: 32 pattern banks, persistence" pattern_pj4:pattern_test -O1 -DMELODEE_USB_AUDIO=1 $FW -DOC_PJ4=1

@@ -26,7 +26,12 @@ static struct {
     uint32_t used;                             /* bytes of buf in use, with the holes of replaced phrases */
     uint8_t buf[PJP_BUF];
 } pjp __attribute__((section(".pool")));
+#if OC_BORROW
+static pj4_ws_t *pjp_wsp;                      /* (Round 30 item 1) the format core's work area: borrowed for a save or an erase (res_borrow.c), at boot for the conversion; 0 otherwise */
+#define pjp_ws (*pjp_wsp)
+#else
 static pj4_ws_t pjp_ws __attribute__((section(".pool")));
+#endif
 static pj4_dir_t pjp_dir __attribute__((section(".pool")));
 static uint8_t pjp_dir_slot = 0xFFu;           /* the slot pjp_dir is of (0xFF none), and whether it read */
 static uint8_t pjp_dir_ok;
@@ -41,12 +46,28 @@ static uint8_t pjp_nopend;                     /* a read of a slot as it is stor
 #define PJP_FRZ_LEN 3072u
 _Static_assert(PJP_FRZ_AT + PJP_FRZ_LEN <= PJ4_WORK, "the scratch holds the sections, the project part and the frozen table");
 _Static_assert(PJ4_PHMAX + 8u <= PROJ_STORE_SIZE && PJ4_SECMAX <= PROJ_STORE_SIZE, "a phrase and a section fit where the project part is made");
+#if OC_BORROW
+/* (Round 30 item 1) No resident scratch but the reads' section buffer: a save borrows three pieces from the audio arena while the transport is stopped (res_borrow.c),
+ * the sections (PJ4_RECMAX), the project part (PROJ_STORE_SIZE: then the frozen table once the sections are built, then a phrase generated whole during the write) and
+ * the core's work area; the boot's conversion borrows PJ4_WORK and the work area before the audio starts. A read (ocj_read: a load, the slot list, a backup) needs only
+ * one section at a time: the 4 KB below, so a load is as before, playing or not */
+static uint8_t *pjp_secp, *pjp_pkp, *pjp_bootw;
+static uint8_t pjp_rbuf[PJ4_SECMAX] __attribute__((section(".pool"), aligned(4)));
+#define pjp_sec pjp_secp
+#define pjp_pk (*(project_store_t *)(void *)pjp_pkp)
+#define pjp_gbuf pjp_pkp
+#define pjp_tmp pjp_rbuf
+#define pjp_frzr pjp_pkp                      /* (after pj4p_build: the project part has been coded into the sections; pj4p_build writes only into its out) */
+#define pjp_work pjp_bootw
+_Static_assert(PJP_FRZ_LEN <= PROJ_STORE_SIZE, "the frozen table fits where the project part was");
+#else
 static uint8_t pjp_work[PJ4_WORK] __attribute__((section(".pool"), aligned(4)));
 #define pjp_sec (pjp_work + PJP_SEC_AT)
 #define pjp_pk (*(project_store_t *)(void *)(pjp_work + PJP_PK_AT))
 #define pjp_gbuf (pjp_work + PJP_PK_AT)
 #define pjp_tmp (pjp_work + PJP_PK_AT)
 #define pjp_frzr (pjp_work + PJP_FRZ_AT)
+#endif
 static uint32_t pjp_rs = 0x9E3779B9u;
 static uint8_t pjp_freeze;                     /* a load that rebuilds the same music (tracks.c): proj_cur may pass through none, the kept phrases stay */
 
@@ -59,7 +80,6 @@ static void pjp_drop(void) { memset(pjp.has, 0, sizeof pjp.has); memset(pjp.len,
 static int pjp_dir_get(uint32_t slot)
 {
     if (pjp_dir_slot == slot) return pjp_dir_ok;
-    pj4_w = &pjp_ws;
     pjp_dir_ok = pj4_dir_load(slot, &pjp_dir) == 0;
     pjp_dir_slot = (uint8_t)slot;
     return pjp_dir_ok;
@@ -273,7 +293,33 @@ static uint32_t pjp_next(void) { pjp_rs ^= pjp_rs << 13; pjp_rs ^= pjp_rs >> 17;
 
 /* FBKK raw (BANK_STORE_SIZE; 0: the slot emptied) into slot as a project of the revision's format. 0 done; 2 not (PHRASES FULL, PROJECT FULL, a flash error: the slot as it
  * was). raw is used, and left as the slot reads back (ocj_read) when it is done */
+#if OC_BORROW
+static int ocj_write_pj4_in(uint32_t slot, uint8_t *raw, uint32_t len);
+static uint8_t pjp_bor_rc;                     /* (Round 30) the last save's borrow: RES_BOR_* (the tests, AUDIO_STATS) */
+/* (Round 30 item 1) the save's scratch borrowed from the audio arena for the save only. 3: not now, the transport runs (the caller waits for the stop: UNSAVED);
+ * 2: not saved (the slot as it was), as before; 0 done */
 static int ocj_write_pj4(uint32_t slot, uint8_t *raw, uint32_t len)
+{
+    uint32_t sz[3];
+    uint8_t *p[3];
+    int rc;
+    sz[0] = len ? PJ4_RECMAX : 0u;             /* (an erase: only the work area) */
+    sz[1] = len ? PROJ_STORE_SIZE : 0u;
+    sz[2] = (uint32_t)sizeof(pj4_ws_t);
+    rc = res_borrow(sz, 3u, p);
+    pjp_bor_rc = (uint8_t)rc;
+    if (rc == RES_BOR_PLAYING) return 3;
+    if (rc) return 2;                          /* (the caller says NO MEMORY TO SAVE: pjp_bor_rc) */
+    pjp_secp = p[0]; pjp_pkp = p[1]; pjp_wsp = (pj4_ws_t *)(void *)p[2];
+    rc = ocj_write_pj4_in(slot, raw, len);
+    pjp_secp = pjp_pkp = 0; pjp_wsp = 0;
+    res_borrow_end();
+    return rc;
+}
+static int ocj_write_pj4_in(uint32_t slot, uint8_t *raw, uint32_t len)
+#else
+static int ocj_write_pj4(uint32_t slot, uint8_t *raw, uint32_t len)
+#endif
 {
     static uint8_t want[OCP_N] __attribute__((section(".pool")));
     static pjp_save_t sv __attribute__((section(".pool")));
@@ -425,8 +471,22 @@ static void pjp_boot(void)
         if (ocs_open(OCS_FREEZE, 0, &r) == 0 && r.total >= PJ4_NFRZ * PJ4_FRZ_BYTES && !ocs_at(&r, 0, proj_wire_u.raw, PJ4_NFRZ * PJ4_FRZ_BYTES)) cx.frz = proj_wire_u.raw;   /* (the staging: nothing is loaded yet; the conversion's work area is the scratch) */
     }
     hk.split = pj4p_split; hk.ctx = &cx;
+#if OC_BORROW
+    {   /* (Round 30 item 1) before the audio starts: the whole arena is free but for the hot sets; the conversion's scratch borrowed from it and given back */
+        uint32_t sz[2] = {PJ4_WORK, (uint32_t)sizeof(pj4_ws_t)};
+        uint8_t *p[2];
+        if (res_borrow_boot(sz, 2u, p) == RES_BOR_OK) {
+            pjp_bootw = p[0]; pjp_wsp = (pj4_ws_t *)(void *)p[1];
+            pj4_w = &pjp_ws;
+            pj4_boot(&pjp_ws, names, pjp_work, pjp_mk, status, over, &hk);
+            pjp_bootw = 0; pjp_wsp = 0;
+            res_borrow_end();
+        }   /* (none: nothing converted this boot; an old record stays as it is, OLD FORMAT, and the next boot tries again) */
+    }
+#else
     pj4_w = &pjp_ws;
     pj4_boot(&pjp_ws, names, pjp_work, pjp_mk, status, over, &hk);
+#endif
     pjp_dir_forget(); pjp_drop();
     memset(&ocj, 0, sizeof ocj);
     pjp.home = 0xFEu;                                                  /* (not any slot: the first pjp_follow makes the tables) */

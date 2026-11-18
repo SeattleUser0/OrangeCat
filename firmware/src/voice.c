@@ -1039,6 +1039,9 @@ static uint16_t rise_hold, rise_since = 2u * RISE_HOLD; /* blocks since the hold
 static uint32_t rise_want(const track_t *t)
 {
     uint32_t k = (uint32_t)(t - trk), u, n;
+#if OC_BORROW
+    if (RES_BOR_ON()) return 0;                         /* (Round 30 item 1) a save borrows the arena: the blocks go back (their voices faded out, voice_kill), none taken */
+#endif
     if (k >= trk_n() || trk_off(k) || ((trk_on_wait >> k) & 1u) || eng_rel[k] || !resource[RES_ENGINE0 + k].size)
         return 0;
     if (t->engine != ENGI_MACRO || t->eng_req != t->engine || eng_mod[ENGI_MACRO] || trk_vmode(t) != V_POLY || trk_nvoice(t) != MC_POLY)

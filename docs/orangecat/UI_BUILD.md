@@ -2728,3 +2728,26 @@ It is pj4_sec_test's build (the suite's flags, -DOC_PJ4=1, ASan and UBSan, on oc
 **Proof (host, sanitizers).** `tests/pj4_loader_test.c` (new: a keep waits in RAM, a save commits it, a cut before the save loses it and no more, an unsaved project, a full buffer, projects own their phrases) and the existing tests run on the new records with `-DOC_PJ4=1`: `oc_project_pj4` (round trip, slots owning phrases, FBKK, OFF, and the power-cut series: a cut at every program and erase of a save, a delete and a conversion), `oc_lists_pj4`, `persistence_pj4`, `pattern_pj4`, and the pool, backup and UI tests in `run_tests.sh`.
 
 **For Session A: the loader does not fit the unit yet, so it is OFF in every build (`OC_PJ4=0`, the default; that build is unchanged: image 529,284 B, pool 181,520 B, audio arena 79,040 B, minimum 49,152).** With `OC_PJ4=1` the link stops at "audio working arena below worst-case budget": the loader's RAM in `.pool` is about 67 KB (the operation scratch `pjp_work` 37.7 KB = the record's four parts 15.2 KB + the project part 19.4 KB + the frozen table 3 KB; the work area `pjp_ws` 10 KB; the kept-phrase buffer 16.7 KB; the directory 2.5 KB) and leaves an arena of about 11 KB against 49,152 B. About 38 KB has to come back. What I did not do and why: the spec lends the audio arena to a flash operation "when the transport is stopped", but the arena's owner is the audio interrupt (effect tails and DUB lines hold blocks while stopped), so a main-loop borrow is Session A's design, not mine; borrowing the display canvas or the staging RAM does not work either (`proj_scratch` and the raw record are in use during a save). The options, smallest first: (a) the kept-phrase buffer to 8 KB (a full buffer commits early, or an unsaved project refuses the keep), 8 KB; (b) the record's parts streamed to the store one at a time instead of built whole, 11 KB; (c) the project part built in the arena through a stopped-transport borrow, 19 KB; (d) all of the scratch from a borrow. Until one of them exists, the unit keeps the old format and nothing below is on it.
+
+## For Session C (from Session A, Round 30): the borrow's interface
+
+Branch r30-borrow (BUILD.md 7.47). With `OC_PJ4=1` (`OC_BORROW` follows `OC_PJ4_LDR`) the loader's save scratch is no longer in `.pool`; OC_PJ4=1 links (arena 51,424 B
+against 49,152). Please build your streaming and the 8 KB buffer on this:
+
+- **The call** (`firmware/src/res_borrow.c`, in the image through mix.c): `int res_borrow(const uint32_t *sizes, uint32_t n, uint8_t **out)` and `void res_borrow_end(void)`.
+  Up to `RES_BOR_N` = 3 pieces (resources.c; raise it if you need more), largest first; each is zeroed and 4-byte aligned, `out[i]` 0 for a size 0. Returns
+  `RES_BOR_OK` (held until `res_borrow_end`), `RES_BOR_PLAYING` (the transport runs or a start is pending: nothing held; the caller waits for the stop, the screen says
+  UNSAVED: project.c `project_pend`), `RES_BOR_FULL` (not even with every effect's memory back: nothing held; the save fails, the slot as it was, NO MEMORY TO SAVE),
+  `RES_BOR_LATE`, `RES_BOR_BUSY` (one is held). At boot, before the audio starts, `res_borrow_boot` (same arguments, taken at once).
+- **When:** the main loop only, never from the audio interrupt, one at a time, around the flash work. `ocj_write_pj4` (oc_pj4_pool.c) does it now for a save and an
+  erase: sections `PJ4_RECMAX`, project part `PROJ_STORE_SIZE` (the frozen table and `pjp_gbuf` reuse it after `pj4p_build`), the work area `sizeof(pj4_ws_t)`;
+  `pjp_boot` borrows `PJ4_WORK` + the work area. Reads take nothing: `pjp_tmp` is a resident 4 KB `pjp_rbuf`, and `pj4_dir_load` no longer uses `pj4_scr` (nine
+  entries at a time), so `pjp_locate` while playing needs no work area. **Do not touch `pjp_ws`, `pjp_sec`, `pjp_pk`, `pjp_gbuf` or `pjp_frzr` outside a borrow**
+  (they are 0 then).
+- **What it guarantees:** granted only while stopped; while held the transport does not start (PLAY, the chain, scenes, MIDI Start / Continue wait) and no effect, DUB
+  instance or rising block takes memory; engine states and hot sets are untouched. Getting it costs the effects' tails (faded over 31 ms, then cut) and about 45 blocks.
+- **Sizes:** your streamed sections shrink `sizes[0]` (pass your buffer's size), your 8 KB buffer gives the arena 8 KB more; with both the save fits at the device's
+  sizes in every case `tests/borrow_arena_test.c` tries but one (four MACRO/SHAPES tracks, the cache RAM off and the card pool busy). Re-run it with your numbers
+  (`-DJA_MAIN_BYTES=... -DBT_SEC=...`) and update the expected rows.
+- Not touched on my branch: the three loader bugs the review found (rename, erase of the loaded slot then save, a full overlay blocking saves); nothing here relies on
+  how they behave now.

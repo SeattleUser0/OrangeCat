@@ -2162,6 +2162,9 @@ static void jfx_mem(void)
     fx_ins_full_now = (uint8_t)(jfx_ins_mem((uint32_t)(nm_r || nm_c || nm_d), (uint32_t)(full & 7u)) | fx_ins_ev_full);                       /* (the instances' own state each block: not held, not accumulated with the buses' FX FULL) */
     if (jfx_wait) jfx_wait--;
     if (nm_r || nm_c || nm_d) jfx_wait = JFX_RETRY;           /* (DUB TAPE does not: a short instance asks again only when something was released) */
+#if OC_BORROW
+    if (RES_BOR_ON()) { full = 0; fx_ins_full_now = 0; }      /* (Round 30) the effects wait for a save: no FX FULL, DUB FULL for it */
+#endif
     if (full) {                                         /* (0.6.0 rev 2) FX FULL held on screen a second past the
                                                          * last block that wanted memory and got none: a send between
                                                          * notes is silent, and the words flickered */
@@ -2189,8 +2192,15 @@ JFX_XIP static void jfx_ins_lend(uint32_t back)
  * held some (resources.c res_jfx_yield): all of theirs given back, none taken for JFX_YIELD blocks. The card's pool
  * slots taken back by the main loop (their res_lend_ok bits cleared): every bus with a block there given back, then
  * their res_lend_used bits cleared (the main loop waits for them before the card uses the slots) */
+#if OC_BORROW
+static void jfx_bor_block(void);                        /* (Round 30 item 1) res_borrow.c: the borrow's step, each block first */
+static uint32_t jfx_bor_gain_to(void);                  /* .. the effects' returns at the end of this block (Q15) */
+#endif
 static void jfx_lend_check(void)
 {
+#if OC_BORROW
+    jfx_bor_block();
+#endif
     if (res_jfx_yield) {
         jfx_bus_drain();                                /* (the buses' memory: only with no job out) */
         res_jfx_yield = 0;
@@ -2230,6 +2240,10 @@ static void jfx_lend_check(void)
             jfx_sl_lost();
         for (k = 0; k < JB_N; k++)                      /* (what is still lent: other slots) */
             used |= resource_lent(RES_JFX0 + k);
+#if OC_BORROW
+        for (k = 0; k < RES_BOR_N; k++)                 /* (Round 30) a save's piece there stays until the save ends: the card waits (card_pool_take: Busy) */
+            used |= resource_lent(RES_BOR0 + k);
+#endif
         RES_LEND_PUBLISH();
         res_lend_used = (uint8_t)used;
     }
@@ -2424,6 +2438,18 @@ static void jfx_master(int32_t *out, uint32_t n, int perf)
 #endif
     {
         const fx_rets_t *rt = &fx_ret[fx_rr];           /* (deferred: the last block's) */
+#if OC_BORROW
+        if (RES_BOR_ON()) {                             /* (Round 30 item 1) a save asked for the effects' memory: their returns faded out (res_borrow.c), then let go */
+            int32_t g0 = (int32_t)jfx_bor_g, g1 = (int32_t)jfx_bor_gain_to();
+            for (i = 0; i < n; i++) {
+                int32_t g = g0 + (int32_t)(((int64_t)(g1 - g0) * (int32_t)(i + 1u)) / (int32_t)n);
+                wet[i] = (int32_t)(((int64_t)rt->wet[i] * g) >> 15);
+                mix_l[i] += (int32_t)(((int64_t)rt->sl[i] * g) >> 15);
+                mix_r[i] += (int32_t)(((int64_t)rt->sr[i] * g) >> 15);
+            }
+            jfx_bor_g = (uint32_t)g1;
+        } else
+#endif
         for (i = 0; i < n; i++) {                       /* the buses' return and sides */
             wet[i] = rt->wet[i];
             mix_l[i] += rt->sl[i];

@@ -1627,6 +1627,9 @@ static int rec_note_start(track_t *t)
 {
     if (song.playing || cin_left || !(song.rec & (1u << trk_index(t))) || chain.armed || chain.running)
         return 0;
+#if OC_BORROW
+    if (res_bor_hold) return 0;                        /* (Round 30 item 1) a save holds the arena: the note sounds, the transport does not start */
+#endif
     resource_release(RES_NOTE_HISTORY);
     if (midi_clock_local_start(fm1_ms)) midi_clock_transport(0xFAu, fm1_ms);
     else seq_start();
@@ -1734,6 +1737,12 @@ static void eng_idle_check(uint32_t n)
     }
 }
 
+#if OC_BORROW
+static int res_bor_transport_busy(void)                /* (Round 30 item 1, res_borrow.c) the transport runs or will: no borrow */
+{
+    return song.playing || seq_counting() || chain.running || chain.armed || transport_req == 1u || transport_req == 3u;
+}
+#endif
 /* everything that happens between two rendered blocks */
 static void events_block(uint32_t n)
 {
@@ -1747,21 +1756,25 @@ static void events_block(uint32_t n)
         midi_clock.selected = (uint8_t)selected_clock;
         midi_beat_samples = 0;
     }
-    if (transport_req == 1u)
+    uint32_t treq = transport_req;
+#if OC_BORROW
+    if (res_bor_hold && (treq == 1u || treq == 3u)) treq = 0;   /* (Round 30 item 1) a save holds the arena's memory: PLAY (the chain, a scene, the editor) waits, pending, until it ends */
+#endif
+    if (treq == 1u)
         midi_clock_local_start(fm1_ms);               /* (a silent master: PLAY runs on the internal clock) */
     uint32_t clock_mode = midi_clock.mode;
-    if (transport_req == 1u) {
+    if (treq == 1u) {
         if (clock_mode)
             midi_clock_transport(0xFAu, fm1_ms);
         else if(settings_countin && song.rec && !chain.armed && !chain.running) {
             seq_stop(); memset(cin_n,0,sizeof cin_n);cin_total=cin_left=settings_countin*4u; cin_pos=0; click_req=2;
         } else seq_start();
         transport_req = 0;
-    } else if (transport_req == 2u) {
+    } else if (treq == 2u) {
         seq_stop();
         midi_clock.lost = 0;                          /* (0.14.2) a local STOP: no resync */
         transport_req = 0;
-    } else if (transport_req == 3u) {                 /* GLO + PLAY: from the top without stopping (INT clock) */
+    } else if (treq == 3u) {                          /* GLO + PLAY: from the top without stopping (INT clock) */
         if (!clock_mode) {
             seq_stop();
             seq_start();
@@ -1825,6 +1838,10 @@ static void events_block(uint32_t n)
         uint32_t time = midi_in_time[at];
         if (midi_render_timed && (int32_t)(time - midi_render_time) > 0)
             break;
+#if OC_BORROW
+        if (res_bor_hold && (status == 0xFAu || status == 0xFBu) && selected_clock == source)
+            break;                                     /* (Round 30 item 1) MIDI Start / Continue wait in the queue (and what follows them, in order) until a save gives the arena back */
+#endif
         mi_r++;midi_dispatch_left--;
         if (status >= 0xF8u) {
             if (selected_clock == source) {
