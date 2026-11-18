@@ -173,6 +173,7 @@ class Proof:
         self.cur = None
         self.done = []                                   # the changes made so far, in order: the restore undoes exactly these
         self.left = []
+        self.mismatch = False
         self.alive = threading.Event()
         self.ka = None
         self.u = None
@@ -208,7 +209,9 @@ class Proof:
                         raise TimeoutError("no link")
                 fn()
                 return True
-            except Exception as e:
+            except KeyboardInterrupt:
+                raise
+            except BaseException as e:                   # (fm1hw's preset(), preset_number() and Unit() raise SystemExit: a step fails, the restore goes on)
                 print(f"rise_proof: restore step {name}: try {k + 1} failed: {e!r}", flush=True)
                 time.sleep(w)
                 if k >= 1:
@@ -217,15 +220,28 @@ class Proof:
         return False
 
     def keepalive(self):
-        """an INFO request (read only) every second: MIDI received, so the unit's autosave (5 s untouched) never starts during the run"""
-        msg = mido.Message("sysex", data=fm1hw.HDR + [1])
+        """a PING (25, read only) every second on an output port of its own (reopened whenever it fails, so a reopen of the editor link never
+        silences it): MIDI received, so the unit's autosave (5 s untouched) never starts while this script runs"""
+        msg = mido.Message("sysex", data=fm1hw.HDR + [25])
+        port = None
         while self.alive.is_set():
             try:
-                if self.u is not None:
-                    self.u.send(msg)
+                if port is None:
+                    name = next((n for n in mido.get_output_names() if fm1hw.PORT_RE.search(n)), None)
+                    port = mido.open_output(name) if name else None
+                if port is not None:
+                    port.send(msg)
             except Exception:
-                pass
+                try:
+                    port and port.close()
+                except Exception:
+                    pass
+                port = None
             time.sleep(1.0)
+        try:
+            port and port.close()
+        except Exception:
+            pass
 
     # ---------------------------------------------------------------------------------------------------- set with a check
     def setp(self, p, v):
@@ -241,10 +257,30 @@ class Proof:
             raise RuntimeError(f"ED_SET global {g} to {v}: the unit answered {got}")
 
     # ---------------------------------------------------------------------------------------------------- before anything
+    def transport_busy(self):
+        """ARRANGE INFO (102, op 0; editor_arrange.c): byte 12 is transport_busy() (playing, counting in, a song chain); None without a reply"""
+        try:
+            r = self.u.req(102, [0], timeout=2.0)
+        except TimeoutError:
+            return None
+        return r[12] if len(r) > 12 and r[0] == 0 and r[1] == 0 else None
+
     def preflight(self):
         s = suites_running()
         if s:
             raise SystemExit(f"rise_proof: a host suite is running, not starting: {s}")
+        self.open()                                      # (read only, before the backup: the backup's LIST would stop the transport)
+        try:
+            busy = self.transport_busy()
+            if busy is None:
+                raise SystemExit("rise_proof: the transport state cannot be read (ARRANGE INFO): not starting")
+            if busy:
+                raise SystemExit("rise_proof: the transport is running (playing, counting in or a song chain): stop it first")
+            sel, trs = self.u.tracks()
+            if any(t["armed"] for t in trs):
+                raise SystemExit("rise_proof: a track is armed for recording: disarm it first (an edit could record motion)")
+        finally:
+            self.u.close(); self.u = None
         d = os.path.expanduser("~/fm1-hw/r29")
         os.makedirs(d, exist_ok=True)
         self.backup = os.path.join(d, f"backup-{self.a.label}-{datetime.datetime.now():%Y%m%d-%H%M%S}.json")
@@ -255,15 +291,12 @@ class Proof:
             raise SystemExit("rise_proof: no backup, no run (oc_install.mjs backup failed)")
         print(f"rise_proof: BACKUP {self.backup}. To restore it: open web/editor.html (the live page or `web/quick-host.sh`), connect, "
               f"Complete backup > Restore backup, choose this file.", flush=True)
-        self.open()
         self.alive.set()
         self.ka = threading.Thread(target=self.keepalive, daemon=True)
         self.ka.start()
-        sel, trs = self.u.tracks()
-        if any(t["armed"] for t in trs):
-            raise SystemExit("rise_proof: a track is armed for recording: disarm it first (an edit could record motion)")
-        if self.u.req(74, [0])[3]:
-            raise SystemExit("rise_proof: the transport is running: stop it first")
+        self.open()
+        if self.transport_busy():
+            raise SystemExit("rise_proof: the transport started during the backup: stop it and run again")
 
     # ---------------------------------------------------------------------------------------------------- the unit's state, and back
     def save(self):
@@ -364,9 +397,21 @@ class Proof:
             for s, h in old.items():
                 signal.signal(s, h)
         if self.left:
-            print(f"rise_proof: LEFT TO PUT BACK (by hand, or restore the backup {getattr(self, 'backup', '?')}): {self.left}", flush=True)
+            print(f"rise_proof: LEFT TO PUT BACK: {self.left}", flush=True)
+        if self.left or self.mismatch:
+            self.hold()
         else:
             print("rise_proof: restore complete", flush=True)
+
+    def hold(self):
+        """the unit is not as it was: the keep-alive goes on (no autosave of what is there) until the owner of the run has restored the backup"""
+        print(f"rise_proof: THE UNIT IS NOT AS IT WAS. RESTORE THE BACKUP NOW: {getattr(self, 'backup', '?')} (web/editor.html, Complete backup > "
+              f"Restore backup). This script keeps the unit from autosaving meanwhile; press Ctrl-C here after the restore.", flush=True)
+        try:
+            while True:
+                time.sleep(1.0)
+        except KeyboardInterrupt:
+            print("rise_proof: stopped after the hold", flush=True)
 
     def verify(self):
         u, d, bad = self.u, set(self.done), []
@@ -399,6 +444,7 @@ class Proof:
                         bad.append(f"track {t + 1} parameter {p} ({u.desc(0, p)}): {v} (was {self.params[t][p]})")
             if "snapshot" in d:
                 u.select(self.snap["selected"])
+        self.mismatch = bool(bad)
         for b in bad:
             print(f"rise_proof: MISMATCH {b}", flush=True)
         self.log({"verify": "ok" if not bad else "MISMATCH", "mismatches": bad})
