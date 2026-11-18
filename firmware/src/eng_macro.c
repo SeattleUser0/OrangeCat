@@ -144,6 +144,7 @@ enum { MC_VA, MC_WAVSHP, MC_FM, MC_GRAIN, MC_ADDTV, MC_CHORD, MC_SWARM, MC_NOISE
 typedef pl_part_t mc_part_t;
 typedef pl_vhead_t mc_vhead_t;
 static mc_part_t *mc_part(uint32_t part);             /* engines.c */
+static mc_part_t *mc_vpart(uint32_t part, uint32_t b);   /* (Round 28) block b of the part's voices: 0 its own state, 1 .. OC_RISE_N the rising cap's (engines.c) */
 
 /* the MODELS module's tables, while one is registered (engines.c eng_models_set from the loader): n descriptor pointers by model id (null: the pick
  * left the model out) and the wave banks present. Set and cleared with the interrupts off (oc_module.c), so a render sees one table or the other */
@@ -209,8 +210,8 @@ static MC_XIP void mc_start(mc_part_t *s, uint32_t model, const pl_mdl_t *d)
 
 static MC_XIP void mc_note_on(track_t *t, voice_t *v)
 {
-    mc_part_t *s = mc_part((uint32_t)(t - trk));
-    uint32_t vi = (uint32_t)(v - t->v) % MC_POLY;
+    uint32_t vx = (uint32_t)(v - t->v), vi = vx % MC_POLY;
+    mc_part_t *s = mc_vpart((uint32_t)(t - trk), vx / MC_POLY);   /* ((Round 28) voices 4 .. 15: the rising cap's blocks, engines.c mc_vpart) */
     if (!s) return;
     s->h[vi].rise = 1;
     s->h[vi].accent = (float)v->vel * (1.0f / 127.0f);
@@ -301,16 +302,24 @@ static MC_XIP void mc_voice(const void *data, int32_t *out)
 
 static MC_XIP void mc_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
-    mc_part_t *s = mc_part((uint32_t)(t - trk));
+    uint32_t k = (uint32_t)(t - trk), vx = (uint32_t)(v - t->v), b = vx / MC_POLY, i;
+    mc_part_t *s = mc_part(k), *x;
     const int16_t *p = t->p;
-    uint32_t model = mc_want(t), vi = (uint32_t)(v - t->v) % MC_POLY;
+    uint32_t model = mc_want(t), vi = vx % MC_POLY;
     const pl_mdl_t *d = mc_playing(&model);
     mc_job_t j;
     if (!s || !d || !OC_PACK_READY()) return;         /* (Orange Cat 0.8.0: the asset pack, with Plaits' tables, is not there: silent) */
+    if (!s->started)                                  /* ((Round 28) a fresh part: the rising cap's blocks start again with it) */
+        for (i = 1; i <= OC_RISE_N; i++)
+            if ((x = mc_vpart(k, i)) != 0) x->started = 0;
     if (s->model != model || !s->started)
         mc_start(s, model, d);
-    if (d->big && vi)                                 /* (voices left from a model of four: silent to their end) */
+    if (d->big && vx)                                 /* (voices left from a model of four: silent to their end) */
         return;
+    if (b && !(s = mc_vpart(k, b)))                   /* ((Round 28) voices 4 .. 15: block b of the rising cap, silent when it is not held) */
+        return;
+    if (b && (s->model != model || !s->started))
+        mc_start(s, model, d);
     /* the voice's pitch as a MIDI note: 1/16 semitones, the residual (1/4096 of the frequency: 12 / (4096 ln 2)
      * semitones each), the A4 tuning (Q24 octaves) */
     j.note = (float)m->pitch16 * (1.0f / 16.0f) + (float)m->fine * 0.00422689f

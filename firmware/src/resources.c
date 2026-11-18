@@ -12,8 +12,10 @@
 enum { RES_ENGINE0, RES_NOTE_HISTORY = RES_ENGINE0 + NPART, RES_JFX0,
        RES_RECORD_UNDO = RES_JFX0 + RES_JFX_N,
        RES_HOT0, RES_HOT_BASE = RES_HOT0 + ENG_HOT_SLOTS,   /* (Orange Cat 0.13.7) the engines' hot sets (engines.c eng_hot_take); (0.14.0) the firmware's own (eng_hot_base) */
-       RES_COUNT };
+       RES_RISE0,                                          /* (Round 28 item 1) the rising cap's MACRO blocks (voice.c rise_block, engines.c mc_vpart), OC_RISE_N of them */
+       RES_COUNT = RES_RISE0 + OC_RISE_N };
 static uint8_t recording_undo_lost;
+static uint8_t res_rise_ask;                            /* (Round 28 item 1) an allocation failed: the rising cap's unused blocks go back (voice.c rise_block) */
 static uint8_t recording_undo_active, recording_undo_skip;
 static struct { void *ptr; uint32_t size; } resource[RES_COUNT];
 static uint32_t resource_peak, resource_failures;
@@ -165,6 +167,9 @@ static __attribute__((noinline)) void *resource_allocate(uint32_t id, uint32_t b
         }
     }
     resource_failures++;
+    if (size <= OC_RISE_BYTES && (RES_IS_JFX(id) || id < RES_NOTE_HISTORY))
+        res_rise_ask = 1;              /* ((Round 28) an effect or a track's state that a rising block could hold: the rising cap gives back its blocks with no voice
+                                        * active (voice.c rise_block); a larger request, the note history, the record undo ask nothing */
     return 0;                          /* leave an existing allocation intact */
 }
 
