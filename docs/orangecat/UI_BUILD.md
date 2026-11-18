@@ -2746,8 +2746,9 @@ against 49,152). Please build your streaming and the 8 KB buffer on this:
   (they are 0 then).
 - **What it guarantees:** granted only while stopped; while held the transport does not start (PLAY, the chain, scenes, MIDI Start / Continue wait) and no effect, DUB
   instance or rising block takes memory; engine states and hot sets are untouched. Getting it costs the effects' tails (faded over 31 ms, then cut) and about 45 blocks.
-- **Sizes:** your streamed sections shrink `sizes[0]` (pass your buffer's size), your 8 KB buffer gives the arena 8 KB more; with both the save fits at the device's
-  sizes in every case `tests/borrow_arena_test.c` tries but one (four MACRO/SHAPES tracks, the cache RAM off and the card pool busy). Re-run it with your numbers
-  (`-DJA_MAIN_BYTES=... -DBT_SEC=...`) and update the expected rows.
+- **Sizes:** at the device's sizes the save (38,836 B) is granted whenever the card pool is idle; with frozen takes holding it and four MACRO/SHAPES tracks it is
+  not, even with your 8 KB overlay (748 B short with the cache RAM ready; BUILD.md 7.47). Re-run `tests/borrow_arena_test.c` with your numbers
+  (`-DJA_MAIN_BYTES=... -DBT_SEC=...`). Your milestone 4's `PJ4_SECMAX` = 15,232 B cannot be a resident read buffer here (the arena would drop below 49,152): a slot read
+  would then have to borrow as well (`res_borrow` while stopped; a load while playing waits).
 - Not touched on my branch: the three loader bugs the review found (rename, erase of the loaded slot then save, a full overlay blocking saves); nothing here relies on
   how they behave now.

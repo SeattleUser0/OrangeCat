@@ -6,7 +6,7 @@
  * For each case: the boot's hot sets, four engine states, the histories (the note edit's 13,404 B and the recording's undo), the chorus, delay and reverb holding their
  * memory and two DUB lines of 32 KB; then the borrow of the save's pieces (sections, project part, the core's work area) with real blocks running. Printed as a table
  * (BUILD.md 7.47); checked: what the design promises (below), the engine states and hot sets untouched, every piece back after, the effects' memory taken again.
- * Also checked: the loader's resident RAM leaves the arena its worst-case minimum (the link check's arithmetic: OC_PJ4=0's arena 79,040 B less the resident part). */
+ * Also checked: the loader's resident RAM leaves the arena its worst-case minimum (the link check's arithmetic: OC_PJ4=0's arena 76,704 B at 73f348f8 less the resident part). */
 #ifndef JA_MAIN_BYTES
 #define JA_MAIN_BYTES 51424u
 #endif
@@ -117,7 +117,7 @@ int main(void)
     uint32_t n = (uint32_t)(sizeof c / sizeof c[0]), k;
     need = BT_SEC + PROJ_STORE_SIZE + (uint32_t)sizeof(pj4_ws_t);
     {   /* the link check's arithmetic: the loader's resident RAM in .pool (the kept phrases, the directory, the reads' section buffer) against the OC_PJ4=0 arena's margin */
-        uint32_t resident = (uint32_t)(sizeof pjp + sizeof pjp_dir + sizeof pjp_rbuf), room = 79040u - 49152u;
+        uint32_t resident = (uint32_t)(sizeof pjp + sizeof pjp_dir + sizeof pjp_rbuf), room = 76704u - 49152u;   /* (73f348f8, ci_step.py build: the arena 76,704 B) */
         printf("borrow arena: the loader's resident RAM %u B (kept phrases %u, directory %u, read buffer %u) of the %u B the OC_PJ4=0 arena has above its minimum\n",
                resident, (unsigned)sizeof pjp, (unsigned)sizeof pjp_dir, (unsigned)sizeof pjp_rbuf, room);
         bad += resident + 2048u > room;                  /* (2 KB for the loader's small tables and statics: the build measured 24,324 B in all) */

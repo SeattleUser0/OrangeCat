@@ -5412,7 +5412,8 @@ Steps 2, 3 and 5 are Session C's and carry most of the time; 6 can be done besid
 ### 7.47 Round 30 item 1: the borrow (branch r30-borrow, from 73f348f8)
 
 **What it is.** With `OC_PJ4=1` the loader's save scratch is no longer resident in `.pool`: it is borrowed from the audio arena while the transport is stopped
-(`firmware/src/res_borrow.c`, switch `OC_BORROW`, on with the loader). The shipped default stays `OC_PJ4=0`; that build is unchanged (image 529,284 B, arena 79,040 B).
+(`firmware/src/res_borrow.c`, switch `OC_BORROW`, on with the loader). The shipped default stays `OC_PJ4=0`; that build does the same as before (every change is under the switch): `ci_step.py build` gives image 537,440 B and arena 76,736 B
+here against 537,464 B and 76,704 B at 73f348f8 (the 24 B are the transport request read once into a local in seq.c and the editor's reply size written as a constant).
 
 **The arithmetic (the device's banks, nm of the OC_PJ4=1 build).**
 - `_resource_minimum` = 49,152 B covers four of the largest engine states in the main bank (SHAPES 11,296, MACRO 11,264: 45,184 B); the effects have their own admission.
@@ -5421,7 +5422,7 @@ Steps 2, 3 and 5 are Session C's and carry most of the time; 6 can be done besid
   sections are built), the core's work area 10,392: **38,836 B**. Needed at boot only: PJ4_WORK 37,684 + 10,392 (borrowed before the audio starts). Always: the overlay,
   the directory, and a 4,096 B section buffer for reads (so a load works as before, playing or not). The directory read no longer uses the work area
   (`pj4_dir_load` reads nine entries at a time), so a phrase opened while playing after a save needs nothing borrowed.
-- After: **OC_PJ4=1 links**: image 547,952 B, pool 205,844 B, **arena 51,424 B (minimum 49,152, 2,272 to spare)**; low SRAM 26,824, data tail 1,608, retained 816,
+- After: **OC_PJ4=1 links**: image 548,048 B, pool 205,844 B, **arena 51,424 B (minimum 49,152, 2,272 to spare)**; low SRAM 26,824, data tail 1,608, retained 816,
   cache RAM (audio) 14,336 when its self-test passed, the card pool 36,864 when the card does not use it.
 - Held while stopped at worst: the hot sets 19,928 (base 2,052, MACRO 15,296, SHAPES 2,580) and four engine states 45,184. Everything else gives way: the buses, DUB,
   the SLICER / FX layer buffer, the rising cap's blocks, and (if still short) the two histories (note edit 13,404, recording undo 11,360; both are dropped at every PLAY
@@ -5430,12 +5431,23 @@ Steps 2, 3 and 5 are Session C's and carry most of the time; 6 can be done besid
 | main bank, save's pieces | 4 large engines, cache ready, card busy | cache off, card busy | cache ready, card idle | cache off, card idle |
 |---|---|---|---|---|
 | now: 51,424, 38,836 B | NO MEMORY | NO MEMORY | granted | NO MEMORY |
-| with Session C's 8 KB overlay and streamed parts (59,616; 4,224 + 13,212 + 10,392 = 27,828 B) | granted | NO MEMORY (4 x SHAPES / MACRO; DRUM-X MACRO SHAPES MACRO: granted) | granted | granted |
+| with Session C's milestone 4 (8 KB overlay: 59,616; the parts not streamed: 38,836 B) | NO MEMORY | NO MEMORY | granted | granted |
+| if the parts were streamed too (59,616; 4,224 + 13,212 + 10,392 = 27,828 B) | granted | NO MEMORY (DRUM-X MACRO SHAPES MACRO: granted) | granted | granted |
 
-**Verdict.** It fits without touching playback once Session C's two reductions are in, except in one corner: four MACRO/SHAPES tracks, the cache RAM's self-test
-failed, and frozen takes holding the card pool. There a save says **NO MEMORY TO SAVE** and nothing is written (the slot as it was, the music unsaved). Before Session
-C's work it does not fit whenever the card pool is busy or the cache RAM is off. Closing the corner would take the hot sets during the borrow (19,928 B: the engines
-read their tables from flash while it is held): not built, the owner's call.
+(Every row: four MACRO, four SHAPES, or DRUM-X MACRO SHAPES MACRO; the effects and two 32 KB DUB lines on; the histories held. The card is "busy" only with frozen
+takes armed or playing, or a USB recording: `usb_files.c uf_pool_busy`.)
+
+**Verdict: it fits without touching playback only when the card pool is free.** With Session C's milestone 4 (the overlay at 8 KB; Session C did not stream the
+parts) a save while stopped is granted in every case whose card pool is idle (no frozen takes, no USB recording), cache RAM ready or not. With frozen takes holding
+the card pool and four MACRO/SHAPES-sized tracks it is **not**: free after every effect gives back, cache ready, is 59,616 + 26,824 + 1,608 + 816 + 14,336 - 19,928
+(hot sets) - 45,184 (engines) = 38,088 B against 38,836 B (748 B short, before fragmentation); cache off, 23,752 B. There the save says **NO MEMORY TO SAVE** and
+writes nothing (the slot as it was, the music unsaved: no data lost, the save does not happen). Ways to close it, none built: (1) the hot sets given up during the
+borrow (19,928 B; the engines read their tables from flash while it is held, then copy them back); (2) a smaller save (the parts streamed: the third row; Session C
+judged it not worth it); (3) refuse the save only in that corner and say STOP THE TAKES. The owner's call whether Release 3 ships the format with (1), or without the
+format revision.
+**For Session C's milestone 4:** its reader scratch `PJ4_SECMAX` = 15,232 B cannot stay resident as this branch's 4 KB read buffer does (the arena would fall
+to about 48,500 B, below the minimum): with it, reads must borrow too (a load while stopped through the same borrow, a load while playing waits like a save), or
+keep a resident buffer only for the sections a load reads while playing.
 
 **The design.** The arena stays the audio interrupt's. The main loop asks (`res_borrow`), the interrupt answers at the start of a block (`jfx_lend_check`): playing
 or a start pending, refused; else the buses' returns fade over 43 blocks (31 ms, a ramp a sample), DUB's instances ramp out (FX_RAMP, as for CPU1's loss), the rising
@@ -5452,8 +5464,8 @@ borrows while stopped. Rename and erase still say STOP TO SAVE. Loads need no bo
 a start pending, the arena untouched; UNSAVED until the stop, then saved with the music at the stop; a save with chorus, delay and reverb holding memory: the gain
 ramps down to 0 with no step, the save takes 48 blocks, the pieces go back, the effects take their memory again, a MACRO state untouched; PLAY pressed during the
 save waits and starts after (a mutation that removes the gate fails it); a power cut at each of 50 programs and erases of saves in borrowed memory: the slot as
-before or after, every piece back. `tests/borrow_arena_test.c`: the table above; the loader's resident RAM 22,632 B within the 29,888 B the OC_PJ4=0 arena has above
-its minimum. The PJ4 tests that save (oc_project_pj4 with its power-cut series, pj4_loader_test, oc_lists_pj4, persistence_pj4) pass with every save through the
+before or after, every piece back. `tests/borrow_arena_test.c`: the table above; the loader's resident RAM 22,632 B within the 27,552 B the OC_PJ4=0 arena (76,704 B at 73f348f8) has
+above its minimum. The PJ4 tests that save (oc_project_pj4 with its power-cut series, pj4_loader_test, oc_lists_pj4, persistence_pj4) pass with every save through the
 borrow; persistence_test's "pending PLAY" check now expects UNSAVED with the borrow (STOP TO SAVE without). The link check is the build: OC_PJ4=1 fails at
 app.ld:59 on 73f348f8 and passes here. AUDIO_STATS [0, 11] is schema 25 with the borrow (`fm1hw.py trkoff`: borrow_grants, borrow_no_play, borrow_no_mem, borrow_late,
 borrow_dropped, borrow_state, borrow_hold).
