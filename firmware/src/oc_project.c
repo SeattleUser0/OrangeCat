@@ -72,6 +72,12 @@ static struct {
 static ocj_head_t ocj_h __attribute__((section(".pool")));
 static ocp_gen_t ocj_gen[OCP_PER] __attribute__((section(".pool")));
 static int ocj_read(uint32_t slot, uint8_t *raw);
+#if OC_PJ4_LDR
+static int ocj_write_pj4(uint32_t slot, uint8_t *raw, uint32_t len);   /* oc_pj4_pool.c: the loader */
+static int pjp_read_a(uint32_t slot, uint8_t *raw);
+static void pjp_ctx_enter(uint32_t slot);
+static void pjp_ctx_leave(void);
+#endif
 
 /* how many saved slots (but slot `but`, 4: none) name pool pattern id: a bank of theirs, or (0.4.4) a slot of one of
  * their chains */
@@ -172,7 +178,11 @@ static int ocj_lists_decode(ocs_rec_t *r, uint32_t hsz)
 }
 
 /* boot (after ocs_boot, ocp_scan): each slot's map */
+#if OC_PJ4_LDR
+static void ocj_scan_old(void)               /* (the phrases each OCJ3 record still on the unit names: the conversion's input) */
+#else
 static void ocj_scan(void)
+#endif
 {
     memset(&ocj, 0, sizeof ocj);
     for (uint32_t s = 0; s < 4u; s++) {
@@ -187,6 +197,10 @@ static void ocj_scan(void)
         ocj_names_set(s, ocj.pid[s], ocj_lists_decode(&r, hsz) ? 0 : &ocj_l);   /* (0.4.4) its chains' too */
     }
 }
+#if OC_PJ4_LDR
+static void pjp_reset(void);                                         /* oc_pj4_pool.c */
+static void ocj_scan(void) { memset(&ocj, 0, sizeof ocj); pjp_reset(); }   /* (no phrase is shared between projects any more: nothing names a phrase but its own; the phrases kept in RAM are gone as a boot loses them) */
+#endif
 
 /* ------------------------------------------------------------- writing --- */
 /* FBKK raw's bank b of track k as a pattern source (q: its project part, read by bank_valid; xs: proj_x goes with
@@ -275,6 +289,12 @@ static int ocj_put_chunks(const uint8_t *want, const project_t *q, const uint8_t
  * error: the slot's record as it was). raw is used, and left as the slot reads back (ocj_read) when it is done */
 static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
 {
+#if OC_PJ4_LDR
+    return ocj_write_pj4(slot, raw, len);
+}
+static int ocj_write_old(uint32_t slot, uint8_t *raw, uint32_t len)
+{
+#endif
     static uint8_t want[OCP_N];
     uint8_t npid[NTRK][NPAT];
     uint32_t k, b, id, hash[NTRK][NPAT];
@@ -388,7 +408,20 @@ static int ocj_write(uint32_t slot, uint8_t *raw, uint32_t len)
 
 /* ------------------------------------------------------------- reading --- */
 /* slot as an FBKK into raw (proj_x with it). BANK_STORE_SIZE, or -1 (no record, or one that does not read) */
+#if OC_PJ4_LDR
+static int ocj_read_body(uint32_t slot, uint8_t *raw);
+static int ocj_read(uint32_t slot, uint8_t *raw)         /* (what the slot is as stored: the phrases kept in RAM are not read) */
+{
+    int rc;
+    pjp_ctx_enter(slot & 3u);
+    rc = ocj_read_body(slot, raw);
+    pjp_ctx_leave();
+    return rc;
+}
+static int ocj_read_body(uint32_t slot, uint8_t *raw)
+#else
 static int ocj_read(uint32_t slot, uint8_t *raw)
+#endif
 {
     static ocp_parsed_t p __attribute__((section(".pool")));
     static ocp_rd_t rd __attribute__((section(".pool")));
@@ -396,6 +429,10 @@ static int ocj_read(uint32_t slot, uint8_t *raw)
     ocs_rec_t r, pr;
     uint32_t k, b, i, at, out = 0, nmot = 0, nnote = 0, notes_at = 0, hsz;
     slot &= 3u;
+#if OC_PJ4_LDR
+    if (pjp_read_a(slot, raw)) return -1;
+    goto banks;
+#endif
     if (ocs_open(OCS_PROJECT, slot, &r) || ocj_head_load(&r, &hsz))
         return -1;
     /* the project part, decoded into raw + 8 */
@@ -421,6 +458,9 @@ static int ocj_read(uint32_t slot, uint8_t *raw)
     }
     if (out != ocj_lead + PROJ_STORE_SIZE || !proj_import(q, raw + 8u, PROJ_STORE_SIZE)) return -1;
     ocl_lists_fix(&ocj_l);
+#if OC_PJ4_LDR
+banks:
+#endif
     memset(q->recording, 0, sizeof q->recording);
     q->motion.count = 0;
     memset(raw + BANK_ACTIVE_OFF, 0, BANK_STORE_SIZE - BANK_ACTIVE_OFF);

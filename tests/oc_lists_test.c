@@ -120,8 +120,13 @@ static int test_project(void)
     project_save(1);
     wipe_runtime();
     project_load(0);
+#if OC_PJ4_LDR
+    bad |= lcheck("(Release 3) the same project saved as another owns its own phrases: an edit saved in one is not heard in the other",
+                  note_of(0) != 52u && pool_note(0) != 52u);
+#else
     bad |= lcheck("two projects naming one pattern share it: an edit saved in one is heard in the other",
                   note_of(0) == 52u && pool_note(0) == 52u);
+#endif
     return bad;
 }
 
@@ -600,6 +605,7 @@ static int test_review(void)
         ocl_keep_all();
     }
     project_save_as(0, "TEN");
+#if !OC_PJ4_LDR
     wipe_runtime();
     pattern_init();                             /* (another project loaded: nothing of it here) */
     ocl_clear_unused();
@@ -610,6 +616,7 @@ static int test_review(void)
     ocl_clear_unused();
     for (uint32_t i = 0; i < 10u; i++) ok &= ocp.len[i] != 0u && pool_note(i) == 40u + i;
     bad |= lcheck("a phrase only a saved project's chain names is never emptied (Free unused, after a reboot too)", ok);
+#endif
     project_load(0);
     ok = 1;
     for (uint32_t i = 0; i < 10u; i++) ok &= ocl_ent_pat(0, i) == i && ocp.len[i];
@@ -644,7 +651,9 @@ int main(void)
     bad |= test_review();
     bad |= test_launch();
     bad |= test_song_rows();
-    bad |= test_ocj2();
+#if !OC_PJ4_LDR
+    bad |= test_ocj2();                          /* (the OCJ2 and OCJ3 records: a project of the revision has neither) */
+#endif
     bad |= test_named_empty();
     bad |= test_melodee_lists();
     bad |= test_unused();

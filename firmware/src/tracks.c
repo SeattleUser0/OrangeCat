@@ -144,13 +144,14 @@ static int track_remove(uint32_t k)
     for (r = 0; r < OCL_NROW; r++) proj_lists.song[r][last] = 0;
     for (r = 0; r < OCL_NSCENE; r++) proj_lists.scene[r][last][0] = proj_lists.scene[r][last][1] = 0;
     proj_x_tag = proj_hash(raw, BANK_STORE_SIZE);
-    if (!bank_valid(raw, BANK_STORE_SIZE) || project_restore_runtime(&proj_scratch))
-        goto fail;
+    PJP_HOLD(1);
+    if (!bank_valid(raw, BANK_STORE_SIZE) || project_restore_runtime(&proj_scratch)) { PJP_HOLD(0); goto fail; }
+    PJP_HOLD(0);
     bank_restore(raw);
 #if OC_ONE_AUTH
     fm1_irq_off(); recording_reconcile(); fm1_irq_on();   /* (round 11) the banks are back: the one reconcile of the track's removal */
 #endif
-    proj_cur = (uint8_t)cur;                            /* (still the project of its slot) */
+    proj_cur = (uint8_t)cur; PJP_FOLLOW();                            /* (still the project of its slot) */
     for (r = 0; r < CHAIN_ROWS; r++)                    /* the jam so far, the armed and solo tracks too */
         for (j = k; j < last; j++)
             jam.pat[r][j] = jam.pat[r][j + 1u];

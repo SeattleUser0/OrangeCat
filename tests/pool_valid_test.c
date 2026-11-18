@@ -61,6 +61,10 @@ static uint32_t notes_off(const uint8_t *rec, uint32_t j, uint32_t *nn)
 
 int main(void)
 {
+#if OC_PJ4_LDR
+    printf("pool valid: skipped under OC_PJ4_LDR=1: it reads and writes the OCS_POOL chunk records, which a project of the revision does not have (its phrases are tested by tests/pj4_test.c, pj4_sec_test.c, oc_project_test.c)\n", "pool valid");
+    return 0;
+#endif
     static uint8_t rec[OCS_PARTS_MAX * OCS_PAYLOAD_MAX], img[OCS_PARTS_MAX * OCS_PAYLOAD_MAX];
     static project_t q, q2;
     static project_store_t st;

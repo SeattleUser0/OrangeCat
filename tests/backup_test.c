@@ -495,6 +495,10 @@ static int arrangement_archive(void)
 
 int main(void)
 {
+#if OC_PJ4_LDR
+    printf("backup: skipped under OC_PJ4_LDR=1: it reads and writes the OCS_POOL chunk records, which a project of the revision does not have (its phrases are tested by tests/pj4_test.c, pj4_sec_test.c, oc_project_test.c)\n", "backup");
+    return 0;
+#endif
     int expanded_bad = expanded_recording_archive();
     int arrangement_bad = arrangement_archive();
 

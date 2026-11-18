@@ -322,6 +322,7 @@ int main(void)
                       !strcmp(ui.msg, "RENAMED") && (memset(proj_slot[0].raw, 0, 8), proj_fetch(0), project_name(0, n)) &&
                       !strcmp(n, "DUB") && proj_scratch.t[0].step[0].note[0] == st0.note[0]);
     }
+#if !OC_PJ4_LDR
     {   /* Every bank is validated before replacing the runtime. (Orange Cat 0.3) A bank is a pool pattern: one
          * written damaged (a chord note past 127, its record's CRC good) refuses the whole project */
         step_t keep = trk[0].step[0];
@@ -337,6 +338,7 @@ int main(void)
             id != 0u && ocp_chunk_write((id - 1u) / OCP_PER, gen) == 0 && (project_load(0), !strcmp(ui.msg,"OLD FORMAT")) &&
             !memcmp(&trk[0].step[0],&keep,sizeof keep));
     }
+#endif
     {   /* every parameter range fits the record's byte (FUN16: value + 64, 0..191) */
         uint32_t i;
         for (i = 0; i < P_COUNT; i++) {
