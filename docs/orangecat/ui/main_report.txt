@@ -1,0 +1,13 @@
+The main screen's three layouts (tests/ui_main_mockup.c): 9 palettes, 6 states, 4 screens
+
+palette 0: text 221 mid 157 dim 95 MUTE 91 OFF 157 FROZEN 143 WAIT 232
+palette 1: text 218 mid 153 dim 92 MUTE 182 OFF 153 FROZEN 164 WAIT 226
+palette 2: text 251 mid 175 dim 105 MUTE 110 OFF 175 FROZEN 162 WAIT 251
+palette 3: text 222 mid 157 dim 92 MUTE 90 OFF 157 FROZEN 142 WAIT 231
+palette 4: text 225 mid 158 dim 96 MUTE 91 OFF 158 FROZEN 143 WAIT 232
+palette 5: text 235 mid 166 dim 97 MUTE 102 OFF 166 FROZEN 154 WAIT 243
+palette 6: text 216 mid 152 dim 92 MUTE 185 OFF 152 FROZEN 167 WAIT 229
+palette 7: text 199 mid 139 dim 86 MUTE 199 OFF 139 FROZEN 134 WAIT 219
+palette 8: text 194 mid 137 dim 81 MUTE 243 OFF 137 FROZEN 154 WAIT 243
+
+lint findings: 0; low contrast inks: 0
