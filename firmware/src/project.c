@@ -726,7 +726,11 @@ static int proj_write_slot(uint32_t slot, const uint8_t *raw, uint32_t len)
 #if MELODEE_FLASH
     /* (Orange Cat 0.3) the project store: its patterns into the pool, the rest a small record (oc_project.c). The
      * staging (raw) is used up: its project part is left the record's, not the music's */
-    if (!flash_ok || ocj_write(slot, (uint8_t *)raw, len)) return 2;
+    if (!flash_ok) return 2;
+    {
+        int rc = ocj_write(slot, (uint8_t *)raw, len);
+        if (rc) return rc == 3 ? 3 : 2;            /* (Round 30) 3: the borrow refused, the transport runs (project_save_as waits for the stop) */
+    }
 #endif
 #if !defined(FM1_IRQ_TARGET)
     memset(proj_bank_slot[slot], 0, sizeof proj_bank_slot[slot]);
@@ -810,6 +814,42 @@ static int proj_candidate_tracks(void)
 #endif
     return 0;
 }
+#if OC_BORROW
+/* (Round 30 item 1, BUILD.md 7.47) a save asked for while the transport runs waits for the stop: its scratch is borrowed from the audio arena, which is lent only while
+ * stopped (res_borrow.c). The screen says UNSAVED (again every 2 s while it waits); at the stop project_pend_poll runs it, with the music as it is then. One waits at a time
+ * (a later one replaces it); a load or a new project drops it (the music it was for is gone) */
+static uint8_t proj_pend_slot = 0xFFu;
+static uint8_t proj_pend_named;
+static char proj_pend_name[PROJ_NAME_LEN + 1u];
+static uint32_t proj_pend_said, proj_pend_from;          /* (the last UNSAVED; not tried again before proj_pend_from: 2 s after a borrow that timed out) */
+static void project_pend(uint32_t slot, const char *name)
+{
+    proj_pend_from = fm1_ms;
+    proj_pend_slot = (uint8_t)(slot & 3u);
+    proj_pend_named = name != 0;
+    proj_pend_name[0] = 0;
+    if (name) str_cpy(proj_pend_name, name, sizeof proj_pend_name);
+    proj_pend_said = fm1_ms;
+    ui_message("UNSAVED");
+}
+static void project_pend_drop(void) { proj_pend_slot = 0xFFu; }
+static int project_pending(void) { return proj_pend_slot < 4u; }
+static int project_save_as(uint32_t slot, const char *name);
+static void project_pend_poll(void)
+{
+    uint32_t slot;
+    char nm[PROJ_NAME_LEN + 1u];
+    if (!project_pending()) return;
+    if (transport_busy() || (int32_t)(fm1_ms - proj_pend_from) < 0) {
+        if (fm1_ms - proj_pend_said >= 2000u) { proj_pend_said = fm1_ms; ui_message("UNSAVED"); }
+        return;
+    }
+    slot = proj_pend_slot;
+    str_cpy(nm, proj_pend_name, sizeof nm);
+    proj_pend_slot = 0xFFu;
+    (void)project_save_as(slot, proj_pend_named ? nm : 0);
+}
+#endif
 static int project_save_as(uint32_t slot, const char *name)
 {
     project_t *p = &proj_scratch;
@@ -817,8 +857,13 @@ static int project_save_as(uint32_t slot, const char *name)
     uint32_t was_slot = proj_cur;
     str_cpy(was, proj_name, sizeof was);
     if (transport_busy()) {                            /* a flash erase silences the audio and stalls the */
+#if OC_BORROW
+        project_pend(slot, name);                       /* (Round 30) and the save's scratch is the arena's, lent only while stopped: it waits for the stop */
+        return 1;
+#else
         ui_message("STOP TO SAVE");                     /* sequencer (storage_hw.c): only while stopped */
         return 1;
+#endif
     }
     if (proj_candidate_tracks()) {
         ui_message("TEST ENGINE: NOT SAVED");
@@ -837,7 +882,22 @@ static int project_save_as(uint32_t slot, const char *name)
     proj_wire_gen++;
     if (!bank_pack(proj_wire_u.raw, p, 1)) { ui_message("SAVE FORMAT ERROR"); return 2; }
 
-    if (proj_write_slot(slot, proj_wire_u.raw, BANK_STORE_SIZE)) { ui_message("SAVE ERROR"); return 2; }
+    {
+        int wr = proj_write_slot(slot, proj_wire_u.raw, BANK_STORE_SIZE);
+#if OC_BORROW
+        if (wr == 3) {                                  /* (the transport started between the check and the borrow, or the borrow timed out: it waits, UNSAVED) */
+            int late = !transport_busy();
+            project_pend(slot, name);
+            if (late) proj_pend_from = fm1_ms + 2000u;
+            return 1;
+        }
+        project_pend_drop();                            /* (written, or failed for good: no older one waits) */
+#endif
+#if OC_BORROW && OC_PJ4_LDR
+        if (wr && pjp_bor_rc == RES_BOR_FULL) { ui_message("NO MEMORY TO SAVE"); return 2; }   /* (the arena could not lend the scratch: the slot as it was) */
+#endif
+        if (wr) { ui_message("SAVE ERROR"); return 2; }
+    }
     proj_name_get(proj_name, (const uint8_t *)p->name);
     proj_cur = (uint8_t)(slot & 3u); PJP_FOLLOW();
     proj_last_set(slot & 3u);
@@ -1194,7 +1254,10 @@ static void proj_last_set(uint32_t slot)
 static void project_load(uint32_t slot)
 {
     int n = proj_read_slot(slot);
-    if (!n) { ui_message(project_old(slot) ? "OLD FORMAT" : "EMPTY SLOT"); return; }
+    if (!n) { ui_message(project_old(slot) ? "OLD FORMAT" : "EMPTY SLOT"); return; }   /* (Round 30 review: a save waiting for the stop still waits) */
+#if OC_BORROW
+    project_pend_drop();                                /* (Round 30) a save waiting for the stop was for the music this replaces */
+#endif
     dxe_mute_clear();                                   /* (0.13.1) lane mutes are performance state: a loaded project starts with every lane on */
     if (!project_restore_runtime(&proj_scratch)) {
         if (n == BANK_STORE_SIZE) bank_restore(proj_wire_u.raw);
@@ -1520,6 +1583,9 @@ static void template_key(uint32_t *root, uint32_t *scale, int32_t *bpm)
  * their defaults but CLK TUNE MIDI ROUT (the device's); a new project: no slot, no name, SLOT on a free one */
 static void project_new_blank(void)
 {
+#if OC_BORROW
+    project_pend_drop();                                /* (Round 30) a save waiting for the stop was for the music this replaces */
+#endif
     uint32_t i, k;
     int16_t kept[4];
     momentary_restore();

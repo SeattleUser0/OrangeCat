@@ -248,7 +248,7 @@ static void name_ok(void)
         a++;
     for (z -= a, b[z] = 0; z--;)
         b[z] = nm.s[a + z];
-    if (transport_busy()) {
+    if (transport_busy() && !(OC_BORROW && nm.kind == NK_PROJ_SAVE)) {   /* (Round 30: a project's save waits for the stop instead, UNSAVED: project.c project_pend) */
         ui_message("STOP TO SAVE");
         return;
     }

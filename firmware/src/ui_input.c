@@ -854,6 +854,9 @@ static void jam_take(void)
 #define AUTOSAVE_MS 5000u
 static void project_autosave(void);
 static void project_nosave_stop(void);
+#if OC_BORROW
+static void project_pend_poll(void);                    /* (Round 30) project.c */
+#endif
 static void autosave_poll(uint32_t active)
 {
     static uint32_t t0, rx;
@@ -864,6 +867,9 @@ static void autosave_poll(uint32_t active)
     uint32_t r = usb.rx_pkts;
 #endif
     uint32_t busy = transport_busy() != 0, playing = song.playing != 0;
+#if OC_BORROW
+    project_pend_poll();                                /* (Round 30) a save that waited for the stop: now (with autosave on or off) */
+#endif
     if (was_playing && !playing && !busy && settings_autosave)
         stop_edge = 1;                                  /* (round 9) the transport has stopped: say it from the guarded part below, not here */
     was_playing = (uint8_t)playing;
@@ -1790,7 +1796,7 @@ static void act_do(void)
         project_load(k);
         break;
     case G_SAVE:                                          /* the NAME screen writes it */
-        if (transport_busy())
+        if (transport_busy() && !OC_BORROW)               /* (Round 30: with the borrow the save waits for the stop, UNSAVED) */
             ui_message("STOP TO SAVE");
         else if (project_used(k) || project_old(k))     /* (an old record too: only replaced when asked) */
             confirm_open(CF_OVR_PROJ, k);

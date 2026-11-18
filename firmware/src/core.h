@@ -170,6 +170,10 @@
 #ifndef OC_PJ4_LDR
 #define OC_PJ4_LDR OC_PJ4          /* (the loader: the pool and the slots through the format core. With OC_PJ4 on it is on; OC_PJ4_LDR=0 builds the core and the sections without it: tests/pj4_sec_test.c makes old records that way) */
 #endif
+#ifndef OC_BORROW
+#define OC_BORROW OC_PJ4_LDR       /* (Round 30 item 1, BUILD.md 7.47) the stopped-transport borrow of the audio arena (res_borrow.c): the loader's save scratch is lent by the audio
+                                   * interrupt while the transport is stopped instead of being resident in .pool. On with the loader; off, the build is unchanged */
+#endif
 #ifndef OC_TRK_RELEASE
 #define OC_TRK_RELEASE 0          /* (Round 23, BUILD.md 7.31 "Track OFF: built") the automatic release of an idle, never-played track's engine state (seq.c eng_idle_check).
                                    * (Round 24) THE OWNER DECIDED AGAINST IT: a track gives its memory back only when the owner turns it OFF (the explicit OFF, with the project's

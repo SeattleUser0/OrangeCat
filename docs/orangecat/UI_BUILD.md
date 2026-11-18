@@ -2741,3 +2741,26 @@ An independent review, with host probes for 1 to 4. **Not ready for OC_PJ4=1 unt
 Notes: **GLOB 4,096 B not fixed** (tests/pj4_glob_big_test.c with -DOC_PJ4=1 -DOC_PJ4_LDR=0 still fails at 500+ notes; its documented command now fails for another reason: the fixture cannot write the old record); "the generation bit flips last" is true; leaving a project drops its keeps by design (the old pool kept them: say so to the owner); the limit is now 64 phrases a project; pjp_open does not check the directory CRC on reads; no audio-interrupt access to pjp.
 **RAM, for your buffer and streaming work and Session A's borrow:** pjp_work 37.7 KB (save, slot read, boot only: the borrow's candidate); pjp_ws 10 KB (mostly the save; its `scr` is used by pj4_dir_load on any directory cache miss, i.e. a phrase load while playing after a save: that part cannot be borrowed); pjp_dir 1.8 KB and the overlay 16.7 KB always. Session A's borrow interface follows in this document when it is built.
 
+## For Session C (from Session A, Round 30): the borrow's interface
+
+Branch r30-borrow (BUILD.md 7.47). With `OC_PJ4=1` (`OC_BORROW` follows `OC_PJ4_LDR`) the loader's save scratch is no longer in `.pool`; OC_PJ4=1 links (arena 51,424 B
+against 49,152). Please build your streaming and the 8 KB buffer on this:
+
+- **The call** (`firmware/src/res_borrow.c`, in the image through mix.c): `int res_borrow(const uint32_t *sizes, uint32_t n, uint8_t **out)` and `void res_borrow_end(void)`.
+  Up to `RES_BOR_N` = 3 pieces (resources.c; raise it if you need more), largest first; each is zeroed and 4-byte aligned, `out[i]` 0 for a size 0. Returns
+  `RES_BOR_OK` (held until `res_borrow_end`), `RES_BOR_PLAYING` (the transport runs or a start is pending: nothing held; the caller waits for the stop, the screen says
+  UNSAVED: project.c `project_pend`), `RES_BOR_FULL` (not even with every effect's memory back: nothing held; the save fails, the slot as it was, NO MEMORY TO SAVE),
+  `RES_BOR_LATE`, `RES_BOR_BUSY` (one is held). At boot, before the audio starts, `res_borrow_boot` (same arguments, taken at once).
+- **When:** the main loop only, never from the audio interrupt, one at a time, around the flash work. `ocj_write_pj4` (oc_pj4_pool.c) does it now for a save and an
+  erase: sections `PJ4_RECMAX`, project part `PROJ_STORE_SIZE` (the frozen table and `pjp_gbuf` reuse it after `pj4p_build`), the work area `sizeof(pj4_ws_t)`;
+  `pjp_boot` borrows `PJ4_WORK` + the work area. Reads take nothing: `pjp_tmp` is a resident 4 KB `pjp_rbuf`, and `pj4_dir_load` no longer uses `pj4_scr` (nine
+  entries at a time), so `pjp_locate` while playing needs no work area. **Do not touch `pjp_ws`, `pjp_sec`, `pjp_pk`, `pjp_gbuf` or `pjp_frzr` outside a borrow**
+  (they are 0 then).
+- **What it guarantees:** granted only while stopped; while held the transport does not start (PLAY, the chain, scenes, MIDI Start / Continue wait) and no effect, DUB
+  instance or rising block takes memory; engine states and hot sets are untouched. Getting it costs the effects' tails (faded over 31 ms, then cut) and about 45 blocks.
+- **Sizes:** at the device's sizes the save (38,836 B) is granted whenever the card pool is idle; with frozen takes holding it and four MACRO/SHAPES tracks it is
+  not, even with your 8 KB overlay (748 B short with the cache RAM ready; BUILD.md 7.47). Re-run `tests/borrow_arena_test.c` with your numbers
+  (`-DJA_MAIN_BYTES=... -DBT_SEC=...`). Your milestone 4's `PJ4_SECMAX` = 15,232 B cannot be a resident read buffer here (the arena would drop below 49,152): a slot read
+  would then have to borrow as well (`res_borrow` while stopped; a load while playing waits).
+- Not touched on my branch: the three loader bugs the review found (rename, erase of the loaded slot then save, a full overlay blocking saves); nothing here relies on
+  how they behave now.

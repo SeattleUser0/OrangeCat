@@ -30,6 +30,10 @@ static uint8_t last_note = 60;
 static uint32_t live_held[NTRK][4], live_last[NTRK][4];
 static uint8_t live_velocity[NTRK][128] __attribute__((section(".pool")));
 static volatile uint8_t transport_req;   /* 1 start, 2 stop, 3 restart (from the UI) */
+#if OC_BORROW
+static uint8_t bor_midi_start, bor_midi_src, bor_rec_start;   /* (Round 30 review) a MIDI Start / Continue (its status, its source) and an armed note's start, held for a save */
+static uint32_t bor_midi_pulses, bor_midi_time, bor_midi_ms, bor_midi_moved;   /* (Round 30 re-review) the pulses since the held Start, the last one's time; pulses a start was moved by (tests) */
+#endif
 static volatile uint32_t seq_start_count;     /* (Orange Cat 0.4.17) times the sequencer started (a RESTART too): card_freeze.c frz_block */
 /* (Orange Cat 0.4.20) each block, where in it each track began a new pass of its phrase (step 0): the frame (0..n; n:
  * at the next block's start), SEQ_NOPASS none. card_freeze.c counts them: a frozen track's cycle is a number of passes,
@@ -1627,6 +1631,9 @@ static int rec_note_start(track_t *t)
 {
     if (song.playing || cin_left || !(song.rec & (1u << trk_index(t))) || chain.armed || chain.running)
         return 0;
+#if OC_BORROW
+    if (res_bor_hold) { bor_rec_start = 1; return 0; }   /* (Round 30) a save holds the arena: the note sounds (not recorded), the transport starts when the save ends (events_block) */
+#endif
     resource_release(RES_NOTE_HISTORY);
     if (midi_clock_local_start(fm1_ms)) midi_clock_transport(0xFAu, fm1_ms);
     else seq_start();
@@ -1734,6 +1741,12 @@ static void eng_idle_check(uint32_t n)
     }
 }
 
+#if OC_BORROW
+static int res_bor_transport_busy(void)                /* (Round 30 item 1, res_borrow.c) the transport runs or will: no borrow */
+{
+    return song.playing || seq_counting() || chain.running || chain.armed || transport_req == 1u || transport_req == 3u || bor_midi_start || bor_rec_start;
+}
+#endif
 /* everything that happens between two rendered blocks */
 static void events_block(uint32_t n)
 {
@@ -1747,21 +1760,25 @@ static void events_block(uint32_t n)
         midi_clock.selected = (uint8_t)selected_clock;
         midi_beat_samples = 0;
     }
-    if (transport_req == 1u)
+    uint32_t treq = transport_req;
+#if OC_BORROW
+    if (res_bor_hold && (treq == 1u || treq == 3u)) treq = 0;   /* (Round 30 item 1) a save holds the arena's memory: PLAY (the chain, a scene, the editor) waits, pending, until it ends */
+#endif
+    if (treq == 1u)
         midi_clock_local_start(fm1_ms);               /* (a silent master: PLAY runs on the internal clock) */
     uint32_t clock_mode = midi_clock.mode;
-    if (transport_req == 1u) {
+    if (treq == 1u) {
         if (clock_mode)
             midi_clock_transport(0xFAu, fm1_ms);
         else if(settings_countin && song.rec && !chain.armed && !chain.running) {
             seq_stop(); memset(cin_n,0,sizeof cin_n);cin_total=cin_left=settings_countin*4u; cin_pos=0; click_req=2;
         } else seq_start();
         transport_req = 0;
-    } else if (transport_req == 2u) {
+    } else if (treq == 2u) {
         seq_stop();
         midi_clock.lost = 0;                          /* (0.14.2) a local STOP: no resync */
         transport_req = 0;
-    } else if (transport_req == 3u) {                 /* GLO + PLAY: from the top without stopping (INT clock) */
+    } else if (treq == 3u) {                          /* GLO + PLAY: from the top without stopping (INT clock) */
         if (!clock_mode) {
             seq_stop();
             seq_start();
@@ -1817,6 +1834,35 @@ static void events_block(uint32_t n)
     audition_tick(n);
     keyboard_block();
     uint32_t midi_dispatch_left=64u;
+#if OC_BORROW
+    if (bor_midi_start && !res_bor_hold) {             /* (Round 30 review) a Start / Continue that came during a save: now, as it would have run */
+        uint32_t st0 = bor_midi_start;
+        bor_midi_start = 0;
+        if (selected_clock == bor_midi_src) {
+            if (!clock_mode) midi_clock_mode(bor_midi_src);
+            clock_mode = bor_midi_src;
+            midi_clock_transport(st0, fm1_ms);
+            if (bor_midi_pulses) {                     /* (Round 30 re-review) as if the Start had run on time: its first pulse marks the place, each later one moves on (the
+                                                        * sequencer catches up from midi_clock.rendered in the next advance, as after a resync) */
+                midi_clock.pos += (bor_midi_pulses - 1u) * (MIDI_BEAT_UNITS / 24u);
+                midi_clock.have_pulse = 1;
+                midi_clock.last_time = bor_midi_time;
+                midi_clock.last_ms = bor_midi_ms;              /* (the last pulse's: the 500 ms clock-loss check counts from it) */
+                midi_clock.interval_time = midi_clock.tempo_dt ? midi_clock.tempo_dt / 48u : 0u;   /* (the tempo the held pulses measured: six pulses at an eighth) */
+                if (!midi_clock.interval_time) midi_clock.interval_time = 60000u * MIDI_TICKS_PER_MS / ((uint32_t)song.g[G_BPM] * 24u);
+                bor_midi_moved += bor_midi_pulses;
+            }
+        }
+        bor_midi_pulses = 0;
+    }
+    if (bor_rec_start && !res_bor_hold) {              /* (Round 30 review) an armed track's first note during a save: the transport starts now (that note sounded, not recorded) */
+        bor_rec_start = 0;
+        if (!song.playing && !cin_left && !chain.armed && !chain.running) {
+            if (midi_clock_local_start(fm1_ms)) midi_clock_transport(0xFAu, fm1_ms);
+            else seq_start();
+        }
+    }
+#endif
     while (mi_r != mi_w && midi_dispatch_left) {       /* bounded USB-MIDI/TRS burst, order retained */
         uint32_t at = mi_r % MQ, pkt = midi_in_q[at], status = (pkt >> 8) & 0xFFu;
         uint32_t st = status & 0xF0u, ch = status & 0x0Fu;
@@ -1826,6 +1872,20 @@ static void events_block(uint32_t n)
         if (midi_render_timed && (int32_t)(time - midi_render_time) > 0)
             break;
         mi_r++;midi_dispatch_left--;
+#if OC_BORROW
+        if (res_bor_hold && (status == 0xFAu || status == 0xFBu) && selected_clock == source) {
+            bor_midi_start = (uint8_t)status;          /* (Round 30 review) only the Start / Continue waits; notes, note-offs and clocks go on, so the queue never fills */
+            bor_midi_src = (uint8_t)source;            /* behind it (the clocks only time the tempo while stopped; a resync waits: midi_clock.c) */
+            bor_midi_pulses = 0;
+            continue;
+        }
+        if (bor_midi_start && selected_clock == source && status == 0xF8u) {
+            bor_midi_pulses++;                         /* (Round 30 re-review) the master's pulses since its Start: the start, when it runs, is placed where the master is */
+            bor_midi_time = time;
+            bor_midi_ms = ms;
+        }
+        if (selected_clock == source && status == 0xFCu) bor_midi_start = 0;   /* (a Stop drops a held Start and is dispatched as it is: midi_clock.lost back to 0, no resync later) */
+#endif
         if (status >= 0xF8u) {
             if (selected_clock == source) {
                 if (status == 0xFAu || status == 0xFBu || status == 0xFCu) {

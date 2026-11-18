@@ -292,8 +292,11 @@ int main(void)
     transport_req = 1;
     project_save(1);
     bad += check("pending PLAY: project save leaves slot and flash", !project_used(1) && erases == before &&
-                  !strcmp(ui.msg, "STOP TO SAVE"));
+                  !strcmp(ui.msg, OC_BORROW ? "UNSAVED" : "STOP TO SAVE"));   /* (Round 30: with the borrow a save waits for the stop, project.c project_pend) */
     transport_req = 0;
+#if OC_BORROW
+    project_pend_drop();
+#endif
     erase_error = 1;
     project_save(2);
     bad += check("failed first project save leaves slot empty", !project_used(2));

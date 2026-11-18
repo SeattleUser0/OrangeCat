@@ -986,7 +986,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
              * blocks waited. [flags, 11, mask]: sets the OFF bits to mask first (as GLO + OCT+ does, for a bench run), then the same reply. Flag 1 is not used.
              * (Round 28 item 1, schema 24) then each track's POLY voice cap now (voice.c trk_poly_cap: risen while tracks are OFF; four) and the bytes of the
              * rising cap's blocks it holds (four) */
-            uint32_t k, v[29];
+            uint32_t k, v[35];
             if (na == 3u) for (k = 0; k < NTRK && k < trk_n(); k++) track_off_req(k, (int)((a[2] >> k) & 1u));   /* (the tracks in use: a place not in use is left as it is) */
             fm1_irq_off();
             v[0] = trk_off_bits; v[1] = trk_off_seen; v[2] = 0;
@@ -1008,9 +1008,15 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                     if (rise_slot[k][b]) v[25 + k] += resource[RES_RISE0 + rise_slot[k][b] - 1u].size;
 #endif
             }
+#if OC_BORROW
+            /* (Round 30 item 1, schema 25) then the borrow (res_borrow.c): granted, refused while playing, refused short of memory, not answered, the histories
+             * dropped for one, and now: the state (0 none) and the hold */
+            v[29] = res_bor_grants; v[30] = res_bor_no_play; v[31] = res_bor_no_mem; v[32] = res_bor_late; v[33] = res_bor_dropped;
+            v[34] = (uint32_t)res_bor_st | (uint32_t)res_bor_hold << 4;
+#endif
             fm1_irq_on();
-            ed_b(24);
-            for (k = 0; k < 29u; k++) ed_bk_u32(v[k]);
+            ed_b(OC_BORROW ? 25 : 24);
+            for (k = 0; k < (OC_BORROW ? 35u : 29u); k++) ed_bk_u32(v[k]);
             break;
         }
         if ((na == 2u || na == 5u || na == 6u) && a[1] == 6u) {

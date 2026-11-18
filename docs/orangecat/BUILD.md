@@ -5408,6 +5408,115 @@ Steps 2, 3 and 5 are Session C's and carry most of the time; 6 can be done besid
 
 *The unit's end state (November 18).* Nightly **v0.16.0-6872dc** (run 44283436147; linux-hw 6872dc4d) installed from the live page over the bench image: firmware written (64 writes), pack and five modules already current. Puya 0x856014. Modules: SHAPES 1, FX LAYER 2, WHEEL 5, MACRO models 17, DUB TAPE 18. Tracks MACRO 10 / 0 / 1 / 20, all ON, caps 4. Backups of the unit taken before each run: ~/fm1-hw/r29/backup-*.json.
 
+
+### 7.47 Round 30 item 1: the borrow (branch r30-borrow, from 73f348f8)
+
+**What it is.** With `OC_PJ4=1` the loader's save scratch is no longer resident in `.pool`: it is borrowed from the audio arena while the transport is stopped
+(`firmware/src/res_borrow.c`, switch `OC_BORROW`, on with the loader). The shipped default stays `OC_PJ4=0`; that build does the same as before (every change is under the switch): `ci_step.py build` gives image 537,440 B and arena 76,736 B
+here against 537,464 B and 76,704 B at 73f348f8 (the 24 B are the transport request read once into a local in seq.c and the editor's reply size written as a constant).
+
+**The arithmetic (the device's banks, nm of the OC_PJ4=1 build).**
+- `_resource_minimum` = 49,152 B covers four of the largest engine states in the main bank (SHAPES 11,296, MACRO 11,264: 45,184 B); the effects have their own admission.
+- Before (73f348f8): the loader's `.pool` RAM 67 KB (pjp_work 37,684, pjp_ws 10,392, the kept-phrase overlay 16,712, the directory 1,824): arena about 11 KB, link refused.
+- Needed only during a save: the sections 15,232 (PJ4_RECMAX), the project part 13,212 (PROJ_STORE_SIZE; the frozen table and a generated phrase reuse it after the
+  sections are built), the core's work area 10,392: **38,836 B**. Needed at boot only: PJ4_WORK 37,684 + 10,392 (borrowed before the audio starts). Always: the overlay,
+  the directory, and a 4,096 B section buffer for reads (so a load works as before, playing or not). The directory read no longer uses the work area
+  (`pj4_dir_load` reads nine entries at a time), so a phrase opened while playing after a save needs nothing borrowed.
+- After: **OC_PJ4=1 links**: image 548,048 B, pool 205,844 B, **arena 51,424 B (minimum 49,152, 2,272 to spare)**; low SRAM 26,824, data tail 1,608, retained 816,
+  cache RAM (audio) 14,336 when its self-test passed, the card pool 36,864 when the card does not use it.
+- Held while stopped at worst: the hot sets 19,928 (base 2,052, MACRO 15,296, SHAPES 2,580) and four engine states 45,184. Everything else gives way: the buses, DUB,
+  the SLICER / FX layer buffer, the rising cap's blocks, and (if still short) the two histories (note edit 13,404, recording undo 11,360; both are dropped at every PLAY
+  anyway). The real allocator at these sizes (`tests/borrow_arena_test.c`):
+
+| main bank, save's pieces | 4 large engines, cache ready, card busy | cache off, card busy | cache ready, card idle | cache off, card idle |
+|---|---|---|---|---|
+| now: 51,424, 38,836 B | NO MEMORY | NO MEMORY | granted | NO MEMORY |
+| with Session C's milestone 4 (8 KB overlay: 59,616; the parts not streamed: 38,836 B) | NO MEMORY | NO MEMORY | granted | granted |
+| if the parts were streamed too (59,616; 4,224 + 13,212 + 10,392 = 27,828 B) | granted | NO MEMORY (DRUM-X MACRO SHAPES MACRO: granted) | granted | granted |
+
+(Every row: four MACRO, four SHAPES, or DRUM-X MACRO SHAPES MACRO; the effects and two 32 KB DUB lines on; the histories held. The card is "busy" only with frozen
+takes armed or playing, or a USB recording: `usb_files.c uf_pool_busy`.)
+
+**Verdict: it fits without touching playback only when the card pool is free.** With Session C's milestone 4 (the overlay at 8 KB; Session C did not stream the
+parts) a save while stopped is granted in every case whose card pool is idle (no frozen takes, no USB recording), cache RAM ready or not. With frozen takes holding
+the card pool and four MACRO/SHAPES-sized tracks it is **not**: free after every effect gives back, cache ready, is 59,616 + 26,824 + 1,608 + 816 + 14,336 - 19,928
+(hot sets) - 45,184 (engines) = 38,088 B against 38,836 B (748 B short, before fragmentation); cache off, 23,752 B. There the save says **NO MEMORY TO SAVE** and
+writes nothing (the slot as it was, the music unsaved: no data lost, the save does not happen). Ways to close it, none built: (1) the hot sets given up during the
+borrow (19,928 B; the engines read their tables from flash while it is held, then copy them back); (2) a smaller save (the parts streamed: the third row; Session C
+judged it not worth it); (3) refuse the save only in that corner and say STOP THE TAKES. The owner's call whether Release 3 ships the format with (1), or without the
+format revision.
+**For Session C's milestone 4:** its reader scratch `PJ4_SECMAX` = 15,232 B cannot stay resident as this branch's 4 KB read buffer does (the arena would fall
+to about 48,500 B, below the minimum): with it, reads must borrow too (a load while stopped through the same borrow, a load while playing waits like a save), or
+keep a resident buffer only for the sections a load reads while playing.
+
+**The design.** The arena stays the audio interrupt's. The main loop asks (`res_borrow`), the interrupt answers at the start of a block (`jfx_lend_check`): playing
+or a start pending, refused; else the buses' returns fade over 43 blocks (31 ms, a ramp a sample), DUB's instances ramp out (FX_RAMP, as for CPU1's loss), the rising
+cap's blocks go back (their voices faded, voice_kill), nothing new is taken; at silence the buses' memory and the SLICER buffer go (as at rest: tails faded, then
+cut), then one piece a block. Engine states and hot sets are never touched: a MIDI note during the save plays on its held state (the flash erases themselves silence
+the audio briefly, as before). While held, PLAY, GLO + PLAY, the chain, a scene start, MIDI Start / Continue and a REC-armed note's start wait (seq.c; that note itself
+sounds unrecorded); they run when the borrow ends. At the end the pieces go back and the effects take their memory again from silence, as after a stop.
+Saves: SAVE (the name screen, hold SAVE, an overwrite) and the autosave while playing write nothing and say **UNSAVED** (again every 2 s); at the stop the save runs
+with the music as it is then (`project_pend_poll`; a load or a new project drops it). The editor's save keeps stopping the transport first (ed_flash_stop), so it
+borrows while stopped. Rename and erase still say STOP TO SAVE. Loads need no borrow (the 4 KB read buffer); the boot's conversion borrows before the audio starts
+(none to be had: nothing converted, the old record stays, the next boot tries again).
+
+**Tests (host, sanitizers; both fail on 73f348f8, where they do not compile: no borrow).** `tests/borrow_save_test.c` (-DOC_PJ4=1): refused while playing or with
+a start pending, the arena untouched; UNSAVED until the stop, then saved with the music at the stop; a save with chorus, delay and reverb holding memory: the gain
+ramps down to 0 with no step, the save takes 48 blocks, the pieces go back, the effects take their memory again, a MACRO state untouched; PLAY pressed during the
+save waits and starts after (a mutation that removes the gate fails it); a power cut at each of 50 programs and erases of saves in borrowed memory: the slot as
+before or after, every piece back. `tests/borrow_arena_test.c`: the table above; the loader's resident RAM 22,632 B within the 27,552 B the OC_PJ4=0 arena (76,704 B at 73f348f8) has
+above its minimum. The PJ4 tests that save (oc_project_pj4 with its power-cut series, pj4_loader_test, oc_lists_pj4, persistence_pj4) pass with every save through the
+borrow; persistence_test's "pending PLAY" check now expects UNSAVED with the borrow (STOP TO SAVE without). The link check is the build: OC_PJ4=1 fails at
+app.ld:59 on 73f348f8 and passes here. AUDIO_STATS [0, 11] is schema 25 with the borrow (`fm1hw.py trkoff`: borrow_grants, borrow_no_play, borrow_no_mem, borrow_late,
+borrow_dropped, borrow_state, borrow_hold).
+
+**What every save costs while stopped (SAVE, the name screen, hold SAVE, the autosave, the editor's save alike: each runs the whole borrow).** The reverb, delay and
+chorus tails and DUB's lines are faded (31 ms; DUB 6 blocks) and then their memory is let go; the SLICER's STUT and the FX layer's buffer effect stop at once
+(`jfx_sl_lost`, as when the card takes its pool back: not faded); a MACRO track's notes on its rising blocks are ended (voice_kill: the envelope to 0 over a block).
+So an autosave (stopped, untouched 5 s) cuts a long reverb or DUB tail that is still ringing. The effects come back from silence on the next notes.
+
+**Review fixes (Round 30, after d066a82d), each with a test that fails on d066a82d.**
+1. The MIDI clock's resync (an external clock back after a loss) no longer starts the transport while the borrow is held: it waits for the next beat after it
+   (midi_clock.c; borrow_save_test 6).
+2. The two undo histories are dropped only when a probe (nothing written, the table put back) shows that every piece left then fits; refused, they stay
+   (res_borrow.c `res_bor_fits_without_histories`; borrow_arena_test asserts every row's result and the histories, a row where only dropping them fits).
+3. A load that fails (empty slot, OLD FORMAT) leaves a waiting save waiting; only a load that loads drops it (borrow_save_test 7).
+4. A borrow that times out in its fade: the effects' gain ramps back up (no step), the save waits with UNSAVED and is tried again 2 s later (borrow_save_test 8;
+   see the re-review's item 3 for blocks that do not let go).
+5. Only MIDI Start / Continue waits during a save (a Stop is dispatched and cancels it); notes, note-offs and clocks pass, so the 64-entry queue never fills: a 3 s save under notes,
+   clock and a Start: no overflow, no note left on, the Start runs after (borrow_save_test 9). The Start then runs placed where the master is (re-review item 1).
+6. A REC-armed track's first note during a save: the note sounds and is not recorded; the transport starts when the save ends. The chain's start waits
+   (borrow_save_test 10). The UNSAVED rule is also tested through `autosave_poll` (borrow_arena_test).
+
+**Re-review fixes (after 9bfa48b5), each with a test failing there (borrow_save_test 9, 11, 12).**
+1. A MIDI Start held during a save now runs placed where the master is: the pulses since it are counted and the start takes the place they give (the sequencer
+   catches up from there, as after a resync); the last pulse's time and the tempo carry over.
+2. The master's Stop is no longer held: it is dispatched during the save (midi_clock.lost back to 0) and drops a held Start, so no resync starts the unit afterwards
+   on the clock alone.
+3. The effects' memory is never freed by force. It goes only when nothing but the interrupt can read it: no DUB instance running, ramping or clearing, none run by
+   the last block's insert job (and that job merged, fx_done), no rising block held, on two block starts in a row (a job of the block before is done too). Not so
+   within 86 blocks after the fade: nothing is freed, the effects fade back in, and the save waits (UNSAVED, tried again 2 s later).
+
+*Sizes after the review fixes.* OC_PJ4=1 (after the re-review): image 551,600 B, pool 205,840 B, **arena 50,464 B (minimum 49,152: 1,312 to spare)**, data tail 1,560 B (the audio
+step's code in RAM grew by 768 B). The default (OC_PJ4=0): image 537,456 B, arena 76,736 B (73f348f8: 537,464 B, 76,704 B). `borrow_arena_test` now runs at these
+banks; its rows' results are unchanged (and asserted).
+
+**Unit procedure (for the lead; nothing was flashed).**
+1. Back up first: the web app's full backup (or `fm1hw.py` backup) of every project slot and the user sounds. An OC_PJ4=1 image **converts every old project to the
+   new format at boot**; the old firmware cannot read the new records. Going back: flash the current Nightly (OC_PJ4=0) and restore the backup (the slots read
+   OLD FORMAT / empty until restored).
+2. Build `ci_step.py build --switch OC_PJ4=1` (a bench image) and flash it as usual. At boot: the slots list as before (converted).
+3. While playing four MACRO/SHAPES tracks with the sends and a DUB line on: `fm1hw.py trkoff` several times: arena 51,424-based capacity, `borrow_state` 0,
+   `borrow_hold` 0, no `borrow_grants` change; `fm1hw.py stats`: late halves as on the Nightly.
+4. Stop, wait for the tails a moment, SAVE: the screen says SAVED; listen: the effect tails fade (about 30 ms), no click; `trkoff`: `borrow_grants` +1. Press PLAY
+   during the save: it starts right after SAVED. Reload the slot: the music as saved; the effects come back on the next notes.
+5. While playing, SAVE (name screen or hold SAVE): the screen says UNSAVED and repeats it; nothing is written (`borrow_no_play` may count). Stop: SAVED follows.
+6. Power cuts as before: the earlier series, as the lead runs it (no script for a mid-save restart is in this tree's tools/hw: I did not find the one used before).
+   A save started stopped (SAVE, or the editor's save), the unit cut or restarted at a growing delay into it (0 to about 400 ms: the save is the borrow's ~40 ms,
+   then the erases and programs); after each restart the slot loads as before or as after, never mixed, and `trkoff` shows `borrow_hold` 0, `borrow_state` 0. The
+   host proves every program and erase point of the same save in borrowed memory (borrow_save_test).
+7. The corner: cache RAM off is not reachable by hand; note any NO MEMORY TO SAVE seen.
+
 ### 7.48 Round 30: the owner's decisions
 
 *The rising cap: the proof work stops; the cap stays in, with this limit.* In every run on the unit (Rounds 28 and 29, both images, CHIP ARP, VCF BRASS and VA BASS, rise rows and all-ON controls) no half was late. **It is not proven with DUB TAPE on the big track:** the test load could not hold DUB in any run, with or without the cap (DUB's CPU governor released it at 85 % of the half and its re-admission rule kept it out while the mix alone peaked above about 2,015 us), so whether a raised track and DUB together stay within the half is not measured. Also: CHIP and VA-VCF are not in the default model pick, so on a unit with the default pick those presets play VA and rise only to VA's 6 voices. The take's cost at a note-on is a host figure only (about 11.7 us a take).
