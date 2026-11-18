@@ -18,7 +18,7 @@
  * Revisions:
  *   Release 3 step 7 (r3-format2, step 2, the loader): first version.
  */
-#define PJP_BUF 16384u                         /* RAM for kept, unsaved phrases (about 90 of the owner's average); past it a keep says PHRASES FULL until the autosave writes them */
+#define PJP_BUF 8192u                          /* RAM for kept, unsaved phrases (about 45 of the owner's average; 16 KB before the RAM audit); past it a keep says PHRASES FULL until the autosave writes them */
 static struct {
     uint8_t home;                              /* proj_cur as the overlay and the tables were last made for it */
     uint8_t has[OCP_N];                        /* 1: phrase id is kept in RAM (length 0: emptied) */
@@ -37,16 +37,14 @@ static uint8_t pjp_nopend;                     /* a read of a slot as it is stor
  * boot's conversion takes it whole (PJ4_WORK). */
 #define PJP_SEC_AT 0u
 #define PJP_PK_AT PJ4_RECMAX
-#define PJP_FRZ_AT (PJP_PK_AT + PROJ_STORE_SIZE)
-#define PJP_FRZ_LEN 3072u
-_Static_assert(PJP_FRZ_AT + PJP_FRZ_LEN <= PJ4_WORK, "the scratch holds the sections, the project part and the frozen table");
-_Static_assert(PJ4_PHMAX + 8u <= PROJ_STORE_SIZE && PJ4_SECMAX <= PROJ_STORE_SIZE, "a phrase and a section fit where the project part is made");
-static uint8_t pjp_work[PJ4_WORK] __attribute__((section(".pool"), aligned(4)));
+#define PJP_PK_LEN (PJ4_SECMAX > PROJ_STORE_SIZE ? PJ4_SECMAX : PROJ_STORE_SIZE)   /* the project part / a phrase generated whole / the largest section read */
+_Static_assert(PJ4_PHMAX + 8u <= PJP_PK_LEN, "a phrase fits where the project part is made");
+#define PJP_WORK_LEN (PJP_PK_AT + PJP_PK_LEN)
+static uint8_t pjp_work[PJP_WORK_LEN] __attribute__((section(".pool"), aligned(4)));
 #define pjp_sec (pjp_work + PJP_SEC_AT)
 #define pjp_pk (*(project_store_t *)(void *)(pjp_work + PJP_PK_AT))
 #define pjp_gbuf (pjp_work + PJP_PK_AT)
 #define pjp_tmp (pjp_work + PJP_PK_AT)
-#define pjp_frzr (pjp_work + PJP_FRZ_AT)
 static uint32_t pjp_rs = 0x9E3779B9u;
 static uint8_t pjp_freeze;                     /* a load that rebuilds the same music (tracks.c): proj_cur may pass through none, the kept phrases stay */
 
@@ -247,7 +245,7 @@ typedef struct {
 static int pjp_get(void *ctx, uint32_t id, uint8_t *dst, uint32_t off, uint32_t n)
 {
     pjp_save_t *c = ctx;
-    if (c->xs) {
+    if (c->xs && (id > OCP_N || pjp.has[id - 1u] || !c->bank[id])) {
         ocs_rec_t r;
         uint32_t o, l;
         if (id > OCP_N) return -1;
@@ -262,7 +260,7 @@ static int pjp_get(void *ctx, uint32_t id, uint8_t *dst, uint32_t off, uint32_t 
     if (c->cached != id) {
         static ocp_gen_t g __attribute__((section(".pool")));
         uint32_t bk = c->bank[id] - 1u;
-        ocj_gen_fbkk(&g, c->q, c->raw, bk / NPAT, bk % NPAT, 0);
+        ocj_gen_fbkk(&g, c->q, c->raw, bk / NPAT, bk % NPAT, c->xs);
         if (!ocp_gen_count(&g) || g.len > PJ4_PHMAX || ocp_gen_get(&g.src, pjp_gbuf, g.len)) return -1;
         c->cached = id;
     }
@@ -322,9 +320,11 @@ static int ocj_write_pj4(uint32_t slot, uint8_t *raw, uint32_t len)
         memset(want, 0, sizeof want);
         for (k = 0; k < NTRK; k++)
             for (b = 0; b < NPAT; b++)
-                if ((id = npid[k][b]) != 0u && ocp.hash[id - 1u] != hash[k][b] && proj_pid[k][b] != id)
+                if ((id = npid[k][b]) != 0u && ocp.hash[id - 1u] != hash[k][b])    /* (a bank the keeps did not reach: the RAM was full) */
                     want[id - 1u] = (uint8_t)(k * NPAT + b + 1u);
-        if (ocj_put_chunks(want, q, raw, xs)) { ui_message("PHRASES FULL"); return 2; }
+        if (ocj_put_chunks(want, q, raw, xs)) {                       /* (the RAM for kept phrases is full: what did not fit is made from the banks as the save writes it) */
+            for (id = 1; id <= OCP_N; id++) if (want[id - 1u] && !pjp.has[id - 1u]) gen_of[id] = want[id - 1u];
+        }
     } else {
         for (k = 0; k < NTRK; k++)
             for (b = 0; b < NPAT; b++)
@@ -346,7 +346,9 @@ static int ocj_write_pj4(uint32_t slot, uint8_t *raw, uint32_t len)
     q->motion.count = 0;
     memset(q->motion.event, 0, sizeof q->motion.event);
     if (!proj_pack(&pjp_pk, q)) return 2;
-    if (!xs && !proj_import(q, raw + 8u, PROJ_STORE_SIZE)) return 2;       /* (the banks' phrases are generated from the music in q: it is back) */
+    {   uint32_t gen_any = !xs;
+        for (id = 1; id <= OCP_N && !gen_any; id++) gen_any |= gen_of[id] != 0u;
+        if (gen_any && !proj_import(q, raw + 8u, PROJ_STORE_SIZE)) return 2; }       /* (the banks' phrases are generated from the music in q: it is back) */
     /* 4. the phrases of the project: ascending ids, each with its length and CRC */
     pj4_w = &pjp_ws;
     ph = pjp_ws.ph;
@@ -355,7 +357,7 @@ static int ocj_write_pj4(uint32_t slot, uint8_t *raw, uint32_t len)
     memcpy(sv.bank, gen_of, sizeof sv.bank);
     for (id = 1; id <= OCP_N; id++) {
         uint32_t l = 0, c = 0;
-        if (xs) {
+        if (xs && !(gen_of[id] && !pjp.has[id - 1u])) {
             if (pjp.has[id - 1u]) { l = pjp.len[id - 1u]; c = l ? ocs_crc32(pjp.buf + pjp.off[id - 1u], l) : 0u; }
             else if (home < 4u) {
                 ocs_rec_t r;
@@ -364,7 +366,7 @@ static int ocj_write_pj4(uint32_t slot, uint8_t *raw, uint32_t len)
             }
         } else if (gen_of[id]) {
             uint32_t bk = gen_of[id] - 1u;
-            l = ocj_gen_fbkk(&ocj_gen[0], q, raw, bk / NPAT, bk % NPAT, 0);
+            l = ocj_gen_fbkk(&ocj_gen[0], q, raw, bk / NPAT, bk % NPAT, xs);
             if (l) {                                                  /* the CRC of the bytes as saved (ocs_crc32), not the pool's hash */
                 uint32_t crc = 0xFFFFFFFFu, at = 0;
                 ocp_gen_rewind(&ocj_gen[0]);
@@ -382,10 +384,10 @@ static int ocj_write_pj4(uint32_t slot, uint8_t *raw, uint32_t len)
     else { hd.seed = pjp_next() ^ proj_hash(raw, 64u); hd.uid = pjp_next(); }
     if (pj4p_build(&ocj_h, &ocj_l, pjp_pk.raw, &hd, 0, cmap, pjp_sec, PJ4_RECMAX, secs, &nsec)) { ui_message("PROJECT FULL"); return 2; }
     {   /* the frozen phrases' table of the project is carried as it was (the unit's table is not read by the loader yet) */
-        int fl = pj4_sec_read(slot, PJ4_T_FRZR, pjp_frzr, PJP_FRZ_LEN);
-        if (fl > 0 && nsec && secs[nsec - 1u].tag == PJ4_T_FRZR) {
-            uint32_t at = secs[nsec - 1u].p - pjp_sec;
-            if (at + (uint32_t)fl <= PJ4_RECMAX) { memcpy(pjp_sec + at, pjp_frzr, (uint32_t)fl); secs[nsec - 1u].len = (uint32_t)fl; }
+        if (nsec && secs[nsec - 1u].tag == PJ4_T_FRZR) {                  /* (read straight into the sections' tail: no scratch of its own) */
+            uint32_t at = (uint32_t)(secs[nsec - 1u].p - pjp_sec);
+            int fl = pj4_sec_read(slot, PJ4_T_FRZR, pjp_sec + at, PJ4_RECMAX - at);
+            if (fl > 0) secs[nsec - 1u].len = (uint32_t)fl;
         }
     }
     rc = pj4_save(&pjp_ws, slot, &hd, secs, nsec, ph, nph, pjp_get, &sv, &over);
@@ -426,7 +428,12 @@ static void pjp_boot(void)
     }
     hk.split = pj4p_split; hk.ctx = &cx;
     pj4_w = &pjp_ws;
-    pj4_boot(&pjp_ws, names, pjp_work, pjp_mk, status, over, &hk);
+    /* the conversion's own work (two phrases, 22 KB) is the staging RAM behind the frozen table (nothing is loaded yet: the boot); the record buffer is the scratch */
+    _Static_assert(2u * (PJ4_PHMAX + 3u) + PJ4_NFRZ * PJ4_FRZ_BYTES <= sizeof proj_wire_u, "the conversion's work fits the staging RAM");
+    _Static_assert(PJ4_RECMAX <= PJP_WORK_LEN, "the record buffer fits the scratch");
+    pj4_rec_ext = pjp_work;
+    pj4_boot(&pjp_ws, names, proj_wire_u.raw + PJ4_NFRZ * PJ4_FRZ_BYTES, pjp_mk, status, over, &hk);
+    pj4_rec_ext = 0;
     pjp_dir_forget(); pjp_drop();
     memset(&ocj, 0, sizeof ocj);
     pjp.home = 0xFEu;                                                  /* (not any slot: the first pjp_follow makes the tables) */

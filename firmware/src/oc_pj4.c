@@ -533,6 +533,7 @@ static int pj4_cv_get(void *ctx, uint32_t id, uint8_t *dst, uint32_t off, uint32
  * the new record starts with (name, seed, uid ..: the caller's; the project layer makes them). crcmap, when not null, is filled with the new CRC of phrase id
  * (index id) so that the freeze table's hashes can be recomputed (9 step 4). 0 converted (the old record erased); PJ4_FULL with *over; -1 no old record; else
  * the save's. Idempotent: a slot that already has a new record only has its old one erased */
+static uint8_t *pj4_rec_ext;                   /* the record buffer (PJ4_RECMAX) when the caller keeps it apart from work (then work needs only 2 * (PJ4_PHMAX + 3)) */
 static int pj4_convert(pj4_ws_t *w, uint32_t slot, uint64_t names, uint8_t *work, pj4_head_t *h, uint32_t *over, uint32_t *crcmap, const pj4_cvhook_t *hk)
 {
     pj4_phr_t *ph;
@@ -541,11 +542,12 @@ static int pj4_convert(pj4_ws_t *w, uint32_t slot, uint64_t names, uint8_t *work
     uint32_t nsec = 0, cmap[PJ4_NPH + 1u];
     uint32_t nph = 0, id;
     int rc, rl;
+    uint8_t *recb = pj4_rec_ext ? pj4_rec_ext : work + 2u * (PJ4_PHMAX + 3u);
     pj4_w = w; ph = w->ph;
     memset(cmap, 0, sizeof cmap);
     if (pj4_dir_load(slot, &pj4_d0) == 0) return ocs_delete(OCS_PROJECT, slot);   /* (a cut after the commit: finish step 5) */
     cv.names = names; cv.raw = work; cv.out = work + PJ4_PHMAX + 3u; cv.cached = 0;
-    rl = ocs_read(OCS_PROJECT, slot, work + 2u * (PJ4_PHMAX + 3u), PJ4_RECMAX);
+    rl = ocs_read(OCS_PROJECT, slot, recb, PJ4_RECMAX);
     if (rl < 0) return -1;
     for (id = 1; id <= 64u; id++) {
         int len;
@@ -558,13 +560,18 @@ static int pj4_convert(pj4_ws_t *w, uint32_t slot, uint64_t names, uint8_t *work
     }
     cv.cached = 0;
     if (hk) {                                                                    /* (step 2) the sections: the old record split, its phrases' new CRCs for the freeze table */
-        uint8_t *rec = work + 2u * (PJ4_PHMAX + 3u);
+        uint8_t *rec = recb;
         if ((rc = hk->split(hk->ctx, h, rec, (uint32_t)rl, work, 2u * (PJ4_PHMAX + 3u), rec, PJ4_RECMAX, secs, &nsec, cmap)) != 0) return rc;
     } else {
-        sec.tag = PJ4_T_OJ3B; sec.len = (uint32_t)rl; sec.p = work + 2u * (PJ4_PHMAX + 3u);
+        sec.tag = PJ4_T_OJ3B; sec.len = (uint32_t)rl; sec.p = recb;
         secs[0] = sec; nsec = 1;
     }
     if ((rc = pj4_save(w, slot, h, secs, nsec, ph, nph, pj4_cv_get, &cv, over)) != 0) return rc;
+    /* (step 4b) a conversion never erases what it cannot read back: every section as it is stored, whole, before the old record goes; else the new record goes and the old stays */
+    for (uint32_t i = 0; i < nsec; i++) {
+        int n = pj4_sec_read(slot, secs[i].tag, work, 2u * (PJ4_PHMAX + 3u));
+        if (n != (int)secs[i].len || secs[i].len > PJ4_RECMAX || memcmp(work, secs[i].p, secs[i].len)) { (void)pj4_slot_clear(w, slot); return -1; }
+    }
     return ocs_delete(OCS_PROJECT, slot);                                        /* (step 5) */
 }
 

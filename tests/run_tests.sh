@@ -887,6 +887,7 @@ if core && [ $TABLES = 1 ]; then
     t "Orange Cat pattern pool: banks round trip through flash, chunks, the fullest pattern, no room, power cuts" oc_pool_test -O1 $FW
     t "Orange Cat project store: SAVE and load through the pool, two slots, PATTERNS FULL, FBKK, power cuts" oc_project_test -O1 $FW
     t "Release 3 project sections: the conversion splits the old record into GLOB, TRKS (ids, the OFF flag), NATV, LIST, SCNS, PERF, FRZR and the sections put it back byte for byte; a power cut at every program and erase" pj4_sec_test -O1 $FW -DOC_PJ4=1 -DOC_PJ4_LDR=0
+    t "Release 3 conversion: 400, 500 and 1,000 dense recorded notes in the project part convert and read back (or the conversion refuses and keeps the old record)" pj4_glob_big_test -O1 $FW -DOC_PJ4=1 -DOC_PJ4_LDR=0
     # (Release 3 step 7, the loader: OC_PJ4=1 puts the pool and the slots through the format core; a keep is held in RAM until the project is saved) the tests of the pool and the projects, run on it
     t "Release 3 loader: the project store's tests on the format core (round trip, slots owning their phrases, FBKK, power cuts, OFF)" oc_project_pj4:oc_project_test -O1 $FW -DOC_PJ4=1
     t "Release 3 loader: a keep is held in RAM until the save, the save commits it, a cut loses it, an unsaved project, the buffer full, projects own their phrases" pj4_loader_test -O1 $FW -DOC_PJ4=1

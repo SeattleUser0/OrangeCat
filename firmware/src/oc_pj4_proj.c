@@ -227,7 +227,7 @@ static int pj4p_split(void *ctx, pj4_head_t *hd, const uint8_t *rec, uint32_t rl
 /* ---------------------------------------------------------- reading ------ */
 /* the slot's sections as the three things the loader works on: h (pid, active, chain, name, fn, lsize), l (the lists with the scenes), pack (PROJ_STORE_SIZE bytes, hash
  * and all, the OFF word from the tracks' flags). tmp: scratch (PJ4_SECMAX) for one section at a time. 0; -1 a section is missing or does not read */
-#define PJ4_SECMAX 4096u
+#define PJ4_SECMAX PJ4_RECMAX                  /* the reader takes any section the writer can make (GLOB with 1,024 dense recorded notes is 8.8 KB): a record is never more */
 static int pj4p_read(uint32_t slot, ocj_head_t *h, ocl_lists_t *l, uint8_t *pack, uint8_t *tmp)
 {
     int n;
@@ -275,5 +275,6 @@ static int pj4p_read(uint32_t slot, ocj_head_t *h, ocl_lists_t *l, uint8_t *pack
     memcpy(l->scene, tmp + 2, PJ4_SCN_BYTES);
     l->scene_used = tmp[2u + PJ4_SCN_BYTES];
     memcpy(h->name, pack + PROJ_NAME_OFF, PROJ_NAME_LEN);
+    { uint32_t sum = proj_hash(pack, PROJ_STORE_SIZE - 4u); memcpy(pack + PROJ_STORE_SIZE - 4u, &sum, 4); }   /* (the part's hash again: the OFF word came from TRKS) */
     return 0;
 }

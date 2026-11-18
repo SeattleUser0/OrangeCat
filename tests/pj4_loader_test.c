@@ -138,9 +138,9 @@ static int t_full(void)
     reset();
     new_project();
     fill_all(2, NPAT);
-    ok &= ocl_keep_all() == 0;
+    (void)ocl_keep_all();                                              /* (all 32 banks: more than the RAM holds; the save makes the rest) */
     ok &= project_save_as(0, "FULL") == 0;
-    for (k = 0; k < 2u; k++)                                          /* every bank of two tracks a full phrase: 64 steps of four notes (about 720 B each) */
+    for (k = 0; k < 1u; k++)                                          /* every bank of one track a full phrase (8 KB of RAM holds 11): 64 steps of four notes (about 720 B each) */
         for (b = 0; b < NPAT; b++) {
             pattern_read(k, b, &p);
             for (uint32_t s2 = 0; s2 < NSTEP; s2++) { p.step[s2].time = ST_NOTE; p.step[s2].n = 4; for (uint32_t j = 0; j < 4u; j++) p.step[s2].note[j] = (uint8_t)(30u + s2 + j + k); p.step[s2].vel = 80; }

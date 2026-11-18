@@ -170,7 +170,29 @@ static int t_convert(void)
             ok &= have == seen;                                                                  /* every frozen id the project has is in FRZR, and no other */
         }
     }
+    {   /* the part read back carries the OFF word and a hash that matches it (a stale hash made the project refuse to load) */
+        static ocj_head_t rh; static ocl_lists_t rl; static uint8_t rp[PROJ_STORE_SIZE], rt[PJ4_SECMAX];
+        uint32_t sum;
+        ok &= pj4p_read(0, &rh, &rl, rp, rt) == 0;
+        memcpy(&sum, rp + PROJ_STORE_SIZE - 4u, 4);
+        ok &= sum == proj_hash(rp, PROJ_STORE_SIZE - 4u) && (rp[PROJ_OFF_WIRE + 1u] & 0xF0u) == 0xB0u && (rp[PROJ_OFF_WIRE] & 6u) == 6u;
+    }
     return check("the conversion with the hook: sections not OJ3B, the old record back byte for byte, ids, OFF flags, SCNS 1, PERF, FRZR with the new CRCs", ok);
+}
+
+static uint32_t phr_ref[2][65];   /* a clean conversion's phrases: the CRC of each id (0: none) */
+static void phr_take(uint32_t (*dst)[65])
+{
+    static uint8_t ph[PJ4_PHMAX + 8];
+    for (uint32_t s = 0; s < 2u; s++)
+        for (uint32_t i = 1; i <= 64u; i++) { int n = pj4_phrase_read(&WS, s, i, ph, sizeof ph); dst[s][i] = n > 0 ? ocs_crc32(ph, (uint32_t)n) : 0; }
+}
+static int phr_bad(void)       /* the phrases after a cut and the next boot are the clean run's, none lost or half written */
+{
+    uint32_t now[2][65], bad = 0;
+    phr_take(now);
+    for (uint32_t s = 0; s < 2u; s++) for (uint32_t i = 1; i <= 64u; i++) bad += now[s][i] != phr_ref[s][i];
+    return (int)bad;
 }
 
 static int t_cuts(void)
@@ -183,6 +205,7 @@ static int t_cuts(void)
     erases = 0; fail_after = -1;
     pj4_boot(&WS, names, cvwork, mk, status, over, &hk);                                              /* a clean run: how many programs and erases it takes */
     erases_n = erases;
+    phr_take(phr_ref);
     progs = 0;
     for (n = 0; n < 4000u; n++) {                                                                    /* programs: the first count that no longer cuts is the whole run */
         memcpy(nor, keep, sizeof nor);
@@ -202,6 +225,7 @@ static int t_cuts(void)
             int r = rebuild(s, buf);
             if (r != origlen[s] || memcmp(buf, orig[s], (size_t)r)) bad++;
         }
+        bad += (uint32_t)phr_bad();
     }
     for (mode = 0; mode < 1u; mode++)
         for (n = 0; n < erases_n + 2u; n++) {                                                         /* erases: the power goes right after the n-th */
@@ -217,6 +241,7 @@ static int t_cuts(void)
                 int r = rebuild(s, buf);
                 if (r != origlen[s] || memcmp(buf, orig[s], (size_t)r)) bad++;
             }
+            bad += (uint32_t)phr_bad();
         }
     {
         char what[200];

@@ -827,6 +827,9 @@ static int project_save_as(uint32_t slot, const char *name)
     momentary_restore();
     {   /* (Orange Cat 0.3, 4c) what the tracks have kept to the pool first: their banks then name their patterns */
         int rc = ocl_keep_all();
+#if OC_PJ4_LDR
+        if (rc == 4) rc = 0;                           /* (the RAM for kept phrases is full: this save commits them, and makes the banks' own from the banks) */
+#endif
         if (rc) { ui_message(rc == 4 ? "PHRASES FULL" : "SAVE ERROR"); return 2; }
     }
     project_capture(p);
