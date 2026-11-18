@@ -1,3 +1,16 @@
+# Orange Cat Nightly v0.16.0-6872dc (Round 29): what changed for you since a5b382
+
+Written November 18, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. **This Nightly is on the test unit, installed from the live page with the page's defaults.** The firmware is the same as a5b382 (this Nightly adds test tools and documents).
+
+1. **The rising cap stays, as you decided; its full proof is still missing.** Three tries on the unit: no late audio in any run, with or without the cap. But DUB TAPE could not stay on in the test load even with every track ON: its own safety (it switches itself off when the CPU gets close to the limit, and stays off while the rest stays busy) took it out. So the test proves nothing about the cap with DUB yet; it is rebuilt with a lighter load next round.
+2. **One thing you may want to know:** once DUB switches itself off under a steady busy mix, it stays off until the mix calms down (below about two thirds of the CPU), even though nothing is late. Say if you would like that rule looked at.
+3. **The CHIP and VCF sounds** are not in the default model pick (models 1 to 14), so on a unit with the default pick they play the VA sound. That is why the cap stayed at 6 voices for them in the test.
+4. **Release 3:** what is still missing is listed (BUILD.md 7.45). The biggest: the new project format's loader (Session C built it to your option 2) does not fit the unit's memory yet: about 38 KB must be found; that design is mine next.
+5. **Your two units were not connected this round.** When you connect one (USB, switched on), I read its flash chip and write nothing.
+6. **Tested:** full SAN=1 suite green on 6872dc4d (286 jobs).
+
+---
+
 # Orange Cat Nightly v0.16.0-a5b382 (Round 28): what changed for you since dc0c9e
 
 Written November 17, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. **This Nightly is on the test unit, installed from the live page with the page's defaults.**
