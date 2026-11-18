@@ -30,17 +30,13 @@ def sheet(cells, cols, path, title, scale=1):
     im.save(path, optimize=True)
 
 
-for L, title in (("A", "A  THE LIST: four equal rows, the selected one filled"), ("B", "B  THE FOCUS: the selected track tall, the others short")):
+TITLES = {"M1": "1  STRIPS: a row a track with its 16 steps, the dials with labels (the knobs' own colours)",
+          "M2": "2  PLAIN: no steps, the name large, the dials in the selected track's shades",
+          "M3": "3  PANEL: the selected track a panel with its steps large, the others short rows"}
+for L, title in TITLES.items():
     sheet([(c, f"{L}_{t}_p0") for t, c in TAGS], 3, out / f"main_{L}.png", title)
-sheet([("page 1: resting", "C1_rest_p0"), ("page 1: playing", "C1_play_p0"), ("page 1: MUTE (T3 selected)", "C1_mute_p0"),
-       ("page 1: OFF (T4 selected)", "C1_off_p0"), ("page 1: FROZEN (T1 selected)", "C1_frozen_p0"), ("page 1: WAIT (T4 selected)", "C1_wait_p0"),
-       ("page 2: the list, resting", "C2_rest_p0"), ("page 2: playing", "C2_play_p0"), ("page 2: T3 MUTE", "C2_mute_p0")], 3,
-      out / "main_C.png", "C  THE PICTURE FIRST: page 1 the HOME picture, page 2 the list")
-for L in "ABC":
-    n = "C1" if L == "C" else L
-    sheet([(f"palette {p}", f"{n}_mute_p{p}") for p in range(9)], 5, out / f"main_palettes_{L}.png", f"{L} with a MUTE, in every palette (NIGHT DAY CONTRAST SUNSET OCEAN NEON CANDY .. GRAY)", 1)
-for L in "ABC":
+    sheet([(f"palette {p}", f"{L}_mute_p{p}") for p in range(9)], 5, out / f"main_palettes_{L}.png",
+          f"{L[1]} with a MUTE, in every palette: NIGHT DAY CONTRAST SUNSET OCEAN NEON CANDY LO-FI GRAY")
     for t, _ in TAGS:
-        n = "C1" if L == "C" else L
-        shot(f"{n}_{t}_p0").save(out / f"main_{L}_{t}.png", optimize=True)
+        shot(f"{L}_{t}_p0").save(out / f"main_{L}_{t}.png", optimize=True)
 print(f"ui_main_mockup.py: sheets in {out}")

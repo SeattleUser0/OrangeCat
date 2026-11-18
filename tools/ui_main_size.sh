@@ -17,9 +17,10 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 #include "gfx.c"
 #include "icons.c"
 #include "ui_main_screens.h"
-void probe_a(const ms_t *m) { ms_draw_a(m); }
-void probe_b(const ms_t *m) { ms_draw_b(m); }
-void probe_c(const ms_t *m) { ms_head_c(m); ms_line_c(m, m->r[m->sel].name); }
+static void ms_dial(int32_t cx, int32_t cy, int32_t d, uint32_t k, int32_t q8, int macro) { (void)cx; (void)cy; (void)d; (void)k; (void)q8; (void)macro; }   /* (the picture page's dial is in the image already: hp_dial) */
+void probe_1(const ms_t *m) { ms_draw_1(m); }
+void probe_2(const ms_t *m) { ms_draw_2(m); }
+void probe_3(const ms_t *m) { ms_draw_3(m); }
 EOF
 $TC/pi32v2/bin/clang -target pi32v2 -mcpu=r3 -mfprev1 -ffp-contract=off -Os -fno-inline -ffunction-sections -fno-builtin -w -Ibuild/gen -Ifirmware/hal -Ifirmware/src -Ifirmware/src/fatfs/sys -Itests -I$T -c $T/p.c -o $T/p.o
 $TC/pi32v2/bin/nm -S $T/p.o | python3 -c '

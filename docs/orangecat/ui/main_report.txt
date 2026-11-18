@@ -1,4 +1,4 @@
-The main screen's three layouts (tests/ui_main_mockup.c): 9 palettes, 6 states, 4 screens
+The main screen's three layouts (tests/ui_main_mockup.c): 9 palettes, 6 states, 3 layouts
 
 palette 0: text 221 mid 157 dim 95 MUTE 91 OFF 157 FROZEN 143 WAIT 232
 palette 1: text 218 mid 153 dim 92 MUTE 182 OFF 153 FROZEN 164 WAIT 226
