@@ -1873,6 +1873,74 @@ async function patternProtocol() {
     const { FW } = await import(join(HERE, "app/lib/fw_tables.js"));
     ok([...E.DEV_SAVED_G].sort((a, b) => a - b).join() === FW.saved.gp.join() && E.DEV_REST_MS >= 500, "editor: the settings a SET saves (sent once they rest) are the firmware's: " + FW.saved.gp.join(" "));
   }
+  {   /* (web-r6, Session A's review of the debounce, BUILD.md Round 29) the editor's own code (touched .. sendSet and disconnect, from editor.html) in a
+         sandbox: the unit's SETs, the page's timers and listeners are the test's */
+    const a = html.indexOf("function touched(k)"), b = html.indexOf("/* engine / preset browser */");
+    const da = html.indexOf("function disconnect(reasonKey"), db = html.indexOf("\n}\n", da) + 3;
+    const mk = () => {
+      const timers = [], listen = {}, raw = [], rqs = [], shown = [];
+      let fail = false, dumpG = null;
+      const C = { timers, listen, raw, rqs, shown,
+        setTimeout: (f, ms) => (timers.push({ f, ms, on: true }), timers.length), clearTimeout: (i) => { if (i) timers[i - 1].on = false; },
+        addEventListener: (ev, f) => { (listen[ev] ||= []).push(f); }, window: { addEventListener: () => {} }, clock: 1e9, performance: { now: () => C.clock },
+        document: { activeElement: null }, console: { warn: () => {} }, frame: E.frame, req: E.req, parse: { [E.CMD.SET]: () => ({ value: C.lastV }) }, CMD: E.CMD,
+        DEV_SAVED_G: E.DEV_SAVED_G, DEV_REST_MS: E.DEV_REST_MS, key: (sc, id) => (sc ? "g:" : "p:") + id,
+        showValue: (k, v, force) => shown.push([k, v, force]), mixFromDump: () => {}, buildGroups: () => {}, rereadMpcDesc: async () => {},
+        resetBusy: () => {}, renderPanels: () => {}, renderMixer: () => {}, renderSysinfo: () => {}, renderLive: () => {}, renderLib: () => {}, renderBank: () => {},
+        renderPreferences: () => {}, setLabel: () => {}, t: (x) => x, sayK: () => {}, $: () => ({}), needReload: false,
+        getDump: async () => ({ g: dumpG.slice(), p: [] }),
+        setFail: (f) => { fail = f; }, setDumpG: (g) => { dumpG = g; },
+        rq: async (q) => { rqs.push(q); C.lastV = decodeSet(q); if (fail) throw new Error("timeout"); return null; },
+        run: async () => { const l = timers.filter((x) => x.on); for (const x of l) { x.on = false; await x.f(); } await new Promise((r) => setTimeout(r, 0)); return l; },
+      };
+      vm.createContext(C);
+      vm.runInContext("let dragging = null; const ctl = new Map(); const sets = new Map(); let dev = null;\n" + html.slice(a, b) + html.slice(da, db) +
+        ";globalThis.X = { userSet, flushRested, sendSet, touched, disconnect, sets, setDev: (d) => { dev = d; }, dev: () => dev };", C);
+      return C;
+    };
+    const decodeSet = (q) => (q[1][2] | (q[1][3] << 7)) - 8192;
+    const unitDev = (g) => ({ dump: { g: g.slice(), p: [] }, info: {}, input: {}, output: {}, link: { sendRaw: () => {}, close: () => {}, hasQueued: () => false, cur: null } });
+    {   /* item 1: the page hidden within the rest, then the same for unload and for disconnect */
+      for (const how of ["pagehide", "beforeunload", "disconnect"]) {
+        const C = mk(), X = C.X, d = unitDev(Array(48).fill(0));
+        d.link.sendRaw = (f) => C.raw.push(f);
+        X.setDev(d);
+        X.userSet(1, 21, 438); X.userSet(1, 21, 442); X.userSet(1, 41, 5);
+        const before = C.raw.length + C.rqs.length;
+        if (how === "disconnect") X.disconnect(); else (C.listen[how] || []).forEach((f) => f());
+        const sent = C.raw.map((f) => E.unframe(f)).map((u) => [u.a[1], decodeSet([0, u.a])]);
+        await C.run();
+        ok(before === 0 && sent.length === 2 && sent.some(([i, v]) => i === 21 && v === 442) && sent.some(([i, v]) => i === 41 && v === 5) && C.rqs.length === 0 && C.raw.length === 2,
+          `editor: ${how} within the rest writes each resting setting once, the last value (review item 1)`);
+      }
+    }
+    {   /* item 2: another unit within the rest: nothing of the old unit's is sent to it, and its own value is not re-sent */
+      const C = mk(), X = C.X, d1 = unitDev(Array(48).fill(0)), d2 = unitDev(Array(48).fill(7));
+      d1.link.sendRaw = () => { throw new Error("port gone"); };
+      X.setDev(d1); X.userSet(1, 17, 2);
+      X.disconnect(); X.setDev(d2);
+      await C.run();
+      ok(C.rqs.length === 0 && X.sets.size === 0 && d2.dump.g[17] === 7, "editor: a unit switched within the rest gets no SET of the old unit's value nor of its own (review item 2)");
+    }
+    {   /* item 4: a dump read during the rest does not take the value back; the SET carries the value turned to */
+      const C = mk(), X = C.X, d = unitDev(Array(48).fill(0));
+      X.setDev(d); X.userSet(1, 13, 9);
+      C.clock += 700;                                  /* past the turn's 600 ms, still inside the rest */
+      const held = X.touched("g:13");
+      d.dump = { g: Array(48).fill(0), p: [] };             /* a load re-read the dump meanwhile */
+      await C.run(); C.clock += 2000;
+      const q = C.rqs.at(-1);
+      ok(held && C.rqs.length === 1 && q[1][1] === 13 && decodeSet(q) === 9 && !X.touched("g:13"), "editor: during the rest the control keeps the value turned to, and that value is sent (review item 4)");
+    }
+    {   /* item 3: a SET that fails: the control shows the unit's value again, read back */
+      const C = mk(), X = C.X, d = unitDev(Array(48).fill(0));
+      X.setDev(d); C.setDumpG(Array(48).fill(0).map((_, i) => (i === 4 ? 3 : 0)));
+      C.setFail(true); X.userSet(1, 4, 6);
+      await C.run(); await new Promise((r) => setTimeout(r, 0));
+      const last = C.shown.at(-1);
+      ok(C.rqs.length === 1 && last[0] === "g:4" && last[1] === 3 && last[2] === true && d.dump.g[4] === 3, "editor: a failed SET shows the unit's value again, read back (review item 3)");
+    }
+  }
   {   /* (web-r6, audit E1) the Nightly sends the FM6 / CZ / Prophet tags with those engines "-" in the list: no 6-OP FM tab, no CZ or Prophet panel */
     const nm=(e)=>[...Array.from(e)].map(c=>c.charCodeAt(0)).concat(0);
     const names=(f)=>Array.from({length:20},(_,e)=>nm(f(e))).flat();

@@ -4051,6 +4051,8 @@ async function connect() {
 
 function disconnect(reasonKey = "disconnected") {
   if (dev) {
+    flushRested();                                  /* (web-r6 review item 1) before the link closes (a lost port: nothing reaches it) */
+    sets.clear();                                   /* (review item 2) the next unit starts with no pending or sent values of this one */
     dev.link.close();
     dev.input.onmidimessage = null;
   }
@@ -4498,6 +4500,7 @@ function touched(k) {
   if (dragging === k) return true;
   if (c && c.input.tagName === "SELECT" && document.activeElement === c.input) return true;
   if (st && performance.now() - st.last < 600) return true;
+  if (st && st.rest) return true;                   /* (web-r6 review item 4) a saved setting still resting: the page shows the value turned to */
   return !!dev && (dev.link.hasQueued(k) || (!!dev.link.cur && dev.link.cur.key === k));
 }
 
@@ -4517,28 +4520,57 @@ function userSet(s, id, v, final) {
   st.last = performance.now();
   if (s && DEV_SAVED_G.has(id)) {                   /* (web-r6) a setting the unit saves: one SET once the value rests */
     clearTimeout(st.rest);
-    st.rest = setTimeout(() => { st.rest = null; if (dev && dev.dump.g[id] !== st.sent) sendSet(s, id, k); }, DEV_REST_MS);
+    st.want = v; st.s = s; st.id = id; st.dev = dev;  /* (review items 2 and 4) the value and the unit it is for: a dump read meanwhile does not replace it */
+    st.rest = setTimeout(() => { st.rest = null; if (dev && dev === st.dev && st.want !== st.sent) sendSet(s, id, k, st.want); }, DEV_REST_MS);
     return;
   }
   if (v === st.sent) return;                        /* the last request already carries it */
   sendSet(s, id, k);
   if (!s && dev.dump.engine===15 && id===dev.info.pe0+7) buildGroups();
 }
-async function sendSet(s, id, k) {
+/* (web-r6 review item 1) the page hidden or unloaded, or the unit disconnected: every saved setting still resting is written at once, straight to
+   the port (no reply awaited: the page may be gone before it comes); nothing is pending after it */
+function flushRested() {
+  for (const [k, st] of sets) {
+    if (!st.rest) continue;
+    clearTimeout(st.rest); st.rest = null;
+    if (!dev || st.dev !== dev || st.want === st.sent) continue;
+    st.sent = st.want;
+    try { dev.link.sendRaw(frame(...req.set(st.s, st.id, st.want))); } catch (_) { /* (the port is gone) */ }
+  }
+}
+addEventListener("pagehide", flushRested);
+addEventListener("beforeunload", flushRested);
+async function sendSet(s, id, k, want) {
   if (!dev) return;
   const st = sets.get(k);
+  if (want !== undefined) (s ? dev.dump.g : dev.dump.p)[id] = want;
   const v = (s ? dev.dump.g : dev.dump.p)[id];
   st.sent = v;
+  const d = dev;
   try {
-    const d = dev;
     const r = parse[CMD.SET](await rq(req.set(s, id, v), { key: k }));
     if (!s && id === 26 && d === dev) await rereadMpcDesc(d);
-    if (dev && dragging !== k && st.sent === v && !dev.link.hasQueued(k)) {   /* the device's value after clamping */
+    if (dev && d === dev && dragging !== k && st.sent === v && !dev.link.hasQueued(k)) {   /* the device's value after clamping (this unit's: review item 2) */
       (s ? dev.dump.g : dev.dump.p)[id] = r.value;
       showValue(k, r.value, false);
       mixFromDump();
     }
-  } catch (e) { if (e.message !== "closed") console.warn(e); }
+  } catch (e) {
+    if (e.message === "closed") return;
+    console.warn(e);
+    /* (web-r6 review item 3) the SET failed: show the unit's value again, read back, unless a newer request carries the control */
+    if (d !== dev || st.sent !== v || dev.link.hasQueued(k)) return;
+    st.sent = null;
+    try {
+      const dump = await getDump(d);
+      if (d !== dev || st.sent !== null || dev.link.hasQueued(k) || dragging === k) return;
+      const nv = (s ? dump.g : dump.p)[id];
+      (s ? d.dump.g : d.dump.p)[id] = nv;
+      showValue(k, nv, true);
+      mixFromDump();
+    } catch (_) { /* (the link is gone: nothing to show) */ }
+  }
 }
 
 /* engine / preset browser */

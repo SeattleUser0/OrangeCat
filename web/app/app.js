@@ -42,7 +42,7 @@ const two = (n) => String(n).padStart(2, "0");
 
 /* ------------------------------------------------------------------ state --- */
 const S = {
-  session: null, access: null, mock: null, tab: (location.hash || "#unit").slice(1), busy: 0,
+  session: null, rest: null, access: null, mock: null, tab: (location.hash || "#unit").slice(1), busy: 0,
   pal: palette(QS.get("palette") || localStorageGet("oc-app-palette") || "NIGHT"),
   progress: 0,
   steps: null,                         /* the selected track's steps (TRACK_STEP) */
@@ -107,7 +107,7 @@ async function connect() {
     if (!ports) throw new Error(t("nodevice"));
     if (ports.input.open) await ports.input.open().catch(() => {});
     const s = new Session(ports.input, ports.output, { say: (k) => sayK(k), push: onPush });
-    S.session = s;
+    S.session = s; S.rest = restFor(s);                                   /* (web-r6 review item 2) this unit's pending settings, none at first */
     sayK("connecting");
     try { await s.load((f) => { progress(f); if (f < 0.6) say(t("reading") + " " + Math.round(f / 0.6 * 100) + "%"); }); }
     catch (e) { disconnect(); throw e; }
@@ -116,10 +116,34 @@ async function connect() {
   });
 }
 function disconnect() {
+  if (S.rest) { S.rest.flush(); S.rest = null; }      /* (web-r6 review item 1) a setting still resting is written before the link closes (a lost port: dropped) */
   if (S.session) S.session.close();
   S.session = null; S.steps = null; S.arr = null; S.lib = null; S.project = S.project && S.project.source === "file" ? S.project : null;
   render();
 }
+/* (web-r6, Session A's review of the debounce, BUILD.md Round 29) the saved settings of session s that wait for the rest (PG.restedSets). A send goes
+   to s only (a unit switched meanwhile: dropped, item 2); refused while the page is busy it waits another rest; failed, it is dropped and the cell
+   shows the unit's value again (item 3). now(): the page closing or the unit disconnecting, the SET written straight to the port (no reply awaited) */
+function cellSet(s, c, v) { const w = PG.cellWrite(c, v, s.dump); return w.scope === "global" ? s.setGlobal(w.id, w.value) : s.setParam(s.sel, w.id, w.value); }
+function restFor(s) {
+  return PG.restedSets({
+    send: async (id, v, c) => {
+      if (S.session !== s) return "failed";
+      if (S.busy) return false;
+      let done = false;
+      await op(async () => { await cellSet(s, c, v); done = true; });
+      return done || "failed";
+    },
+    now: (id, v, c) => {
+      const w = PG.cellWrite(c, v, s.dump);
+      s.link.sendRaw(E.frame(...E.req.set(w.scope === "global" ? 1 : 0, w.id, w.value)));
+    },
+    changed: () => { if (S.session === s && !dragging) render(); },
+  });
+}
+/* the page hidden (a tab closed, the browser quit, a phone's app switch) or unloaded: nothing pending is lost (item 1) */
+addEventListener("pagehide", () => { if (S.rest) S.rest.flush(); });
+addEventListener("beforeunload", () => { if (S.rest) S.rest.flush(); });
 let pushTimer = null;
 function onPush(f) {
   /* a change made on the unit: redraw soon; a load or a track change: read the sound again */
@@ -537,7 +561,8 @@ function modCard(page) {
   return card(page.title, ...PG.modSlots(page).map((row, i) => el("div", { class: "modslot" }, el("span", { class: "dim small" }, `Slot ${i + 1}`), ...row.map((c) => c ? cellView(c) : null))));
 }
 function cellView(c) {
-  const s = S.session, v = PG.cellValue(c, s.dump);
+  const s = S.session, rest = PG.savesSettings(c) && S.rest ? S.rest.pending(c.id) : undefined;
+  const v = rest !== undefined ? rest : PG.cellValue(c, s.dump);   /* (web-r6 review item 4) a value still resting is shown, not the dump's old one */
   const val = el("span", { class: "val" }, v === null ? "on the unit" : PG.cellText(c, v));
   const can = v !== null && PG.writable(c), n = c.k.max - c.k.min + 1;
   let input;
@@ -553,7 +578,7 @@ function cellView(c) {
     if (+input.value !== now) input.value = String(now);
     if (c.id === FW_DUB_SYNC) render();                 /* TIME L / R read on the beat now, or in ms */
   };
-  const send = PG.savesSettings(c) ? PG.whenRested((nv) => op(() => write(nv))) : (nv) => op(() => write(nv));   /* (web-r6) a saved setting: once it rests */
+  const send = PG.savesSettings(c) ? (nv) => S.rest.put(c.id, nv, c) : (nv) => op(() => write(nv));   /* (web-r6) a saved setting: once it rests */
   if (can) input.addEventListener(n <= 24 ? "change" : "input", () => { val.textContent = PG.cellText(c, +input.value); send(+input.value); });
   return el("label", { class: "edit" + (can ? "" : " ro"), title: can ? null : PG.refusedWhy(c) }, el("span", { class: "lab" }, c.label), input, val);
 }

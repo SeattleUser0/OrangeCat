@@ -28,10 +28,38 @@ const REFUSED_TP = new Set(FW.refused.tp), REFUSED_GP = new Set(FW.refused.gp);
 const SAVED_GP = new Set(FW.saved.gp);
 export const REST_MS = 1000;
 export const savesSettings = (cell) => cell.scope === "GLOBAL" && SAVED_GP.has(cell.id);
-/* send(v) for the last value given, REST_MS after the last call; the timer functions can be a test's */
-export function whenRested(send, { ms = REST_MS, later = setTimeout, cancel = clearTimeout } = {}) {
-  let t = null, v;
-  return (nv) => { v = nv; if (t !== null) cancel(t); t = later(() => { t = null; send(v); }, ms); };
+/* (web-r6, Session A's review of the debounce: BUILD.md Round 29) the saved settings of ONE unit's session that wait for the rest. put(id, v, c) shows v as
+   pending (pending(id): what the page shows for the cell, not the dump's old value, item 4) and sends it REST_MS after the last put, through
+   send(id, v, c): true when the unit took it (the dump is the unit's value then), false when it cannot be sent now (the page busy: tried again
+   after the rest, item 3), "failed" when refused or failed (the value is dropped, so the page shows the unit's value again, item 3).
+   flush(): every pending value written at once through now(id, v, c) (the page hidden or unloaded, the unit disconnected: item 1); then nothing is
+   pending. clear(): drops them (a new unit starts with none: item 2). The timer functions can be a test's. */
+export function restedSets({ send, now, ms = REST_MS, later = setTimeout, cancel = clearTimeout, changed = () => {} }) {
+  const p = new Map();                                        /* id -> {v, c, t} */
+  const arm = (id, e) => {
+    e.t = later(async () => {
+      e.t = null;
+      if (p.get(id) !== e) return;
+      let r;
+      try { r = await send(id, e.v, e.c); } catch (_) { r = "failed"; }
+      if (p.get(id) !== e) return;                            /* turned again meanwhile, flushed or cleared */
+      if (r === false) { arm(id, e); return; }
+      p.delete(id);
+      changed(id);
+    }, ms);
+  };
+  return {
+    put(id, v, c) { const o = p.get(id); if (o && o.t !== null) cancel(o.t); const e = { v, c, t: null }; p.set(id, e); arm(id, e); },
+    pending(id) { const e = p.get(id); return e ? e.v : undefined; },
+    get size() { return p.size; },
+    flush() {
+      const all = [...p.entries()];
+      p.clear();
+      for (const [id, e] of all) { if (e.t !== null) cancel(e.t); try { now(id, e.v, e.c); } catch (_) { /* (the port is gone) */ } }
+      return all.length;
+    },
+    clear() { for (const e of p.values()) if (e.t !== null) cancel(e.t); p.clear(); },
+  };
 }
 
 /* the pages this view shows: PAGE_STATUS "app Pages", in the firmware's order, grouped by family (the unit's family buttons) */
