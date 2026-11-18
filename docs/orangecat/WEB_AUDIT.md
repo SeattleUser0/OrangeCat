@@ -190,6 +190,40 @@ Checked and fine: every write clamped by the unit's descriptor; the editor runs 
 
 **Tests.** Full SAN=1 suite through `tools/suite_lock.sh` (slot 1, suites.slice, `--parallel 3`) in a checkout pinned at b77d60ed after `ci_step.py build`: **passed, 280 jobs, 16,889 s** (other sessions' builds and suites ran beside it). Web app tests 164 pass. This entry is a doc-only commit on top of b77d60ed.
 
+## For Session A: web-r6, the four debounce fixes and the guide for Nightly v0.16.0-6872dc (linux-hw 1dbeda9d merged)
+
+**Ready: yes.** This answers the hold in BUILD.md Round 29. New commits: b1479c6a (the four fixes, with tests), a884b22c (merge of linux-hw 1dbeda9d, no conflicts), acfe2c27 (the guide). The entries below are earlier rounds of web-r6; merge web-r6 as it is now.
+
+**The four should-fix items (b1479c6a).**
+1. *Flush.* A saved setting still resting is written at once, straight to the port, on `pagehide`, on `beforeunload` and on disconnect, before the link closes. A lost port: nothing can reach it.
+   - App: `PG.restedSets().flush()`
+   - Editor: `flushRested()`
+2. *Per unit.*
+   - App: one pending set per session (`restFor(s)`, made at connect, flushed and dropped at disconnect). A send whose session is no longer the page's is dropped.
+   - Editor: it sends the value it kept for the unit it was turned on (`st.want`, `st.dev`). It never sends the new unit's own value. `sets` is cleared at disconnect. sendSet's clamp write-back checks `d === dev`.
+3. *Refused or failed.*
+   - App: refused while `S.busy`, the value is tried again after another rest. Failed, or refused by the unit, it is dropped, and the cell shows the unit's value at the next render.
+   - Editor: a failed SET reads the dump back and shows the unit's value (forced), unless a newer request carries the control.
+4. *Render during the rest.*
+   - App: `cellView` shows the pending value.
+   - Editor: `touched()` holds the control while it rests, so the poll keeps it, and a dump read meanwhile does not change the value sent.
+
+*Tests.*
+- `web/app/test/test_pages.mjs` covers seven cases: the rest, flush, the busy retry, failure, a turn while a SET is in flight, per session, and a flushed SET landing on the mock unit. It also reads app.js's wiring from source.
+- `web/test_web.mjs` runs the editor's own `touched` to `sendSet` and `disconnect` from editor.html in a sandbox. It covers items 1 (pagehide, beforeunload, disconnect), 2, 3 and 4.
+- A mutant of each fix fails a test: 5 in pages.js and 7 in editor.html.
+
+**The guide (acfe2c27).** The header names build 6872dc, commit 6872dc4d, November 17, 2026. The firmware is a5b382's. fw_tables.js matches the merged firmware. Changes:
+- New section "Tracks OFF lend their memory: more MACRO voices" (BUILD.md 7.42). With three tracks OFF, a POLY MACRO track gets up to 16 voices (CHIP), 9 (NOISE, VA-VCF, TERRAN) or 6 (VA family). It uses free memory only when notes need it, and the effects are never made to yield. The families and modes that keep their voices are listed. A track turned ON takes the memory back at once: the extra voices are declicked, and the track may show WAIT for a few ms.
+- One new "differs" line.
+
+**Tests.** Full SAN=1 suite through `tools/suite_lock.sh` (slot 2, suites.slice, `--parallel 3`), in a checkout pinned at acfe2c27, after `ci_step.py build`: **passed, 286 jobs, 16,627 s**. Also passing:
+- the web app's 176 tests
+- `web/test_web.mjs`, test_flash_refuse, test_installer, test_installer_page, test_editor_layout
+- `gen_proto --check` and `gen_controls --check`
+
+This entry is a doc-only commit on top of acfe2c27.
+
 ## For Session A: web-r6 again, the guide for Nightly v0.16.0-dc0c9e (linux-hw 49d3625f merged)
 
 **Ready: yes.** web-r6 now has one more commit, d89aa6db. It merges linux-hw 49d3625f and updates the guide. It changes no firmware and no web app code: only `controls_src.json` and what `gen_controls.mjs` makes from it, plus this file. It replaces the web-r6 entry below; merge web-r6 as it is.
