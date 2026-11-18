@@ -5408,3 +5408,9 @@ Steps 2, 3 and 5 are Session C's and carry most of the time; 6 can be done besid
 
 *The unit's end state (November 18).* Nightly **v0.16.0-6872dc** (run 44283436147; linux-hw 6872dc4d) installed from the live page over the bench image: firmware written (64 writes), pack and five modules already current. Puya 0x856014. Modules: SHAPES 1, FX LAYER 2, WHEEL 5, MACRO models 17, DUB TAPE 18. Tracks MACRO 10 / 0 / 1 / 20, all ON, caps 4. Backups of the unit taken before each run: ~/fm1-hw/r29/backup-*.json.
 
+### 7.48 Round 30: the owner's decisions
+
+*The rising cap: the proof work stops; the cap stays in, with this limit.* In every run on the unit (Rounds 28 and 29, both images, CHIP ARP, VCF BRASS and VA BASS, rise rows and all-ON controls) no half was late. **It is not proven with DUB TAPE on the big track:** the test load could not hold DUB in any run, with or without the cap (DUB's CPU governor released it at 85 % of the half and its re-admission rule kept it out while the mix alone peaked above about 2,015 us), so whether a raised track and DUB together stay within the half is not measured. Also: CHIP and VA-VCF are not in the default model pick, so on a unit with the default pick those presets play VA and rise only to VA's 6 voices. The take's cost at a note-on is a host figure only (about 11.7 us a take).
+
+*DUB's re-admission rule stays as it is* (DUB FULL on the screen shows why DUB is out).
+
