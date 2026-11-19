@@ -167,6 +167,10 @@ static void display(void)
     printf("],\"gp\":[");
     for (i = 0, v = 0; i < (uint32_t)G_COUNT; i++) if (web_gp_refused(i)) printf("%s%u", v++ ? "," : "", i);
     printf("]},");
+    /* (web-r7, audit E11) the power-on sounds [engine, preset] (engines.c TRK_DEF under this build's switches): the editor mock's Nightly profile */
+    printf("\n\"trkDef\":[");
+    for (i = 0; i < NPART; i++) printf("%s[%u,%u]", i ? "," : "", TRK_DEF[i][0], TRK_DEF[i][1]);
+    printf("],");
     /* (web-r6) the globals a SET saves with the unit's settings (web_wire.h web_gp_saved = editor.c ed_dev_global): the pages send them once the value rests */
     printf("\n\"saved\":{\"gp\":[");
     for (i = 0, v = 0; i < (uint32_t)G_COUNT; i++) if (web_gp_saved(i)) printf("%s%u", v++ ? "," : "", i);

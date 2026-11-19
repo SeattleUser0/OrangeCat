@@ -4,7 +4,7 @@
      Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments -->
 <!-- Sample input recording and waveform trimming adapted from Andrea (@andreahaku), PR #29.
      Melodee web editor. One file, no libraries. Protocol: EDITOR_PROTOCOL.md.
-     Add ?mock=1 to the URL to use a built-in simulated device. -->
+     Add ?mock=1 to the URL to use a built-in simulated device (the Nightly: MACRO and DRUM-X only; ?mock=all for every engine). -->
 <html lang="ja">
 <head>
 <meta charset="utf-8">
@@ -1874,7 +1874,7 @@ const mixer = {
 
 /* ------------------------------------------------------------ mock device --- */
 /* Implements the protocol like firmware/src/editor.c, with tables copied from params.c
-   and the engine sources (test_web.mjs checks them against the firmware's, tests/descdump.c). Used with ?mock=1 (add &legacy=1 for a firmware without cmds 16..26).
+   and the engine sources (test_web.mjs checks them against the firmware's, tests/descdump.c). Used with ?mock=1 (the Nightly profile, MOCK_NIGHTLY; ?mock=all is the all-engines host build; add &legacy=1 for a firmware without cmds 16..26).
    opt: {legacy: no user bank / WATCH, v3: no TRACK_PARAM / TRACK_CHANGED (firmware 0.8),
          auto: false = no simulated knobs (tests drive sim.*),
          watchMs: how long WATCH lasts after the last request (3000), slots: user bank size (64)} */
@@ -2467,6 +2467,11 @@ function makeMockDevice(opt = {}) {
     E("LEVEL",["OFF", "ON"],0),
     E("SPK",["OFF", "LOWCUT", "BASS+"],0));
   const P_COUNT = 124, G_COUNT = 76, NSTEP = 64, P_E0 = 116, G_ENGSEL = 20, P_RESERVED45 = 45;
+  /* (web-r7, audit E11) the Nightly's profile (opt.nightly: true for MOCK_NIGHTLY, or {engines, trkDef}): the engines the Nightly does not build
+     read "-" in INFO, NAMES and ENGSEL, with no sounds, as the unit reports them (engines.c); the power-on sounds are its TRK_DEF (MACRO's
+     fallbacks) and the user sounds MACRO's. Without it the mock is the all-engines host build (desc.json, checked in test_web.mjs) */
+  const NIGHT = opt.nightly === true ? MOCK_NIGHTLY : opt.nightly || null;
+  if (NIGHT) ENG.forEach((e, i) => { if (!NIGHT.engines.includes(i)) { ENG[i] = { name: "-", titles: ["-", "-"], edit: Array(8).fill(NONE), presets: [] }; GP[G_ENGSEL].names[i] = "-"; } });
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const enumOrig = (d, v) => d.fmt === F.ENUM && d.names ? aliasOf(d.names, v - d.min) + d.min : v;   /* params.c enum_orig */
   /* four tracks (firmware v3), four synth parts (1.0); engine / preset / p / step below are the selected track's */
@@ -2562,14 +2567,16 @@ function makeMockDevice(opt = {}) {
     if (a.length >= 15) { x.cond = a[12]; x.nudge = a[13] - 32; x.rflam = a[14]; }
   }
   /* a few user presets to start with; BREADBOX stored with the ACID steps (as UP_STORE would) */
-  [[0, 0, 0, "MY LEAD"], [1, FM6_E, 1, "GLASS BELL"], [2, 3, 1, "BREADBOX"], [5, 3, 2, "RUBBER BASS"]].forEach(([slot, e, p, name]) => {
+  (NIGHT ? [[0, 8, 1, "MY LEAD"], [1, 8, 10, "MY CHORD"], [2, 8, 0, "MY BASS"], [5, 8, 20, "MY KICK"]]
+    : [[0, 0, 0, "MY LEAD"], [1, FM6_E, 1, "GLASS BELL"], [2, 3, 1, "BREADBOX"], [5, 3, 2, "RUBBER BASS"]]).forEach(([slot, e, p, name]) => {
     setEngine(e); applyPreset(p);
     if (slot === 2) loadDemo(0);
     st.bank[slot] = snapshot(name);
     clearSteps(); st.p[29] = 16;
   });
   /* the power-on sounds (engines.c TRK_DEF): IT'S A PROPHET 5, SOLID BASS, SYNTH.LEAD 1, 808 KIT */
-  [[1, FM6_E, 10], [2, 15, 52], [3, 10, 0], [0, 19, 1]].forEach(([i, e, p]) => { st.sel = i; setEngine(e); applyPreset(p); });
+  (NIGHT ? [1, 2, 3, 0].map((i) => [i, ...NIGHT.trkDef[i]]) : [[1, FM6_E, 10], [2, 15, 52], [3, 10, 0], [0, 19, 1]])
+    .forEach(([i, e, p]) => { st.sel = i; setEngine(e); applyPreset(p); });
   /* the device powers on with its sequencers empty; the mock starts as a little demo to look at: track 1 with
      IT'S A PROPHET 5, track 4 with BEAT, bass left, lead right */
   st.sel = 3; loadDemo(1);
@@ -3594,6 +3601,9 @@ async function replaceOcm(send, probe, row, ocm, ask, progress) {
 /* (web-r6, Session A's review of web-cmds item 2) the globals whose SET the unit saves with its settings (editor.c ed_dev_global: A4 21, BUDGET 41, BOOT 17, the DRUM
    channel 13, the WEIGHTS 4..9): each SET erases a settings sector, so the page sends such a value once it rests (the last one). test_web.mjs holds the list to the firmware's tables */
 const DEV_SAVED_G = new Set([4, 5, 6, 7, 8, 9, 13, 17, 21, 41]), DEV_REST_MS = 1000;
+/* (web-r7, audit E11) the Nightly the mock's profile follows (makeMockDevice({nightly: true}), editor.html?mock=1): the engines it builds and its
+   power-on sounds [engine, preset] (engines.c TRK_DEF under the Nightly's switches). test_web.mjs holds both to the firmware's tables (tests/web_tables.c) */
+const MOCK_NIGHTLY = { engines: [8, 9], trkDef: [[8, 10], [8, 0], [8, 1], [8, 20]] };
 /*PROTO-END*/
 
 /* ===================================================================== UI === */
@@ -3920,7 +3930,7 @@ $("tabs").addEventListener("keydown", (e) => {          /* arrow keys move betwe
 window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (TABS.includes(h) && h !== tab) showTab(h); });
 
 const QS = new URLSearchParams(location.search);
-const MOCK = QS.get("mock") === "1";
+const MOCK = ["1", "all"].includes(QS.get("mock"));   /* (web-r7) 1: the Nightly profile; all: every engine (the host build) */
 $("mock").hidden = !MOCK;
 let mock = null;
 
@@ -4011,7 +4021,7 @@ async function connect() {
   sayK("connecting");
   try {
     if (!access) {
-      if (MOCK) { mock = makeMockDevice({ legacy: QS.get("legacy") === "1", auto: QS.get("mockauto") !== "0" }); access = mock.access; }
+      if (MOCK) { mock = makeMockDevice({ legacy: QS.get("legacy") === "1", auto: QS.get("mockauto") !== "0", nightly: QS.get("mock") !== "all" }); access = mock.access; }
       else {
         try { access = await navigator.requestMIDIAccess({ sysex: true }); }
         catch (e) { sayK("denied"); return; }

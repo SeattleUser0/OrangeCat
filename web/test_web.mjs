@@ -35,7 +35,7 @@ const html = readFileSync(join(HERE, "editor.html"), "utf8");
 const proto = html.slice(html.indexOf("/*PROTO-BEGIN*/"), html.indexOf("/*PROTO-END*/"));
 const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
-   DEV_SAVED_G, DEV_REST_MS, UP, bank, nativeBank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
+   DEV_SAVED_G, DEV_REST_MS, MOCK_NIGHTLY, UP, bank, nativeBank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, F, FM6,
    FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone, ocmParse, ocmCheck, ocmTails, packProblem, ocmSwapPlan, modSummary, OCM_STATE, enginesRows, ocmReason, fetchModPages, replaceOcm, assignEngine, modCode, kitBody, kitFromBody, KIT_LANE, KIT_RANGE, sharedBank, dxkitRecord, dxkitFromRecord, dxkitValid })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
@@ -1940,6 +1940,33 @@ async function patternProtocol() {
       const last = C.shown.at(-1);
       ok(C.rqs.length === 1 && last[0] === "g:4" && last[1] === 3 && last[2] === true && d.dump.g[4] === 3, "editor: a failed SET shows the unit's value again, read back (review item 3)");
     }
+  }
+  {   /* (web-r7, audit E11) the mock's Nightly profile (editor.html?mock=1): the engines the Nightly builds and its power-on sounds, from the firmware's
+         tables (tests/web_tables.c under the Nightly's switches, in the app's fw_tables.js); the unit as the page sees it over the protocol */
+    const { FW } = await import(join(HERE, "app/lib/fw_tables.js"));
+    const built = FW.engines.filter((e) => e.inBuild).map((e) => e.num);
+    ok(JSON.stringify(E.MOCK_NIGHTLY.engines) === JSON.stringify(built) && JSON.stringify(E.MOCK_NIGHTLY.trkDef) === JSON.stringify(FW.trkDef),
+      `mock (Nightly): its engines (${built.join(" ")}) and power-on sounds (${JSON.stringify(FW.trkDef)}) are the firmware's`);
+    const m = E.makeMockDevice({ auto: false, nightly: true }), inp = [...m.access.inputs.values()][0], out = [...m.access.outputs.values()][0];
+    const link = new E.Link((d) => out.send(d), { timeout: 500 }); inp.onmidimessage = (e) => link.receive(e.data);
+    const rq = (r, o) => link.request(r, o);
+    try {
+      const info = E.parse[E.CMD.INFO](await rq(E.req.info()));
+      const named = info.engines.map((n, i) => n !== "-" ? i : -1).filter((i) => i >= 0);
+      const names = [];
+      for (const e of [3, 10, 12, 15, 19, 8]) names.push(E.parse[E.CMD.NAMES](await rq(E.req.names(e))).total);
+      ok(JSON.stringify(named) === JSON.stringify(built) && info.fm6 === null && !info.cz && !info.prophet && names.slice(0, 5).every((n) => !n) && names[5] > 0,
+        "mock (Nightly): INFO names only MACRO and DRUM-X; SID, DRUM, FM6, CZ-1 and the Prophet read \"-\" with no sounds (the editor turns their panels off)");
+      const tr = m.state.tracks.map((t) => [t.engine, t.preset]);
+      const eng = m.tables.GP[20].names.map((n, i) => n !== "-" ? i : -1).filter((i) => i >= 0);
+      const bank = m.state.bank.filter(Boolean).map((b) => b.engine);
+      ok(JSON.stringify(tr) === JSON.stringify(FW.trkDef) && JSON.stringify(eng) === JSON.stringify(built) && bank.length > 0 && bank.every((e) => built.includes(e)),
+        "mock (Nightly): it powers on with the Nightly's four MACRO sounds; ENGSEL lists only its engines; its user sounds are theirs");
+    } finally { m.stop(); }
+    const all = E.makeMockDevice({ auto: false });
+    ok(all.tables.ENG.filter((e) => e.name !== "-").length > built.length, "mock: without the profile it is still the all-engines host build (the desc.json check)");
+    all.stop();
+    ok(/nightly: QS\.get\("mock"\) !== "all"/.test(html) && /const MOCK = \["1", "all"\]\.includes\(QS\.get\("mock"\)\);/.test(html), "editor: ?mock=1 starts the Nightly profile, ?mock=all the all-engines mock");
   }
   {   /* (web-r6, audit E1) the Nightly sends the FM6 / CZ / Prophet tags with those engines "-" in the list: no 6-OP FM tab, no CZ or Prophet panel */
     const nm=(e)=>[...Array.from(e)].map(c=>c.charCodeAt(0)).concat(0);
