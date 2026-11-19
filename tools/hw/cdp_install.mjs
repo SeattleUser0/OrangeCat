@@ -91,6 +91,8 @@ ws.onmessage = async (m) => {
 const ev = async (e) => (await send("Runtime.evaluate", { expression: e, awaitPromise: true, returnByValue: true })).result?.result?.value;
 const txt = (idq) => ev(`(document.getElementById(${JSON.stringify(idq)})||{}).textContent`);
 const RETRY = /not found|did not come back/i;
+// (Round 31) the page's own ends of an Install: TEXT.sumTitle and the summary ("Result: ...", ja "結果: "), or TEXT.done alone ("Done", ja "完了しました"; transitDone)
+const finishedText = (s) => /^(Result: |結果: )/.test((s || "").trim()) || /^(Done|完了しました)$/.test((s || "").trim()) || /^TransitFM1 installed\.|^TransitFM1をインストールしました/.test((s || "").trim());
 const result = { url, build: build || null, stock: opt.stock || null, out, attempts: [] };
 try {
   await send("Browser.grantPermissions", { origin: new URL(url).origin, permissions: ["midi", "midiSysex"] });
@@ -155,7 +157,12 @@ try {
   result.downloads = readdirSync(dl);
   result.final = result.attempts.length ? result.attempts[result.attempts.length - 1].status : null;
   result.unmatched = unmatched;
-  result.ok = !unmatched.length && !!result.attempts.length && !result.attempts[result.attempts.length - 1].timedOut && !RETRY.test(result.final || "") && !/error|stopped|refus|could not|failed/i.test(result.final || "");
+  // (Round 31, found in the Q4 rehearsal: the 0.15.0 -> Nightly install was refused by the page's room meter before any write and reported ok) an attempt is ok only when the
+  // page ended it with its own result: the summary line ("Result: ...") or "Done" (a firmware alone, the stock install). Any other end (a refusal: the room meter's text, a
+  // module in the way, "Install waits until you choose") is NOT ok, with the page's text as the error
+  result.finished = finishedText(result.final);
+  result.ok = !unmatched.length && !!result.attempts.length && !result.attempts[result.attempts.length - 1].timedOut && result.finished && !RETRY.test(result.final || "") && !/error|stopped|refus|could not|failed/i.test(result.final || "");
+  if (!result.ok && result.attempts.length && !result.finished && !result.attempts[result.attempts.length - 1].timedOut) result.error = "the page ended without a result (nothing it reports as done): " + (result.final || "(no status)");
 } catch (e) {
   result.error = String(e && e.message || e);
   result.ok = false;

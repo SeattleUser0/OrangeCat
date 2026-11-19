@@ -204,6 +204,9 @@ def case_a():
     b1 = backup("a-saved")                              # (on the Standard: what the Nightly must keep; it doubles as the backup before a2)
     r2 = nightly("a2-nightly", take_backup=False)
     s2 = state("a: after the Nightly")
+    if not r2.get("ok"):                                 # (Round 31) a refusal (no "Result:" line) is not an install: nothing to compare
+        log({"case": "a", "ok": False, "error": r2.get("error") or r2.get("final")})
+        raise SystemExit(f"q4_install: case a: the Nightly install did not end clean (NOT ok): {r2.get('error') or r2.get('final')}")
     b2 = backup("a-after")
     o1, o2 = objects_of(b1), objects_of(b2)
     diff = {k: {"saved": o1.get(k), "after": o2.get(k)} for k in sorted(set(o1) | set(o2)) if k != 0 and o1.get(k) != o2.get(k)}
@@ -309,6 +312,9 @@ def case_c():
     state("c: on stock V15 (the editor does not answer there: expected)")
     r2 = nightly("c2-nightly", take_backup=False)    # (stock V15 has no editor and no Orange Cat data to back up)
     state("c: after the Nightly")
+    log({"case": "c", "ok": bool(r2.get("ok")), "error": None if r2.get("ok") else (r2.get("error") or r2.get("final"))})
+    if not r2.get("ok"):                                 # (Round 31) a refusal (no "Result:" line) is NOT ok
+        raise SystemExit(f"q4_install: case c: the Nightly install did not end clean (NOT ok): {r2.get('error') or r2.get('final')}")
     return r2
 
 
@@ -319,8 +325,14 @@ def case_d():
     a = r.get("attempts", [])
     last = a[-1] if a else {}
     wrote = [l for l in last.get("summary", []) if re.search(r"\binstalled\b", l) and "already" not in l]
-    log({"case": "d", "fw_writes": last.get("fwWrites"), "questions": last.get("dialogs"), "parts_written": wrote, "attempts": len(a),
-         "nothing_written_nothing_asked": bool(a) and last.get("fwWrites") == 0 and not last.get("dialogs") and not wrote})
+    # (Round 31, found in the rehearsal: the page refused the install with its room meter, no "Result:" line, and this said "nothing written nothing asked": true) the
+    # case's verdict is the page's: only an install the page ended with its result counts; a refusal is a failed case, with the page's text
+    ok = bool(r.get("ok"))
+    log({"case": "d", "ok": ok, "error": None if ok else (r.get("error") or r.get("final")), "fw_writes": last.get("fwWrites"), "questions": last.get("dialogs"),
+         "parts_written": wrote, "attempts": len(a),
+         "nothing_written_nothing_asked": ok and bool(a) and last.get("fwWrites") == 0 and not last.get("dialogs") and not wrote})
+    if not ok:
+        raise SystemExit(f"q4_install: case d: the page did not install (NOT ok): {r.get('error') or r.get('final')}")
     return r
 
 
@@ -354,8 +366,11 @@ def main():
         projects_wipe()
     elif A.case == "b":
         state("b: before the install (wiped)")
-        nightly("b-nightly")
+        rb = nightly("b-nightly")
         state("b: after the Nightly")
+        log({"case": "b", "ok": bool(rb.get("ok")), "error": None if rb.get("ok") else (rb.get("error") or rb.get("final"))})
+        if not rb.get("ok"):
+            raise SystemExit(f"q4_install: case b: the page did not install (NOT ok): {rb.get('error') or rb.get('final')}")
     elif A.case == "c":
         if not A.stock:
             raise SystemExit("q4_install: case c needs --stock FM-1.fwsc")
