@@ -7,12 +7,19 @@ This is the list of changes a player can see or that touch the data on the unit,
 
 ## Release 3: Orange Cat 0.17.0 (DRAFT, November 19, 2026; not released, VERSION not set, no tag)
 
-*Drafted from what the Nightlies of Rounds 13 to 30 shipped (docs/orangecat/BUILD.md 7.2x to 7.49). The owner's Release plan 0.9 (in the claude.ai project) has the final contents; this draft was not compared with it: the owner checks it.* **The project format revision, scenes v2, Performance Mode and project-owned phrases are not in Release 3** (the owner, Round 31): they move to Release 4. Projects, presets and phrases are stored as in 0.16.0.
+*Drafted from what the Nightlies of Rounds 13 to 31 shipped (docs/orangecat/BUILD.md 7.2x to 7.51) and checked against the owner's Release plan 0.9 as he listed it (Round 31): effects as modules, the 18-sector module area and the tail region, the model picker with VA built in, the new interface as the default with the new main screen and the Melodee screens removed, GRID, the DUB performance view with recorded keys, track OFF with the rising cap, both flash chips, browse showing only installable sounds, the web app and the controls guide. **The new main screen (layout 1, strips) and the removal of the Melodee screens (step 9) are Session C's and not merged when this was written: the lines below that describe them wait for that merge.*** **The project format revision, scenes v2, Performance Mode and project-owned phrases are not in Release 3** (the owner, Round 31): they move to Release 4. Projects, presets and phrases are stored as in 0.16.0.
+
+**The interface**
+- **The new interface is the default:** HOME's pages, the EDIT sheets, the four knobs per engine, HOME as SHIFT. *(Waits for step 9:)* the new main screen, layout 1 with a strip per track, and the old Melodee screens and their code removed.
+- **GRID:** the pad grid for playing and stepping.
+- **DUB TAPE's performance view:** the DUB page with its keys (KICK, HOLD, DIVE, RISE), recorded as control notes and played back.
+- **The web app and the controls guide** (every key, knob and page, following each release).
 
 **Install and update**
+- **The module area is 18 sectors, with a tail region** for DUB TAPE (21 module starts in all), so the default set fits beside the firmware.
+- **The model picker:** MACRO's VA is built in; its other models are a module you pick on the page (the default pick is models 1 to 14).
 - The installer page writes only what changed: firmware, the asset pack and every module are compared with what the unit holds (by checksum) and left alone when they match. A second install of the same set writes nothing.
 - Effects are modules: **DUB TAPE**, the **FX layer** (GLITCH, TAPE STOP with SCRATCH, SHUFFLE, FREEZE) and the **REVERB MODES** (SPRING, SHIMMER, RESO; ROOM and CLOUD stay built in). The default install ticks DUB TAPE and the FX layer.
-- **MACRO's models** are a module you pick on the page (the default pick is MACRO's own models 1 to 14).
 - When the ticked set does not fit, the page asks which effect module gives way this time; a unit holding REVERB MODES gets a one-click path to the default set (the page asks, removes it, installs the rest). A ticked module is never removed.
 - **Upgrading from 0.15.0 Standard:** the page plans the modules for the firmware it is about to install. Before it writes anything it names what will stop working under the new firmware (0.15.0's own modules, such as PROPHET; a sample longer than the new firmware keeps: keep its WAV and load it again shorter) and asks. If the unit's memory cannot hold the default set, it says so before writing anything and tells you what to free.
 - **Both FM-1 flash chips are supported:** Puya P25Q80 (0x856014) and UCUN UC25HQ80 (0xB36014). On any other chip the unit and the page say FLASH NOT SUPPORTED and write nothing. The page refuses a firmware package that does not know the unit's chip.
