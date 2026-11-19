@@ -2715,7 +2715,6 @@ int main(int argc, char **argv)
         fprintf(rep, "(melodic-grid) SEQ > GRID: %u screens over every palette\n", (unsigned)nm);
     }
 #endif
-#if OC_LANES
     {   /* (the new interface 0.5, UI_BUILD.md step 5) DRUM-X's LANES table with lane 0, 2 and 7 picked and the kit's values moved, in every
          * palette, linted and MONO gray; NIGHT, DAY and CONTRAST written as PPMs (lanes_<n>) */
         static const uint8_t PICK[3] = {0, 2, 7};
@@ -2752,7 +2751,6 @@ int main(int argc, char **argv)
             }
         fprintf(rep, "(the new interface 0.5) DRUM-X's LANES: %u screens over every palette\n", (unsigned)nm);
     }
-#endif
     library_note_sweep(out);
     designer_sweep(out);
     {   /* every FM6 chart (the lint above, fmp_check, runs on each), in MONO: gray */

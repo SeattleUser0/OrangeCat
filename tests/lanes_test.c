@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner. */
-/* The new interface, step 5 (docs/orangecat/UI_BUILD.md "Step 5: EDIT > LANES") with OC_LANES=1, through tests/ui_test.c's host UI.
- *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o lanes_test tests/lanes_test.c -lm
+/* The new interface, step 5 (docs/orangecat/UI_BUILD.md "Step 5: EDIT > LANES") (always on since step 9), through tests/ui_test.c's host UI.
+ *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o lanes_test tests/lanes_test.c -lm
  * Checked:
  *   PAGE    DRUM-X's LANES page is the table page (GR_LANES); LANES 2 and 3 are as before; no other engine has it
  *   PICK    PRESETS picks the lane (both ways, held at the ends); the knobs edit the picked lane's LEVEL, TUNE, DECAY, PAN and
@@ -22,8 +22,8 @@ static void chk(const char *what, int ok)
 }
 int main(void)
 {
-#if !OC_LANES || !MELODEE_DRUMX
-    printf("lanes: built without OC_LANES\n");
+#if !MELODEE_DRUMX
+    printf("lanes: built without DRUM-X\n");
     return 0;
 #else
     uint32_t l, k, i, x, y;

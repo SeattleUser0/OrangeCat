@@ -13,7 +13,7 @@
 #include <stdint.h>
 /* (the clip paste is only built with OC_CLIP and OC_CLIP_SEL, which the build switches leave off; the BULK checks need it, so this test turns the two on where the interface steps they
  * rest on are on: the same combination tests/clip_sel_test.c runs. The legacy job, everything off, leaves them off and skips the paste pass) */
-#if defined(OC_LANES) && OC_LANES && !defined(OC_CLIP)
+#if defined(OC_STEP_PAGES) && OC_STEP_PAGES && !defined(OC_CLIP)
 #define OC_CLIP 1
 #define OC_CLIP_SEL 1
 #endif

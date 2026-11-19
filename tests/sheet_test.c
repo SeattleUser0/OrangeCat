@@ -207,9 +207,7 @@ int main(void)
             ok &= on_sheet(&c, 0);
             turn(EN_PRESET, -1);
             ok &= on_sheet(&c, 0);                      /* (the first end: no wrap) */
-#if OC_LANES
             if (e != ENGI_DRUMX)                        /* (ui-build 5: on DRUM-X's LANES table PRESETS picks the lane, not the sheet: lanes_test) */
-#endif
             {
                 for (k = 0; k < n + 2u; k++)
                     turn(EN_PRESET, 1);

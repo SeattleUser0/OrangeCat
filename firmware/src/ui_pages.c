@@ -758,9 +758,7 @@ static void pv_strip(uint32_t k)
     }
 }
 
-#if OC_LANES
 static void pv_lanes(int32_t h) { graph_lanes(TSEL, h); }   /* (the new interface 0.5) pv_panel's drawing of DRUM-X's LANES table */
-#endif
 /* ----------------------------------------------------------- draw --- */
 static void pv_draw(void)
 {
@@ -861,10 +859,8 @@ static void pv_draw(void)
         sec_note();
     card_y = Y_LABEL + pv_tab_h;
     col_style = CS_CARD;
-#if OC_LANES
     if (kind == PV_RINGS && cur_page()->graph == GR_LANES) {   /* (the new interface 0.5: the table's headings stand for the cards) */
     } else
-#endif
 #if OC_EDIT_SHEETS
     {   /* (the new interface 0.2) a sheet's row: its labels in the knobs' colors (the cozies, step 1's T_COZY) */
         int row = !designer_on() && !page_over && !ui.home && sh_row(ui.page);
@@ -891,7 +887,6 @@ static void pv_draw(void)
         if (sh_p != 3u && sh_p != 4u && sh_lower()) {
         } else
 #endif
-#if OC_LANES
         if (kind == PV_RINGS && cur_page()->graph == GR_LANES) {   /* (the new interface 0.5, ui_lanes.c) the eight lanes' table */
             sig = lanes_sig() ^ (uint32_t)pv_tab_h * 40503u ^ ux.pal * 31u ^ ux.gen * 977u;
             if (ui.force || sig != pv.panel) {
@@ -899,7 +894,6 @@ static void pv_draw(void)
                 pv_panel(Y_LABEL + pv_tab_h, PV_SOUND_Y - (Y_LABEL + pv_tab_h), pv_lanes);
             }
         } else
-#endif
         if (kind == PV_RINGS) {
             pv_picture();
         } else {
