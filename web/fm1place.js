@@ -147,6 +147,32 @@ function fromUnit(unit) {
   s.nfxmod = fx.filter((e) => !e.resident).length;
   return s;
 }
+// (Round 31, found on the unit: 0.15.0 Standard -> the Nightly refused by the meter) the unit as a firmware of THIS page's layout (the 18 area starts and, `tail`, the tail
+// region; FLASH_MAP_R3.md 10) will read it once the page has installed that firmware over an older one. What the older firmware said is read for what it is: its starts sit at
+// the same sectors (OC_SECT; 0.15.0 reports 3 of them, sectors 0, 6 and 4), so a module the older firmware lists stays where it is. A module of another interface (the unit's
+// MOD_INFO iface against the build's, `iface`: every module an older build wrote, 0.15.0's 4-sector WHEEL and its SHAPES among them) is refused by the new firmware
+// (oc_module.c MD_REFUSED): junk the planner may write over, never "already installed"; with the same interface the modules stay as they are. A start the older firmware
+// did not report (0.15.0's 3..17, the tail) is planned as empty: the new firmware treats anything there without its magic and CRC as empty (10.4). The six low sectors are
+// the area's (the new firmware's first boot moves the record store out of them: smp_modules_low); the older firmware's lowOk (0.15.0: absent, so false) and its "biggest
+// run" do not apply to it. This is the page's plan before a byte is written; runSet reads the unit again once the new firmware is on and places the set there, so nothing is
+// written into a layout the firmware no longer has. -> a unit object as fromUnit takes it, mod.predicted: what the older firmware reported ({nstarts, sectors, lowOk}).
+function afterFirmware(unit, { tail = true, iface = null } = {}) {
+  if (!unit || !unit.mod || !unit.mod.starts) return unit;
+  const n = OC_STARTS + (tail ? OC_TAIL : 0), old = unit.mod.starts, keep = iface != null && (unit.mod.iface >>> 0) === (iface >>> 0);
+  const at = (i) => (i < old.length && (!unit.mod.sectorOf || unit.mod.sectorOf[i] === OC_SECT[i]) ? old[i] : null);
+  const starts = Array.from({ length: n }, (_, i) => {
+    const x = at(i);
+    if (!x || !x.state) return { state: MD.EMPTY, why: 0, engine: 0, length: 0 };
+    const ok = x.state === MD.OK || x.state === MD.CRASHED || x.state === MD.NOSLOT;
+    return keep || !ok ? { ...x } : { state: 2, why: 0, engine: x.engine, length: x.length };   // 2: MD_REFUSED (another interface)
+  });
+  const fx = keep && unit.fx ? { effects: unit.fx.effects.filter((e) => e.resident || (e.start != null && at(e.start))) } : null;
+  const mod = { ...unit.mod, nstarts: n, sectors: OC_AREA, lowOk: true, starts, sectorOf: OC_SECT.slice(0, n),
+                predicted: { nstarts: old.length, sectors: unit.mod.sectors, lowOk: !!unit.mod.lowOk } };
+  if (!keep) { delete mod.crcs; delete mod.pages; }
+  delete mod.fw; delete mod.tail;
+  return { ...unit, mod, engines: keep ? unit.engines : null, fx };
+}
 // the page's words for a failed plan (the module that does not fit, what is left)
 function whyNot(s, mods, r) {
   const m = mods[r.failAt], t = r.final, name = m.name || (m.engine != null ? "engine " + m.engine : "0x" + (m.mid >>> 0).toString(16).toUpperCase());
@@ -217,5 +243,5 @@ function arrange(s, mods, opts = {}) {
   for (const j of foreign) { keep.add(j); if (!simulate(cleared(keep), all).ok) keep.delete(j); }
   return { how: "blocked", order, plan: asis, blockers: foreign.filter((j) => !keep.has(j)).map((j) => ({ start: j, engine: s.starts[j].engine, kind: s.starts[j].kind, mid: s.starts[j].mid })) };
 }
-return { plan, planEngine, planFx, apply, simulate, fromUnit, emptyState, cloneState, biggestRun, whyNot, goalOrder, arrange, hasTail, isTailUnit, placeName, sectorsOf, OC_SECT, OC_STARTS, OC_AREA, OC_BASE, OC_TAIL, OC_TAIL_REL, OC_FX_ENGINE, ENG_GEO, ENG_GEO_TAIL };
+return { plan, planEngine, planFx, apply, simulate, fromUnit, afterFirmware, emptyState, cloneState, biggestRun, whyNot, goalOrder, arrange, hasTail, isTailUnit, placeName, sectorsOf, OC_SECT, OC_STARTS, OC_AREA, OC_BASE, OC_TAIL, OC_TAIL_REL, OC_FX_ENGINE, ENG_GEO, ENG_GEO_TAIL };
 })();
