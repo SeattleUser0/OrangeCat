@@ -592,19 +592,16 @@ static int test_frozen_lock(void)
     go_home();
     ui.force = 1;
     frame();
-    {   /* HOME: the frozen track's row greyed with a blue tint (ui_stage.c), its role FROZEN */
-        uint32_t mono = ux.mono, sel = song.sel == 0u;
-        uint16_t tc, bg, px;
-        ux.mono = 0;                                    /* (a colour palette: the tint is blue) */
+    {   /* HOME: the frozen track's row says FROZEN (ui_main.c mn_row: the word in a pill, in the blue ink; the name grey) */
+        uint32_t mono = ux.mono, x, y, blue = 0;
+        ux.mono = 0;                                    /* (a colour palette: the word is blue) */
         ui.msg_t = 0;                                   /* (the message over the first row gone) */
         ui.force = 1;
         frame();
-        tc = ux_mix(T_DIM, ST_FROZEN_BLUE, 55);
-        bg = ux_mix(T_BG, tc, sel ? 24 : 11);
-        px = host_screen[(uint32_t)(st_row_y(0) + 3) * 240u + BOX_X + 20u];
-        px = (uint16_t)((px >> 8) | (px << 8));
-        bad += check("frozen phrase: HOME shows the track greyed with a blue tint",
-                     px == bg && (tc & 31u) > ((tc >> 11) & 31u) + 4u);
+        for (y = (uint32_t)MN_Y; y < (uint32_t)MN_Y + 22u; y++)
+            for (x = 150u; x < 238u; x++)
+                blue += host_screen[y * 240u + x] == swap16(mn_ink(MN_FROZEN));
+        bad += check("frozen phrase: HOME's row says FROZEN in the blue ink", blue > 10u && mn_state(0) == MN_FROZEN);
         ux.mono = (uint8_t)mono;
         ui.force = 1;
     }
@@ -1043,21 +1040,18 @@ static int test_track_count(void)
     song.ntrk = 1;                                      /* (a song down to one track) */
     ui.force = 1; frame();
     bad += check("UNUSED TRACKS SHOW: four rows, the places not in use greyed (Add track)", stage_rows() == NTRK &&
-                 st_row_h() == (ST_ROWS_H - 6) / 4 && stage.col[1] && stage.col[3]);
+                 st_row_h() == (ST_ROWS_H - 6) / 4 && mn.col[1] && mn.col[3]);
     hold(B_HOME); ui.menu_sel = MI_TRACKS; press(B_OCTUP); hold(B_HOME);
     ui.force = 1; frame();
     bad += check("  menu UNUSED TRACKS (OCT+): HIDE, the one track the wide card",
                  (GLO_SELECT & TRACKS_HIDE) && stage_rows() == 1u && st_row_h() == ST_ROWS_H);
     hold(B_HOME); ui.menu_sel = MI_TRACKS; turn(EN_K1, -1); hold(B_HOME);
     bad += check("  KNOB 1 left: SHOW again", !(GLO_SELECT & TRACKS_HIDE) && stage_rows() == NTRK && ui.home);
-    bad += check("  no pattern at all: Stage's card shows no pattern pill, no steps (a synth)", stage_seq_idle(0));
-    one_note(&trk[0], 3, 60);
-    ok = !stage_seq_idle(0);
+    one_note(&trk[0], 3, 60);                           /* (step 4 of track 1: its cell lights in the track's colour on the main screen) */
+    ui.force = 1; frame();
+    bad += check("  a note in track 1's pattern: its cell on the main screen is lit in the track's colour",
+                 host_screen[(uint32_t)(MN_Y + MN_STEP_Y + 2) * 240u + (uint32_t)(MN_STEP_X + 3 * 9 + 3)] == swap16(T_TRK(0)));
     track_defaults_steps(&trk[0]);
-    song.rec = 1;
-    ok &= !stage_seq_idle(0);
-    song.rec = 0;
-    bad += check("  a note, or armed to record: they come back", ok && stage_seq_idle(0));
     turn(EN_ALGO, 1);
     bad += check("  ALGORITHM: no other track to select", song.sel == 0);
     trk[2].engine = trk[2].eng_req;
@@ -5833,17 +5827,14 @@ static int test_stage(void)
     drum_flash[3] = 0;
     input_on(TSEL, 38, 100); input_off(TSEL, 38);
     events_block(2);
-    bad += check("a DRUM hit flags its lane for Stage (SNARE)", (drum_flash[3] >> 1) & 1u);
-    go_home();
-    frame();
-    bad += check("  .. Stage takes it and lights the lane's name", !drum_flash[3] && stage.hit_t[1]);
+    bad += check("a DRUM hit flags its lane (SNARE): the engine's own flag, nothing on HOME reads it since the Stage went", (drum_flash[3] >> 1) & 1u);
     ui_power_on();
     return bad;
 }
 
-/* Stage's knobs after DRUM SOUND (the page HOME keeps): Stage's cards alone, nothing sent while they rest (last in
+/* HOME's main screen after DRUM SOUND (the page HOME keeps): a knob turned redraws the dials, and at rest nothing is sent (last in
  * main: its frames move the clock the breathing checks read) */
-static int test_stage_knobs_after_drum(void)
+static int test_main_knobs_after_drum(void)
 {
     int bad = 0;
     uint32_t k;
@@ -5856,12 +5847,12 @@ static int test_stage_knobs_after_drum(void)
     go_home();
     frame(); frame();
     turn(EN_K1, 1);
-    for (k = 0; k < ST_DROP + 2u; k++)
+    for (k = 0; k < 6u; k++)
         frame();
     s0 = host_sent;
     frames(160);
-    bad += check("Stage after DRUM SOUND: the knobs out, not redrawn over the page's cards each frame",
-                 stage.out && host_sent == s0 && memcmp(ui.col[0], "DRUM|", 5));
+    bad += check("main screen after DRUM SOUND: a knob turned does not bring the cards over it, and it is not redrawn each frame at rest",
+                 !stage.out && host_sent == s0 && memcmp(ui.col[0], "DRUM|", 5));
     ui_power_on();
     return bad;
 }
@@ -6503,13 +6494,6 @@ static int test_seq_keys(void)
         GLO_SELECT = 0;
     }
     ui_power_on();
-    song.ntrk = 2;
-    song.rec = 2u;
-    stop_transport();
-    bad += check("an armed track's row: its border lit (stopped: breathing), the other none",
-                 stage_rec_lv(1) && !stage_rec_lv(0));
-    song.rec = 0;
-    ui_power_on();
     return bad;
 }
 #ifndef UI_TEST_NO_MAIN                                 /* (Orange Cat 0.5.3: tests/oc_pages_test.c has its own) */
@@ -6836,7 +6820,7 @@ int main(void)
     bad += test_bughunt_ui2();
     bad += test_piano_roll();
     bad += test_fm6_charts();
-    bad += test_stage_knobs_after_drum();
+    bad += test_main_knobs_after_drum();
     bad += test_admission();
 
     if (getenv("UI_SCREEN_DIR")) chain_screens(getenv("UI_SCREEN_DIR"));

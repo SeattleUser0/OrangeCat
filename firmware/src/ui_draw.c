@@ -84,7 +84,7 @@ static void head_chip_text(char *b)
         b[5] = (char)('1' + ui.ptc_src % NPAT);
         b[10] = (char)('1' + ui.ptc_dst % NPAT);
 #if OC_HOME_PIC
-    } else if (ui.home && !OC_STAGE_OLD && !ui.home_pg && song.playing) {   /* (step 9) the main screen while the music runs: the bar in view (the selected track's, as its row's steps) */
+    } else if (ui.home && !ui.home_pg && song.playing) {   /* (step 9) the main screen while the music runs: the bar in view (the selected track's, as its row's steps) */
         str_cpy(b, "BAR ", 8);
         fmt_int(b + 4, (int32_t)(TSEL->seq_idx < (uint32_t)clamp(TSEL->p[P_SLEN], 1, NSTEP) ? TSEL->seq_idx / 16u : 0u) + 1);
 #endif
@@ -298,7 +298,7 @@ static void binary_badge(int32_t xc, int32_t y, int32_t h, const char *val, uint
     if (!on) cv_rrect(xc - w / 2 + 1, y + 1, w - 2, h - 2, 5, fill, T_LINE);
     cv_text_c(xc, ty_y(y + h / 2, TY_LB), TY_LB, on ? "ON" : "OFF", on ? T_INK : T_MID, fill);
 }
-static uint8_t stage_drop_rows;                         /* Stage's knobs dropping in: the cards' bottom rows only, 0 all */
+static uint8_t stage_drop_rows;                         /* the knobs dropping in over the chord view: the cards' bottom rows only, 0 all */
 enum { CS_CARD, CS_RING, CS_CAPTURE };               /* how draw_column draws a knob: CARD, RING: the strip's cell (the
                                                          * large type); CAPTURE: kept for a list's rows, ui_list.c */
 static void list_capture(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc);
@@ -546,7 +546,7 @@ static const char *frz_word(uint32_t k, int playing)
 static uint32_t frz_state(uint32_t k) { return k >= 4u ? 0u : frz[k].st != FZ_OFF ? 1u : frz_track_frozen(k) ? 2u : 0u; }
 #endif
 #include "ui_sections.c"                                /* the EDIT pages in sections, the map */
-#include "ui_stage.c"                                   /* Stage (HOME) */
+#include "ui_rows.c"                                    /* (step 9) what the Stage left: MIXER's rows, the waveform, a knob's words */
 #include "ui_view.c"                                    /* HOME's second page: the chord, pictures of what plays */
 #if OC_HOME_PIC
 #include "oc_scene.c"                                   /* (the new interface, UI_BUILD.md 1b) the pictures' interpreter */
@@ -1171,12 +1171,8 @@ static void draw_page(void)
 #endif
         if (ui.home && ui.home_pg)                      /* HOME's second page (ui_view.c) */
             view_draw();
-        else if (ui.home)                               /* Stage: its panel and the lanes (ui_stage.c), no footer */
-#if OC_HOME_PIC
-            if (!OC_STAGE_OLD) main_draw();             /* (step 9) the main screen (ui_main.c) */
-            else
-#endif
-            stage_draw();
+        else if (ui.home)                               /* the main screen (ui_main.c), no footer */
+            main_draw();
         else
             draw_graph();
     }

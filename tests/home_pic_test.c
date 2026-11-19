@@ -4,15 +4,12 @@
  * on tests/ui_test.c's stubs.
  *   cc -O1 -w -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o home_pic_test tests/home_pic_test.c -lm
  *   ./home_pic_test            the checks below
- *   ./home_pic_test hash       (built with OC_HOME_PIC=0 or 1) a hash of HOME's screens with HOME PAGE at TRACKS, for run_tests.sh to
- *                              compare: the switch built in and TRACKS chosen draws release-2's pixels
- * Checked (OC_HOME_PIC=1):
- *   MENU      MENU > HOME PAGE: TRACKS by default, PICTURE in favorites' bit, back to TRACKS
- *   PAGES     PICTURE chosen: HOME lands on the picture; HOME tapped steps PICTURE, TRACKS, CHORD; HOME from another page lands on
- *             the picture; TRACKS chosen: never the picture
+ * Checked:
+ *   SETTINGS  the old MENU > HOME PAGE bit (favorites' bit) set or clear loads and is kept as the settings record had it; nothing sets it
+ *   PAGES     HOME lands on the main screen; HOME tapped steps main, PICTURE, CHORD (DUB: tests/dub_perf_test.c); HOME from another
+ *             page lands on the main screen, or the chord view where it was
  *   KNOBS     on the picture, KNOB 1 .. 4 write the table's ids (a plain knob its parameter, a macro P_MACk within -64 .. 63, far
  *             past both ends); an engine without a table keeps its four EDIT knobs (and the plain picture)
- *   COMMIT    back to TRACKS: every track's macros committed into their targets as a save does, the macros 0
  *   REMOVE    a track removed: the sound kept (the macros committed), the macros 0
  *   DRAWS     the picture drawn for MACRO, SHAPES, DRUM-X; the sound line names a knob while it turns
  *   HIT       a note-on moves the picture; a chord's newer note freed first is not taken for one
@@ -60,31 +57,6 @@ static void settle(void)
     for (uint32_t b = 0; b < 400u; b++) mix_block(out, CTL);
 }
 
-/* HOME's screens with HOME PAGE at TRACKS: Stage, a knob turned on it, the chord view, back; on the power-on sound and on MACRO,
- * SHAPES and DRUM-X (the engines with a table: the knobs must stay today's); with the switch built in, after PICTURE was chosen and
- * TRACKS chosen again too */
-static uint32_t tracks_hash(void)
-{
-    static const uint32_t E[4] = {0xFFu, ENGI_MACRO, ENGI_SHAPES, ENGI_DRUMX};
-    uint32_t h = 0;
-    for (uint32_t pass = 0; pass < 2u; pass++)
-        for (uint32_t e = 0; e < 4u; e++) {
-            ui_power_on();
-            if (E[e] != 0xFFu) set_engine_of(TSEL, E[e]);
-            settle();
-#if OC_HOME_PIC
-            if (pass) { home_pic_set(1); frames(100); home_pic_set(0); }
-#endif
-            frames(200); h = h * 31u + screen_hash();
-            turn(EN_K2, 3); frames(100); h = h * 31u + screen_hash();
-            turn(EN_K4, -2); frames(100); h = h * 31u + screen_hash();
-            frames(2000); h = h * 31u + screen_hash();
-            press(B_HOME); frames(100); h = h * 31u + screen_hash();
-            press(B_HOME); frames(100); h = h * 31u + screen_hash();
-        }
-    return h;
-}
-
 #if OC_HOME_PIC
 static double contrast(uint16_t a, uint16_t b)
 {
@@ -97,58 +69,53 @@ static double contrast(uint16_t a, uint16_t b)
     }
     return (fmax(l[0], l[1]) + 0.05) / (fmin(l[0], l[1]) + 0.05);
 }
-static void pic_on(void)
+static void pic_on(void)                                /* the picture page: HOME turned to it */
 {
-    hold(B_HOME);                                       /* MENU */
-    ui.menu_sel = MI_HOME_PAGE;
-    if (!home_pic_on()) press(B_OCTUP);
-    hold(B_HOME);
     go_home();
+    for (int i = 0; i < 4 && ui.home_pg != 2u; i++) press(B_HOME);
     frames(100);
 }
 #endif
 
 int main(int argc, char **argv)
 {
+    (void)argc; (void)argv;
     setvbuf(stdout, NULL, _IONBF, 0);
-    if (argc > 1 && !strcmp(argv[1], "hash")) {
-        printf("%08X\n", tracks_hash());
-        return 0;
-    }
-#if !OC_HOME_PIC
-    printf("home_pic: built without OC_HOME_PIC: only the hash mode\n");
-    return 0;
-#else
-    {   /* MENU */
+    {   /* SETTINGS */
         int ok;
         ui_power_on();
-        ok = !home_pic_on() && ui.home_pg == 0u;
-        pic_on();
-        ok &= home_pic_on() && (favorites.factory[15][24] & 64u) && ui.home && ui.home_pg == 2u;
+        ok = home_pic_on() && !(favorites.factory[15][24] & 64u);
+        favorites.factory[15][24] |= 64u;
         {   /* the settings record and back (settings_persist.c), as a power cycle reads it */
             static persist_t rec;
             settings_export(&rec);
             favorites.factory[15][24] &= (uint8_t)~64u;
             settings_import(&rec, (int)sizeof rec);
-            ok &= home_pic_on();
+            ok &= (favorites.factory[15][24] & 64u) != 0u && home_pic_on();
+            favorites.factory[15][24] &= (uint8_t)~64u;
+            settings_export(&rec);
+            favorites.factory[15][24] |= 64u;
+            settings_import(&rec, (int)sizeof rec);
+            ok &= !(favorites.factory[15][24] & 64u) && home_pic_on();
         }
-        home_pic_set(0);
-        ok &= !home_pic_on() && !(favorites.factory[15][24] & 64u) && ui.home_pg == 0u;
-        chk("MENU    HOME PAGE: TRACKS by default; PICTURE in favorites' row 15 byte 24 bit 6, kept by the settings record; TRACKS", ok);
+        ui_power_on();
+        ok &= !(favorites.factory[15][24] & 64u);
+        chk("SETTINGS the old HOME PAGE bit (row 15 byte 24 bit 6): set or clear, the settings record keeps it as it was and the new interface is on either way; nothing sets it", ok);
     }
     {   /* PAGES */
         int ok = 1;
         ui_power_on();
-        pic_on();
-        ok &= ui.home_pg == 2u;
-        press(B_HOME); ok &= ui.home && ui.home_pg == 0u;
+        go_home(); frames(8);
+        ok &= ui.home && ui.home_pg == 0u;
+        press(B_HOME); ok &= ui.home_pg == 2u;
         press(B_HOME); ok &= ui.home_pg == 1u;
+        press(B_HOME); ok &= ui.home_pg == 0u;
         press(B_HOME); ok &= ui.home_pg == 2u;
         press(B_SEQ); ok &= !ui.home;
-        press(B_HOME); ok &= ui.home && ui.home_pg == 2u;
-        home_pic_set(0);
-        for (int i = 0; i < 4; i++) { press(B_HOME); ok &= ui.home_pg < 2u; }
-        chk("PAGES   PICTURE lands on the picture; HOME steps PICTURE TRACKS CHORD; from SEQ back to the picture; TRACKS: never it", ok);
+        press(B_HOME); ok &= ui.home && ui.home_pg == 0u;
+        press(B_HOME); press(B_HOME); ok &= ui.home_pg == 1u;
+        press(B_SEQ); press(B_HOME); ok &= ui.home && ui.home_pg == 1u;
+        chk("PAGES   HOME lands on the main screen; HOME steps main, PICTURE, CHORD; from SEQ back to the main screen, or to the chord view where it was", ok);
     }
     {   /* KNOBS */
         int ok = 1;
@@ -182,28 +149,7 @@ int main(int argc, char **argv)
         set_engine_of(TSEL, ENGI_CZ);
         settle();
         pic_on();
-        {
-            uint8_t pic[4], tracks[4];
-            int same;
-            memcpy(pic, stage_page()->id, 4);
-            GLO_SELECT &= (uint8_t)~HOME_PIC_BIT;
-            memcpy(tracks, stage_page()->id, 4);
-            GLO_SELECT |= HOME_PIC_BIT;
-            same = !memcmp(pic, tracks, 4) && !kdef_of(ENGI_CZ);
-            chk("KNOBS   an engine without a table (CZ-1) keeps today's four knobs on the picture page", same);
-        }
-    }
-    {   /* COMMIT */
-        int16_t want[P_COUNT];
-        ui_power_on();
-        set_engine_of(&trk[0], ENGI_SHAPES);
-        settle();
-        pic_on();
-        trk[0].p[P_MAC0] = 30; trk[0].p[P_MAC0 + 3] = -44;
-        for (uint32_t i = 0; i < P_COUNT; i++) want[i] = mac_saved_value(&trk[0], i);
-        home_pic_set(0);
-        chk("COMMIT  back to TRACKS: the macros committed as a save would, set to 0",
-            !memcmp(want, trk[0].p, sizeof want) && !trk[0].p[P_MAC0] && !trk[0].p[P_MAC0 + 3]);
+        chk("KNOBS   an engine without a table (CZ-1) keeps today's four knobs on the picture page", !kdef_of(ENGI_CZ) && stage_page()->scope == SC_CZ1);
     }
     {   /* REMOVE */
         int16_t want[P_COUNT];
@@ -329,7 +275,7 @@ int main(int argc, char **argv)
             int ok2 = 1;
             uint32_t pose, touch[2] = {0, 0}, i;
             palette_set(0);                             /* (a palette with hues: the paw's and the yarn's colours apart) */
-            go_home(); frames(100);
+            pic_on();
             ui.force = 1; ui_draw();
             for (pose = 0; pose < 2u; pose++) {
                 uint32_t n = 0;
@@ -417,5 +363,4 @@ int main(int argc, char **argv)
     }
     printf("home_pic: %d failed\n", nbad);
     return nbad != 0;
-#endif
 }

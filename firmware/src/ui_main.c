@@ -39,7 +39,7 @@ static int mn_far(uint16_t c)                           /* c reads on the ground
 static uint16_t mn_ink(uint32_t st)
 {
     return st == MN_MUTE ? (mn_far(T_REC) ? T_REC : T_TEXT) : st == MN_OFF ? T_MID :
-           st == MN_FROZEN ? (ux.light ? RGB(16, 84, 196) : RGB(110, 170, 255)) : T_ACCENT;
+           st == MN_FROZEN ? (ux.mono ? T_TEXT : ux.light ? RGB(16, 84, 196) : RGB(110, 170, 255)) : T_ACCENT;   /* (the MONO palette is gray whatever) */
 }
 /* track k's state word: OFF (Round 27), WAIT (turned ON, short of memory), MUTE, FROZEN (Orange Cat 0.5.6) */
 static uint32_t mn_state(uint32_t k)
@@ -158,10 +158,11 @@ static void mn_dials(void)
         for (k = 0; k < 4u; k++) {
             int32_t cx = HP_CELL_X(k) + 28;
             hp_dial(cx, 15, 26, k, q[k], mac[k], hot == (int)k);
-            if (lab[k]) {                               /* (a label wider than its cell: cut, in free text) */
-                int32_t w = text_w(TY_LB, lab[k]);
+            if (lab[k]) {                               /* (a label wider than its cell: its short form, ui_draw.c cell_label; wider still: cut, in free text) */
+                const char *l = cell_label(lab[k], 58);
+                int32_t w = text_w(TY_LB, l);
                 if (w > 58) w = 58;
-                cv_free_text(cx - w / 2, ty_y(38, TY_LB), TY_LB, lab[k], T_MID, T_BG, 58);
+                cv_free_text(cx - w / 2, ty_y(38, TY_LB), TY_LB, l, T_MID, T_BG, 58);
             }
         }
         cv_blit(0, MN_DIAL_Y);

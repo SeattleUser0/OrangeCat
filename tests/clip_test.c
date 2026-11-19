@@ -50,7 +50,6 @@ static void settle(void)
 }
 static void on_home(void)
 {
-    GLO_SELECT |= HOME_PIC_BIT;
     go_home();
     frames(60);
 }

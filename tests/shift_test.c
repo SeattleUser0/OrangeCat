@@ -116,13 +116,12 @@ int main(void)
         frames(50);
         chk("CLOSE   the MENU open: HOME held closes it at 700 ms; the release does not open it again", ok && !ui.menu);
     }
-    {   /* KNOB on HOME's picture page (MACRO: KNOB 2's id from its knob table: HARM, plain) */
+    {   /* KNOB on HOME's main screen (MACRO: KNOB 2's id from its knob table: HARM, plain) */
         int16_t m0;
         uint32_t id;
         ui_power_on();
         set_engine_of(TSEL, ENGI_MACRO);
         settle();
-        GLO_SELECT |= HOME_PIC_BIT;
         go_home();
         frames(100);
         id = kdef_of(ENGI_MACRO)[1].kind == KD_PLAIN ? kdef_of(ENGI_MACRO)[1].id : P_MAC0 + 1u;
@@ -131,8 +130,7 @@ int main(void)
         turn(EN_K2, 1);
         wait_frames(60);
         up(B_HOME);
-        chk("KNOB    SHIFT + KNOB 2 on HOME's picture: its table's id moves, no MENU, no tap", TSEL->p[id] != m0 && !ui.menu && ui.home && ui.home_pg == 2u);
-        GLO_SELECT &= (uint8_t)~HOME_PIC_BIT;
+        chk("KNOB    SHIFT + KNOB 2 on HOME's main screen: its table's id moves, no MENU, no tap", TSEL->p[id] != m0 && !ui.menu && ui.home && ui.home_pg == 0u);
     }
     {   /* FINE: five detents 5 ms apart on a long range: accelerated without SHIFT, one step each with it */
         int32_t d0, d1;
@@ -287,7 +285,6 @@ int main(void)
         ui_power_on();
         set_engine_of(TSEL, ENGI_MACRO);
         settle();
-        GLO_SELECT |= HOME_PIC_BIT;
         go_home();
         frames(100);
         id = kdef_of(ENGI_MACRO)[1].kind == KD_PLAIN ? kdef_of(ENGI_MACRO)[1].id : P_MAC0 + 1u;
@@ -300,7 +297,6 @@ int main(void)
         chk("LATE    a knob after 700 ms: the MENU is open, the page's knob did not move", ui.menu && TSEL->p[id] == m0);
         hold(B_HOME);
         frames(20);
-        GLO_SELECT &= (uint8_t)~HOME_PIC_BIT;
     }
     printf("shift: %d failed\n", nbad);
     return nbad != 0;

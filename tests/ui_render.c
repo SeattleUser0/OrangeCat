@@ -2205,7 +2205,7 @@ int main(int argc, char **argv)
 #if OC_HOME_PIC
     {   /* (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1c) HOME's picture page in every palette, linted and MONO gray
          * as every screen above: MACRO, SHAPES, DRUM-X as they load, each knob at either end, a knob turning (named in the sound line), a
-         * note on; CZ-1 (no table: the plain picture); the MENU row HOME PAGE; (OC_PACK_GATE=1) PACK MISSING. NIGHT, DAY and CONTRAST
+         * note on; CZ-1 (no table: the plain picture); (OC_PACK_GATE=1) PACK MISSING. NIGHT, DAY and CONTRAST
          * written as PPMs (home_pic_*), as the screens above */
         static const uint32_t PE[3] = {ENGI_MACRO, ENGI_SHAPES, ENGI_DRUMX};
         static const char *const PN[3] = {"macro", "shapes", "drumx"};
@@ -2217,7 +2217,6 @@ int main(int argc, char **argv)
                 int sub = v % 12;
                 state();
                 song.playing = 0;
-                GLO_SELECT |= HOME_PIC_BIT;
                 stage.knob_ms = 0; ui.hot_col = 0;      /* (no knob turning unless the screen turns one: the clock stands still here) */
                 memset(&hp, 0, sizeof hp);              /* (the picture's state from nothing: a screen's note-on is its own, seen */
                 hp.trk = (uint8_t)song.sel;             /* as a frame after the last would see it) */
@@ -2251,9 +2250,8 @@ int main(int argc, char **argv)
                     eng(ENGI_CZ);
                     TSEL->engine = TSEL->eng_req;
                     str_cpy(image, "home_pic_cz1_plain", sizeof image);
-                } else if (v == 37) {                   /* the MENU's row */
-                    ui.menu = 1; ui.menu_sel = MI_HOME_PAGE;
-                    str_cpy(image, "home_pic_menu", sizeof image);
+                } else if (v == 37) {                   /* (step 9: MENU > HOME PAGE is gone) */
+                    continue;
                 } else {                                /* the pack not there (a gated build only) */
 #if OC_PACK_GATE
                     eng(ENGI_MACRO);
@@ -2280,7 +2278,47 @@ int main(int argc, char **argv)
                 np++;
             }
         fprintf(rep, "(the new interface 1c) HOME's picture page: %u screens in every palette\n", (unsigned)np);
-        GLO_SELECT &= (uint8_t)~HOME_PIC_BIT;
+    }
+    {   /* (step 9) HOME's main screen in every palette, linted and MONO gray: resting and playing (the steps lit, the playhead), every state word at once
+         * (MUTE, OFF, FROZEN on three tracks), WAIT, a knob turning (its dial hot), the sound list's pending name, one track and two (UNUSED TRACKS HIDE), the
+         * greyed places (SHOW). NIGHT, DAY and CONTRAST written as PPMs (main_<scene>) */
+        static const char *const MN[9] = {"rest", "play", "states", "wait", "turn", "pending", "one", "two", "free"};
+        uint32_t nm = 0;
+        for (p = 0; p < UI_PAL_ENTRIES; p++)
+            for (int v = 0; v < 9; v++) {
+                char name[64], image[48];
+                state();
+                song.playing = v != 0;
+                stage.knob_ms = 0; ui.hot_col = 0;
+                memset(&hp, 0, sizeof hp);
+                hp.trk = (uint8_t)song.sel; hp.ph_ms = fm1_ms; hp.hit_ms = fm1_ms - HP_HIT_MS; hp.ready = 1;
+                GLO_SELECT = (uint8_t)(GLO_SELECT & ~TRACKS_HIDE);
+                if (v == 2) {
+                    trk[1].p[P_MUTE] = 1;
+                    trk_off_set(2u, 1);
+                    bank_pid[3][trk[3].pattern % NPAT] = 5; frz_host_frozen = 1ull << 4;
+                }
+                if (v == 3) { trk_on_wait |= 1u << 1; trk[2].p[P_MUTE] = 1; }
+                if (v == 4) { ui.hot_col = 2; stage.knob_ms = fm1_ms | 1u; }
+                if (v == 5) { list_set(LM_CAT); go_page(GR_BROWSE); go_home(); turn(EN_PRESET, 3); }
+                if (v == 6 || v == 7) { song.ntrk = v == 6 ? 1 : 2; GLO_SELECT |= TRACKS_HIDE; }
+                if (v == 8) song.ntrk = 2;
+                snprintf(image, sizeof image, "main_%s", MN[v]);
+                ui.home = 1; ui.home_pg = 0; hp.landed = 1;
+                snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, image);
+                cur_name = name;
+                pal(p);
+                if (p == UI_GRAY_INDEX) aud = audf;
+                draw(-1);
+                lint();
+                if (p == UI_GRAY_INDEX) { audit_scene(image); aud = 0; mono_check(); }
+                for (uint32_t k = 0; k < UI_RENDER_SHOW; k++)
+                    if (!strcmp(UI_PALETTES[p].name, SHOW[k])) write_ppm(out, SHOW[k], image);
+                trk_off_set(2u, 0); trk_on_wait = 0; frz_host_frozen = 0;
+                GLO_SELECT = (uint8_t)(GLO_SELECT & ~TRACKS_HIDE);
+                nm++;
+            }
+        fprintf(rep, "(step 9) HOME's main screen: %u screens in every palette\n", (unsigned)nm);
     }
     {   /* (dub-perf) HOME's DUB page in every palette, linted and MONO gray: resting; FDBK past 1.00 with the 85 throw held; CUT, KICK and HOLD held; DIVE with the filter closed;
          * FDBK turning (named in the sound line). NIGHT, DAY and CONTRAST written as PPMs (dub_perf_*) */
@@ -2291,7 +2329,6 @@ int main(int argc, char **argv)
                 char name[64], image[48];
                 state();
                 song.playing = 0;
-                GLO_SELECT |= HOME_PIC_BIT;
                 stage.knob_ms = 0; ui.hot_col = 0;
                 memset(&hp, 0, sizeof hp); memset(&dv, 0, sizeof dv);
                 hp.trk = (uint8_t)song.sel; hp.ph_ms = fm1_ms; hp.hit_ms = fm1_ms - HP_HIT_MS; hp.ready = 1; dv.hit_ms = fm1_ms - HP_HIT_MS;
@@ -2317,7 +2354,6 @@ int main(int argc, char **argv)
                 nd++;
             }
         fprintf(rep, "(dub-perf) HOME's DUB page: %u screens in every palette\n", (unsigned)nd);
-        GLO_SELECT &= (uint8_t)~HOME_PIC_BIT;
     }
 #endif
 #if OC_HOME_PIC
@@ -2333,8 +2369,7 @@ int main(int argc, char **argv)
                 if (f == 0u) {
                     state();
                     song.playing = 0;
-                    GLO_SELECT |= HOME_PIC_BIT;
-                    stage.knob_ms = 0; ui.hot_col = 0;
+                        stage.knob_ms = 0; ui.hot_col = 0;
                     memset(&hp, 0, sizeof hp);
                     hp.trk = (uint8_t)song.sel;
                     hp.ph_ms = fm1_ms;
@@ -2352,7 +2387,6 @@ int main(int argc, char **argv)
                 draw(-1);
                 write_ppm(out, "NIGHT", image);
             }
-        GLO_SELECT &= (uint8_t)~HOME_PIC_BIT;
     }
 #endif
 #if OC_EDIT_SHEETS

@@ -16,12 +16,8 @@
 
 static int bad, nchk;
 static void chk(const char *what, int ok) { nchk++; printf("dub_layer_keys: %-150s %s\n", what, ok ? "ok" : "FAIL"); bad += !ok; }
-static void pic_on(void)
+static void pic_on(void)                                /* (step 9: the new interface is the only one; HOME lands on the main screen) */
 {
-    hold(B_HOME);
-    ui.menu_sel = MI_HOME_PAGE;
-    if (!home_pic_on()) press(B_OCTUP);
-    hold(B_HOME);
     go_home();
     frames(100);
 }
