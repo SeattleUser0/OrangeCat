@@ -166,6 +166,7 @@ const TEXT = {
     fwFirstLow: "モジュールは下の6セクターも使う前提で配置しています。新しいファームウェアの最初の起動でそこを空けられなかった場合、FM-1は新しいファームウェアのままこのセットのモジュールなしになり、ページが理由を表示します。",
     fwFirstNoLow: "モジュールは下の6セクターを使わずに配置しています。",
     fwFirstDeclined: "インストールしなかったので何も書き込んでいません。FM-1は元のままです。",
+    sampleLost: "サンプルスロットのサンプル（{name}、{n}バイト）は新しいファームウェアのスロット（{max}バイト）より長いため、失われます。FM-1からサンプルを取り出す方法はないので、残したい場合は元のWAVファイルを保管し、インストール後に短くして読み込み直してください。",
     modelsLoading: "モデルの一覧を読み込み中です。",
     modNoPlace: "FM-1のローダーに入れる場所がありません。何も書き込んでいません。", unitUnread: "FM-1をまだ読んでいません。インストールは先にFM-1を読み、ローダーと同じ方法で場所を決めます。", rolledBack: "場所が足りなかったので、今回新しく入れたモジュールを元に戻しました。",
     unitModsTitle: "ユニットに入っているモジュール", unitRead: "ユニットから読む", unitEngines: "エンジン", unitFx: "エフェクト",
@@ -274,6 +275,7 @@ const TEXT = {
     fwFirstLow: "The modules are planned on the six low sectors too, which the new firmware frees at its first start; if it cannot, the FM-1 ends with the new firmware and without the modules of this set, and the page says why.",
     fwFirstNoLow: "The modules are planned without the six low sectors.",
     fwFirstDeclined: "Not installed, so nothing was written: the FM-1 is as it was.",
+    sampleLost: "The sample in the sample slot ({name}, {n} bytes) is longer than the new firmware's slot keeps ({max} bytes): it will be lost. The FM-1 cannot send a sample back, so keep the WAV file you made it from if you want it, and load it again, shorter, after the install.",
     modelsLoading: "The list of models is loading; Install waits for it.",
     modNoPlace: "The unit's loader has no place for it. Nothing was written; the unit is as it was.", unitUnread: "The unit has not been read yet. Install reads it first and places the modules the way the unit's loader does.", rolledBack: "There was not enough room, so the modules this run had added were taken out again: the unit is as it was.",
     unitModsTitle: "Modules in the unit", unitRead: "Read from the unit", unitEngines: "Engines", unitFx: "Effects",
@@ -439,10 +441,14 @@ function unitView() {
 const ENG_NAMES = {14: "SHAPES", 19: "PROPHET", 7: "WHEEL", 8: "MACRO MODELS"}, FX_NAMES = {1: "DUB TAPE", 2: "REVERB MODES", 3: "FX LAYER", 0x4D08: "MACRO MODELS"};
 const junkNames = (p) => [...p.junk.map((j) => j.kind ? FX_NAMES[j.mid] || "EFFECT 0x" + (j.mid >>> 0).toString(16).toUpperCase() : ENG_NAMES[j.engine] || "ENGINE #" + j.engine),
   ...p.unread.map((x) => t("unreadAt").replace("{n}", String(x.start)))];
+/* (the re-review) a sample in 0.15.0's slot longer than the new firmware's slot keeps (smp_slot.c SMP_SLOT_MAX 60,896 B): the new firmware reads the slot EMPTY and its tail lies in
+ * the six low sectors the modules may take. The FM-1 has no command that sends a sample back, so the words say to keep the WAV it was made from */
+const NEW_SLOT_MAX = 60896;
+const lostSample = () => { const x = unitState && unitState.slot; return x && x.state === 2 && x.len > NEW_SLOT_MAX ? t("sampleLost").replace("{name}", x.name || "?").replace("{n}", String(x.len)).replace("{max}", String(NEW_SLOT_MAX)) + " " : ""; };
 function afterFwText(p) {
-  const names = junkNames(p);
+  const names = junkNames(p), lost = lostSample();
   return t("modelsAfterFw").replace("{n}", String(p.sectors)).replace("{s}", String(p.nstarts)) + (names.length ? " " + t("afterFwJunk").replace("{names}", names.join(", ")) : "") +
-    " " + t(p.lowAssumed ? "afterFwLow" : "afterFwNoLow");
+    " " + t(p.lowAssumed ? "afterFwLow" : "afterFwNoLow") + (lost ? " " + lost.trim() : "");
 }
 function modelsOthers() {                             /* the modules beside the pick: the ticked module stages of this build (an engine module's geometry, an effect module's sectors), and the unit's when read */
   const tailBuild = tailBuildOf();   /* (round 23, found on the unit) a build with the tail region ships WHEEL re-cut to one sector (fm1place.js ENG_GEO_TAIL); counted as 4, the default pick read "1 too many" and Install stayed locked */
@@ -833,7 +839,7 @@ $("go").addEventListener("click", async () => {
     const uv = stages.firmware ? unitView() : null;
     if (uv && uv.mod && uv.mod.predicted) {
       const p = uv.mod.predicted, names = junkNames(p);
-      if (!confirm(t("fwFirstConfirm").replace("{junk}", names.length ? t("fwFirstJunk").replace("{names}", names.join(", ")) + " " : "").replace("{low}", t(p.lowAssumed ? "fwFirstLow" : "fwFirstNoLow") + " "))) {
+      if (!confirm(t("fwFirstConfirm").replace("{junk}", names.length ? t("fwFirstJunk").replace("{names}", names.join(", ")) + " " : "").replace("{low}", t(p.lowAssumed ? "fwFirstLow" : "fwFirstNoLow") + " " + lostSample()))) {
         sayK("fwFirstDeclined"); lockInstaller(false); return;
       }
     }

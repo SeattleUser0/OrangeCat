@@ -470,9 +470,14 @@ export const listUnit = (link) => probeUnit(link, { fx: true });
 // out of the slot's sectors at boot), 1 empty, 2 a sample. On a firmware before Release 3 (0.15.0: a 22 sector slot, 0xB2000..0xC7FFF) a claimed slot means no record of the
 // store lives in its sectors, the six below the module area (0xC2000..0xC7FFF) among them: a Release 3 firmware's first boot then has nothing to move and makes them the module
 // area's (smp_slot.c smp_claim). -> {state} or null (no reply). Asked by the page only, never by runSet (its requests are held byte for byte: test_installer_set.mjs 17f)
+// (the re-review) with the sample's length (3 x 7 bits) and name (0-terminated) when the slot holds one: a 0.15.0 sample longer than a Release 3 slot keeps (SMP_SLOT_MAX
+// 60,896 B) runs into the six low sectors, and the new firmware reads it as EMPTY
 export async function slotInfo(link) {
   const a = await link.ask([110, []], { timeout: 300, retries: 1 });
-  return a && a.length ? { state: a[0] } : null;
+  if (!a || !a.length) return null;
+  const o = { state: a[0], len: a.length >= 4 ? a[1] | a[2] << 7 | a[3] << 14 : 0 };
+  if (a.length > 8) { const z = a.indexOf(0, 8); o.name = String.fromCharCode(...a.slice(8, z < 0 ? a.length : z)); }
+  return o;
 }
 
 export const OC_CODES = { pack: (rc) => packCode(rc), mod: (rc) => modCode(rc) };   // (Round 27, for the tests)

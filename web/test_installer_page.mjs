@@ -74,7 +74,7 @@ function boot(storage, unit = {model: "FM-1", text: "FM-1_710010300"}, meta = ME
     },
     OcLink: class { close() {} },
     listUnit: async () => { unitReads.n++; return unitReads.data; },
-    slotInfo: async () => (unitReads.slot == null ? null : {state: unitReads.slot}),   // (Round 31, the review) 110 SLOT_INFO: the sample slot's state (null: no reply)          // (the review) Install reads the unit before it writes; the test says what the unit holds
+    slotInfo: async () => (unitReads.slot == null ? null : typeof unitReads.slot === "object" ? unitReads.slot : {state: unitReads.slot}),   // (Round 31, the review) 110 SLOT_INFO: the sample slot's state (null: no reply)          // (the review) Install reads the unit before it writes; the test says what the unit holds
     Date: class extends Date { static now() { return (unitReads.clock = (unitReads.clock || 0) + 6000); } },   // the page waits for a unit in steps of a second; here the wait runs out at once
     PICK, PLACE, OCM, fxCurrent, ...extra,                       // (Round 26) extra: a test's own stand-ins; the meter asks whether the unit holds the very pick (index_pkg.html pickStays); (the model picker) the packer and the room meter, inlined into the page by make_site.py
   });
@@ -734,6 +734,24 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
           assert.match(pr.pg.element("models-room").textContent, /not loaded by the new firmware \(the page may write over them\): PROPHET, SHAPES, a module at start 2 it cannot read\./, pr.pg.element("models-room").textContent);
           assert.match(pr.pg.confirms[0] || "", /may be written over: PROPHET, SHAPES, a module at start 2 it cannot read\./, pr.pg.confirms[0]);
         }
+        // 1f. (the re-review) a 0.15.0 sample longer than the new firmware's slot (60,896 B) runs into the six low sectors and reads EMPTY there: named, with its length, in the
+        //     meter and in the question before the firmware; one that fits is not named. SLOT_INFO's reply as editor.c sends it, read by fm1oc.js slotInfo
+        {
+          const {slotInfo: realSlot} = await import("./fm1oc.js");
+          const reply = (len, name) => [2, ...n3(len), 1, ...n3(81408), ...[...name].map((c) => c.charCodeAt(0)), 0];
+          const ask = (r) => realSlot({ask: async () => r});
+          const big = await ask(reply(70000, "VOX")), small = await ask(reply(40000, "KICK"));
+          assert.deepEqual([big.state, big.len, big.name, small.len], [2, 70000, "VOX", 40000], "SLOT_INFO read: " + JSON.stringify(big));
+          const {pg, f} = await openFlow({slot: big}); pg.unitReads.answer = false;
+          await goFlow(pg);
+          const lost = "The sample in the sample slot (VOX, 70000 bytes) is longer than the new firmware's slot keeps (60896 bytes): it will be lost. The FM-1 cannot send a sample back, so keep the WAV file you made it from if you want it, and load it again, shorter, after the install.";
+          assert.ok(pg.element("models-room").textContent.includes(lost), "the meter names the sample: " + pg.element("models-room").textContent);
+          assert.ok((pg.confirms[0] || "").includes(lost) && pg.confirms[0].endsWith(lost + " Continue?"), "and the question before the firmware: " + pg.confirms[0]);
+          assert.equal(f.fw, 0);
+          const ok = await openFlow({slot: small}); ok.pg.unitReads.answer = false;
+          await goFlow(ok.pg);
+          assert.ok(!/sample slot \(/.test(ok.pg.element("models-room").textContent) && !/sample slot \(/.test(ok.pg.confirms[0] || ""), "a sample that fits is not named");
+        }
         // 2. the optional reverb modes ticked as well (22 sectors on 21): it does not fit even after the new firmware; the page says so on that unit and offers the give-way choice
         //    (nothing chosen for the owner, nothing written); chosen, Install goes on without it
         {
@@ -759,7 +777,7 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
           assert.match(pg.element("models-room").textContent, /^Room: 12 sectors; .*the biggest run the unit's loader can use is 2\. \(The six low sectors are not usable on this unit yet\.\) /, pg.element("models-room").textContent);
           assert.doesNotMatch(pg.element("models-room").textContent, /Placed for the firmware/);
         }
-        for (const k of ["modelsAfterFw", "afterFwJunk", "unreadAt", "afterFwLow", "afterFwNoLow", "fwFirstConfirm", "fwFirstJunk", "fwFirstLow", "fwFirstNoLow", "fwFirstDeclined"])
+        for (const k of ["modelsAfterFw", "afterFwJunk", "unreadAt", "afterFwLow", "afterFwNoLow", "fwFirstConfirm", "fwFirstJunk", "fwFirstLow", "fwFirstNoLow", "fwFirstDeclined", "sampleLost"])
           assert.equal((template.match(new RegExp("\\b" + k + ":", "g")) || []).length, 2, k + " in ja and en");
       }
       for (const k of ["rearrangeDropConfirm", "dropConfirm", "droppedDone", "giveWayAsk", "giveWayWait", "giveWayChosen", "sectorsWord", "sectorWord"])
