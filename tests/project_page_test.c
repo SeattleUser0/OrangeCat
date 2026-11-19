@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner. */
 /* ui-fix2 item 3 (docs/orangecat/UI_BUILD.md "ui-fix2 3"): the plain project page, with OC_PROJECT_PAGE=1.
- *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_PROJECT_PAGE=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen
+ *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_PROJECT_PAGE=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen
  *      -Ifirmware/src -Itests -o project_page_test tests/project_page_test.c -lm
  * Checked:
  *   SAVE      SAVE tapped (from HOME, from another page) opens the PROJECT page; SAVE again goes on to the sound's USER slots

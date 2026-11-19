@@ -130,11 +130,6 @@
                                    * EDIT turns the sheets (SOUND, ENV, MOD, FX, VOICE; a native engine's sections), SELECT walks their
                                    * rows, the tabs and the knobs' colors drawn; 0: EDIT's pages, sections and map as release-2's */
 #endif
-#ifndef OC_SHIFT_MAP
-#define OC_SHIFT_MAP 0            /* (the new interface 0.3, branch ui-build: docs/orangecat/UI_BUILD.md step 3; ui-fix 6) 1: HOME is SHIFT
-                                   * (ui_shift.c): SHIFT + a knob fine, + PRESETS the engine, + EDIT init, + OCT copy and paste; held alone
-                                   * 0.7 s the MENU (the map of step 3 withdrawn by the owner, October 31, 2026); 0: HOME as release-2's */
-#endif
 #define GR_FEEL 0x60              /* (the new interface 0.4) FEEL's graph kind: outside fw_pages.h's enum so the module interface's id does not move (the step pages are always on
                                    * since step 9) */
 #ifndef OC_CLIP
@@ -215,9 +210,6 @@
                                    * use is marked and named on screen with whether it has unsaved changes, a LOAD over unsaved changes asks first (ui_slots.c) */
 #endif
 #define GR_LANES 0x61             /* (the new interface 0.5) LANES' graph kind (outside fw_pages.h's enum, as GR_FEEL) */
-#if OC_SHIFT_MAP && !OC_EDIT_SHEETS
-#error "OC_SHIFT_MAP needs OC_EDIT_SHEETS (each step of the new interface ships behind the one before: UI_BUILD.md)"
-#endif
 #if OC_EDIT_SHEETS && !OC_HOME_PIC
 #error "OC_EDIT_SHEETS needs OC_HOME_PIC (each step of the new interface ships behind the one before: UI_BUILD.md)"
 #endif

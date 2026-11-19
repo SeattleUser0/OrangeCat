@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner. */
 /* ui-fix 7 (docs/orangecat/UI_BUILD.md "ui-fix 7"): one authority for every note, with OC_ONE_AUTH=1, through tests/ui_test.c's host UI.
- *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_ONE_AUTH=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen
+ *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_ONE_AUTH=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen
  *      -Ifirmware/src -Itests -o one_auth_test tests/one_auth_test.c -lm
  * The invariant (recording.c recording_reconcile): every event with a velocity has a NOTE cell flagged SF_RECORDED at its view, in its
  * owner's bank; every flagged NOTE cell has an event viewing it. Checked:

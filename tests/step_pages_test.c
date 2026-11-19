@@ -2,7 +2,7 @@
  * Copyright 2026 Jeremiah Conner. */
 /* The new interface, step 4 (docs/orangecat/UI_BUILD.md "Step 4: the step pages") (always on since step 9), through tests/ui_test.c's
  * host UI (its own tests are not run here).
- *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o step_pages_test tests/step_pages_test.c -lm
+ *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o step_pages_test tests/step_pages_test.c -lm
  * Checked:
  *   ORDER   SEQ's pages: NOTES, FEEL, TRACKER
  *   NOTES   KNOB 1 PITCH, 2 START, 3 LEN, 4 VEL on a recorded note, one undo each; START wraps at the phrase's end and refuses an

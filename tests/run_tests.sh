@@ -407,7 +407,7 @@ ui_renders_sheets() {                             # (the new interface 0.2, UI_B
 }
 ui_renders_shift() {                              # (the new interface 0.3, UI_BUILD.md step 3) every screen again with every step's switch,
                                                   # the sheets with SHIFT built in, in every palette: the lint, MONO gray; PNGs in build/ui_shift
-    build ui_render_shift ui_render -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
+    build ui_render_shift ui_render -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
     mkdir -p build/ui_shift/ppm build/ui_shift_slot
     step "UI renders with SHIFT built in (OC_SHIFT_MAP=1): every screen, every sheet, lint, MONO gray" \
         "$OUT/ui_render_shift" build/ui_shift build/ui_shift_slot
@@ -417,7 +417,7 @@ ui_renders_shift() {                              # (the new interface 0.3, UI_B
 }
 ui_renders_steps() {                              # (the new interface 0.4, UI_BUILD.md step 4) every screen again with every step's switch and
                                                   # the step pages: FEEL and NOTES' strip in every palette: the lint, MONO gray; PNGs in build/ui_steps
-    build ui_render_steps ui_render -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DOC_SLIDE_TIME=1 -DOC_REC_CLEAR=1 -DOC_PROJECT_PAGE=1 -DOC_START_NUDGE=1 -DOC_MGRID=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
+    build ui_render_steps ui_render -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DOC_SLIDE_TIME=1 -DOC_REC_CLEAR=1 -DOC_PROJECT_PAGE=1 -DOC_START_NUDGE=1 -DOC_MGRID=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests || return
     mkdir -p build/ui_steps/ppm build/ui_steps_slot
     step "UI renders with the step pages and the later switches built in: every screen, FEEL, NOTES' strip, lint, MONO gray" \
         "$OUT/ui_render_steps" build/ui_steps build/ui_steps_slot
@@ -771,46 +771,46 @@ if core && [ $TABLES = 1 ]; then
         sheet_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     # (dev-tools) the tests of shift_job as jobs of their own: as one job its compiles ran in sequence and set the suite's floor (docs/DEV_CHECKS.md)
     t "new interface 3: HOME as SHIFT: a tap, the MENU at 700 ms held (ui-fix 6), the combos, nothing modal raced" \
-        shift_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        shift_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "new interface 3: the layers, SCREEN OFF and LFO 2 with every step's switch built in" \
-        layer_screen_s3:layer_screen_test -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        layer_screen_s3:layer_screen_test -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "new interface 3: EDIT's sheets with SHIFT built in" \
-        sheet_s3:sheet_test -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        sheet_s3:sheet_test -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "new interface 3: HOME's picture page with SHIFT built in" \
-        home_pic_s3:home_pic_test -O1 -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        home_pic_s3:home_pic_test -O1 -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     # (dev-tools) the tests of step_pages_job as jobs of their own: as one job its compiles ran in sequence and set the suite's floor (docs/DEV_CHECKS.md)
     t "new interface 4: NOTES' knobs, FEEL, the tracker's chord length, the combos on NOTES and FEEL" \
-        step_pages_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        step_pages_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "new interface 5: DRUM-X's LANES table: the page, PRESETS picks the lane, the knobs edit it alone, a key still picks it" \
-        lanes_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        lanes_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "new interface 6: the mixer's bars and values in the knobs' colors, the knobs' jobs unchanged" \
-        mixer_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        mixer_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "new interface 10: copy and paste of a sound: the clipboard, the paste, one undo, the refusals" \
-        clip_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_CLIP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        clip_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_CLIP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "new interface 11: copy and paste of notes and of a step's feel: the clipboards, the paste, one undo, the refusals" \
-        clip_sel_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        clip_sel_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "ui-fix 7: one authority for every note: the invariant after every edit path, the reconcile at a load, START converts, the tracker's move of a recorded step, a key on a recorded step" \
-        one_auth_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_ONE_AUTH=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        one_auth_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_ONE_AUTH=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "ui-fix2 5: one authority with NOTES' K2 as NUDGE (the shipping pair of switches): every edit path keeps the invariant" \
-        one_auth_nudge:one_auth_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_ONE_AUTH=1 -DOC_START_NUDGE=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        one_auth_nudge:one_auth_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_ONE_AUTH=1 -DOC_START_NUDGE=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "melodic-grid: SEQ > GRID, the melodic step grid: its ten Done-when items (cursor, pages, picking, undo, lengths and effects, project, DRUM-X, transport, recorded timing, frozen, live REC), the keys and lights" \
-        mgrid_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_ONE_AUTH=1 -DOC_MGRID=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        mgrid_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_ONE_AUTH=1 -DOC_MGRID=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "melodic-grid with the shipping set of switches (SLIDE, SLIDE TIME, START NUDGE, REC CLEAR, PROJECT PAGE, LANES, MIXER, CLIP): the same items" \
-        mgrid_ship:mgrid_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DOC_SLIDE_TIME=1 -DOC_REC_CLEAR=1 -DOC_PROJECT_PAGE=1 -DOC_START_NUDGE=1 -DOC_MGRID=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        mgrid_ship:mgrid_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DOC_SLIDE_TIME=1 -DOC_REC_CLEAR=1 -DOC_PROJECT_PAGE=1 -DOC_START_NUDGE=1 -DOC_MGRID=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "ui-fix 8: slide and legato: a slide step glides the voice legato in every voice mode, a chord voice by voice, into a rest, a recorded overlap, never a ratchet" \
-        slide_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        slide_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "ui-fix2 2: REC held, stopped: the count, the clears (HOME, a SEQ page, a track's FX, GLO, automation), one undo each; GLO's one undo over four tracks and recorded notes" \
-        rec_clear_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_REC_CLEAR=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        rec_clear_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_REC_CLEAR=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "ui-fix2 3: the plain project page: SAVE opens it, the slot in use, the unsaved flag, a LOAD over unsaved changes asks" \
-        project_page_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_PROJECT_PAGE=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        project_page_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_PROJECT_PAGE=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "ui-fix2 4: SLIDE TIME in POLY, MONO, LEGATO and UNISON: the octave's time by the value, GLIDE wins, kept across a sound load and a save" \
-        slide_time_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DOC_SLIDE_TIME=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        slide_time_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DOC_SLIDE_TIME=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "ui-fix2 5: NOTES' KNOB 2 on a typed note moves it by NUDGE: no conversion, no edit memory, the limits, undo, playing" \
-        start_nudge_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_ONE_AUTH=1 -DOC_START_NUDGE=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        start_nudge_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_ONE_AUTH=1 -DOC_START_NUDGE=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "new interface 4: EDIT's sheets with the step pages built in" \
-        sheet_s4:sheet_test -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        sheet_s4:sheet_test -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "new interface 4: HOME as SHIFT with the step pages built in" \
-        shift_s4:shift_test -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+        shift_s4:shift_test -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1a) HOME's knob macros through the saves and loads, OC_HOME_PIC=1
     t "new interface 1a: macros committed by project, template and user-sound saves, loaded at 0, old records at 0, HOME's macro descriptor" \
         oc_macro_save_test -O1 -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
@@ -864,7 +864,7 @@ if core && [ $TABLES = 1 ]; then
     t "CPU laboratory: persistence guard and RAM-only preference restoration" backup_lab:backup_test -DMELODEE_AUDIO_PROFILE=1 $FW
     t "editor: real C protocol, malformed transfers and queue recovery" editor_test $FW
     t "editor: the protocol with one authority built in (ui-fix 7): a step write on a recorded cell drops its events, TRACK_STEP as STEP_SET" \
-        editor_oa:editor_test -DOC_ONE_AUTH=1 -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 $FW
+        editor_oa:editor_test -DOC_ONE_AUTH=1 -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 $FW
     t "CPU lab controls: native recording/transport, guarded protocol and exact restoration" audio_cpu_lab_test -O2 -DMELODEE_AUDIO_PROFILE=1 -DMELODEE_AUDIO_BENCH=1 $FW
     t "CPU lab controls absent in normal firmware" cpu_lab_off:audio_cpu_lab_test -O2 $FW
     t "CPU lab controls absent with profiling only" cpu_lab_profile:audio_cpu_lab_test -O2 -DMELODEE_AUDIO_PROFILE=1 $FW

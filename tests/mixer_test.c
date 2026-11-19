@@ -2,7 +2,7 @@
  * Copyright 2026 Jeremiah Conner. */
 /* The new interface, step 6 (docs/orangecat/UI_BUILD.md "Step 6: the mixer in the knobs' colors") (always on since step 9), through tests/ui_test.c's
  * host UI, by the pixels of the screen.
- *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o mixer_test tests/mixer_test.c -lm
+ *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o mixer_test tests/mixer_test.c -lm
  * Checked:
  *   BAR     every track's level bar is KNOB 1's color (more than a bar's pixels in it), not the track's
  *   KNOBS   a knob just turned shows its value in its own color: PAN green, MUTE orange (the card's color for KNOB 2 and 4)
