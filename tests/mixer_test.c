@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner. */
-/* The new interface, step 6 (docs/orangecat/UI_BUILD.md "Step 6: the mixer in the knobs' colors") with OC_MIXER=1, through tests/ui_test.c's
+/* The new interface, step 6 (docs/orangecat/UI_BUILD.md "Step 6: the mixer in the knobs' colors") (always on since step 9), through tests/ui_test.c's
  * host UI, by the pixels of the screen.
- *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o mixer_test tests/mixer_test.c -lm
+ *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o mixer_test tests/mixer_test.c -lm
  * Checked:
  *   BAR     every track's level bar is KNOB 1's color (more than a bar's pixels in it), not the track's
  *   KNOBS   a knob just turned shows its value in its own color: PAN green, MUTE orange (the card's color for KNOB 2 and 4)
@@ -31,10 +31,6 @@ static uint32_t count(uint16_t c, uint32_t y0, uint32_t y1)
 }
 int main(void)
 {
-#if !OC_MIXER
-    printf("mixer: built without OC_MIXER\n");
-    return 0;
-#else
     int32_t lvl0, pan0;
     setvbuf(stdout, NULL, _IONBF, 0);
     ui_power_on();
@@ -67,5 +63,4 @@ int main(void)
     }
     printf("mixer: %d failed\n", nbad);
     return nbad != 0;
-#endif
 }

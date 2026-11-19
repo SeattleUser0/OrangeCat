@@ -671,16 +671,11 @@ static void pv_meter(uint32_t k, uint16_t c)
     pv_meter_draw(k, 0, 0, c, bg);
     cv_blit((uint32_t)(BOX_X + PV_MIX_BAR_X), (uint32_t)(st_row_y(k) + pv_mix_y(h) + TY_TX->cap + 8 + 7));
 }
-/* (the new interface 0.6, UI_BUILD.md step 6) with OC_MIXER the level's bar and the turning knob's value take that knob's cozy color
+/* (the new interface 0.6, UI_BUILD.md step 6; always on since step 9) the level's bar and the turning knob's value take that knob's cozy color
  * (KNOB 1 blue, 2 green, 3 white, 4 orange); the numeral and the meter stay the track's, Mute stays REC's red. MXC(i, old): knob i's
  * color, or what release-2 drew */
-#if OC_MIXER
 #define MXC(i, old) T_COZY(i)
 #define MXBAR (mute ? T_DIM : T_COZY(0))
-#else
-#define MXC(i, old) (old)
-#define MXBAR (hot == 1u ? T_TEXT : tc)
-#endif
 static void pv_strip(uint32_t k)
 {
     track_t *t = &trk[k];

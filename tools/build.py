@@ -279,8 +279,7 @@ def app_flags():
                  "OC_SHIFT_MAP",    # (the new interface 0.3: UI_BUILD.md step 3; ui-fix 6) HOME as SHIFT and its combos; needs OC_EDIT_SHEETS=1; off by default
                  "OC_STEP_PAGES",   # (the new interface 0.4: UI_BUILD.md step 4) the step pages; needs OC_SHIFT_MAP=1; off by default
                  "OC_LANES",       # (the new interface 0.5: UI_BUILD.md step 5) DRUM-X's LANES table; needs OC_STEP_PAGES=1; off by default
-                 "OC_MIXER",        # (the new interface 0.6: UI_BUILD.md step 6) the mixer in the knobs' colors; needs OC_LANES=1; off by default
-                 "OC_CLIP",         # (the new interface 0.10: UI_BUILD.md step 10) copy and paste of a sound; needs OC_MIXER=1; off by default
+                 "OC_CLIP",         # (the new interface 0.10: UI_BUILD.md step 10) copy and paste of a sound; (needs the mixer, always on since step 9); off by default
                  "OC_CLIP_SEL",     # (the new interface 0.11: UI_BUILD.md step 11) copy and paste of notes and of a step's feel; needs OC_CLIP=1; off by default
                  "OC_ONE_AUTH",     # (ui-fix 7: UI_BUILD.md "ui-fix 7") one authority for every note; needs OC_STEP_PAGES=1; off by default
                  "OC_SLIDE",        # (ui-fix 8: UI_BUILD.md "ui-fix 8") slide as a legato glide in every voice mode; needs OC_STEP_PAGES=1; off by default

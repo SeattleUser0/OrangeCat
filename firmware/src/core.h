@@ -149,19 +149,9 @@
 #if OC_LANES && !OC_STEP_PAGES
 #error "OC_LANES needs OC_STEP_PAGES (each step of the new interface ships behind the one before: UI_BUILD.md)"
 #endif
-#ifndef OC_MIXER
-#define OC_MIXER 0                /* (the new interface 0.6, branch ui-build: docs/orangecat/UI_BUILD.md step 6) 1: the mixer's bars and values in the knobs' colors
-                                   * (ui_pages.c pv_strip); 0: as release-2's */
-#endif
-#if OC_MIXER && !OC_LANES
-#error "OC_MIXER needs OC_LANES (each step of the new interface ships behind the one before: UI_BUILD.md)"
-#endif
 #ifndef OC_CLIP
 #define OC_CLIP 0                 /* (the new interface 0.10, branch ui-build: docs/orangecat/UI_BUILD.md step 10) 1: SHIFT + OCT- / OCT+ copy and paste the selected
                                    * track's sound (ui_clip.c); 0: SHIFT + OCT says LATER (a message), as release-2's */
-#endif
-#if OC_CLIP && !OC_MIXER
-#error "OC_CLIP needs OC_MIXER (each step of the new interface ships behind the one before: UI_BUILD.md)"
 #endif
 #ifndef OC_CLIP_SEL
 #define OC_CLIP_SEL 0             /* (the new interface 0.11, branch ui-build: docs/orangecat/UI_BUILD.md step 11) 1: SHIFT + OCT- / OCT+ copy and paste the selected

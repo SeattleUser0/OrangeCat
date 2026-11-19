@@ -5513,9 +5513,6 @@ static int test_bughunt_ui2(void)
             a[k][1] = text_in(BOX_X + 180, Y + ly - 8, BOX_X + 230, Y + ly + 16);   /* the pan, or Mute */
         }
         ok = a[0][0] && !a[0][1] && !a[1][0] && a[1][1] && !a[2][0] && !a[2][1] && !a[3][0] && a[3][1];
-#if !OC_MIXER                                     /* (ui-build 6: the bars are in the knobs' colors and drawn elsewhere: mixer_test) */
-        bad += check("MIXER: K1 lights the level's bar, K2 the pan, K4 Mute, K3 nothing", ok);
-#endif
     }
     {   /* 4. renaming the slot the music came from renames the music: the next SAVE prefills the new name */
         char pn[16];
