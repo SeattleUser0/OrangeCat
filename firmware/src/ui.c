@@ -105,7 +105,7 @@ static uint32_t stage_rows(void) { return GLO_SELECT & TRACKS_HIDE ? trk_n() : N
 /* (the new interface, UI_BUILD.md 1c) MENU > HOME PAGE: PICTURE in bit 6 of the same byte (favorites.c: free until now), TRACKS (0,
  * the default) HOME as release-2's. ui_home_pic.c draws the picture page and sets it (home_pic_set) */
 #define HOME_PIC_BIT 64u
-static int home_pic_on(void) { return (GLO_SELECT & HOME_PIC_BIT) != 0; }
+static int home_pic_on(void) { return !OC_STAGE_OLD || (GLO_SELECT & HOME_PIC_BIT) != 0; }   /* (step 9: the new interface is the default, the macros are always in force; OC_STAGE_OLD 1 keeps the old Stage and the menu's choice until the Stage is removed) */
 #endif
 
 static uint8_t sync_reload;                  /* engine / preset / project / user preset loaded: editor RELOAD push */

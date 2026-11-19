@@ -116,6 +116,9 @@
                                    * image as the fallback when the module is skipped); 0: the built-in engine is kept and the module is "shadowed".
                                    * tools/orangecat_engines.sh sets 1 for the proof of concept (docs/orangecat/ENGINE_LOADING_PLAN.md, step 4) */
 #endif
+#ifndef OC_STAGE_OLD
+#define OC_STAGE_OLD 0            /* (step 9, UI_DESIGN.md "Step 9") 1: HOME's first page is the old Stage (and MENU > HOME PAGE chooses); 0: the main screen (ui_main.c), the macros always in force. Goes with the Stage */
+#endif
 #ifndef OC_HOME_PIC
 #define OC_HOME_PIC 0             /* (Orange Cat, the new interface, branch ui-build: docs/orangecat/UI_BUILD.md) 1: step 1 as it lands: the four
                                    * knobs' macros (1a: oc_knobs.c, oc_macro.c), the scene interpreter and the pack's scene trailer (1b: oc_scene.c),

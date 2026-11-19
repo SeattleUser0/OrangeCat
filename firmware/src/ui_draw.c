@@ -83,6 +83,11 @@ static void head_chip_text(char *b)
         str_cpy(b, "copy 1 to 1", 16);
         b[5] = (char)('1' + ui.ptc_src % NPAT);
         b[10] = (char)('1' + ui.ptc_dst % NPAT);
+#if OC_HOME_PIC
+    } else if (ui.home && !OC_STAGE_OLD && !ui.home_pg && song.playing) {   /* (step 9) the main screen while the music runs: the bar in view (the selected track's, as its row's steps) */
+        str_cpy(b, "BAR ", 8);
+        fmt_int(b + 4, (int32_t)(TSEL->seq_idx < (uint32_t)clamp(TSEL->p[P_SLEN], 1, NSTEP) ? TSEL->seq_idx / 16u : 0u) + 1);
+#endif
     } else if (ui.home) {                               /* Stage: the engine (a kit: its name, "909 KIT") */
         if (browse_pending()) { uint32_t kk, s = browse_shown(&kk); e = src_engine(s, kk); }
         if ((MELODEE_DRUM && ENGINES[eng_idx(e)] == &ENG_DRUM) && !browse_pending()) sound_name(TSEL, b);
@@ -546,6 +551,7 @@ static uint32_t frz_state(uint32_t k) { return k >= 4u ? 0u : frz[k].st != FZ_OF
 #if OC_HOME_PIC
 #include "oc_scene.c"                                   /* (the new interface, UI_BUILD.md 1b) the pictures' interpreter */
 #include "ui_home_pic.c"                                /* (UI_BUILD.md 1c) HOME's picture page */
+#include "ui_main.c"                                    /* (step 9) HOME's main screen: the strips and the dials */
 #endif
 #include "ui_browser.c"                                 /* SAVE > PRESETS, the sound browser */
 #include "ui_patterns.c"                                /* SEQ > PATTERNS, SEQ > SONG */
@@ -1166,6 +1172,10 @@ static void draw_page(void)
         if (ui.home && ui.home_pg)                      /* HOME's second page (ui_view.c) */
             view_draw();
         else if (ui.home)                               /* Stage: its panel and the lanes (ui_stage.c), no footer */
+#if OC_HOME_PIC
+            if (!OC_STAGE_OLD) main_draw();             /* (step 9) the main screen (ui_main.c) */
+            else
+#endif
             stage_draw();
         else
             draw_graph();

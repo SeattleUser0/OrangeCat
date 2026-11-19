@@ -442,9 +442,11 @@ static void home_pic_draw(void)
 static uint32_t home_pic_cycle(uint8_t *o)
 {
     uint32_t n = 0;
-    o[n++] = 2;
+    if (OC_STAGE_OLD) o[n++] = 2;
+    else o[n++] = 0;
+    if (!OC_STAGE_OLD) o[n++] = 2;
     if (TSEL->p[P_DUB_ECHO] > 0 || ui.home_pg == DUB_PG) o[n++] = DUB_PG;
-    o[n++] = 0;
+    if (OC_STAGE_OLD) o[n++] = 0;
     o[n++] = 1;
     return n;
 }
@@ -459,7 +461,7 @@ static void home_pic_next(void)
 /* HOME entered (go_home, the first frame after power-on): its landing page, the picture when PICTURE is chosen */
 static void home_pic_land(void)
 {
-    if (home_pic_on()) ui.home_pg = 2;
+    if (home_pic_on()) ui.home_pg = OC_STAGE_OLD ? 2 : 0;   /* (step 9: the main screen lands, the picture is a turn of HOME away) */
     else if (ui.home_pg > 1u) ui.home_pg = 0;
 }
 
