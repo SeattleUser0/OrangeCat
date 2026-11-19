@@ -141,14 +141,22 @@ static int pj4_sec_at(const ocs_rec_t *r, uint32_t tag, uint32_t *off, uint32_t 
 }
 static int pj4_open(uint32_t slot, ocs_rec_t *r) { return ocs_open(OCS_PROJECT, pj4_rid(slot), r); }
 
-/* the slot's directory in charge into d (cleared when there is none). 0 a record is there and reads; -1 none */
+/* the slot's directory in charge into d (cleared when there is none). 0 a record is there and reads; -1 none.
+ * (Round 30 item 1) Read nine entries at a time into a small buffer of its own, not the operation's work area: a phrase opened while playing (oc_pj4_pool.c pjp_locate)
+ * needs no work area, which a save now borrows from the audio arena (res_borrow.c). The same bytes, the same result */
 static int pj4_dir_load(uint32_t slot, pj4_dir_t *d)
 {
     ocs_rec_t r;
-    uint32_t off, len;
+    uint32_t off, len, i = 1u, j, k;
+    uint8_t b[9u * 7u];
     pj4_dir_clear(d);
-    if (pj4_open(slot, &r) || pj4_sec_at(&r, PJ4_T_PHRD, &off, &len) || len != PJ4_DIR_LEN || ocs_at(&r, off, pj4_scr, PJ4_DIR_LEN)) return -1;
-    pj4_dir_dec(d, pj4_scr);
+    if (pj4_open(slot, &r) || pj4_sec_at(&r, PJ4_T_PHRD, &off, &len) || len != PJ4_DIR_LEN) return -1;
+    while (i <= PJ4_NPH) {
+        k = PJ4_NPH + 1u - i < 9u ? PJ4_NPH + 1u - i : 9u;
+        if (ocs_at(&r, off + (i - 1u) * 7u, b, k * 7u)) { pj4_dir_clear(d); return -1; }
+        for (j = 0; j < k; j++, i++) { d->chunk[i] = b[j * 7u]; d->crc[i] = pj4_g32(b + j * 7u + 1u); d->rsv[i] = (uint16_t)pj4_g16(b + j * 7u + 5u); }
+    }
+    if (ocs_at(&r, off + PJ4_NPH * 7u, d->gen, 32)) { pj4_dir_clear(d); return -1; }
     return 0;
 }
 static void pj4_head_enc(const pj4_head_t *h, uint8_t *o)

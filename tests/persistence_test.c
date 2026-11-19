@@ -292,8 +292,11 @@ int main(void)
     transport_req = 1;
     project_save(1);
     bad += check("pending PLAY: project save leaves slot and flash", !project_used(1) && erases == before &&
-                  !strcmp(ui.msg, "STOP TO SAVE"));
+                  !strcmp(ui.msg, OC_BORROW ? "UNSAVED" : "STOP TO SAVE"));   /* (Round 30: with the borrow a save waits for the stop, project.c project_pend) */
     transport_req = 0;
+#if OC_BORROW
+    project_pend_drop();
+#endif
     erase_error = 1;
     project_save(2);
     bad += check("failed first project save leaves slot empty", !project_used(2));
@@ -322,6 +325,7 @@ int main(void)
                       !strcmp(ui.msg, "RENAMED") && (memset(proj_slot[0].raw, 0, 8), proj_fetch(0), project_name(0, n)) &&
                       !strcmp(n, "DUB") && proj_scratch.t[0].step[0].note[0] == st0.note[0]);
     }
+#if !OC_PJ4_LDR
     {   /* Every bank is validated before replacing the runtime. (Orange Cat 0.3) A bank is a pool pattern: one
          * written damaged (a chord note past 127, its record's CRC good) refuses the whole project */
         step_t keep = trk[0].step[0];
@@ -337,6 +341,7 @@ int main(void)
             id != 0u && ocp_chunk_write((id - 1u) / OCP_PER, gen) == 0 && (project_load(0), !strcmp(ui.msg,"OLD FORMAT")) &&
             !memcmp(&trk[0].step[0],&keep,sizeof keep));
     }
+#endif
     {   /* every parameter range fits the record's byte (FUN16: value + 64, 0..191) */
         uint32_t i;
         for (i = 0; i < P_COUNT; i++) {

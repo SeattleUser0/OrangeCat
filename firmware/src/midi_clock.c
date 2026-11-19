@@ -62,6 +62,9 @@ static void midi_clock_lost(void)
     midi_clock.lost_time = midi_clock.last_time;
     midi_clock.lost_n = 0;
 }
+#if OC_BORROW
+static uint32_t midi_clock_resync_held;        /* (Round 30 review) resyncs a save's borrow made wait (the tests) */
+#endif
 static void midi_clock_resync(uint32_t ms, uint32_t time)
 {
     uint32_t iv = midi_clock.interval_time;
@@ -77,6 +80,12 @@ static void midi_clock_resync(uint32_t ms, uint32_t time)
         midi_clock.lost_n++;
     if (midi_clock.lost_n % 24u != 1u)
         return;
+#if OC_BORROW
+    if (res_bor_hold) {                        /* (Round 30 review) a save holds the arena: the resync waits for the next beat after it (lost stays 2, the pulses counted) */
+        midi_clock_resync_held++;
+        return;
+    }
+#endif
     midi_clock.lost = 0;
     cin_left = 0;
     midi_clock.pos = midi_clock.lost_pos + MIDI_BEAT_UNITS / 24u;

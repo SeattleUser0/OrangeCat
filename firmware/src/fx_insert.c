@@ -238,6 +238,9 @@ JFX_XIP static void fx_ins_start(uint32_t nt)
     if (fx_ins_force_degrade || !FX_CPU1_OK()) fx_cpu_wait = FX_CPU_OK_BLOCKS;      /* CPU1 retired or single-core forced: the instances are released, DUB FULL shows */
     else if (fx_cpu_wait) fx_cpu_wait--;
     degrade = fx_cpu_wait != 0;
+#if OC_BORROW
+    degrade |= RES_BOR_ON();                            /* (Round 30 item 1) a save borrows the arena: every instance ramps out (FX_RAMP) and lets go, as for CPU1's loss; back after it */
+#endif
     if (!fx_modk_ok) {                                  /* (round 20) no DUB module installed: the kernel IS the module, there is no other. A track with DUB on plays DRY: no instance, no capture, no wet, no memory asked, nothing for the governor; its stored values stay as they are. The DUB FULL bit of the track says so (the DUB page reads fx_modk_ok to say MODULE MISSING instead) */
         for (k = 0; k < FX_INS_N; k++) {                /* an instance that walked in while a removal was half done (a block between its steps) is not kept: OFF, wanting nothing, so jfx_ins_mem gives its memory back (the bus evictions it was asked for are answered by that) */
             fx_ins_t *d = &fx_ins[k];

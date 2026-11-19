@@ -69,6 +69,11 @@ static void fl_plain_window_init(void) {}
 #endif
 #include "../firmware/src/project.c"            /* (with MELODEE_FLASH: oc_store.c, oc_pool.c, oc_project.c) */
 
+#if OC_PJ4_LDR
+#define BOOT_POOL() pjp_boot()
+#else
+#define BOOT_POOL() (ocp_scan(), ocj_scan())
+#endif
 static int check(const char *what, int ok)
 {
     printf("oc project: %-92s %s\n", what, ok ? "ok" : "FAIL");
@@ -78,7 +83,7 @@ static int check(const char *what, int ok)
 /* ------------------------------------------------------------ fixtures --- */
 static void reboot(void)
 {
-    ocs_boot(); ocp_scan(); ocj_scan();
+    ocs_boot(); BOOT_POOL();
     memset(proj_meta, 0, sizeof proj_meta);
     memset(proj_slot, 0, sizeof proj_slot);
     memset(proj_bank_slot, 0, sizeof proj_bank_slot);
@@ -88,7 +93,7 @@ static void reboot(void)
 static void reset(void)
 {
     memset(nor, 0xFF, sizeof nor);
-    ocs_boot(); ocp_scan(); ocj_scan();
+    ocs_boot(); BOOT_POOL();
     memset(&song, 0, sizeof song);
     memset(trk, 0, sizeof trk);
     memset(&chain, 0, sizeof chain);
@@ -108,6 +113,9 @@ static void reset(void)
     transport_req = 0;
     erases = 0;
     proj_cur = PROJ_NO_SLOT;
+#if OC_PJ4_LDR
+    pjp_follow();                                  /* (a real change of proj_cur is always followed: project.c) */
+#endif
 }
 
 /* every bank of every track filled (seed: which notes), with Skiff's fields, motion and timed notes */
@@ -239,7 +247,11 @@ static int test_round_trip(void)
     snap(&A);
     bad |= check("a project with all 32 banks in use saves", project_save_as(0, "ALL BANKS") == 0 && !strcmp(ui.msg, "SAVED"));
     bad |= check("... its banks are 32 pool patterns", used_patterns() == 32u);
+    #if OC_PJ4_LDR
+    bad |= check("... its own record is within three sectors (the sections, the directory)", ocs_open(OCS_PROJECT, pj4_rid(0), &r) == 0 && r.total <= 3u * OCS_PAYLOAD_MAX);
+#else
     bad |= check("... its own record is one sector", ocs_open(OCS_PROJECT, 0, &r) == 0 && r.total <= OCS_PAYLOAD_MAX);
+#endif
     wipe_runtime();
     project_load(0);
     snap(&B);
@@ -254,8 +266,13 @@ static int test_round_trip(void)
     snap(&B);
     bad |= check("... and it loads the same", same(&A, &B));
     before = erases;
+#if OC_PJ4_LDR
+    bad |= check("a save that changes nothing rewrites no phrase (the record only: three sectors at most)",
+                 project_save(0) == 0 && erases - before <= 3u);
+#else
     bad |= check("a save that changes nothing rewrites no pattern (the record only)",
                  project_save(0) == 0 && erases - before == 1u);
+#endif
     {
         pattern_t p;
         pattern_read(3, 5, &p);
@@ -263,8 +280,12 @@ static int test_round_trip(void)
         pattern_write(3, 5, &p);
     }
     before = erases;
+#if OC_PJ4_LDR
+    bad |= check("changing one bank rewrites the chunks after it and the record", project_save(0) == 0 && erases - before <= 40u && erases - before >= 2u);
+#else
     bad |= check("changing one bank rewrites its chunk and the record", project_save(0) == 0 && erases - before <= 1u + 3u &&
                  erases - before >= 2u);
+#endif
     snap(&A);
     {   /* RATCH alone */
         pattern_t p;
@@ -308,6 +329,52 @@ static int test_round_trip(void)
 }
 
 /* ----------------------------------------------------------------- 4 --- */
+#if OC_PJ4_LDR
+/* (Release 3) a project owns its phrases: nothing is shared between slots, the loaded project's phrases are the pool the tables show */
+static void new_project(void) { wipe_runtime(); proj_cur = PROJ_NO_SLOT; pjp_follow(); }
+static int test_slots(void)
+{
+    int bad = 0;
+    char n[16];
+    int rc;
+    reset();
+    fill_all(2, 4);
+    snap(&A);
+    project_save_as(0, "ONE");
+    new_project();
+    fill_all(3, 4);
+    snap(&B);
+    project_save_as(1, "TWO");
+    bad |= check("two projects of 16 banks: the loaded one has its 16 phrases", used_patterns() == 16u);
+    wipe_runtime(); project_load(0); snap(&C);
+    bad |= check("... slot A loads its own", same(&A, &C) && used_patterns() == 16u);
+    wipe_runtime(); project_load(1); snap(&C);
+    bad |= check("... slot B its own", same(&B, &C));
+    bad |= check("erasing slot A takes only its phrases", project_erase(0) == 0 && !project_name(0, n) &&
+                 (wipe_runtime(), project_load(1), snap(&C), same(&B, &C)));
+    new_project();
+    fill_all(4, NPAT);
+    snap(&A);
+    bad |= check("a 32-bank project into slot A: its 32 phrases", project_save_as(0, "BIG") == 0 && used_patterns() == 32u);
+    new_project();
+    fill_all(5, NPAT);
+    rc = project_save_as(2, "ALSO BIG");
+    bad |= check("another 32-bank project into slot C: saved, or refused whole (PROJECT FULL) with slot C empty", rc == 0 ||
+                 (!strcmp(ui.msg, "PROJECT FULL") && !project_name(2, n)));
+    reboot();
+    wipe_runtime(); project_load(0); snap(&C);
+    bad |= check("... after a reboot slot A as saved", same(&A, &C));
+    wipe_runtime(); project_load(1); snap(&C);
+    bad |= check("... and slot B", same(&B, &C));
+    wipe_runtime(); project_load(0);
+    {
+        uint32_t before = erases;
+        bad |= check("saving slot A over itself rewrites no phrase", project_save(0) == 0 && erases - before <= 3u &&
+                     (wipe_runtime(), project_load(0), snap(&C), same(&A, &C)));
+    }
+    return bad;
+}
+#else
 static int test_slots(void)
 {
     int bad = 0;
@@ -346,6 +413,8 @@ static int test_slots(void)
                  project_save(0) == 0 && used_patterns() == 64u && (wipe_runtime(), project_load(0), snap(&C), same(&A, &C)));
     return bad;
 }
+
+#endif
 
 /* ----------------------------------------------------------------- 5 --- */
 static int test_fbkk(void)

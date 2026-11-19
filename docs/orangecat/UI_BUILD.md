@@ -2713,3 +2713,54 @@ It is pj4_sec_test's build (the suite's flags, -DOC_PJ4=1, ASan and UBSan, on oc
 2. The power-cut test (pj4_sec_test t_cuts) checks that the record reads back after every cut, not the phrases (FRZR and the per-slot phrases the conversion writes); a cut that loses or half-writes a phrase passes it.
 
 **The loader question is decided (the owner): option 2.** A kept phrase is written under the next generation and committed with the next SAVE or autosave, like any edit (a power cut before that loses the keep, as it loses any unsaved edit).
+
+### r3-format2, milestone 3: the loader (owner's decision: option 2)
+
+**Decision (owner, November 17, 2026).** A keep is written to the next generation and committed at the next SAVE or autosave, like every other edit (autosave runs every 5 s, so a power cut loses at most what any edit loses today). An unsaved project (no slot) holds the keep in RAM until it is saved, as it holds everything else.
+
+**Plan, as built (`OC_PJ4_LDR`, defaults to `OC_PJ4`; `oc_pj4_pool.c`).**
+1. The runtime pool is the loaded project's committed chunks (read through `pj4`) plus a RAM overlay of kept phrases (`pjp`, 16 KB, 64 phrases a project this milestone). Phrase id = pool id + 1, so no chain, song row or scene is renumbered.
+2. `ocp_open_pattern`, `ocp_chunk_write`, `ocp_copy` and `ocp_scan` (`oc_pool.c`) look a phrase up in the overlay first, then in the slot's chunks. A keep only fills the overlay.
+3. `ocj_write` (`oc_project.c`) builds the sections (`pj4p_build`) and commits them with the overlay's phrases in one `pj4_save` (the generation bit flips last); the autosave counts a non-empty overlay as work. `ocj_read` reads them back (`pj4p_read`); the boot calls `pj4_boot` with the conversion hook, so an old record is converted when the unit starts.
+4. Following the loaded slot (`PJP_FOLLOW` after every `proj_cur` change): a load drops the overlay of the project it leaves; the editor restore and the track restore hold it (`PJP_HOLD`).
+5. The frozen table is read at boot and carried in `FRZR`.
+
+**Proof (host, sanitizers).** `tests/pj4_loader_test.c` (new: a keep waits in RAM, a save commits it, a cut before the save loses it and no more, an unsaved project, a full buffer, projects own their phrases) and the existing tests run on the new records with `-DOC_PJ4=1`: `oc_project_pj4` (round trip, slots owning phrases, FBKK, OFF, and the power-cut series: a cut at every program and erase of a save, a delete and a conversion), `oc_lists_pj4`, `persistence_pj4`, `pattern_pj4`, and the pool, backup and UI tests in `run_tests.sh`.
+
+**For Session A: the loader does not fit the unit yet, so it is OFF in every build (`OC_PJ4=0`, the default; that build is unchanged: image 529,284 B, pool 181,520 B, audio arena 79,040 B, minimum 49,152).** With `OC_PJ4=1` the link stops at "audio working arena below worst-case budget": the loader's RAM in `.pool` is about 67 KB (the operation scratch `pjp_work` 37.7 KB = the record's four parts 15.2 KB + the project part 19.4 KB + the frozen table 3 KB; the work area `pjp_ws` 10 KB; the kept-phrase buffer 16.7 KB; the directory 2.5 KB) and leaves an arena of about 11 KB against 49,152 B. About 38 KB has to come back. What I did not do and why: the spec lends the audio arena to a flash operation "when the transport is stopped", but the arena's owner is the audio interrupt (effect tails and DUB lines hold blocks while stopped), so a main-loop borrow is Session A's design, not mine; borrowing the display canvas or the staging RAM does not work either (`proj_scratch` and the raw record are in use during a save). The options, smallest first: (a) the kept-phrase buffer to 8 KB (a full buffer commits early, or an unsaved project refuses the keep), 8 KB; (b) the record's parts streamed to the store one at a time instead of built whole, 11 KB; (c) the project part built in the arena through a stopped-transport borrow, 19 KB; (d) all of the scratch from a borrow. Until one of them exists, the unit keeps the old format and nothing below is on it.
+
+## For Session C (from Session A, Round 30): the review of milestone 3, the loader (bdcef09f, merged into r30-int as 73f348f8 behind OC_PJ4 0)
+
+An independent review, with host probes for 1 to 4. **Not ready for OC_PJ4=1 until 1 to 3 are fixed** (file:line in firmware/src/oc_pj4_pool.c unless named):
+1. **Renaming a slot destroys its list-only phrases, and drops the keeps if it is the loaded slot.** project_rename rereads the slot and changes the name, so the hash differs, xs = 0, and ocj_write_pj4 (:297) takes phrases from the banks only (gen_of); with slot == home, :395 also drops the overlay. Probe: phrase 50 committed by SAVE, rename: ocp.len[50] 0, also after reboot and reload. Probe 2: phrase 50 only kept, rename: has[50] 0, SAVE + reload 0.
+2. **Erasing the loaded slot, then saving the music in RAM, saves nothing.** pjp_hold_all (:241) copies the phrases into the overlay; project_erase sets proj_cur = NO_SLOT and calls PJP_FOLLOW (project.c:1065); pjp_follow (:233) drops what was just held (home != proj_cur). On the next SAVE, ocl_keep_all sees the banks unchanged (bank_sig) and step 2 skips them (proj_pid == id): nph 0. Probe: erase A, SAVE AS B "SAVED", reload: B has 0 phrases, every bank empty.
+3. **A full overlay blocks every save.** The comment at :22 says "PHRASES FULL until the autosave writes them", but project_save_as (project.c:829) and the autosave (:986) both call ocl_keep_all first and return on rc 4. Probe: buffer full, one bank edit: project_save(0) rc 2 "PHRASES FULL", the overlay stays dirty; only a power cut or a load clears it: everything lost. t_full passes only because no bank is left unkept.
+4. (should-fix) pjp_room (:127) clears has[id] before it checks for room: a refused replacement loses the earlier keep (phrase 24 kept, buffer full, ocp_copy(1, 24) rc 2 with has[24] 0; ocp.hash[24] still the old kept hash). Same for an ocl_keep whose phrase grows.
+5. (should-fix) With OC_PJ4 0 the image is not byte-identical (+16 B, .pool +12 B): the `mem` field and its branch in oc_pool.c ocp_rd_t / ocp_rd (:404, :415) are compiled in unconditionally: guard them with OC_PJ4_LDR.
+6. (should-fix, docs) The editor restore does not hold the overlay (editor_backup.c:295 drops it; only tracks.c:147 holds); the loader has no erase-cut, delete-cut or conversion-cut series (test_cuts and t_cut_series cut at programs only); pj4_loader_test's header lists item 7 (the conversion) with no test.
+Notes: **GLOB 4,096 B not fixed** (tests/pj4_glob_big_test.c with -DOC_PJ4=1 -DOC_PJ4_LDR=0 still fails at 500+ notes; its documented command now fails for another reason: the fixture cannot write the old record); "the generation bit flips last" is true; leaving a project drops its keeps by design (the old pool kept them: say so to the owner); the limit is now 64 phrases a project; pjp_open does not check the directory CRC on reads; no audio-interrupt access to pjp.
+**RAM, for your buffer and streaming work and Session A's borrow:** pjp_work 37.7 KB (save, slot read, boot only: the borrow's candidate); pjp_ws 10 KB (mostly the save; its `scr` is used by pj4_dir_load on any directory cache miss, i.e. a phrase load while playing after a save: that part cannot be borrowed); pjp_dir 1.8 KB and the overlay 16.7 KB always. Session A's borrow interface follows in this document when it is built.
+
+## For Session C (from Session A, Round 30): the borrow's interface
+
+Branch r30-borrow (BUILD.md 7.47). With `OC_PJ4=1` (`OC_BORROW` follows `OC_PJ4_LDR`) the loader's save scratch is no longer in `.pool`; OC_PJ4=1 links (arena 51,424 B
+against 49,152). Please build your streaming and the 8 KB buffer on this:
+
+- **The call** (`firmware/src/res_borrow.c`, in the image through mix.c): `int res_borrow(const uint32_t *sizes, uint32_t n, uint8_t **out)` and `void res_borrow_end(void)`.
+  Up to `RES_BOR_N` = 3 pieces (resources.c; raise it if you need more), largest first; each is zeroed and 4-byte aligned, `out[i]` 0 for a size 0. Returns
+  `RES_BOR_OK` (held until `res_borrow_end`), `RES_BOR_PLAYING` (the transport runs or a start is pending: nothing held; the caller waits for the stop, the screen says
+  UNSAVED: project.c `project_pend`), `RES_BOR_FULL` (not even with every effect's memory back: nothing held; the save fails, the slot as it was, NO MEMORY TO SAVE),
+  `RES_BOR_LATE`, `RES_BOR_BUSY` (one is held). At boot, before the audio starts, `res_borrow_boot` (same arguments, taken at once).
+- **When:** the main loop only, never from the audio interrupt, one at a time, around the flash work. `ocj_write_pj4` (oc_pj4_pool.c) does it now for a save and an
+  erase: sections `PJ4_RECMAX`, project part `PROJ_STORE_SIZE` (the frozen table and `pjp_gbuf` reuse it after `pj4p_build`), the work area `sizeof(pj4_ws_t)`;
+  `pjp_boot` borrows `PJ4_WORK` + the work area. Reads take nothing: `pjp_tmp` is a resident 4 KB `pjp_rbuf`, and `pj4_dir_load` no longer uses `pj4_scr` (nine
+  entries at a time), so `pjp_locate` while playing needs no work area. **Do not touch `pjp_ws`, `pjp_sec`, `pjp_pk`, `pjp_gbuf` or `pjp_frzr` outside a borrow**
+  (they are 0 then).
+- **What it guarantees:** granted only while stopped; while held the transport does not start (PLAY, the chain, scenes, MIDI Start / Continue wait) and no effect, DUB
+  instance or rising block takes memory; engine states and hot sets are untouched. Getting it costs the effects' tails (faded over 31 ms, then cut) and about 45 blocks.
+- **Sizes:** at the device's sizes the save (38,836 B) is granted whenever the card pool is idle; with frozen takes holding it and four MACRO/SHAPES tracks it is
+  not, even with your 8 KB overlay (748 B short with the cache RAM ready; BUILD.md 7.47). Re-run `tests/borrow_arena_test.c` with your numbers
+  (`-DJA_MAIN_BYTES=... -DBT_SEC=...`). Your milestone 4's `PJ4_SECMAX` = 15,232 B cannot be a resident read buffer here (the arena would drop below 49,152): a slot read
+  would then have to borrow as well (`res_borrow` while stopped; a load while playing waits).
+- Not touched on my branch: the three loader bugs the review found (rename, erase of the loaded slot then save, a full overlay blocking saves); nothing here relies on
+  how they behave now.

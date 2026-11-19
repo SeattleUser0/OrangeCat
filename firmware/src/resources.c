@@ -9,11 +9,27 @@
 #define RES_JFX_N 60u                    /* (Orange Cat 0.6.0) the effects' blocks (jfx.c JB_*: the reverb's, the chorus's,
                                           * the SLICER's, then (rev 2) the delay's line in 16 blocks of 4 KB and the
                                           * reverb's model line in 8); (Release 2) DUB TAPE's: a state and a spring a track and a pool of 32 line blocks, 33 more (the last one the instances' common block) */
+#if OC_BORROW
+#define RES_BOR_N 3u                     /* (Round 30 item 1) the borrow's pieces at most (res_borrow.c) */
+#else
+#define RES_BOR_N 0u
+#endif
 enum { RES_ENGINE0, RES_NOTE_HISTORY = RES_ENGINE0 + NPART, RES_JFX0,
        RES_RECORD_UNDO = RES_JFX0 + RES_JFX_N,
        RES_HOT0, RES_HOT_BASE = RES_HOT0 + ENG_HOT_SLOTS,   /* (Orange Cat 0.13.7) the engines' hot sets (engines.c eng_hot_take); (0.14.0) the firmware's own (eng_hot_base) */
        RES_RISE0,                                          /* (Round 28 item 1) the rising cap's MACRO blocks (voice.c rise_block, engines.c mc_vpart), OC_RISE_N of them */
-       RES_COUNT = RES_RISE0 + OC_RISE_N };
+       RES_BOR0 = RES_RISE0 + OC_RISE_N,                   /* (Round 30 item 1) the borrow's pieces (res_borrow.c): a save's scratch, lent while the transport is stopped */
+       RES_COUNT = RES_BOR0 + RES_BOR_N };
+#if OC_BORROW
+/* (Round 30 item 1) the borrow (res_borrow.c). res_bor_st: the main loop writes ASK (after setting res_bor_hold) and, at the end, IDLE; the audio interrupt the rest.
+ * res_bor_hold: 1 from the ask to the end: no transport start (seq.c), nothing taken by the effects, DUB or the rising cap */
+enum { BOR_IDLE, BOR_ASK, BOR_FADE, BOR_TAKE, BOR_HELD, BOR_NO_PLAY, BOR_NO_MEM, BOR_NO_QUIET };   /* (NO_QUIET: DUB or the rising cap did not let go in time: nothing freed, the save waits) */
+static volatile uint8_t res_bor_st, res_bor_hold;
+#define RES_BOR_ON() (res_bor_st >= BOR_FADE && res_bor_st <= BOR_HELD)   /* the effects are giving back, or have given back, their memory */
+static uint32_t res_bor_size[RES_BOR_N];
+static uint32_t jfx_bor_g = 32768u, jfx_bor_g0 = 32768u;   /* (this block's gain, and the last block's: jfx_master ramps between them) */
+static uint8_t res_bor_probe;                           /* (Round 30 review) res_borrow.c's fit probe: resource_allocate writes nothing */                     /* the effects' returns now (Q15): faded to 0 for the borrow */
+#endif
 static uint8_t recording_undo_lost;
 static uint8_t res_rise_ask;                            /* (Round 28 item 1) an allocation failed: the rising cap's unused blocks go back (voice.c rise_block) */
 static uint8_t recording_undo_active, recording_undo_skip;
@@ -34,6 +50,11 @@ static volatile uint8_t res_lend_ok, res_lend_used;     /* bit s, slot s: the ma
 static volatile uint8_t res_jfx_yield;                  /* an engine found no memory while the effects held some */
 #define RES_LEND_PUBLISH() __asm__ volatile("" ::: "memory")   /* (the main loop and the audio interrupt: one core) */
 #define RES_IS_JFX(id) ((id) >= RES_JFX0 && (id) < RES_JFX0 + RES_JFX_N)
+#if OC_BORROW
+#define RES_IS_BOR(id) ((id) >= RES_BOR0 && (id) < RES_BOR0 + RES_BOR_N)   /* (Round 30) the borrow's pieces may use the lent card slots too, as the effects' */
+#else
+#define RES_IS_BOR(id) 0
+#endif
 #ifdef FM1_IRQ_TARGET
 extern uint8_t _resource_start[], _resource_end[];
 extern uint8_t _resource_low_start[], _resource_low_end[];
@@ -124,7 +145,7 @@ static __attribute__((noinline)) void *resource_allocate(uint32_t id, uint32_t b
     if (bytes > RESOURCE_CAPACITY) { resource_failures++; return 0; }
     uint32_t size = (bytes + 3u) & ~3u;
     if (!size) { resource_release(id); return 0; }
-    uint32_t lend = RES_IS_JFX(id) ? res_lend_ok & ((1u << CP_N) - 1u) : 0u;   /* (0.6.0 rev 2) the effects: the
+    uint32_t lend = RES_IS_JFX(id) || RES_IS_BOR(id) ? res_lend_ok & ((1u << CP_N) - 1u) : 0u;   /* (0.6.0 rev 2) the effects: the
                                                          * banks as everything else, then the lent card slots (last: so
                                                          * the card's memory is borrowed only when the arena is short,
                                                          * and a take loading cuts no effect it need not) */
@@ -158,6 +179,9 @@ static __attribute__((noinline)) void *resource_allocate(uint32_t id, uint32_t b
                 resource[id].ptr = p; resource[id].size = size;
                 if (step >= RESOURCE_BANKS) res_lend_used |= (uint8_t)resource_lent(id);
                 uint32_t *words=p;
+#if OC_BORROW
+                if (!res_bor_probe)                     /* (Round 30 review) a fit probe writes nothing (res_borrow.c) */
+#endif
                 for (uint32_t j=0;j<size/4u;j++)words[j]=0;
                 uint32_t used = resource_used();
                 if (used > resource_peak) resource_peak = used;

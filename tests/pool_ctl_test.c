@@ -9,6 +9,10 @@ static int cbad;
 static int cc(const char *what, int ok) { printf("pool ctl: %-110s %s\n", what, ok ? "ok" : "FAIL"); cbad += !ok; return !ok; }
 int main(void)
 {
+#if OC_PJ4_LDR
+    printf("pool ctl: skipped under OC_PJ4_LDR=1: it reads and writes the OCS_POOL chunk records, which a project of the revision does not have (its phrases are tested by tests/pj4_test.c, pj4_sec_test.c, oc_project_test.c)\n", "pool ctl");
+    return 0;
+#endif
     static uint8_t rec[OCS_PARTS_MAX * OCS_PAYLOAD_MAX];
     uint32_t i, owner = 0 * NPAT + 2, flagged = RECORD_MAX;
     int n;
