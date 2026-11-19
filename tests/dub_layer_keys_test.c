@@ -52,10 +52,6 @@ static int quiet2(void) { return trk[2].p[P_MUTE] == 0 && trk[3].p[P_MUTE] == 0 
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
-#if !OC_HOME_PIC
-    printf("dub_layer_keys: built without OC_HOME_PIC: nothing to check\n");
-    return 0;
-#else
     uint32_t j;
     int ok;
     start(1, 0); j = song.sel % 4u;
@@ -159,5 +155,4 @@ int main(void)
 
     printf("dub_layer_keys: %d checks, %d failed\n", nchk, bad);
     return bad != 0;
-#endif
 }

@@ -2,7 +2,7 @@
  * Copyright 2026 Jeremiah Conner. */
 /* The new interface, step 2 (docs/orangecat/UI_BUILD.md "Step 2: EDIT's sheets"): EDIT's sheets (always on since step 9)
  * (firmware/src/ui_sheets.c), through tests/ui_test.c's host UI (its own tests are not run here: main is ours).
- *   cc -O1 -w -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o sheet_test tests/sheet_test.c -lm
+ *   cc -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o sheet_test tests/sheet_test.c -lm
  * Checked, on every engine the build has:
  *   COVER   SELECT from SOUND's first row walks every page release-2's navigation reached (its own page_scroll over the
  *           EDIT, ENV and LFO families, and the ENV and LFO buttons' lists) and comes back to where it started; on FM6

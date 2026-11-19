@@ -2,7 +2,7 @@
  * Copyright 2026 Jeremiah Conner. */
 /* Writes tests/fixtures/r2_projects/*.bin with the Release 2 project writer (project_capture, proj_pack) as it is in the tree this is built from.
  * Not part of the suite: run it by hand ONLY to make fixtures (they are committed once, so that the project format revision, which changes the writer, cannot change what fx_legacy_test loads):
- *   cc -O1 -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 <FW flags as run_tests.sh> -Itests tests/gen_r2_fixtures.c -o gen -lm && ./gen tests/fixtures/r2_projects
+ *   cc -O1 -DMELODEE_USB_AUDIO=1 <FW flags as run_tests.sh> -Itests tests/gen_r2_fixtures.c -o gen -lm && ./gen tests/fixtures/r2_projects
  * Each file is the project_store_t bytes (13,212 B, the Release 2 record). */
 #define UI_TEST_NO_MAIN 1
 #include "ui_test.c"

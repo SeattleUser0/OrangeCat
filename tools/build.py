@@ -129,9 +129,9 @@ def generate():
             [tools / "gen_fw_api_id.py", GEN / "fw_api_id.h"],
             # (Orange Cat 0.8.0) the asset pack of SHAPES' and MACRO's tables, and the header that points the firmware at it
             [tools / "gen_pack.py", "--pak", OUT / "melodee.pak", "--header", GEN / "oc_pack_tables.h",
-             # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1b) OC_HOME_PIC=1: HOME's pictures in the pack's scene
+             # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1b; always since step 9) HOME's pictures in the pack's scene
              # trailer, after the tables and outside their hash (the tables and every module's pack hash as without it)
-             *(["--scenes", SRC / "firmware" / "src" / "oc_scenes.h"] if os.environ.get("OC_HOME_PIC") == "1" else [])]]
+             "--scenes", SRC / "firmware" / "src" / "oc_scenes.h"]]
     procs = [subprocess.Popen([sys.executable, *map(str, c)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               text=True) for c in cmds]
     failed = []
@@ -274,7 +274,6 @@ def app_flags():
                  "MELODEE_MACRO", "MELODEE_SHAPES", "MELODEE_DRUMX",   # (Orange Cat 0.5.0, 0.5.1, 0.9.0) MACRO, SHAPES, DRUM-X
                  "MELODEE_MACRO_PICK",   # (Release 3, the model picker) 1: MACRO carries VA alone, the other models come from the MODELS module the installer page packs (eng_macro.c)
                  "OC_MODULES", "OC_MODULE_WINS", "OC_SFC_PROBE", "OC_MOD_TAIL", "OC_HW_TEST", "OC_CANDIDATES", "OC_CORE_STATS", "OC_LATE_DIAG", "OC_DUB_SRAM", "OC_DUB_KSRAM", "OC_DUB_NOGOV", "OC_REV_RESIDENT", "OC_PERF_RESIDENT",    # (round 20: OC_FX_MODK is retired, fx_insert.h; OC_DUB_SRAM and OC_DUB_KSRAM place only the insert host now) (Orange Cat 0.10.0) loadable engine modules (core.h); (0.14.0) the candidates' build
-                 "OC_HOME_PIC",     # (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md) HOME's picture page, its knobs and macros; off by default
                  "OC_CLIP",         # (the new interface 0.10: UI_BUILD.md step 10) copy and paste of a sound; (needs the mixer, always on since step 9); off by default
                  "OC_CLIP_SEL",     # (the new interface 0.11: UI_BUILD.md step 11) copy and paste of notes and of a step's feel; needs OC_CLIP=1; off by default
                  "OC_ONE_AUTH",     # (ui-fix 7: UI_BUILD.md "ui-fix 7") one authority for every note; off by default

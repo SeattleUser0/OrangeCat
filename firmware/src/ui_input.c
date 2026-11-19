@@ -2575,10 +2575,8 @@ static void ui_input(void)
     pattern_poll();
     ocl_poll();
     pt_set_poll();                                      /* (0.4.1) CHAIN's KNOB 3 on the slot a track is on */
-#if OC_HOME_PIC
     mac_poll();                                         /* (the new interface, UI_BUILD.md 1a) HOME's macros armed for the
                                                          * interrupt while one is off center (oc_macro.c) */
-#endif
     uint32_t pressed = fm1_input_edges(0), notes = fm1_input_note_edges(), now = fm1_ticks(), id, b, k;
     dq_poll();                                          /* (destructive edits waiting for their loop end) */
 #if OC_PROJECT_PAGE
@@ -2866,10 +2864,8 @@ static void ui_input(void)
         open_family(FAM_SEQ);
     }
     if (home == BT_TAP && ui.home && !pop.on) {         /* HOME acts on release (a hold opens the menu); on HOME: its */
-#if OC_HOME_PIC
         if (home_pic_on()) home_pic_next();             /* (the new interface, UI_BUILD.md 1c) PICTURE, TRACKS, CHORD in turn */
         else
-#endif
         ui.home_pg = (uint8_t)!ui.home_pg;              /* other page (ui_view.c) */
         ui.force = 1;
     } else if (home == BT_TAP) {

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner. */
 /* Release 3, step 3 (docs/orangecat/MODULE_FORMAT_R3.md 4, 5, 7): fw_pages version 3 on the device's wire bytes, built with OC_HOME_PIC=1.
- *   cc -O1 -w -DOC_HOME_PIC=1 -Ibuild/gen -Ifirmware/src -Itests -o mod_ui_test tests/mod_ui_test.c -lm
+ *   cc -O1 -w -Ibuild/gen -Ifirmware/src -Itests -o mod_ui_test tests/mod_ui_test.c -lm
  * Checked:
  *   PAGES    fw_pages_check_ex: a good v3 descriptor passes; ext, a version 2 descriptor, a bad pid table (duplicate id, id 0xFFFF, a duplicate legacy slot, a slot at or above
  *            P_COUNT, one in P_RESERVED33..36, a slot on a removed entry, a table outside the image) and the effect scope's rules (SC_FX rows, no hook, no pid table) are named

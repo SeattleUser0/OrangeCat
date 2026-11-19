@@ -136,10 +136,6 @@ int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
     if (dub_host_module_set() != FXM_OK) { printf("dub_perf: the DUB module did not register\n"); return 2; }
-#if !OC_HOME_PIC
-    printf("dub_perf: built without OC_HOME_PIC: nothing to check\n");
-    return 0;
-#else
     {   /* KEYS */
         static const uint8_t L[6] = {13, 38, 64, 89, 108, 127};
         static const uint8_t WK[6] = {7, 9, 11, 12, 14, 16};      /* C D E F G A */
@@ -302,5 +298,4 @@ int main(void)
     }
     printf("dub_perf: %d checks, %d failed\n", nchk, bad);
     return bad != 0;
-#endif
 }

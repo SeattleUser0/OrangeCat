@@ -101,12 +101,10 @@ static void glo_select_set(uint32_t v) { GLO_SELECT = (uint8_t)((GLO_SELECT & ~0
  * place not in use, saying "Add track"; HIDE: the tracks in use share the rows (one track: the wide card) */
 #define TRACKS_HIDE 32u
 static uint32_t stage_rows(void) { return GLO_SELECT & TRACKS_HIDE ? trk_n() : NTRK; }
-#if OC_HOME_PIC
 /* (the new interface, UI_BUILD.md 1c) MENU > HOME PAGE: PICTURE in bit 6 of the same byte (favorites.c: free until now), TRACKS (0,
  * the default) HOME as release-2's. ui_home_pic.c draws the picture page and sets it (home_pic_set) */
 #define HOME_PIC_BIT 64u
 static int home_pic_on(void) { return 1; }   /* (step 9: the new interface is the only one: the macros are always in force; MENU > HOME PAGE is gone, bit 6 of GLO_SELECT is reserved and read as 0, favorites.c) */
-#endif
 
 static uint8_t sync_reload;                  /* engine / preset / project / user preset loaded: editor RELOAD push */
 
@@ -733,15 +731,11 @@ static void open_global(void)
     page_entered();
 }
 
-#if OC_HOME_PIC
 static void home_pic_land(void);                        /* (ui_home_pic.c) */
-#endif
 static void go_home(void)
 {
     ui.home = 1;
-#if OC_HOME_PIC
     home_pic_land();                                    /* (the new interface, UI_BUILD.md 1c) PICTURE chosen: HOME lands on the picture */
-#endif
     ui.entry_open = 0;
     ui.hot_t = 0;
     song.seq_mode = 0;
@@ -1406,7 +1400,6 @@ static const page_t *stage_page(void)
     stage_pg.scope = (MELODEE_P5 && e == ENGI_PROPHET) ? SC_P5 : mp ? SC_MOD : (MELODEE_CZ && e == ENGI_CZ) ? SC_CZ1 : SC_ENGINE;
     for (k = 0; k < 4u; k++)
         stage_pg.id[k] = (MELODEE_P5 && e == ENGI_PROPHET) ? P5_K[k] : mp ? mp->knob[k] : (MELODEE_CZ && e == ENGI_CZ) ? CZ_K[k] : ENGINES[e]->knob[k];
-#if OC_HOME_PIC
     if (home_pic_on() && kdef_of(TSEL->eng_req)) {   /* (the new interface, UI_BUILD.md 1c) MENU > HOME PAGE PICTURE: the engine's
                                                          * table (oc_knobs.c): a plain knob its parameter, a macro P_MACk, none 0xFF */
         const knob_def_t *kd = kdef_of(TSEL->eng_req);
@@ -1418,7 +1411,6 @@ static const page_t *stage_page(void)
         stage_pg.scope = SC_TRACK;
         stage_pg.id[0] = P_DUB_FDBK; stage_pg.id[1] = P_DUB_SEND; stage_pg.id[2] = P_DUB_FILT; stage_pg.id[3] = P_DUB_ECHO;
     }
-#endif
     return &stage_pg;
 }
 /* HOME: what KNOB k edits (0: nothing there) */

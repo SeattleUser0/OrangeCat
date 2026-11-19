@@ -2,7 +2,7 @@
  * Copyright 2026 Jeremiah Conner. */
 /* The new interface, step 1c (docs/orangecat/UI_BUILD.md): HOME's picture page (firmware/src/ui_home_pic.c) through the firmware's UI
  * on tests/ui_test.c's stubs.
- *   cc -O1 -w -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o home_pic_test tests/home_pic_test.c -lm
+ *   cc -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o home_pic_test tests/home_pic_test.c -lm
  *   ./home_pic_test            the checks below
  * Checked:
  *   SETTINGS  the old MENU > HOME PAGE bit (favorites' bit) set or clear loads and is kept as the settings record had it; nothing sets it
@@ -57,7 +57,6 @@ static void settle(void)
     for (uint32_t b = 0; b < 400u; b++) mix_block(out, CTL);
 }
 
-#if OC_HOME_PIC
 static double contrast(uint16_t a, uint16_t b)
 {
     double l[2];
@@ -75,7 +74,6 @@ static void pic_on(void)                                /* the picture page: HOM
     for (int i = 0; i < 4 && ui.home_pg != 2u; i++) press(B_HOME);
     frames(100);
 }
-#endif
 
 int main(int argc, char **argv)
 {

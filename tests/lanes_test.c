@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner. */
 /* The new interface, step 5 (docs/orangecat/UI_BUILD.md "Step 5: EDIT > LANES") (always on since step 9), through tests/ui_test.c's host UI.
- *   cc -O1 -w -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o lanes_test tests/lanes_test.c -lm
+ *   cc -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o lanes_test tests/lanes_test.c -lm
  * Checked:
  *   PAGE    DRUM-X's LANES page is the table page (GR_LANES); LANES 2 and 3 are as before; no other engine has it
  *   PICK    PRESETS picks the lane (both ways, held at the ends); the knobs edit the picked lane's LEVEL, TUNE, DECAY, PAN and

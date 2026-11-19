@@ -2,7 +2,7 @@
  * Copyright 2026 Jeremiah Conner. */
 /* The new interface, step 1a (docs/orangecat/UI_BUILD.md): HOME's knob macros (firmware/src/oc_knobs.c, oc_macro.c) through
  * the firmware's own engines, voices and mix_block (tests/hostsim.c), built with OC_HOME_PIC=1.
- *   cc -O2 -w -DOC_HOME_PIC=1 -Ibuild/gen -Ifirmware/src -o oc_macro_test tests/oc_macro_test.c -lm
+ *   cc -O2 -w -Ibuild/gen -Ifirmware/src -o oc_macro_test tests/oc_macro_test.c -lm
  * Checked:
  *   ZERO     every macro at 0 and the macros armed: every preset of MACRO, SHAPES and DRUM-X renders bit-identically
  *            to the same preset with nothing armed (the interrupt's path does nothing at the center)

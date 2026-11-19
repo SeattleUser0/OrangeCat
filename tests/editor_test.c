@@ -769,7 +769,6 @@ static int device_settings(void)
     request(ED_SET, a, sizeof a);
     bad += check("SLIDE TIME clamps to its range (+63)", !OC_SLIDE_TIME || TSEL->p[P_SLIDET] == 63);
     /* the HOME macros: written where the engine's table has a macro on that knob, within -64 .. 63; refused for an engine with none, and every other reserved id */
-#if OC_HOME_PIC
     {
         const knob_def_t *kd;
         uint32_t m = 4, plain = 4;
@@ -802,7 +801,6 @@ static int device_settings(void)
             bad += check("a knob that is not a macro in the table keeps its reserved id refused", TSEL->p[P_MAC0 + plain] == before);
         }
     }
-#endif
     reset();
     a[0] = 0; a[1] = P_RESERVED33; a[2] = (uint8_t)((12 + 8192) & 127); a[3] = (uint8_t)((12 + 8192) >> 7);
     request(ED_SET, a, sizeof a);
@@ -1057,7 +1055,6 @@ static int pack_protocol(void)
     bad += check("the flash holds the pack byte for byte", !memcmp(host_pack, pak, len));
     bad += check("PACK_INFO (Round 26): appended, the scene trailer's length and CRC: none, 0 and 0; (Round 27) then the flash verdict", host_wire_n == 36u && host_wire[34] == 1u &&
                  (host_wire[26] | host_wire[27] << 7 | host_wire[28] << 14) == 0 && (host_wire[29] | host_wire[30] | host_wire[31] | host_wire[32] | host_wire[33]) == 0);
-#if OC_HOME_PIC
     {   /* a whole trailer after the tables, as the page's file carries it: "OCSC", version 1, its length, the CRC of its bytes 16 .. length */
         uint32_t at = (OC_PACK_LEN + 3u) & ~3u, tl = 600u, c, w;
         uint8_t *t = host_pack + at;
@@ -1111,7 +1108,6 @@ static int pack_protocol(void)
             memset(host_pack, 0xFF, sizeof host_pack); memcpy(host_pack, pak, len); oc_pack_scan();
         }
     }
-#endif
     a[0] = 0; request(ED_PACK_ERASE, a, 1);
     bad += check("PACK_ERASE: the area blank, no pack", host_wire[5] == 0 && host_pack[0] == 0xFF && pk.state == PK_MISSING);
     request(ED_PACK_ERASE, 0, 0);

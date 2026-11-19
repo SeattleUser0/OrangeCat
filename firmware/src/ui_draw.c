@@ -83,11 +83,9 @@ static void head_chip_text(char *b)
         str_cpy(b, "copy 1 to 1", 16);
         b[5] = (char)('1' + ui.ptc_src % NPAT);
         b[10] = (char)('1' + ui.ptc_dst % NPAT);
-#if OC_HOME_PIC
     } else if (ui.home && !ui.home_pg && song.playing) {   /* (step 9) the main screen while the music runs: the bar in view (the selected track's, as its row's steps) */
         str_cpy(b, "BAR ", 8);
         fmt_int(b + 4, (int32_t)(TSEL->seq_idx < (uint32_t)clamp(TSEL->p[P_SLEN], 1, NSTEP) ? TSEL->seq_idx / 16u : 0u) + 1);
-#endif
     } else if (ui.home) {                               /* Stage: the engine (a kit: its name, "909 KIT") */
         if (browse_pending()) { uint32_t kk, s = browse_shown(&kk); e = src_engine(s, kk); }
         if ((MELODEE_DRUM && ENGINES[eng_idx(e)] == &ENG_DRUM) && !browse_pending()) sound_name(TSEL, b);
@@ -159,9 +157,7 @@ static int head_toast(int32_t x)
         w += 40;                                        /* (a keycap: its pill wider than its word) */
     return m[0] && w > 236 - x;
 }
-#if OC_HOME_PIC
 static uint32_t home_pic_cycle(uint8_t *o);               /* (dub-perf) ui_home_pic.c: the pages of HOME's turn */
-#endif
 static void draw_head(void)
 {
     char b[16], chip[16];
@@ -228,7 +224,6 @@ static void draw_head(void)
         }
         if (!ui.home) {                                 /* a page: where it is in its family */
             head_pages(x + 6, 236 - cw - (low ? 22 : 0));
-#if OC_HOME_PIC
         } else if (home_pic_on()) {                     /* (the new interface, UI_BUILD.md 1c) HOME's three pages, PICTURE TRACKS
                                                          * CHORD (home_pg 2, 0, 1), where there is room (none: no dots) */
             uint8_t cyc[4];                             /* (dub-perf) PICTURE, DUB where it is in the turn, TRACKS, CHORD */
@@ -239,7 +234,6 @@ static void draw_head(void)
                 cv_rrect(x, H_HEAD / 2 - 3, w, 6, 3, i == at ? T_THEME : T_LINE, T_BG);
                 x += w + 6;
             }
-#endif
         } else if (x + 6 + 28 <= 236 - cw - (low ? 22 : 0) - 6) {   /* HOME: its two pages (Stage, the chord view),
                                                                    * where there is room */
             uint32_t i;
@@ -544,11 +538,9 @@ static uint32_t frz_state(uint32_t k) { return k >= 4u ? 0u : frz[k].st != FZ_OF
 #include "ui_sections.c"                                /* the EDIT pages in sections, the map */
 #include "ui_rows.c"                                    /* (step 9) what the Stage left: MIXER's rows, the waveform, a knob's words */
 #include "ui_view.c"                                    /* HOME's second page: the chord, pictures of what plays */
-#if OC_HOME_PIC
 #include "oc_scene.c"                                   /* (the new interface, UI_BUILD.md 1b) the pictures' interpreter */
 #include "ui_home_pic.c"                                /* (UI_BUILD.md 1c) HOME's picture page */
 #include "ui_main.c"                                    /* (step 9) HOME's main screen: the strips and the dials */
-#endif
 #include "ui_browser.c"                                 /* SAVE > PRESETS, the sound browser */
 #include "ui_patterns.c"                                /* SEQ > PATTERNS, SEQ > SONG */
 #include "ui_tracker.c"                                 /* (Orange Cat 0.4.2) SEQ > TRACKER */
@@ -1144,7 +1136,6 @@ static void draw_page(void)
         melodee_dbg.stage = 4;
         draw_columns();
         melodee_dbg.stage = 5;
-#if OC_HOME_PIC
         if (ui.home && !hp.landed) {                    /* (the first HOME frame after power-on: its landing page) */
             hp.landed = 1;
             home_pic_land();
@@ -1156,7 +1147,6 @@ static void draw_page(void)
         if (ui.home && (ui.home_pg == 2u || ui.home_pg == DUB_PG))   /* (the new interface, UI_BUILD.md 1c) HOME's picture page, and DUB's */
             home_pic_draw();
         else
-#endif
         if (ui.home && ui.home_pg)                      /* HOME's second page (ui_view.c) */
             view_draw();
         else if (ui.home)                               /* the main screen (ui_main.c), no footer */

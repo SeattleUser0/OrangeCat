@@ -1,7 +1,7 @@
 Release 2 project fixtures for tests/fx_legacy_test.c. Each file is one `project_store_t` record (13,212 bytes, the Release 2 / FUN17 extent).
 
 Written once, on branch r3-pages (tree `ac92d88` plus the test-only headers of the commit that added them), by tests/gen_r2_fixtures.c with the Release 2 writer
-(`project_capture`, `proj_pack`) built as the test is: `-O1 -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1`. The project format revision changes the writer; these files do not change with it.
+(`project_capture`, `proj_pack`) built as the test is: `-O1 -DMELODEE_USB_AUDIO=1`. The project format revision changes the writer; these files do not change with it.
 The test loads them with the reader only (`proj_import`, `project_restore_runtime`). Regenerate ONLY to make new fixtures, never to make a failing test pass.
 
 | file | content |

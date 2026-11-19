@@ -2202,7 +2202,6 @@ int main(int argc, char **argv)
         }
     /* (0.7.0) the second pass in Melodee Pixel (Settings > FONT PIXEL) is gone with the setting: the text is Melodee
      * Pixel alone, so the pass above draws it */
-#if OC_HOME_PIC
     {   /* (the new interface, branch ui-build: docs/orangecat/UI_BUILD.md 1c) HOME's picture page in every palette, linted and MONO gray
          * as every screen above: MACRO, SHAPES, DRUM-X as they load, each knob at either end, a knob turning (named in the sound line), a
          * note on; CZ-1 (no table: the plain picture); (OC_PACK_GATE=1) PACK MISSING. NIGHT, DAY and CONTRAST
@@ -2355,8 +2354,6 @@ int main(int argc, char **argv)
             }
         fprintf(rep, "(dub-perf) HOME's DUB page: %u screens in every palette\n", (unsigned)nd);
     }
-#endif
-#if OC_HOME_PIC
     {   /* (ui-fix2 6) the SHAPES cat's cycles: the paw's bat and the tail's wag, 8 frames of the phase turning once (the phase set a eighth of a turn
          * apart, the clock standing still), PLUCK / COLR at their middle; NIGHT only, written as PPMs (shapes_cycle_<paw|tail>_<n>). How fast a cycle
          * runs is the knob's (home_pic_test.c: 0.5 Hz at its left end, 3 Hz at its right) */
@@ -2388,7 +2385,6 @@ int main(int argc, char **argv)
                 write_ppm(out, "NIGHT", image);
             }
     }
-#endif
     {   /* (ui-fix 5, October 31, 2026) the effect pages in the FX button's order (the owner's: DUB TAPE, DIST, AUTO PAN, the sends, then
          * the shared DELAY, REVERB, CHORUS, SLICER, MASTER), each reached as the FX button reaches it (open_family), in every palette,
          * linted and MONO gray as every screen above; NIGHT, DAY and CONTRAST written as PPMs (fxorder_<nn>_<title>) */

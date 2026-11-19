@@ -31,7 +31,7 @@ BS=$(grep '^export OC_' tools/orangecat_engines.sh | grep -o 'OC_[A-Z0-9_]*=1' |
 FLAGS="-O1 -ffp-contract=off -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Wno-sign-compare -Ibuild/gen -Ifirmware/src -Itests"
 case $MODE in syntax) OUTF="-fsyntax-only" ;; deep) OUTF="-c -o /dev/null $ANALYZER" ;; esac
 # unit[:flags]: a test source that includes the firmware's files
-UNITS="hostsim ui_test:-DMELODEE_USB_AUDIO=1 regress oc_pack_test oc_module_test:-DOC_MODULE_WINS=1 lib_group_test usb_host_test fx_module_test:-DOC_MODULE_WINS=1 storage_test mod_ui_test:-DOC_HOME_PIC=1"
+UNITS="hostsim ui_test:-DMELODEE_USB_AUDIO=1 regress oc_pack_test oc_module_test:-DOC_MODULE_WINS=1 lib_group_test usb_host_test fx_module_test:-DOC_MODULE_WINS=1 storage_test mod_ui_test"
 t0=$(date +%s)
 errors=0
 for u in $UNITS; do

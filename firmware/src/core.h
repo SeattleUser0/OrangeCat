@@ -116,15 +116,6 @@
                                    * image as the fallback when the module is skipped); 0: the built-in engine is kept and the module is "shadowed".
                                    * tools/orangecat_engines.sh sets 1 for the proof of concept (docs/orangecat/ENGINE_LOADING_PLAN.md, step 4) */
 #endif
-#ifndef OC_HOME_PIC
-#define OC_HOME_PIC 1             /* (Step 9: always 1, the Stage is gone and so is the Melodee-only build; the switch goes with the others, UI_DESIGN.md "Step 9") (Orange Cat, the new interface, branch ui-build: docs/orangecat/UI_BUILD.md) 1: step 1 as it lands: the four
-                                   * knobs' macros (1a: oc_knobs.c, oc_macro.c), the scene interpreter and the pack's scene trailer (1b: oc_scene.c),
-                                   * HOME's picture page (1c); 0: none of it is compiled and the firmware is release-2's. Off until the whole HOME
-                                   * path works (UI_BUILD.md, step 1) */
-#endif
-#if !OC_HOME_PIC
-#error "OC_HOME_PIC=0: HOME's old Stage is gone (step 9); there is no build without the main screen. The tag stage-last is the way back."
-#endif
 #define GR_FEEL 0x60              /* (the new interface 0.4) FEEL's graph kind: outside fw_pages.h's enum so the module interface's id does not move (the step pages are always on
                                    * since step 9) */
 #ifndef OC_CLIP
