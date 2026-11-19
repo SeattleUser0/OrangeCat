@@ -232,12 +232,8 @@ static int test_step_modifiers(void)
     }
     cursor_set(4); frame(); step_t before[NSTEP]; memcpy(before, t->step, sizeof before);
     turn(EN_PRESET, 10);
-#if OC_STEP_PAGES
     bad += check("PRESETS has no STEP editing role (it browses the notes and steps)", !memcmp(before, t->step, sizeof before) && ui.cursor != 4);
     cursor_set(4); frame();
-#else
-    bad += check("PRESETS has no STEP editing role", !memcmp(before, t->step, sizeof before) && ui.cursor == 4);
-#endif
 
     fm1_in.buttons |= 1u << panel.btn[B_ENV]; host_pressed |= 1u << panel.btn[B_ENV]; frame();
     host_enc[panel.enc[EN_SELECT]] += panel.dir[EN_SELECT]; fm1_in.buttons &= ~(1u << panel.btn[B_ENV]); frame();

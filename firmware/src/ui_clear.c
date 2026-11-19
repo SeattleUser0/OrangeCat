@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner. */
-/* ui-fix2 item 2 (docs/orangecat/UI_BUILD.md "ui-fix2 2"), behind OC_REC_CLEAR (core.h; it needs OC_STEP_PAGES): REC held with the
+/* ui-fix2 item 2 (docs/orangecat/UI_BUILD.md "ui-fix2 2"), behind OC_REC_CLEAR (core.h; the step pages are always on since step 9): REC held with the
  * sequencer stopped is the owner's CLEAR. What it clears is what the page is about:
  *     HOME (any of its pages)   the selected track's steps and notes (the pattern it is on, as "Clear track" did)
  *     a SEQ page                the values on that page back to their defaults (FEEL, NOTES, TRACKER, DRUM HIT: the chance,

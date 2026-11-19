@@ -2,7 +2,7 @@
  * Copyright 2026 Jeremiah Conner. */
 /* ui-fix 8 (docs/orangecat/UI_BUILD.md "ui-fix 8"): slide and legato, with OC_SLIDE=1, through tests/ui_test.c's host harness: the
  * sequencer and the voices driven by mix_block (the audio interrupt's path: events_block, seq_advance, the render's glide).
- *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DMELODEE_USB_AUDIO=1
+ *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DMELODEE_USB_AUDIO=1
  *      -Ibuild/gen -Ifirmware/src -Itests -o slide_test tests/slide_test.c -lm
  * Checked, on MACRO (it reads the voice's pitch every block):
  *   MODES     POLY, MONO, LEGATO, UNISON: a step with SLIDE into the next: the same voice goes on (its envelope's stage and level

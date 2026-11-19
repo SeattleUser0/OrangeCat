@@ -575,13 +575,8 @@ static int test_frozen_lock(void)
     turn(EN_K3, 2);
     bad += check("frozen phrase: the step knobs change nothing", !memcmp(before, trk[0].step, sizeof before));
     ui.cursor = 0;
-#if OC_STEP_PAGES
     turn(EN_PRESET, 2);                           /* (ui-build 4: NOTES' KNOB 1 is PITCH, refused here; PRESETS moves the cursor) */
     bad += check("frozen phrase: PRESETS still moves about", ui.cursor == 2u);
-#else
-    turn(EN_K1, 2);
-    bad += check("frozen phrase: KNOB 1 still moves about", ui.cursor == 2u);
-#endif
     ui.msg_t = 0;
     press(B_REC);
     bad += check("frozen phrase: REC refused", song.rec == 0u && msg_is("UNFREEZE TO EDIT"));
@@ -3948,10 +3943,6 @@ static int test_tempo_select(void)
     ok = !str_eq(cur_page()->title, "NOTES") && ui.cursor == 4u;
     turn(EN_SELECT, -1);
     turn(EN_K1, 3);
-#if !OC_STEP_PAGES                                /* (ui-build 4: NOTES' KNOB 1 is PITCH, SELECT the page: step_pages_test) */
-    bad += check("SELECT on NOTES turns the page (and back); KNOB 1 moves through the steps",
-                 ok && ui.cursor == 7u && str_eq(cur_page()->title, "NOTES"));
-#endif
     go_title("TEMPO");
     turn(EN_K1, 4);
     turn(EN_K2, 10);

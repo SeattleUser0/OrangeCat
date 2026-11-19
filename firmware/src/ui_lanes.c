@@ -2,7 +2,7 @@
  * Copyright 2026 Jeremiah Conner. */
 /* The new interface, step 5 (docs/orangecat/UI_DESIGN.md Part 1 section 5 "Drums", Part 2 drum_lanes.png; docs/orangecat/UI_BUILD.md
  * "Step 5: EDIT > LANES"): DRUM-X's first lane page as the table of its eight sounds (always on since step 9; it needed
- * OC_STEP_PAGES).
+ * the step pages).
  *
  * The page keeps release-2's four knobs (params.c: LEVEL, TUNE, DECAY, PAN of the lane ui.lane, edited through page_desc and
  * edit_param as before: nothing of the editing is new). What is new: the four cards are drawn in the knobs' cozy colors with

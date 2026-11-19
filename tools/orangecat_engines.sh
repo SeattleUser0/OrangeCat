@@ -32,7 +32,7 @@ export MELODEE_FM6=0
 export MELODEE_P5=0
 export MELODEE_DRUM=0
 export OC_MODULE_WINS=1
-export OC_HOME_PIC=1 OC_EDIT_SHEETS=1 OC_SHIFT_MAP=1 OC_STEP_PAGES=1
+export OC_HOME_PIC=1 OC_EDIT_SHEETS=1 OC_SHIFT_MAP=1
 export OC_ONE_AUTH=1   # (ui-fix 7, branch ui-fix) one authority for every note; waits for Session A's on-unit sequencer test before a merge
 export OC_SLIDE=1      # (ui-fix 8, branch ui-fix) slide and legato; the same
 export OC_REC_CLEAR=1  # (ui-fix2 2, branch ui-fix2) REC held, stopped: the clears with a countdown; waits for Session A's on-unit sequencer test before a merge

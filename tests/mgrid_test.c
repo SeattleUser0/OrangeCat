@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner. */
 /* The melodic step grid (branch melodic-grid, docs/orangecat/MELODIC_GRID_PLAN.md; firmware/src/ui_mgrid.c, ui_mgrid_edit.c), with OC_MGRID=1, through tests/ui_test.c's host UI:
- *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_ONE_AUTH=1 -DOC_MGRID=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o mgrid_test tests/mgrid_test.c -lm
+ *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_ONE_AUTH=1 -DOC_MGRID=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o mgrid_test tests/mgrid_test.c -lm
  * The ten "Done when" items of the request, each by name in the lines it prints (DW1 .. DW10), plus the page, its tracks, the keys and the lights (PAGE, KEYS, LIGHTS):
  *   DW1   steps 1, 5, 9 and 13 take four notes, the steps between untouched and the cursor only where a pick put it
  *   DW2   the first four black keys reach the four pages; all 64 steps of a 64-step phrase are filled from the GRID alone; a page past LEN is inert

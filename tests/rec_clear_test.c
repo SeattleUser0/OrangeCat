@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner. */
 /* ui-fix2 item 2 (docs/orangecat/UI_BUILD.md "ui-fix2 2"): REC held with the sequencer stopped counts down and clears, with OC_REC_CLEAR=1.
- *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_REC_CLEAR=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen
+ *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_REC_CLEAR=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen
  *      -Ifirmware/src -Itests -o rec_clear_test tests/rec_clear_test.c -lm
  * Checked:
  *   TIMING   a tap arms REC as ever (no clear); held 0.8 s (inside the count) is KEPT: nothing cleared, REC not armed, the release no tap;

@@ -2594,7 +2594,6 @@ int main(int argc, char **argv)
         fprintf(rep, "(the new interface 0.2) EDIT's sheets: %u screens over every palette\n", (unsigned)ns);
     }
 #endif
-#if OC_STEP_PAGES
     {   /* (the new interface 0.4, UI_BUILD.md step 4) FEEL (as set, each knob last turned, a range, the step playing, an empty page),
          * NOTES with its new strip (a recorded note, a manual note, nothing) and the SHIFT map on both, in every palette, linted and
          * MONO gray; NIGHT, DAY and CONTRAST written as PPMs (feel_<scene>, notes_<scene>) (the two map screens of step 4 went with the
@@ -2661,7 +2660,6 @@ int main(int argc, char **argv)
             }
         fprintf(rep, "(the new interface 0.4) the step pages: %u screens over every palette\n", (unsigned)nm);
     }
-#endif
 #if OC_MGRID
     {   /* (melodic-grid) SEQ > GRID: the STEP stage (notes, a chord, a recorded step, the step playing, an empty phrase, a phrase of 40 steps on its third page: the steps past LEN
          * faint, the last two pages dim), the NOTE stage, in every palette, linted and MONO gray; NIGHT, DAY and CONTRAST written as PPMs (grid_<scene>) */

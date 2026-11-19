@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner. */
-/* The new interface, step 4 (docs/orangecat/UI_BUILD.md "Step 4: the step pages") with OC_STEP_PAGES=1, through tests/ui_test.c's
+/* The new interface, step 4 (docs/orangecat/UI_BUILD.md "Step 4: the step pages") (always on since step 9), through tests/ui_test.c's
  * host UI (its own tests are not run here).
- *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o step_pages_test tests/step_pages_test.c -lm
+ *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o step_pages_test tests/step_pages_test.c -lm
  * Checked:
  *   ORDER   SEQ's pages: NOTES, FEEL, TRACKER
  *   NOTES   KNOB 1 PITCH, 2 START, 3 LEN, 4 VEL on a recorded note, one undo each; START wraps at the phrase's end and refuses an
@@ -60,10 +60,6 @@ static void manual(uint32_t s, uint32_t note)
 
 int main(void)
 {
-#if !OC_STEP_PAGES
-    printf("step_pages: built without OC_STEP_PAGES\n");
-    return 0;
-#else
     setvbuf(stdout, NULL, _IONBF, 0);
     {   /* ORDER */
         uint32_t i, n = 0, at = 0, a, b;
@@ -376,5 +372,4 @@ int main(void)
     }
     printf("step_pages: %d failed\n", nbad);
     return nbad != 0;
-#endif
 }

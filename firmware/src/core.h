@@ -135,13 +135,8 @@
                                    * (ui_shift.c): SHIFT + a knob fine, + PRESETS the engine, + EDIT init, + OCT copy and paste; held alone
                                    * 0.7 s the MENU (the map of step 3 withdrawn by the owner, October 31, 2026); 0: HOME as release-2's */
 #endif
-#ifndef OC_STEP_PAGES
-#define OC_STEP_PAGES 0           /* (the new interface 0.4, branch ui-build: docs/orangecat/UI_BUILD.md step 4) 1: the step pages: NOTES' knobs PITCH START
-                                   * LEN VEL with PRESETS the cursor, FEEL (ui_feel.c), the tracker's note length on a manual chord, the combos on NOTES and
-                                   * FEEL; 0: NOTES, TRACKER and the SEQ pages as release-2's */
-#endif
-#define GR_FEEL 0x60              /* (the new interface 0.4) FEEL's graph kind: outside fw_pages.h's enum so the module interface's id does not move (no page has it
-                                   * with OC_STEP_PAGES 0) */
+#define GR_FEEL 0x60              /* (the new interface 0.4) FEEL's graph kind: outside fw_pages.h's enum so the module interface's id does not move (the step pages are always on
+                                   * since step 9) */
 #ifndef OC_CLIP
 #define OC_CLIP 0                 /* (the new interface 0.10, branch ui-build: docs/orangecat/UI_BUILD.md step 10) 1: SHIFT + OCT- / OCT+ copy and paste the selected
                                    * track's sound (ui_clip.c); 0: SHIFT + OCT says LATER (a message), as release-2's */
@@ -181,16 +176,10 @@
                                    * load boundaries; every manual gesture on a recorded cell deletes its events through the history; START
                                    * converts a manual note; a key on a recorded step replaces it); 0: as 0.16.0 */
 #endif
-#if OC_ONE_AUTH && !OC_STEP_PAGES
-#error "OC_ONE_AUTH needs OC_STEP_PAGES (UI_BUILD.md ui-fix 7)"
-#endif
 #ifndef OC_SLIDE
 #define OC_SLIDE 0                /* (ui-fix 8, branch ui-fix: docs/orangecat/UI_BUILD.md "ui-fix 8") 1: a step's SLIDE is a legato glide in every
                                    * voice mode, for manual steps (seq.c seq_slide_voice) and recorded notes that overlap (recording.c); ENV +
                                    * KNOB 4 sets it on a recorded step too, the roll draws it; 0: as 0.16.0 (a true slide on a LEGATO track only) */
-#endif
-#if OC_SLIDE && !OC_STEP_PAGES
-#error "OC_SLIDE needs OC_STEP_PAGES (UI_BUILD.md ui-fix 8)"
 #endif
 #ifndef OC_START_NUDGE
 #define OC_START_NUDGE 0          /* (ui-fix2 5, branch ui-fix2: docs/orangecat/UI_BUILD.md "ui-fix2 5") 1: NOTES' KNOB 2 (START) on a typed note moves it in time by the step's
@@ -211,9 +200,6 @@
                                    * (about a second) and clears what the page is about: HOME the track, a SEQ page its values, the FX pages the track's
                                    * effects, GLO every track's music, MOTION the track's automation; one undo level brings it back (ui_clear.c) */
 #endif
-#if OC_REC_CLEAR && !OC_STEP_PAGES
-#error "OC_REC_CLEAR needs OC_STEP_PAGES (UI_BUILD.md ui-fix2 2)"
-#endif
 #ifndef OC_MGRID
 #define OC_MGRID 0                /* (melodic-grid, docs/orangecat/MELODIC_GRID_PLAN.md) 1: SEQ > GRID, the melodic step grid: a pitched track's 16 white keys are the steps of a page, the first four black keys the pages;
                                    * a white key picks a step and the keyboard then plays its notes (ui_mgrid.c, ui_mgrid_edit.c). Input only: no format, audio or scheduler change; needs OC_ONE_AUTH */
@@ -229,9 +215,6 @@
                                    * use is marked and named on screen with whether it has unsaved changes, a LOAD over unsaved changes asks first (ui_slots.c) */
 #endif
 #define GR_LANES 0x61             /* (the new interface 0.5) LANES' graph kind (outside fw_pages.h's enum, as GR_FEEL) */
-#if OC_STEP_PAGES && !OC_SHIFT_MAP
-#error "OC_STEP_PAGES needs OC_SHIFT_MAP (each step of the new interface ships behind the one before: UI_BUILD.md)"
-#endif
 #if OC_SHIFT_MAP && !OC_EDIT_SHEETS
 #error "OC_SHIFT_MAP needs OC_EDIT_SHEETS (each step of the new interface ships behind the one before: UI_BUILD.md)"
 #endif

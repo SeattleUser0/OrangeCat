@@ -2,7 +2,7 @@
  * Copyright 2026 Jeremiah Conner. */
 /* ui-fix2 item 4 (docs/orangecat/UI_BUILD.md "ui-fix2 4"): SLIDE TIME, with OC_SLIDE=1 and OC_SLIDE_TIME=1, through tests/ui_test.c's host harness
  * (the sequencer and voices driven by mix_block, as slide_test.c does).
- *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DOC_SLIDE_TIME=1
+ *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_ONE_AUTH=1 -DOC_SLIDE=1 -DOC_SLIDE_TIME=1
  *      -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o slide_time_test tests/slide_time_test.c -lm
  * Checked, on MACRO (it reads the voice's pitch every block):
  *   TIME      in POLY, MONO, LEGATO and UNISON an octave slide takes about 192 / (3 * 2^(-s/16)) blocks for SLIDE TIME s: s = 0 as before (64

@@ -559,7 +559,6 @@ static uint32_t frz_state(uint32_t k) { return k >= 4u ? 0u : frz[k].st != FZ_OF
 #include "ui_pool.c"                                    /* (Orange Cat 0.4.4) SEQ > PHRASES */
 #include "ui_groove.c"                                  /* (Orange Cat 0.4.5) SEQ > GROOVE */
 static int own_screen(void);
-#if OC_MGRID || OC_STEP_PAGES                   /* (their only callers; ui_feel.c, feel_hund, is not in a build with both off) */
 /* (melodic-grid trim) the PITCH and LENGTH texts of the picked note, one copy for NOTES and GRID */
 static __attribute__((noinline)) void dial_pitch(char *sn, uint32_t chosen, const step_t *st)
 {
@@ -573,7 +572,6 @@ static __attribute__((noinline)) void dial_len(char *sn, uint32_t chosen, uint32
     } else if (selected) fmt_int(sn, (int32_t)step_note_length(TSEL, start));
     else str_cpy(sn, "--", 12);
 }
-#endif
 
 static void draw_columns(void)
 {
@@ -672,7 +670,6 @@ static void draw_columns(void)
         return;
     }
 #endif
-#if OC_STEP_PAGES
     if (cur_page()->graph == GR_FEEL) {                 /* (the new interface 0.4, ui_feel.c) the cursor step's four values */
         const step_t *st = &TSEL->step[ui.cursor % NSTEP];
         uint32_t k;
@@ -683,13 +680,11 @@ static void draw_columns(void)
         }
         return;
     }
-#endif
     if (cur_page()->graph == GR_ROLL && !grid_on()) {
         uint32_t chosen = notes_selected(TSEL), start = notes_manual_start(TSEL);
         const step_t *st = start < NSTEP ? &TSEL->step[start] : 0;
         int selected = chosen < RECORD_MAX || (st && st->n);
         char sn[12], u[12];
-#if OC_STEP_PAGES
         if (!drum_track(TSEL) && !bulk.on && !ui.note_move && !ui.note_copy) {   /* (the new interface 0.4) PITCH START LEN VEL */
             dial_pitch(sn, chosen, st);
             draw_column(0, "PITCH", sn, "", selected ? T_COZY(0u) : T_DIM, -1, ICON_PITCH);
@@ -731,7 +726,6 @@ static void draw_columns(void)
                         selected ? T_COZY(3u) : T_DIM, -1, ICON_ACCENT);
             return;
         }
-#endif
         fmt_int(sn, (int32_t)ui.cursor + 1); u[0] = '/'; fmt_int(u + 1, TSEL->p[P_SLEN]);
         draw_column(0, ui.note_copy?"COPY":bulk.on||ui.note_move?"MOVE":"STEP", sn, bulk.on||ui.note_move?"":u, VAL(0u), -1, ICON_AUTO);
         uint32_t pitch = chosen < RECORD_MAX ? recording[chosen].note : st && st->n ? st->note[notes_manual_slot(st)] : last_note;

@@ -749,9 +749,7 @@ static const page_t PAGES[] = {
     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
     {"NOTES", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
-#if OC_STEP_PAGES
     {"FEEL", FAM_SEQ, SC_STEP, GR_FEEL, {0, 1, 2, 3}},   /* (the new interface 0.4, UI_BUILD.md step 4) the steps' chance, ratchet, nudge, type (ui_feel.c) */
-#endif
     {"TRACKER", FAM_SEQ, SC_STEP, GR_TRACKER, {0, 1, 2, 3}},   /* (Orange Cat 0.4.2) the phrase as rows (ui_tracker.c) */
 #if OC_MGRID
     {"GRID", FAM_SEQ, SC_STEP, GR_MGRID, {0, 1, 2, 3}},   /* (melodic-grid) a pitched track's steps on the keys (ui_mgrid.c); not on DRUM, DRUM-X, kit or slice tracks (ui.c page_visible) */
