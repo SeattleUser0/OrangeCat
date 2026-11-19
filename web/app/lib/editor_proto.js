@@ -316,6 +316,12 @@ const parse = {
     const shared=trailer.findIndex((x,i)=>i>=25&&x===0x55&&trailer[i+1]===1);
     o.shared=shared>=0?{version:1,total:trailer[shared+2]|trailer[shared+3]<<7}:null;
     if(o.shared)o.native=null;
+    /* (web-r6, audit E1) the firmware sends the FM6, CZ and Prophet tags whatever is built; an engine the unit does not run reads "-" at its place in the
+       engine list (the Nightly: engines.c), and its commands get no reply: no 6-OP FM tab, no CZ or Prophet panel then */
+    const off=(e)=>o.engines[e]==="-";            /* FM6 12, CZ-1 15, the Prophet 19 */
+    if(off(12))o.fm6=null;
+    if(off(15)){o.cz=false;o.czBanks=0;}
+    if(off(19))o.prophet=false;
     return o;
   },
   [CMD.UI_STATE](a) {
@@ -1391,7 +1397,7 @@ async function auditionPatch(rq, info, pt, opt = {}) {
   for (let i = 0; i < n; i++) {
     const v = pt.p[i];
     if (opt.progress) opt.progress(i, n);
-    if (v == null || v === dump.p[i] || trackOwn(i, info.pe0)) continue;
+    if (v == null || v === dump.p[i] || trackOwn(i, info.pe0) || (i >= 33 && i <= 36)) continue;   /* (web-r6, Session A's review of web-cmds, item 3) 33..36 are HOME's macro offsets: an old positional patch's effect values there would land in a macro */
     await rq(req.set(0, i, v));
   }
   if (pt.fm6 && info.fm6)                         /* a converted DIGITAL sound: its own FM6 patch on the track */
@@ -3151,6 +3157,9 @@ async function replaceOcm(send, probe, row, ocm, ask, progress) {
   await probe();
   return "swapped";
 }
+/* (web-r6, Session A's review of web-cmds item 2) the globals whose SET the unit saves with its settings (editor.c ed_dev_global: A4 21, BUDGET 41, BOOT 17, the DRUM
+   channel 13, the WEIGHTS 4..9): each SET erases a settings sector, so the page sends such a value once it rests (the last one). test_web.mjs holds the list to the firmware's tables */
+const DEV_SAVED_G = new Set([4, 5, 6, 7, 8, 9, 13, 17, 21, 41]), DEV_REST_MS = 1000;
 /*PROTO-END*/
 
-export { CMD, CRC_TABLE, CZ, DUBFW, ENGINE_ORDER, F, FADE, FLASH_OPT, FM4, FM6, HDR, IMA_IDX, IMA_STEP, KIT_LANE, KIT_RANGE, KIT_SIGNED, LANES, LANE_ALIAS, LANE_NOTE, LANE_OF, LIB, Link, MODULE_SLOTS, NOTE_NAMES, OCM_FX_SECTORS, OCM_GEO, OCM_LINK0, OCM_MAGIC, OCM_MODELS_ID, OCM_RELOCATABLE, OCM_SECTOR, OC_BEGIN_MS, P5, P5_FACTORY, PUSH, P_CHORD, P_MPCDEG, Reader, SCALE_INFO, SMP, TRACK_OWN, UP, aliasOf, assignEngine, auditionPatch, autoTrim, bank, buildSlot, capturePatch, chkError, cleanPatch, crc16x, crc32, czBankDecode, czBankEncode, czBankRead, czBankUpload, czBkNumber, czBkPack, czBkU32, czBkUnpack, czLegacyTone, czLibraryPatch, devicePresetRows, drumLane, drumWireValid, dubField, dubPack, dubSyncNow, dxkCrc, dxkitFromRecord, dxkitRecord, dxkitValid, engineLabel, engineOrder, enginesRows, fetchModPages, fmtValue, frame, fromDigital, fxCheck, globalReserved, gridFromSteps, hitsEnc, hitsText, imaEncode, kitBody, kitFromBody, libraryFile, macroId, makeMockDevice, mayWrite, mixer, modCode, modSummary, nativeBank, nativeImportTargets, normalize, noteName, ocmCheck, ocmFxCaps, ocmFxDesc, ocmFxRead, ocmImage, ocmModelsDesc, ocmParse, ocmReason, ocmRelocate, ocmSwapPlan, ocmTails, ocmWrite, p5LibraryPatch, pack7, packProblem, paramKeys, paramReserved, parse, parseHits, parseNote, parseNotes, parseWav, patNorm, patternFromSteps, patternUsed, pyRound, readDevicePreferences, readHits, readLibraryFile, readSysexLibrary, remapParams, replaceOcm, replyMatches, req, resample, reservedFm4, rootFromName, sameKeys, scaleRows, sharedBank, startWatch, stepAccents, stepLanes, stepsFromPattern, strEnc, tailParams, takeSample, trackOwn, unframe, unpack7, upName, v14dec, v14enc, writeRange, zoomView };
+export { CMD, CRC_TABLE, CZ, DEV_SAVED_G, DUBFW, ENGINE_ORDER, F, FADE, FLASH_OPT, FM4, FM6, HDR, IMA_IDX, IMA_STEP, KIT_LANE, KIT_RANGE, KIT_SIGNED, LANES, LANE_ALIAS, LANE_NOTE, LANE_OF, LIB, Link, MODULE_SLOTS, NOTE_NAMES, OCM_FX_SECTORS, OCM_GEO, OCM_LINK0, OCM_MAGIC, OCM_MODELS_ID, OCM_RELOCATABLE, OCM_SECTOR, OC_BEGIN_MS, P5, P5_FACTORY, PUSH, P_CHORD, P_MPCDEG, Reader, SCALE_INFO, SMP, TRACK_OWN, UP, aliasOf, assignEngine, auditionPatch, autoTrim, bank, buildSlot, capturePatch, chkError, cleanPatch, crc16x, crc32, czBankDecode, czBankEncode, czBankRead, czBankUpload, czBkNumber, czBkPack, czBkU32, czBkUnpack, czLegacyTone, czLibraryPatch, devicePresetRows, drumLane, drumWireValid, dubField, dubPack, dubSyncNow, dxkCrc, dxkitFromRecord, dxkitRecord, dxkitValid, engineLabel, engineOrder, enginesRows, fetchModPages, fmtValue, frame, fromDigital, fxCheck, globalReserved, gridFromSteps, hitsEnc, hitsText, imaEncode, kitBody, kitFromBody, libraryFile, macroId, makeMockDevice, mayWrite, mixer, modCode, modSummary, nativeBank, nativeImportTargets, normalize, noteName, ocmCheck, ocmFxCaps, ocmFxDesc, ocmFxRead, ocmImage, ocmModelsDesc, ocmParse, ocmReason, ocmRelocate, ocmSwapPlan, ocmTails, ocmWrite, p5LibraryPatch, pack7, packProblem, paramKeys, paramReserved, parse, parseHits, parseNote, parseNotes, parseWav, patNorm, patternFromSteps, patternUsed, pyRound, readDevicePreferences, readHits, readLibraryFile, readSysexLibrary, remapParams, replaceOcm, replyMatches, req, resample, reservedFm4, rootFromName, sameKeys, scaleRows, sharedBank, startWatch, stepAccents, stepLanes, stepsFromPattern, strEnc, tailParams, takeSample, trackOwn, unframe, unpack7, upName, v14dec, v14enc, writeRange, zoomView };

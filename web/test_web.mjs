@@ -35,7 +35,7 @@ const html = readFileSync(join(HERE, "editor.html"), "utf8");
 const proto = html.slice(html.indexOf("/*PROTO-BEGIN*/"), html.indexOf("/*PROTO-END*/"));
 const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
-   UP, bank, nativeBank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
+   DEV_SAVED_G, DEV_REST_MS, UP, bank, nativeBank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, F, FM6,
    FM4, fromDigital, CZ, P5, P5_FACTORY, p5LibraryPatch, readSysexLibrary, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone, ocmParse, ocmCheck, ocmTails, packProblem, ocmSwapPlan, modSummary, OCM_STATE, enginesRows, ocmReason, fetchModPages, replaceOcm, assignEngine, modCode, kitBody, kitFromBody, KIT_LANE, KIT_RANGE, sharedBank, dxkitRecord, dxkitFromRecord, dxkitValid })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
@@ -1859,6 +1859,98 @@ async function patternProtocol() {
   ok(nativeInfo.motionVersion === 2 && nativeInfo.motionMax === 64 && nativeInfo.patterns === 8,
     "native motion: INFO v2 retains the tagged capabilities, v1 firmware still supported");
   ok(info.patterns === 8 && info.chainRows === 16 && info.backupCaps === 3 && info.fm6.bank === 32,"patterns: tagged INFO preserves preferences, motion, backup and FM6");
+  {   /* (web-r6, Session A's review of web-cmds, item 3) an old positional patch's values at 33..36 are not SET by the audition: on the Nightly those are HOME's macro offsets */
+    const sets=[];const dumpP=Array(92).fill(0);
+    const fake=async(q)=>{const [cmd,a]=q;
+      if(cmd===E.CMD.SET){sets.push(a[1]);return [0];}
+      if(cmd===E.CMD.DUMP)return null;return [0];};
+    const inf={pcount:92,pe0:84,engines:[]};const pt={engine:8,p:Array.from({length:92},(_,i)=>i===33||i===36||i===10?55:null)};
+    const real=E.parse[E.CMD.DUMP];E.parse[E.CMD.DUMP]=()=>({p:dumpP,engine:8});
+    try{await E.auditionPatch(fake,inf,pt,{gEng:20});}finally{E.parse[E.CMD.DUMP]=real;}
+    ok(sets.includes(10)&&!sets.some(i=>i>=33&&i<=36),"audition: a patch's values at 33..36 (HOME's macro offsets) are not written; the sound's are");
+  }
+  {   /* (web-r6) the editor's saved settings are the firmware's (tests/web_wire.h web_gp_saved = editor.c ed_dev_global, in the app's generated tables) */
+    const { FW } = await import(join(HERE, "app/lib/fw_tables.js"));
+    ok([...E.DEV_SAVED_G].sort((a, b) => a - b).join() === FW.saved.gp.join() && E.DEV_REST_MS >= 500, "editor: the settings a SET saves (sent once they rest) are the firmware's: " + FW.saved.gp.join(" "));
+  }
+  {   /* (web-r6, Session A's review of the debounce, BUILD.md Round 29) the editor's own code (touched .. sendSet and disconnect, from editor.html) in a
+         sandbox: the unit's SETs, the page's timers and listeners are the test's */
+    const a = html.indexOf("function touched(k)"), b = html.indexOf("/* engine / preset browser */");
+    const da = html.indexOf("function disconnect(reasonKey"), db = html.indexOf("\n}\n", da) + 3;
+    const mk = () => {
+      const timers = [], listen = {}, raw = [], rqs = [], shown = [];
+      let fail = false, dumpG = null;
+      const C = { timers, listen, raw, rqs, shown,
+        setTimeout: (f, ms) => (timers.push({ f, ms, on: true }), timers.length), clearTimeout: (i) => { if (i) timers[i - 1].on = false; },
+        addEventListener: (ev, f) => { (listen[ev] ||= []).push(f); }, window: { addEventListener: () => {} }, clock: 1e9, performance: { now: () => C.clock },
+        document: { activeElement: null }, console: { warn: () => {} }, frame: E.frame, req: E.req, parse: { [E.CMD.SET]: () => ({ value: C.lastV }) }, CMD: E.CMD,
+        DEV_SAVED_G: E.DEV_SAVED_G, DEV_REST_MS: E.DEV_REST_MS, key: (sc, id) => (sc ? "g:" : "p:") + id,
+        showValue: (k, v, force) => shown.push([k, v, force]), mixFromDump: () => {}, buildGroups: () => {}, rereadMpcDesc: async () => {},
+        resetBusy: () => {}, renderPanels: () => {}, renderMixer: () => {}, renderSysinfo: () => {}, renderLive: () => {}, renderLib: () => {}, renderBank: () => {},
+        renderPreferences: () => {}, setLabel: () => {}, t: (x) => x, sayK: () => {}, $: () => ({}), needReload: false,
+        getDump: async () => ({ g: dumpG.slice(), p: [] }),
+        setFail: (f) => { fail = f; }, setDumpG: (g) => { dumpG = g; },
+        rq: async (q) => { rqs.push(q); C.lastV = decodeSet(q); if (fail) throw new Error("timeout"); return null; },
+        run: async () => { const l = timers.filter((x) => x.on); for (const x of l) { x.on = false; await x.f(); } await new Promise((r) => setTimeout(r, 0)); return l; },
+      };
+      vm.createContext(C);
+      vm.runInContext("let dragging = null; const ctl = new Map(); const sets = new Map(); let dev = null;\n" + html.slice(a, b) + html.slice(da, db) +
+        ";globalThis.X = { userSet, flushRested, sendSet, touched, disconnect, sets, setDev: (d) => { dev = d; }, dev: () => dev };", C);
+      return C;
+    };
+    const decodeSet = (q) => (q[1][2] | (q[1][3] << 7)) - 8192;
+    const unitDev = (g) => ({ dump: { g: g.slice(), p: [] }, info: {}, input: {}, output: {}, link: { sendRaw: () => {}, close: () => {}, hasQueued: () => false, cur: null } });
+    {   /* item 1: the page hidden within the rest, then the same for unload and for disconnect */
+      for (const how of ["pagehide", "beforeunload", "disconnect"]) {
+        const C = mk(), X = C.X, d = unitDev(Array(48).fill(0));
+        d.link.sendRaw = (f) => C.raw.push(f);
+        X.setDev(d);
+        X.userSet(1, 21, 438); X.userSet(1, 21, 442); X.userSet(1, 41, 5);
+        const before = C.raw.length + C.rqs.length;
+        if (how === "disconnect") X.disconnect(); else (C.listen[how] || []).forEach((f) => f());
+        const sent = C.raw.map((f) => E.unframe(f)).map((u) => [u.a[1], decodeSet([0, u.a])]);
+        await C.run();
+        ok(before === 0 && sent.length === 2 && sent.some(([i, v]) => i === 21 && v === 442) && sent.some(([i, v]) => i === 41 && v === 5) && C.rqs.length === 0 && C.raw.length === 2,
+          `editor: ${how} within the rest writes each resting setting once, the last value (review item 1)`);
+      }
+    }
+    {   /* item 2: another unit within the rest: nothing of the old unit's is sent to it, and its own value is not re-sent */
+      const C = mk(), X = C.X, d1 = unitDev(Array(48).fill(0)), d2 = unitDev(Array(48).fill(7));
+      d1.link.sendRaw = () => { throw new Error("port gone"); };
+      X.setDev(d1); X.userSet(1, 17, 2);
+      X.disconnect(); X.setDev(d2);
+      await C.run();
+      ok(C.rqs.length === 0 && X.sets.size === 0 && d2.dump.g[17] === 7, "editor: a unit switched within the rest gets no SET of the old unit's value nor of its own (review item 2)");
+    }
+    {   /* item 4: a dump read during the rest does not take the value back; the SET carries the value turned to */
+      const C = mk(), X = C.X, d = unitDev(Array(48).fill(0));
+      X.setDev(d); X.userSet(1, 13, 9);
+      C.clock += 700;                                  /* past the turn's 600 ms, still inside the rest */
+      const held = X.touched("g:13");
+      d.dump = { g: Array(48).fill(0), p: [] };             /* a load re-read the dump meanwhile */
+      await C.run(); C.clock += 2000;
+      const q = C.rqs.at(-1);
+      ok(held && C.rqs.length === 1 && q[1][1] === 13 && decodeSet(q) === 9 && !X.touched("g:13"), "editor: during the rest the control keeps the value turned to, and that value is sent (review item 4)");
+    }
+    {   /* item 3: a SET that fails: the control shows the unit's value again, read back */
+      const C = mk(), X = C.X, d = unitDev(Array(48).fill(0));
+      X.setDev(d); C.setDumpG(Array(48).fill(0).map((_, i) => (i === 4 ? 3 : 0)));
+      C.setFail(true); X.userSet(1, 4, 6);
+      await C.run(); await new Promise((r) => setTimeout(r, 0));
+      const last = C.shown.at(-1);
+      ok(C.rqs.length === 1 && last[0] === "g:4" && last[1] === 3 && last[2] === true && d.dump.g[4] === 3, "editor: a failed SET shows the unit's value again, read back (review item 3)");
+    }
+  }
+  {   /* (web-r6, audit E1) the Nightly sends the FM6 / CZ / Prophet tags with those engines "-" in the list: no 6-OP FM tab, no CZ or Prophet panel */
+    const nm=(e)=>[...Array.from(e)].map(c=>c.charCodeAt(0)).concat(0);
+    const names=(f)=>Array.from({length:20},(_,e)=>nm(f(e))).flat();
+    const head=(f)=>[65,0,20,92,27,64,84,...names(f),4];
+    const tags=[0,0x55,1,9,0x4d,1,64,1,0x42,1,3,0x50,1,8,16,0x46,1,8,32,0x43,1,E.CZ.BYTES&127,E.CZ.BYTES>>7,0,0];
+    const night=E.parse[E.CMD.INFO]([...head((e)=>[8,9].includes(e)?"MACRO":"-"),...tags]);
+    const all=E.parse[E.CMD.INFO]([...head((e)=>({12:"FM6",15:"CZ-1",19:"PROPHET"})[e]||"X"),...tags]);
+    ok(night.engines[12]==="-" && night.fm6===null && night.cz===false && night.prophet===false && all.fm6?.bank===32 && all.cz===true,
+      "INFO: an engine the unit lists as \"-\" gets no FM6 / CZ / Prophet tab, though its tag is sent (audit E1)");
+  }
   ok(eq(E.req.pattern(2,1,7)[1],[2,1,7]) && E.parse[E.CMD.PATTERN]([2,1,0,7,127,8]).active===7,"patterns: bank selection uses its track and zero-based bank");
   const rows=[{banks:[0,2,4,7],repeat:3},{banks:[7,6,5,4],repeat:1}];
   const request=E.req.bankSong(1,rows);

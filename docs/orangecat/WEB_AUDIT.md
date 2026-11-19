@@ -113,10 +113,19 @@ motion and REC-held clears remain: A33, A26, A35, A34). A21 (fixed in round 1 by
   `docs/orangecat/WEB_CMDS.md` says what to review. STEP:GRID, TRACK:MOTION and DXLANE, which were listed with these, needed no command (STEP_SET, MOTION 64, KIT_GET / KIT_PUT exist):
   they are in web-r3.
 
-## Not fixed (after round 3)
+## Round 6 (web-r6, 2026-11-16): what was left that needs no new command
 
-Web app: A12 A37 and the parts of A19, A27 (values), A57 (REC-held clears); A3 A23 A41 A58 only on `web-cmds`; the needs-command items A4 A34 A36 A38 A40 A47 (Session A items 2 to 7). Other pages: B3..B32,
-E1 E6 E7 E11.
+Most used first (the installer page and the controls guide, then the web app, the old editor, the unpublished manual):
+- **The controls guide** for Nightly v0.16.0-c5a112 (below, "For Session A").
+- **Closed by the merge of web-cmds into linux-hw** (checked on this tree: `FW.refused` lists only the padding globals 10, 11, 24..26, and every page cell's wire is `same`, `packed`, `kit` or `recq`, none `no`): A3 (the HOME macro dials write), A23 (SLIDE TIME writes), A41 (BOOT), A58 (the DRUM channel and the WEIGHTS), and with them the parts of A19 and A48 that waited on them.
+- **Session A's review of web-cmds, item 2** (each SET of a saved setting erases a settings sector): the app's Pages tab and the editor send A4, BUDGET, BOOT, the DRUM channel and the WEIGHTS once the value has rested 1 s, the last value only; every other cell as before. The list is the firmware's: `tests/web_wire.h` `web_gp_saved`, held equal to `editor.c` `ed_dev_global` by `tests/editor_test.c`, written by `tests/web_tables.c` into the app's tables (`FW.saved.gp`: 4..9, 13, 17, 21, 41); `test_pages.mjs` and `test_web.mjs` hold the app and the editor to it.
+- **Item 3** (the editor's audition): `auditionPatch` no longer SETs ids 33..36 (HOME's macro offsets); `test_web.mjs` fails without the fix.
+- **E1, the page side**: the editor shows no 6-OP FM tab and no CZ or Prophet panel for an engine INFO lists as "-" (the Nightly), though the firmware still sends the tags (Session A item 6 stays for the firmware side); `test_web.mjs` fails without the fix.
+- **B3..B32, closed as superseded**: the Melodee manual (`web/manual/index.html`) is not published (`make_site.py`: Orange Cat runs installer_only; `mirror_site_test.py` holds that no page links it), and the published controls guide covers each of its topics from the firmware's tables (pages and their order, knob labels and ranges, MENU rows, HOME as SHIFT, SAVE / PROJECT, REC held, NOTES / TRACKER / FEEL / GRID / GROOVE / CHAIN / PHRASES / PERFORM, the FX order, DUB TAPE and its CCs, SLIDE, the four tracks, the knob colors). (B1 and B2 were already off the open list after round 3.) The manual's file stays as Melodee's, unpublished.
+
+## Not fixed (after round 6)
+
+Web app: only needs-command items: A4 A12 (DUB's HOME picture: the scene, item 2) A27's values (item 9) A34 and A57's REC-held clears (item 3) A36 A37 A38 A40 (item 4) A47 and A19's menu rows (item 5). Other pages: E6 E7 (firmware), E1's firmware side (item 6), E11 (the editor's offline mock still uses the all-engines host build's tables; it affects only `editor.html?mock=1` and the editor's tests, and generating it is a build step of its own: left for a round of its own).
 
 ## For Session A: commands the firmware lacks (not added here)
 
@@ -154,8 +163,8 @@ settings) and `params.c` (WEIGHT_DESC hoisted, 7 lines). `DESC` is unchanged. `t
 
 Independent review of e23b769f's firmware (editor.c, params.c, the tests). Merged into r22-int with one fix:
 1. **Fixed (was blocking):** `ed_macro` accepted a macro's SET / TRACK_PARAM while MENU > HOME PAGE is TRACKS (the default), where the unit shows no macro knob and `mac_commit` zeroes the offsets: an offset the owner cannot see or centre. Now `home_pic_on() && ...`; `tests/editor_test.c` checks the refusal in TRACKS and the write in PICTURE.
-2. **For Session D, not fixed:** a SET of a device setting erases a settings sector per changed value when the unit is idle (`ed_dev_put` -> `settings_save()`; as A4 and BUDGET already did; eight more ids now). Debounce: save about 1 s after the last device SET. The page should not send these on every key repeat.
-3. **For Session D, not fixed:** the editor's audition (`web/editor.html` auditionPatch) SETs every differing id except `trackOwn`, which leaves out 48 but not 33..36: an old positional patch file's effect values land in a macro (PICTURE mode). Skip 33..36 in audition.
+2. **For Session D: fixed in web-r6** (sent once the value rests, below). A SET of a device setting erases a settings sector per changed value when the unit is idle (`ed_dev_put` -> `settings_save()`; as A4 and BUDGET already did; eight more ids now). Debounce: save about 1 s after the last device SET. The page should not send these on every key repeat.
+3. **For Session D: fixed in web-r6.** The editor's audition (`web/editor.html` auditionPatch) SETs every differing id except `trackOwn`, which leaves out 48 but not 33..36: an old positional patch file's effect values land in a macro (PICTURE mode). Skip 33..36 in audition.
 4. Tests to add: the save itself (the test builds with MELODEE_FLASH 0), the lower clamps, ids 11 and 24..26, a DESC assertion for 4..9 and 33..36, a job with OC_HOME_PIC=0 and one with OC_SLIDE_TIME=0; `_Static_assert`s tying G_WP5..G_SAFETY to `WEIGHT_DESC` and VOICE_KINDS.
 Checked and fine: every write clamped by the unit's descriptor; the editor runs in the main loop like the unit's own pages; `settings_save()` defers while playing; refused ids answer 0; DESC untouched; `param_reserved` unchanged (loads still zero 33..36, motion does not record them).
 
@@ -180,6 +189,71 @@ Checked and fine: every write clamped by the unit's descriptor; the editor runs 
 - The stale sentence in the web-r4 entry above ("MUTE on the Stage is not written") is corrected in place.
 
 **Tests.** Full SAN=1 suite through `tools/suite_lock.sh` (slot 1, suites.slice, `--parallel 3`) in a checkout pinned at b77d60ed after `ci_step.py build`: **passed, 280 jobs, 16,889 s** (other sessions' builds and suites ran beside it). Web app tests 164 pass. This entry is a doc-only commit on top of b77d60ed.
+
+## For Session A: web-r6, the four debounce fixes and the guide for Nightly v0.16.0-6872dc (linux-hw 1dbeda9d merged)
+
+**Ready: yes.** This answers the hold in BUILD.md Round 29. New commits: b1479c6a (the four fixes, with tests), a884b22c (merge of linux-hw 1dbeda9d, no conflicts), acfe2c27 (the guide). The entries below are earlier rounds of web-r6; merge web-r6 as it is now.
+
+**The four should-fix items (b1479c6a).**
+1. *Flush.* A saved setting still resting is written at once, straight to the port, on `pagehide`, on `beforeunload` and on disconnect, before the link closes. A lost port: nothing can reach it.
+   - App: `PG.restedSets().flush()`
+   - Editor: `flushRested()`
+2. *Per unit.*
+   - App: one pending set per session (`restFor(s)`, made at connect, flushed and dropped at disconnect). A send whose session is no longer the page's is dropped.
+   - Editor: it sends the value it kept for the unit it was turned on (`st.want`, `st.dev`). It never sends the new unit's own value. `sets` is cleared at disconnect. sendSet's clamp write-back checks `d === dev`.
+3. *Refused or failed.*
+   - App: refused while `S.busy`, the value is tried again after another rest. Failed, or refused by the unit, it is dropped, and the cell shows the unit's value at the next render.
+   - Editor: a failed SET reads the dump back and shows the unit's value (forced), unless a newer request carries the control.
+4. *Render during the rest.*
+   - App: `cellView` shows the pending value.
+   - Editor: `touched()` holds the control while it rests, so the poll keeps it, and a dump read meanwhile does not change the value sent.
+
+*Tests.*
+- `web/app/test/test_pages.mjs` covers seven cases: the rest, flush, the busy retry, failure, a turn while a SET is in flight, per session, and a flushed SET landing on the mock unit. It also reads app.js's wiring from source.
+- `web/test_web.mjs` runs the editor's own `touched` to `sendSet` and `disconnect` from editor.html in a sandbox. It covers items 1 (pagehide, beforeunload, disconnect), 2, 3 and 4.
+- A mutant of each fix fails a test: 5 in pages.js and 7 in editor.html.
+
+**The guide (acfe2c27).** The header names build 6872dc, commit 6872dc4d, November 17, 2026. The firmware is a5b382's. fw_tables.js matches the merged firmware. Changes:
+- New section "Tracks OFF lend their memory: more MACRO voices" (BUILD.md 7.42). With three tracks OFF, a POLY MACRO track gets up to 16 voices (CHIP), 9 (NOISE, VA-VCF, TERRAN) or 6 (VA family). It uses free memory only when notes need it, and the effects are never made to yield. The families and modes that keep their voices are listed. A track turned ON takes the memory back at once: the extra voices are declicked, and the track may show WAIT for a few ms.
+- One new "differs" line.
+
+**Tests.** Full SAN=1 suite through `tools/suite_lock.sh` (slot 2, suites.slice, `--parallel 3`), in a checkout pinned at acfe2c27, after `ci_step.py build`: **passed, 286 jobs, 16,627 s**. Also passing:
+- the web app's 176 tests
+- `web/test_web.mjs`, test_flash_refuse, test_installer, test_installer_page, test_editor_layout
+- `gen_proto --check` and `gen_controls --check`
+
+This entry is a doc-only commit on top of acfe2c27.
+
+## For Session A: web-r6 again, the guide for Nightly v0.16.0-dc0c9e (linux-hw 49d3625f merged)
+
+**Ready: yes.** web-r6 now has one more commit, d89aa6db. It merges linux-hw 49d3625f and updates the guide. It changes no firmware and no web app code: only `controls_src.json` and what `gen_controls.mjs` makes from it, plus this file. It replaces the web-r6 entry below; merge web-r6 as it is.
+
+**The guide.** The header names build dc0c9e, commit dc0c9e7f, November 16, 2026, and tables 9585985a. fw_tables.js matches the merged firmware (`gen_fw_tables --check`). Changes for BUILD.md 7.40's "For Session D" items:
+- Track OFF, GLO + OCT+ on the selected track. The GLO lines and the footer "RESTART, UNDO, TRK OFF" came with the merge (GLO DONE is gone).
+- OFF in three places: a TRACKS row (the Stage), greyed like a muted row; the PICTURE page's sound line; the MIXER strip, where Mute goes. A track turned ON says WAIT in the accent color until it has its memory back.
+- New section "Flash chips": Puya P25Q80 (0x856014) and UCUN UC25HQ80 (0xB36014) are both supported. The UC25HQ80 is tested in simulation only until a unit with it is tried. On any other chip the unit and the page say FLASH NOT SUPPORTED and nothing is written. The page refuses a package that does not know the unit's chip. A UC25HQ80 unit on an older Orange Cat needs the ROM recovery.
+- Two new "differs" lines: track OFF with the TRK OFF footer, and the two flash chips.
+
+**Tests.** Full SAN=1 suite through `tools/suite_lock.sh` (slot 1, suites.slice, `--parallel 3`) in a checkout pinned at d89aa6db, after `ci_step.py build`: **passed, 285 jobs, 12,266 s**. Also passing: the web app's 168 tests, `web/test_web.mjs`, test_flash_refuse, test_installer, test_installer_page and `gen_proto --check`. This entry is a doc-only commit on top of d89aa6db.
+
+## For Session A: web-r6 (from linux-hw 5c9ba403, web-r5 merged)
+
+**Ready: yes.** Branch web-r6, head d45b4b5c plus this doc-only entry. Commits: 6a237968 (merge of web-r5), e1d01497 (the guide for c5a112), f68bdc30 (editor: E1 and the audition), c19302a8 (the debounce of the unit's saved settings), d45b4b5c (this file's round 6).
+
+**The guide.** Top line: build c5a112, commit c5a112e3, November 14, 2026; tables 46323678 (only the new "saved" key). What changed:
+- PRESETS: one sound a click, slow or fast, wrapping at both ends; a fast turn loads when it rests. ALL, FAV, RECENT and the categories list only sounds whose engine and model are installed (BUILD.md 7.36); nothing is deleted, a hidden track sound says MODULE MISSING and the first click goes to its neighbour. A MACRO sound is listed only while its model is installed.
+- New section "Install writes only what changed" (MOD_INFO and PACK_INFO CRCs, BUILD.md 7.38): a current module, pack or firmware is skipped, so a second install in a row writes nothing; the "erased first" question appears only when a module really changes; older firmware behaves as before.
+- Two new "differs" lines (the PRESETS wrap and filter; Install leaving current items alone).
+- Track OFF: not added in this commit (not built then); added in d89aa6db above.
+
+**The fixes (open items needing no new command, most used first).**
+- Review item 2: the unit's saved settings (GLOBAL 4..9, 13, 17, 21, 41) are sent once, when the knob rests (1 s), in the app and the editor, so a turn no longer writes flash per step. The list comes from `web_gp_saved` in tests/web_wire.h through fw_tables.js (`FW.saved.gp`), and editor_test holds it equal to `ed_dev_global`.
+- Review item 3: the editor's audition no longer SETs 33..36.
+- E1 (page side): an INFO engine slot that reads "-" turns off FM6, CZ-1 and the Prophet in the editor.
+- A3, A23, A41, A58 closed by the web-cmds merge; B3..B32 closed as superseded by the generated guide.
+- Left open: the items that need a command (listed under "Not fixed (after round 6)"), E6, E7, E1's firmware side, and E11 (the editor's offline mock; its own round).
+
+**Tests.** Full SAN=1 suite through `tools/suite_lock.sh` (slot 2, suites.slice, `--parallel 3`) in a checkout pinned at d45b4b5c after `ci_step.py build`: **passed, 280 jobs, 16,641 s**. Web app tests 167 pass; `web/test_web.mjs` passes (the new tests fail without the fixes). This entry is a doc-only commit on top of d45b4b5c.
 
 ## For Session A: ready
 

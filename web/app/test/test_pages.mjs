@@ -4,6 +4,8 @@
 // not follow (with test_tables.mjs: the checked-in tables must be what the firmware writes now).
 // Revisions: web-r3 (Session D, 2026-11-08): first version.
 import { ok } from "./t.mjs";
+import { readFileSync } from "node:fs";
+import * as E from "../lib/editor_proto.js";
 import { FW } from "../lib/fw_tables.js";
 import { PAGE_STATUS } from "../lib/app_coverage.js";
 import * as PG from "../lib/pages.js";
@@ -86,5 +88,90 @@ export async function run() {
   const r = await s.trackMix(1, 77, true);
   await s.readTracks();
   ok(r.level === 77 && r.mute === 1 && s.tracks.tracks[1].level === 77 && s.tracks.tracks[1].mute === 1, "pages: the MIXER's LEVEL and MUTE of another track reach it (TRACK_MIX)");
+  /* (web-r6) the settings a SET saves (A4, BUDGET, BOOT, DRUM, the WEIGHTS) are sent once they rest, the last value only; every other cell at once */
+  {
+    const all = PG.shownPages().flatMap((pg) => PG.cellsOf(pg, s.dump.p)).filter(Boolean);
+    const saved = all.filter(PG.savesSettings).map((c) => c.label);
+    ok([boot, drumch, w1, guard].every(PG.savesSettings) && saved.includes("A4") && saved.includes("BUDGET") && !all.some((c) => c.scope === "TRACK" && PG.savesSettings(c)) &&
+      !all.some((c) => c.label === "BPM" && PG.savesSettings(c)), `pages: the cells sent once they rest are the unit's saved settings (${saved.join(" ")}), never a track's or BPM`);
+    /* the test's timers: run() fires the live ones (and waits for their async sends) */
+    const clock = () => {
+      const timers = [];
+      const T = { timers, later: (f, ms) => (timers.push({ f, ms, on: true }), timers.length - 1), cancel: (i) => { timers[i].on = false; },
+        live: () => timers.filter((t) => t.on),
+        run: async () => { const l = T.live(); for (const t of l) { t.on = false; await t.f(); } await new Promise((r) => setTimeout(r, 0)); return l; } };
+      return T;
+    };
+    {
+      const C = clock(), sent = [], nowed = [], ch = [];
+      const R = PG.restedSets({ send: async (id, v) => (sent.push([id, v]), true), now: (id, v) => nowed.push([id, v]), changed: (id) => ch.push(id), later: C.later, cancel: C.cancel });
+      for (const v of [400, 410, 420, 440]) R.put(21, v);
+      const shown = R.pending(21), live = C.live();
+      await C.run();
+      ok(sent.length === 1 && sent[0][1] === 440 && live.length === 1 && live[0].ms === PG.REST_MS && PG.REST_MS >= 500 && nowed.length === 0,
+        "pages: four turns of a saved setting send one SET, the last value, after the rest");
+      ok(shown === 440 && R.pending(21) === undefined && R.size === 0 && ch.length === 1,
+        "pages: while it rests the cell shows the value turned to, not the dump's old one (review item 4); sent, the unit's value again");
+    }
+    {   /* review item 1: the page hidden or unloaded, or the unit disconnected, within the rest */
+      const C = clock(), sent = [], nowed = [];
+      const R = PG.restedSets({ send: async (id, v) => (sent.push([id, v]), true), now: (id, v) => nowed.push([id, v]), later: C.later, cancel: C.cancel });
+      R.put(21, 445); R.put(41, 3); R.put(21, 446);
+      const n = R.flush();
+      await C.run();
+      ok(n === 2 && nowed.length === 2 && nowed.some(([i, v]) => i === 21 && v === 446) && nowed.some(([i, v]) => i === 41 && v === 3) && sent.length === 0 &&
+        C.live().length === 0 && R.size === 0 && R.flush() === 0, "pages: flush writes every value still resting at once (the last of each), nothing is sent twice (review item 1)");
+    }
+    {   /* item 1 against the mocked unit: flush's write straight to the port lands, with no reply awaited (as app.js restFor does on pagehide) */
+      const C = clock(), w = PG.cellWrite(guard, 0, s.dump);
+      const was = (await s.readDump()).g[w.id], nv = was ? 0 : 1;
+      const R = PG.restedSets({ send: async () => true, now: (id, v, c) => { const x = PG.cellWrite(c, v, s.dump); s.link.sendRaw(E.frame(...E.req.set(1, x.id, x.value))); }, later: C.later, cancel: C.cancel });
+      R.put(guard.id, nv, guard); R.flush();
+      await new Promise((r) => setTimeout(r, 50));
+      ok((await s.readDump()).g[w.id] === nv, `pages: a flushed setting reaches the unit (GUARD ${was} to ${nv})`);
+    }
+    {   /* review item 3: refused while the page is busy it waits another rest; failed, it is dropped so the page shows the unit's value */
+      const C = clock(), tries = [], ch = [];
+      let busy = true;
+      const R = PG.restedSets({ send: async (id, v) => { tries.push(v); return busy ? false : true; }, now: () => {}, changed: (id) => ch.push(id), later: C.later, cancel: C.cancel });
+      R.put(13, 7);
+      await C.run();
+      const waiting = R.pending(13), again = C.live().length;
+      busy = false; await C.run();
+      ok(tries.length === 2 && waiting === 7 && again === 1 && R.pending(13) === undefined && ch.length === 1, "pages: a send refused while the page is busy is tried again after the rest (review item 3)");
+      const F = clock(), fch = [];
+      const R2 = PG.restedSets({ send: async () => { throw new Error("timeout"); }, now: () => {}, changed: (id) => fch.push(id), later: F.later, cancel: F.cancel });
+      const R3 = PG.restedSets({ send: async () => "failed", now: () => {}, changed: (id) => fch.push(id), later: F.later, cancel: F.cancel });
+      R2.put(13, 9); R3.put(17, 2);
+      await F.run();
+      ok(R2.pending(13) === undefined && R3.pending(17) === undefined && fch.length === 2 && F.live().length === 0,
+        "pages: a send that fails or is refused drops the value, so the cell shows the unit's value again (review item 3)");
+    }
+    {   /* review item 2: each unit's session has its own pending sets; a turn during a send in flight is kept and sent after it */
+      const C = clock(), sent = [];
+      let release;
+      const R1 = PG.restedSets({ send: (id, v) => { sent.push(v); return v === 1 ? new Promise((r) => { release = () => r(true); }) : Promise.resolve(true); }, now: () => {}, later: C.later, cancel: C.cancel });
+      R1.put(4, 1);
+      const first = C.run();
+      await new Promise((r) => setTimeout(r, 0));
+      R1.put(4, 2);
+      release(); await first;
+      const kept = R1.pending(4);
+      await C.run();
+      ok(kept === 2 && sent.join() === "1,2" && R1.size === 0, "pages: a turn while the last SET is in flight is kept and sent after the rest");
+      const R2 = PG.restedSets({ send: async () => true, now: () => {}, later: C.later, cancel: C.cancel });
+      R1.put(5, 3); R1.clear();
+      ok(R2.pending(5) === undefined && R1.pending(5) === undefined && C.live().length === 0 && R1.flush() === 0,
+        "pages: a new unit's session starts with nothing pending; clear() drops the old one's (review item 2)");
+    }
+    {   /* the page's wiring (app.js), read from its source: the flush on pagehide and beforeunload and before the link closes, one session's sets */
+      const src = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+      const disc = src.slice(src.indexOf("function disconnect()"), src.indexOf("function disconnect()") + 400);
+      ok(/addEventListener\("pagehide", \(\) => \{ if \(S\.rest\) S\.rest\.flush\(\); \}\)/.test(src) && /addEventListener\("beforeunload", \(\) => \{ if \(S\.rest\) S\.rest\.flush\(\); \}\)/.test(src) &&
+        disc.indexOf("S.rest.flush()") > 0 && disc.indexOf("S.rest.flush()") < disc.indexOf("S.session.close()") && /S\.session = s; S\.rest = restFor\(s\);/.test(src) &&
+        /if \(S\.session !== s\) return "failed";/.test(src) && /if \(S\.busy\) return false;/.test(src) && /S\.rest\.pending\(c\.id\)/.test(src) && !/whenRested/.test(src),
+        "pages: app.js flushes on pagehide, beforeunload and disconnect (before the close), keeps one pending set per unit, shows the pending value");
+    }
+  }
   s.close();
 }
