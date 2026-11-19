@@ -20,6 +20,9 @@ of the unit's modules that this script checks and does not change:
   FX   the default set: FX LAYER (module id 3) registered, REVERB ROOM on the send; GLITCH LATCHED BY HAND before the run (FX LATCH on, FX +
        GLITCH's key: no editor command reaches the layer's keys): the run refuses to start unless FX_TABLE shows `uses` 1 for id 3
   REV  REVERB MODES (id 2) in the FX layer's place (the page's give-way choice), TYPE SHIMR on the send: refuses unless id 2 is registered
+  BASE (not a level of 7.37: for rehearsing the tool and measuring the load unattended) the default set as FX, FX LAYER registered but no
+       GLITCH latch asked (`uses` 0 accepted), REVERB ROOM on the send; says "BASE: rehearsal only, not a qualification row (no FX layer
+       effect playing)" at the start and in the result, and never sets PASS_MARK (it is null)
 DUB TAPE (id 1) must be registered in both. Factor A (--clock): int (the chain, command 74, bank 8 x 16, restarted whenever it ends, polled
 every 0.5 s) or ext (CLK USB: the PC's MIDI Start and 24 clocks a beat, every clock counted). --din-row: a 20 s row on CLK TRS (the AUDIO4c's
 DIN out, port name with "DIN") before an ext run, its pulses counted (7.37's check, not a factor).
@@ -29,7 +32,8 @@ THE PREFLIGHT (the design check, before anything is timed): the transport starte
 the worst half with DUB and DUB's state read. DESIGN INVALID (nothing more is run; the guard puts everything back) when the worst half
 without DUB is over 1,900 us (DUB's governor lets a released DUB back only while that peak plus its 450 us estimate is under 85 % of the
 half, 2,465 us: under about 2,015 us; 1,900 keeps 115 us of margin) or DUB is not running with its memory at the end (state 2, ready, no
-DUB FULL). The numbers are printed either way. --preflight-only: the preflight, then the restore.
+DUB FULL), or DUB's governor fired during it. The line is derived from the firmware source (DUBK_GOV_US 450, FX_BACK_US 2,466:
+2,466 - 450 - 116 = 1,900); other values or an unreadable source refuse. The numbers are printed either way. --preflight-only: the preflight, then the restore.
 
 THE RUN: the backup (unit_guard: no backup, no run), midicap.py started beside it (its own ALSA client), the editor's reply counters reset
 (AUDIO_STATS [1, 5]), the load, the transport, the preflight, --warmup-s with the load playing (7.37: 2 minutes), then the first capture, then every
@@ -76,14 +80,62 @@ BASS = (48, 55, 60, 55)
 DRUMS = {1: {i: 36 for i in (0, 4, 8, 12)}, 2: {i: 38 for i in (2, 6, 10, 14)}}
 DUB_LOAD = {"FDBK": 55, "SEND": 127, "FILTER": 60, "TIML": UG.dub_t_val(6), "TIMR": UG.dub_t_val(10), "SPRNG": 0,
             "SPEED": UG.DUB_SPD_MID, "MODE": UG.dub_mode(0, 1), "TAPE": UG.dub_tape(6, 0), "ECHO": 100}
-# the preflight's line (fx_insert.c, the governor: a released DUB comes back while the heaviest half without it plus its 450 us is under 85 % of
-# the 2,901 us half, 2,465 us, i.e. the mix alone under about 2,015 us; BUILD.md 7.46)
-NODUB_MAX_US = 1900
+# the preflight's line (fx_insert.c, the governor: a released DUB comes back while the heaviest half without it plus its DUBK_GOV_US is under
+# FX_BACK_US, 85 % of the half; BUILD.md 7.46), derived from the firmware's source by governor_line() at the start of every run
+GOV_ASSUMED = {"DUBK_GOV_US": 450, "FX_BACK_US": 2466}  # (2,902 us * 85 / 100 in the firmware's integers; the text's 2,465 rounds the half to 2,901)
+NODUB_MARGIN_US = 116
+NODUB_MAX_US = GOV_ASSUMED["FX_BACK_US"] - GOV_ASSUMED["DUBK_GOV_US"] - NODUB_MARGIN_US        # 1,900
 
 
-def design_check(nodub, withdub, dub):
-    """the preflight's verdict from the two AUDIO_STATS reads (worst_us, late) and DUB's state at the end: (ok, reasons)"""
+def governor_line(repo=os.path.dirname(os.path.dirname(HW))):
+    """DUBK_GOV_US (dub_kern.h) and FX_BACK_US (fx_insert.c: HALF_FRAMES * 1e6 / FS * 85 / 100, core.h) from the source the build uses;
+    SystemExit when they cannot be read or differ from GOV_ASSUMED (the preflight's 1,900 us would then be wrong)"""
+    import re
+    try:
+        src = {f: open(os.path.join(repo, "firmware", "src", f)).read() for f in ("dub_kern.h", "fx_insert.c", "core.h")}
+        gov = int(re.search(r"#define DUBK_GOV_US (\d+)u", src["dub_kern.h"]).group(1))
+        m = re.search(r"#define FX_BACK_US \(\(HALF_FRAMES \* 1000000u / FS\) \* (\d+)u / 100u\)", src["fx_insert.c"])
+        half = int(re.search(r"#define HALF_FRAMES (\d+)", src["core.h"]).group(1))
+        fs = int(re.search(r"#define FS (\d+)", src["core.h"]).group(1)) if re.search(r"#define FS (\d+)", src["core.h"]) else 44100
+        back = (half * 1000000 // fs) * int(m.group(1)) // 100
+    except (OSError, AttributeError) as e:
+        raise SystemExit(f"qual_soak: DESIGN INVALID: DUB's governor constants cannot be read from the firmware source ({e!r}): the preflight's line is unknown")
+    got = {"DUBK_GOV_US": gov, "FX_BACK_US": back}
+    if got != GOV_ASSUMED:
+        raise SystemExit(f"qual_soak: DESIGN INVALID: DUB's governor constants are {got}, the preflight assumes {GOV_ASSUMED}: revisit NODUB_MAX_US (BUILD.md 7.50)")
+    return {**got, "readmit_us": back - gov, "nodub_max_us": NODUB_MAX_US}
+
+
+BASE_NOTE = "BASE: rehearsal only, not a qualification row (no FX layer effect playing)"
+LEVELS = {"FX": {"module": 3, "rtype": "ROOM", "qualifies": True}, "REV": {"module": 2, "rtype": "SHIMR", "qualifies": True},
+          "BASE": {"module": 3, "rtype": "ROOM", "qualifies": False}}
+
+
+LATCH_STEPS = ("latch GLITCH by hand on the unit: FX LATCH on, then hold FX and press GLITCH's key (no editor command reaches the layer's keys); "
+               "FX_TABLE must then show `uses` 1 for FX LAYER (id 3)")
+
+
+def latch_problem(fx, tab):
+    """None when the level's latch holds: FX needs FX_TABLE `uses` 1 for id 3 (GLITCH latched by hand); else what is wrong"""
+    if fx != "FX":
+        return None
+    row = UG.fx_row(tab, 3)
+    if not row or row.get("uses") != 1:
+        return f"FX LAYER (id 3) shows `uses` {row.get('uses') if row else 'none (not in FX_TABLE)'}, not 1: GLITCH is not latched"
+    return None
+
+
+def pass_mark(fx, parts_ok):
+    """PASS_MARK from its parts' conjunction; None for a level that is not a qualification row (BASE)"""
+    return bool(parts_ok) if LEVELS[fx]["qualifies"] else None
+
+
+def design_check(nodub, withdub, dub, fires=0):
+    """the preflight's verdict from the two AUDIO_STATS reads (worst_us, late), DUB's state at the end and the governor's firings in the
+    preflight: (ok, reasons)"""
     why = []
+    if fires:
+        why.append(f"DUB's governor fired {fires} time(s) during the preflight (an eviction: the load with DUB passed the release line)")
     if nodub["worst_us"] > NODUB_MAX_US:
         why.append(f"the worst half without DUB is {nodub['worst_us']} us, over {NODUB_MAX_US} us (DUB's governor would keep a released DUB out)")
     if not dub.get("running"):
@@ -119,7 +171,7 @@ def preflight(u, wait, secs, echo_on):
     wait(secs)
     withdub = u.stats()
     dub1 = dubstate(u)
-    ok, why = design_check(nodub, withdub, dub1)
+    ok, why = design_check(nodub, withdub, dub1, dub1["gov_fires"] - dub0["gov_fires"])
     pre = {"preflight": "DESIGN VALID" if ok else "DESIGN INVALID", "seconds_each": secs, "nodub_worst_us": nodub["worst_us"],
            "nodub_late": nodub["late"], "nodub_max_us": NODUB_MAX_US, "dub_worst_us": withdub["worst_us"], "dub_late": withdub["late"],
            "dub_running": dub1["running"], "dub_state": dub1, "gov_fires_in_preflight": dub1["gov_fires"] - dub0["gov_fires"], "why": why}
@@ -226,7 +278,7 @@ def main():
     ap.add_argument("out", nargs="?"); ap.add_argument("label", nargs="?")
     ap.add_argument("--order", type=int, help="print a block's order and exit")
     ap.add_argument("--clock", choices=("int", "ext"))
-    ap.add_argument("--fx", choices=("FX", "REV"))
+    ap.add_argument("--fx", choices=tuple(LEVELS))
     ap.add_argument("--minutes", type=float, default=120.0)
     ap.add_argument("--period-min", type=float, default=None, help="default 10 (a third of --minutes when that is under 30)")
     ap.add_argument("--sample-s", type=float, default=20.0)
@@ -268,6 +320,7 @@ def main():
     def body(u):
         tracked(u, tmo)
         info = u.info()
+        gl = governor_line()                              # (before anything is written: a changed governor refuses here)
         ids = UG.Ids(u, "qual_soak")
         ID.update(REV=ids.t("REV"), DLY=ids.t("DLY"), CHO=ids.t("CHO"), DUB=ids.dub(), LEN=ids.t_first("LEN"), DIV=ids.t_first("DIV"),
                   CHRD=ids.t_first("CHRD"), VOIC=ids.t_first("VOIC"), VCE=ids.t_first("VCE"), G_BPM=ids.g("BPM"), G_CLK=ids.g("CLK"))
@@ -278,18 +331,24 @@ def main():
         mono = vn["min"] + vn["names"].index("MONO")
         tab = UG.fx_table(u)
         mods = u.modules()
-        want = {1: "DUB TAPE", 3 if A.fx == "FX" else 2: "FX LAYER" if A.fx == "FX" else "REVERB MODES"}
+        if A.fx == "BASE":
+            print(f"qual_soak: {BASE_NOTE}", flush=True)
+        lv = LEVELS[A.fx]
+        want = {1: "DUB TAPE", lv["module"]: UG.FX_NAMES[lv["module"]]}
         for mid, nm in want.items():
             if (UG.fx_row(tab, mid) or {}).get("state") != 7:
                 raise SystemExit(f"qual_soak: refusing to run: {nm} (module id {mid}) is not registered on the unit (FX_TABLE {tab}); level {A.fx} needs it")
+        lp = latch_problem(A.fx, tab)
+        if lp:
+            raise SystemExit(f"qual_soak: refusing to run: level FX: the run refuses to start unless FX_TABLE shows `uses` 1 for id 3: {lp}. To do: {LATCH_STEPS}")
         if A.fx == "REV" and "SHIMR" not in ID["TYPES"]:
             raise SystemExit(f"qual_soak: refusing to run: the reverb TYPE has no SHIMR ({ID['TYPES']})")
         if A.fx == "REV" and (UG.fx_row(tab, 3) or {}).get("state") == 7:
             print("qual_soak: note: FX LAYER is registered too (7.37's REV level has REVERB MODES in its place): logged, not refused", flush=True)
         now = datetime.datetime.now()
-        head = {"label": A.label, "version": info["version"], "clock": A.clock, "fx": A.fx, "block": A.block, "day": now.strftime("%Y-%m-%d %A"),
+        head = {"note": BASE_NOTE if A.fx == "BASE" else None, "label": A.label, "version": info["version"], "clock": A.clock, "fx": A.fx, "block": A.block, "day": now.strftime("%Y-%m-%d %A"),
                 "time_of_day": now.strftime("%H:%M"), "minutes": A.minutes, "period_min": A.period_min, "sample_s": A.sample_s, "warmup_s": A.warmup_s,
-                "ids": ids.found, "types": ID["TYPES"], "fx_table": tab, "modules": mods, "pack": u.pack_state(), "backup": g.backup}
+                "ids": ids.found, "types": ID["TYPES"], "fx_table": tab, "modules": mods, "pack": u.pack_state(), "backup": g.backup, "governor": gl}
         log(head)
         saved = g.save(bank=BANK)
         log({"saved": saved})
@@ -317,7 +376,7 @@ def main():
             UG.setp(u, ID["DUB"]["ECHO"], 0)
         u.select(0)
         UG.setp(u, ID["VCE"], mono)
-        rtype = ID["TYPES"].index("ROOM" if A.fx == "FX" else "SHIMR")
+        rtype = ID["TYPES"].index(lv["rtype"])
         for gid, v in ((ID["G_RTYPE"], rtype), (ID["G_BPM"], BPM)):
             if u.get_global(gid) != v:
                 u.set_global(gid, v)
@@ -441,7 +500,7 @@ def main():
             u.req(74, [3])
         end["replies_end"] = replies(u)
         log(end)
-        mid = 3 if A.fx == "FX" else 2
+        mid = lv["module"]
         uses_ok = all((r.get("fx_uses", {}).get(UG.FX_NAMES[mid]) or (0, 0))[1] == 1 for r in rows)
         late = sum(r["interval_late"] for r in rows) + end["last_interval_late"]
         verdict = {"late_halves": late, "worst_us": max([r["interval_worst_us"] for r in rows] + [end["last_interval_worst_us"]]),
@@ -449,7 +508,10 @@ def main():
                    "usb_holes": sum(r["usb_holes"] for r in rows), "dub_running_at_end": end["dub_at_end"]["running"],
                    "uses_1_every_row": uses_ok, "return_first_db": first["return_db"], "return_last_db": last["return_db"],
                    "return_within_3db": abs(last["return_db"] - first["return_db"]) <= 3.0, "all_clocks_received": end.get("all_clocks_received"),
-                   "take_failures": end["take_failures_total"], "dub_gov_fires_end": end["dub_at_end"]["gov_fires"]}
+                   "take_failures": end["take_failures_total"], "dub_gov_fires_end": end["dub_at_end"]["gov_fires"],
+                   "latch_at_end": latch_problem(A.fx, end["fx_table_at_end"])}
+        if verdict["latch_at_end"]:
+            print(f"qual_soak: THE LATCH WAS LOST during the run: {verdict['latch_at_end']}: PASS_MARK false", flush=True)
         log({"pass_mark_parts": verdict})
         return {"rows": rows, "end": end, "verdict": verdict}
 
@@ -497,14 +559,20 @@ def main():
             out["objects_differing"] = diff
         else:
             out["objects_1_up_identical"] = None
+    if A.fx == "BASE":
+        out["note"] = BASE_NOTE
     if isinstance(res, dict) and "preflight" in res:
         out["preflight"] = res["preflight"]["preflight"]
     elif isinstance(res, dict):
         v = res["verdict"]
-        out["PASS_MARK"] = bool(v["late_halves"] == 0 and v["dac_silences"] == 0 and v["dub_running_at_end"] and v["uses_1_every_row"] and v["return_within_3db"]
+        if v.get("latch_at_end"):
+            out["PASS_MARK_why_false"] = f"the latch was lost during the run: {v['latch_at_end']}"
+        out["PASS_MARK"] = pass_mark(A.fx, not v.get("latch_at_end") and v["late_halves"] == 0 and v["dac_silences"] == 0 and v["dub_running_at_end"] and v["uses_1_every_row"] and v["return_within_3db"]
                                 and (A.clock == "int" or v["all_clocks_received"]) and res["end"]["answering_at_end"]
                                 and out["restore"] and out["restore"].get("verify") == "ok" and not out["left"] and out.get("objects_1_up_identical"))
     log(out)
+    if A.fx == "BASE":
+        print(f"qual_soak: {BASE_NOTE}", flush=True)
     if isinstance(err, KeyboardInterrupt):
         raise err
     return 0 if err is None else 1

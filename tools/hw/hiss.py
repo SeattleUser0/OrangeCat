@@ -47,6 +47,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import random
 import subprocess
 import sys
@@ -144,8 +145,10 @@ WAY_BACK = ("the way back: the installer page (web/index_pkg.html, the live Nigh
 def ocm_for(build_dir, kind, version):
     """the build's orangecat-KIND-V.ocm for the firmware on the unit (INFO's version, e.g. v0.16.0-fcdc36): V's X.Y.Z equal and its hash the unit's
     (the shorter of the two a prefix of the longer, 5 digits at least); a version without a hash must be equal. Exactly one, else SystemExit"""
-    v = version[1:] if version.startswith("v") else version
-    base, _, h = v.partition("-")
+    m = re.search(r"v?(\d+\.\d+\.\d+(?:-[0-9a-f]+)?)\s*$", version)    # (Round 31) INFO's whole string, "ORANGE CAT v0.16.0-27b83"
+    if not m:
+        raise SystemExit(f"hiss: refusing to run: the unit's version {version!r} has no X.Y.Z[-hash] to match the build's files by")
+    base, _, h = m.group(1).partition("-")
     pre = f"orangecat-{kind}-"
     found = []
     for f in sorted(glob.glob(os.path.join(build_dir, pre + "*.ocm"))):
@@ -248,28 +251,40 @@ class FxSwap:
         if bool(row and row["state"] == 7) != want:
             raise RuntimeError(f"module {mid} {'not registered' if want else 'still in the table'} after the step: {row}")
 
+    def _table(self):
+        tab = UG.fx_table(self.u)
+        if tab is None:
+            raise RuntimeError("FX_TABLE not answered")
+        return tab
+
     def out(self):
         self._step("FX LAYER idle", lambda: self._idle(FXL_ID))
+        self.out_done = True                             # (from FX_REMOVE on the way back is owed: a lost reply may hide an erase; back() reads the table first)
         self._step("FX_REMOVE 3 (FX LAYER)", lambda: fx_remove(self.u, FXL_ID))
         self._step("FX LAYER gone", lambda: self._registered(FXL_ID, False))
-        self.out_done = True                             # (from here the way back is owed)
         self._step(f"install {os.path.basename(self.files['reverb'])}", lambda: self.install(self.files["reverb"]))
         self._step("REVERB MODES registered", lambda: self._registered(REV_ID))
 
     def back(self, quiet):
-        """quiet(): every send 0 and TYPE ROOM (no module mode playing, or FX_REMOVE refuses)"""
+        """quiet(): every send 0 and TYPE ROOM (no module mode playing, or FX_REMOVE refuses). Each step looks at FX_TABLE first: a module
+        already as before is not written again"""
         if not self.out_done or self.back_done or self.back_tried:
             return
         self.back_tried = True                           # (once: a step that fails is not tried again; the way back is printed)
         self._step("sends 0, TYPE ROOM", quiet)
         self.pause(3.0)                                  # (the buses go back 2 s after the last send)
-        if UG.fx_row(UG.fx_table(self.u), REV_ID):
-            self._step("REVERB MODES idle", lambda: self._idle(REV_ID))
-            self._step("FX_REMOVE 2 (REVERB MODES)", lambda: fx_remove(self.u, REV_ID))
-        self._step(f"install {os.path.basename(self.files['fxlayer'])}", lambda: self.install(self.files["fxlayer"]))
+        st = {}
+        self._step("FX_TABLE read", lambda: st.update(tab=self._table()))
+        if fx_key(st["tab"]) != fx_key(self.tab0):
+            if UG.fx_row(st["tab"], REV_ID):
+                self._step("REVERB MODES idle", lambda: self._idle(REV_ID))
+                self._step("FX_REMOVE 2 (REVERB MODES)", lambda: fx_remove(self.u, REV_ID))
+                self._step("FX_TABLE read", lambda: st.update(tab=self._table()))
+            if fx_key(st["tab"]) != fx_key(self.tab0):
+                self._step(f"install {os.path.basename(self.files['fxlayer'])}", lambda: self.install(self.files["fxlayer"]))
 
         def same():
-            now = UG.fx_table(self.u)
+            now = self._table()
             if fx_key(now) != fx_key(self.tab0):
                 raise RuntimeError(f"FX_TABLE not as before: now {fx_key(now)}, before {fx_key(self.tab0)}")
         self._step("FX_TABLE as before (ids, starts, sectors, versions, states)", same)
