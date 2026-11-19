@@ -2798,7 +2798,7 @@ The plan's estimate was -5.5 to -6.5 KB: the new screen costs more than the 0.9 
 
 ### Decisions I took (the safer reading; say if one is wrong)
 
-1. **The header is the shared 30 px one**, not the mockup's 36 px own header: it carries the toast, ERASING, WAIT LOOP, the REC mark, the battery and the octave chip on every screen, and a second header would lose them on HOME. The rows start at y 32 (34 px each), the dials at y 170 (labels 218 .. 239 is the value row). The mockup's "BAR n" and "S1" in the header became the chip: BAR while playing; the song number was not shown (the header never had it).
+1. **The header is the shared 30 px one**, not the mockup's 36 px own header: it carries the toast, ERASING, WAIT LOOP, the REC mark, the battery and the octave chip on every screen, and a second header would lose them on HOME. The rows start at y 32 (34 px each), the dials at y 170 (their labels at 208, their values at 218 .. 239). The mockup's "BAR n" and "S1" in the header became the chip: BAR while playing; the song number was not shown (the header never had it).
 2. **The chord view keeps the knobs dropping in over it** (`stage_knobs`, `stage_columns`, in `ui_rows.c`): it is a page that stays and a knob turned there would show nothing. The plan listed the drop-in as going with the Stage; it goes from the main screen only.
 3. **The picture and DUB pages are not remembered:** HOME from another screen lands on the main screen (the chord view stays where it was), as the TRACKS default did.
 4. **`OC_HOME_PIC` has no "off".** Builds that named it as 0 (the legacy jobs, `home_pic_off`) are gone; a core.h that has no switch cannot be built without the macros and the scene trailer. The tag is the way back.
@@ -2811,7 +2811,7 @@ The plan's estimate was -5.5 to -6.5 KB: the new screen costs more than the 0.9 
 
 ### For Session A: what to check on the unit
 
-1. Power-on: the main screen, not the Stage; HOME turns it, the picture, DUB, the chord view. 2. Turn a knob on it: the dial moves, its value under it changes, the rows stay. 3. GLO + OCT+ on the selected track: its row says OFF; again: WAIT or nothing; MUTE a track (GLO's black keys): the row says MUTE in red. 4. Play: the white bar runs under the steps (a four-track pattern, one of 32 steps: the bar in view changes at step 17; the header says BAR 2). 5. The frame cost: the rows redraw every other frame and a row's steps alone when only the playhead moves (about 150 x 10 px a step per track); the host's draw-cost line is in the suite's report, the unit's is yours.
+1. Power-on: the main screen, not the Stage; HOME turns it, the picture, DUB, the chord view. 2. Turn a knob on it: the dial moves, its value under it changes, the rows stay. 3. GLO + OCT+ on the selected track: its row says OFF; again: WAIT or nothing; MUTE a track (GLO's black keys): the row says MUTE in red. 4. Play: the white bar runs under the steps (a pattern of 32 steps: the bar in view changes at step 17 and the header says BAR 2). 5. The frame cost: the rows redraw every other frame and a row's steps alone when only the playhead moves (about 150 x 10 px a step per track); the host's draw-cost line is in the suite's report, the unit's is yours.
 
 ### For Session D (the guide)
 
