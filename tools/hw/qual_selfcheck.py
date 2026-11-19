@@ -244,6 +244,8 @@ def swap_checks():
             open(os.path.join(d, n), "w").close()
         check(os.path.basename(H.ocm_for(d, "reverb", "v0.16.0-fcdc36")) == "orangecat-reverb-0.16.0-fcdc364.ocm", "--swap-fx: the reverb's file for v0.16.0-fcdc36")
         check(os.path.basename(H.ocm_for(d, "reverb", "v0.15.0")) == "orangecat-reverb-0.15.0.ocm", "--swap-fx: the file for a version without a hash")
+        check(os.path.basename(H.ocm_for(d, "reverb", "ORANGE CAT v0.16.0-fcdc3")) == "orangecat-reverb-0.16.0-fcdc364.ocm",
+              "--swap-fx: the unit's INFO string as it comes (Round 31: 'ORANGE CAT v0.16.0-fcdc3', the rehearsal's refusal)")
         for v, kind in (("v0.16.0-abcdef", "reverb"), ("v0.15.0", "fxlayer"), ("v0.16.0-fcd", "reverb")):
             try:
                 H.ocm_for(d, kind, v); refused = False

@@ -47,6 +47,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import random
 import subprocess
 import sys
@@ -144,8 +145,10 @@ WAY_BACK = ("the way back: the installer page (web/index_pkg.html, the live Nigh
 def ocm_for(build_dir, kind, version):
     """the build's orangecat-KIND-V.ocm for the firmware on the unit (INFO's version, e.g. v0.16.0-fcdc36): V's X.Y.Z equal and its hash the unit's
     (the shorter of the two a prefix of the longer, 5 digits at least); a version without a hash must be equal. Exactly one, else SystemExit"""
-    v = version[1:] if version.startswith("v") else version
-    base, _, h = v.partition("-")
+    m = re.search(r"v?(\d+\.\d+\.\d+(?:-[0-9a-f]+)?)\s*$", version)    # (Round 31) INFO's whole string, "ORANGE CAT v0.16.0-27b83"
+    if not m:
+        raise SystemExit(f"hiss: refusing to run: the unit's version {version!r} has no X.Y.Z[-hash] to match the build's files by")
+    base, _, h = m.group(1).partition("-")
     pre = f"orangecat-{kind}-"
     found = []
     for f in sorted(glob.glob(os.path.join(build_dir, pre + "*.ocm"))):
