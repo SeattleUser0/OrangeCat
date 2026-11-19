@@ -8,6 +8,8 @@
  *   STATES   OFF, WAIT, MUTE and FROZEN each on its own row at once: each says its word and no other; the precedence (OFF before WAIT before MUTE before FROZEN) when two meet on a row
  *   LONG     a sound name too long for its row beside the word: muted, the row still says MUTE (the name gives way); frozen, FROZEN
  *   STEPS    the 16 cells: a note lights the cell of its step in the track's colour, the playhead is a bar under the cell playing, a pattern shorter than 16 steps draws only its steps
+ *   CELLS    an empty cell, a note's and the row's background apart in every palette (luma margin), a tie apart from both
+ *   BARS     playing past bar 1: the header's BAR chip, the bar's steps, the playhead's cell; a length cut below the playhead
  *   DIALS    the selected track's four knobs: each label and value on the screen under its dial, the value changed by a turn
  *   PAGES    HOME's turn: the main screen, the picture, DUB where its echo is on, the chord view, the main screen again; power-on lands on the main screen
  *   PICTURE  the picture page's and the DUB page's sound line say MUTE (OFF, WAIT) while the selected track is muted, not otherwise
@@ -59,6 +61,18 @@ static uint32_t said(const char *s, int32_t y0, int32_t y1)
     return n;
 }
 static int32_t row_y(uint32_t k) { return MN_Y + (int32_t)k * MN_ROW; }
+/* a pixel inside step cell j (0 .. 15) of a row */
+static uint32_t cell_x(uint32_t j) { return (uint32_t)(MN_STEP_X + (int32_t)j * 9 + (int32_t)(j / 4u) * 2 + 3); }
+/* track k's row: cell j lit as a note (the selected row's ink, the track's colour) */
+static int cell_lit(uint32_t k, uint32_t j) { return host_screen[(uint32_t)(row_y(k) + MN_STEP_Y + 2) * 240u + cell_x(j)] == swap16(T_TRK(k)); }
+/* track k's row: the cell with the playhead's bar under it, -1 for none, -2 for more than one */
+static int playhead_at(uint32_t k)
+{
+    int at = -1;
+    for (uint32_t j = 0; j < 16u; j++)
+        if (host_screen[(uint32_t)(row_y(k) + MN_STEP_Y + 7) * 240u + cell_x(j)] == swap16(T_TEXT)) at = at == -1 ? (int)j : -2;
+    return at;
+}
 static uint32_t row_says(uint32_t k, const char *s) { return said(s, row_y(k), row_y(k) + MN_ROW); }
 static void tracks(uint32_t n)
 {
@@ -172,9 +186,80 @@ int main(void)
         song.playing = 0;
         trk[0].p[P_SLEN] = 8;
         redraw();
-        ok = host_screen[cy * 240u + cx12] == wash && host_screen[cy * 240u + cx9] == wash;
-        chk("STEPS    a pattern of 8 steps draws 8 cells: where cells 10 .. 16 would be the row's own wash", ok);
+        ok = mn_cell_empty(0, 1) != mn_row_bg(0, 1) && wash == swap16(mn_row_bg(0, 1));
+        for (uint32_t j = 0; j < 16u; j++)              /* (r31 review) the 8 cells drawn, each its ink (cell 4 the note, the others empty), and the row's wash past them */
+            ok &= host_screen[cy * 240u + cell_x(j)] == (j >= 8u ? wash : j == 3u ? on : swap16(mn_cell_empty(0, 1)));
+        chk("STEPS    a pattern of 8 steps draws 8 cells (the note's and seven empty ones, not the wash): where cells 9 .. 16 would be the row's own wash", ok);
         trk[0].p[P_SLEN] = 16;
+        track_defaults_steps(&trk[0]);
+    }
+    /* ---- CELLS ---- (r31 review) an empty cell, a note's and the row's background stand apart in every palette, every track, selected or not, quiet (muted) or not:
+     * at least CELL_MARGIN of 255 in luma pairwise (the worst case is 28: LO-FI's and NEON's unselected rows); a tie at least TIE_MARGIN from both inks. Read off the screen. */
+    {
+        enum { CELL_MARGIN = 24, TIE_MARGIN = 10 };
+        int ok = 1;
+        uint32_t worst = 255, wtie = 255, keep = settings.palette;
+        char what[200];
+        tracks(4);
+        for (uint32_t k = 0; k < 4u; k++) {
+            track_defaults_steps(&trk[k]);
+            trk[k].p[P_SLEN] = 16;
+            step_clear(&trk[k].step[0]); trk[k].step[0].time = ST_NOTE; trk[k].step[0].n = 1; trk[k].step[0].note[0] = 60; trk[k].step[0].vel = 100;
+            step_clear(&trk[k].step[1]); trk[k].step[1].time = ST_TIE;
+            step_clear(&trk[k].step[2]);
+        }
+        for (uint32_t p = 0; p < UI_PAL_ENTRIES; p++) {
+            settings.palette = (uint8_t)p; palette_set(p);
+            for (uint32_t s = 0; s < 4u; s++)
+                for (uint32_t q = 0; q < 2u; q++) {
+                    song.sel = (uint8_t)s;
+                    for (uint32_t k = 0; k < 4u; k++) trk[k].p[P_MUTE] = (uint8_t)q;
+                    redraw();
+                    for (uint32_t k = 0; k < 4u; k++) {
+                        uint32_t y = (uint32_t)(row_y(k) + MN_STEP_Y + 2);
+                        int32_t bg = (int32_t)ux_luma(swap16(host_screen[y * 240u + (uint32_t)(MN_STEP_X + 8)])), nt = (int32_t)ux_luma(swap16(host_screen[y * 240u + cell_x(0)]));
+                        int32_t ti = (int32_t)ux_luma(swap16(host_screen[y * 240u + cell_x(1)])), em = (int32_t)ux_luma(swap16(host_screen[y * 240u + cell_x(2)]));
+                        uint32_t d = (uint32_t)abs(bg - em), dt = (uint32_t)abs(ti - em);
+                        if ((uint32_t)abs(em - nt) < d) d = (uint32_t)abs(em - nt);
+                        if ((uint32_t)abs(bg - nt) < d) d = (uint32_t)abs(bg - nt);
+                        if ((uint32_t)abs(ti - nt) < dt) dt = (uint32_t)abs(ti - nt);
+                        if (d < worst) worst = d;
+                        if (dt < wtie) wtie = dt;
+                        if (d < CELL_MARGIN || dt < TIE_MARGIN) {
+                            ok = 0;
+                            printf("main_state:   palette %u (%s) track %u%s%s: background %d, empty %d, note %d, tie %d\n", (unsigned)p, UI_PALETTES[p].name, (unsigned)k + 1u, k == s ? " selected" : "", q ? " muted" : "", bg, em, nt, ti);
+                        }
+                    }
+                }
+        }
+        for (uint32_t k = 0; k < 4u; k++) { trk[k].p[P_MUTE] = 0; track_defaults_steps(&trk[k]); }
+        song.sel = 0;
+        settings.palette = (uint8_t)keep; palette_set(keep);
+        snprintf(what, sizeof what, "CELLS    every palette, track, selection and mute: empty cell, note cell, background >= %d of 255 apart in luma (worst %u), a tie >= %d from both (worst %u)",
+                 CELL_MARGIN, (unsigned)worst, TIE_MARGIN, (unsigned)wtie);
+        chk(what, ok);
+    }
+    /* ---- BARS ---- (r31 review) the bar in view while playing: the header's BAR chip, the steps of that bar and the playhead's cell */
+    {
+        int ok;
+        tracks(4);
+        song.sel = 0;
+        track_defaults_steps(&trk[0]);
+        trk[0].p[P_SLEN] = 32;
+        step_clear(&trk[0].step[16]); trk[0].step[16].time = ST_NOTE; trk[0].step[16].n = 1; trk[0].step[16].note[0] = 60; trk[0].step[16].vel = 100;
+        song.playing = 1; trk[0].seq_idx = 16;
+        redraw();
+        ok = said("BAR 2", 0, MN_Y) && !said("BAR 1", 0, MN_Y) && cell_lit(0, 0) && playhead_at(0) == 0;
+        chk("BARS     LEN 32, step 17 playing: the header says BAR 2, its note lights cell 1, the playhead is under cell 1", ok);
+        trk[0].p[P_SLEN] = 64; trk[0].seq_idx = 62;
+        redraw();
+        ok = said("BAR 4", 0, MN_Y) && playhead_at(0) == 14 && !cell_lit(0, 0);
+        chk("BARS     LEN 64, step 63 playing: the header says BAR 4, the playhead is under cell 15 (bar 4's cell 1 has no note)", ok);
+        trk[0].p[P_SLEN] = 32; trk[0].seq_idx = 40;
+        redraw();
+        ok = said("BAR 1", 0, MN_Y) && playhead_at(0) == -1 && cell_lit(0, 0) == 0;
+        chk("BARS     LEN cut to 32 below the playhead (step 41): no playhead, the header says BAR 1", ok);
+        song.playing = 0; trk[0].seq_idx = 0; trk[0].p[P_SLEN] = 16;
         track_defaults_steps(&trk[0]);
     }
     /* ---- DIALS ---- */
@@ -239,6 +324,18 @@ int main(void)
         ok &= said("MUTE", HP_SOUND_Y, HP_SOUND_Y + HP_SOUND_H) && said("BLACK: RECORDED", HP_SOUND_Y, HP_SOUND_Y + HP_SOUND_H);
         chk("PICTURE  the DUB page's sound line says MUTE beside its help line while the selected track is muted, not otherwise", ok);
         TSEL->p[P_MUTE] = 0;
+        press(B_HOME);
+        while (ui.home_pg != 2u) press(B_HOME);
+        trk_off_set(song.sel, 1);
+        sm_nscr = 0; frames(64);
+        ok = said("OFF", HP_SOUND_Y, HP_SOUND_Y + HP_SOUND_H) && !said("MUTE", HP_SOUND_Y, HP_SOUND_Y + HP_SOUND_H);
+        trk_off_set(song.sel, 0); trk_on_wait |= 1u << song.sel;
+        redraw();
+        ok &= said("WAIT", HP_SOUND_Y, HP_SOUND_Y + HP_SOUND_H) && !said("OFF", HP_SOUND_Y, HP_SOUND_Y + HP_SOUND_H);
+        trk_on_wait &= ~(1u << song.sel);
+        redraw();
+        ok &= !said("WAIT", HP_SOUND_Y, HP_SOUND_Y + HP_SOUND_H) && !said("OFF", HP_SOUND_Y, HP_SOUND_Y + HP_SOUND_H);
+        chk("PICTURE  the picture page's sound line says OFF while the selected track is OFF, WAIT while it waits for memory, neither otherwise", ok);
     }
     printf("main_state: %d checks, %d failed\n", nchk, bad);
     return bad != 0;

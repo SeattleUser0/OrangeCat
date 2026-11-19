@@ -59,13 +59,20 @@ static void mn_steps_bits(const track_t *t, uint32_t b, uint32_t *on, uint32_t *
         else if (st->time == ST_TIE) *tie |= 1u << j;
     }
 }
+/* (r31 review) the row's background: the selected row on a faint wash of its colour */
+static uint16_t mn_row_bg(uint32_t k, int sel) { return sel ? ux_mix(T_BG, T_TRK(k), 16) : T_BG; }
+/* an empty cell: the row's background toward the text, so it stands off the wash in every palette (T_LINE was the wash's own pixel in GRAY, 0..8 of 255
+ * apart in NIGHT: a pattern's length could not be read on the selected row). 15 % / 24 % keep it at least 28 of 255 in luma from the background and from a
+ * note's cell in all palettes, every track, selected or not, quiet or not (tests/main_state_test.c CELLS) */
+static uint16_t mn_cell_empty(uint32_t k, int sel) { return ux_mix(mn_row_bg(k, sel), T_TEXT, sel ? 24 : 15); }
 static void mn_steps_draw(uint32_t k, uint32_t len16, uint32_t on, uint32_t tie, int32_t ph, int sel, int quiet, int32_t x, int32_t y)
 {
     uint32_t j;
+    uint16_t empty = mn_cell_empty(k, sel);
     for (j = 0; j < len16; j++) {
         int32_t cx = x + (int32_t)j * 9 + (int32_t)(j / 4u) * 2;
         uint16_t full = quiet ? T_MID : sel ? T_TRK(k) : ux_mix(T_BG, T_TRK(k), 55);
-        cv_rect(cx, y, 8, 6, (on >> j) & 1u ? full : (tie >> j) & 1u ? ux_mix(T_LINE, full, 45) : T_LINE);
+        cv_rect(cx, y, 8, 6, (on >> j) & 1u ? full : (tie >> j) & 1u ? ux_mix(empty, full, 45) : empty);
         if ((int32_t)j == ph) cv_rect(cx, y + 7, 8, 2, T_TEXT);
     }
 }
@@ -77,7 +84,7 @@ static void mn_row(uint32_t k)
     int32_t ph = pl ? (int32_t)(t->seq_idx % 16u) : -1, avail, y = MN_Y + (int32_t)k * MN_ROW, len16 = (int32_t)(len - bar * 16u < 16u ? len - bar * 16u : 16u);
     int pending = sel && browse_pending();
     char nm[24], d[2] = {(char)('1' + k), 0};
-    uint16_t bg = sel ? ux_mix(T_BG, T_TRK(k), 16) : T_BG, tile = sel ? T_TRK(k) : ux_mix(T_BG, T_TRK(k), 28);
+    uint16_t bg = mn_row_bg(k, (int)sel), tile = sel ? T_TRK(k) : ux_mix(T_BG, T_TRK(k), 28);
     const aafont_t *f;
     if (pending) {                                      /* browsing: the sound the list shows, not yet loaded */
         char tag[6];
