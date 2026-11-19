@@ -191,6 +191,11 @@ def soak_checks():
             self.reads += 1
             full, fires, state, ready = (0, 0, 0, 0) if self.reads == 1 else self.dub_end
             return [7] + n5(full << 4) + n5(fires) + n5(state) + n5(ready) + n5(1) + n5(0) + n5(0) + n5(1)
+    check(Q.pass_mark("BASE", True) is None and Q.pass_mark("FX", True) is True and Q.pass_mark("REV", False) is False
+          and Q.LEVELS["BASE"]["module"] == 3 and Q.LEVELS["BASE"]["rtype"] == "ROOM" and "rehearsal only" in Q.BASE_NOTE,
+          "the soak's --fx BASE: FX LAYER, ROOM, never a PASS_MARK; FX and REV as before")
+    p = subprocess.run([sys.executable, os.path.join(HERE, "soak", "qual_soak.py"), "--help"], capture_output=True, text=True)
+    check(p.returncode == 0 and "BASE" in p.stdout, "qual_soak.py --fx takes BASE")
     waits = []
     for worst, dub_end, want in (((1850, 2300), (0, 0, 2, 1), "DESIGN VALID"), ((1901, 2300), (0, 0, 2, 1), "DESIGN INVALID"),
                                  ((1700, 2100), (1, 1, 0, 0), "DESIGN INVALID"), ((1700, 2100), (0, 0, 2, 0), "DESIGN INVALID")):

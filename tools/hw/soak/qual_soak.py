@@ -20,6 +20,9 @@ of the unit's modules that this script checks and does not change:
   FX   the default set: FX LAYER (module id 3) registered, REVERB ROOM on the send; GLITCH LATCHED BY HAND before the run (FX LATCH on, FX +
        GLITCH's key: no editor command reaches the layer's keys): the run refuses to start unless FX_TABLE shows `uses` 1 for id 3
   REV  REVERB MODES (id 2) in the FX layer's place (the page's give-way choice), TYPE SHIMR on the send: refuses unless id 2 is registered
+  BASE (not a level of 7.37: for rehearsing the tool and measuring the load unattended) the default set as FX, FX LAYER registered but no
+       GLITCH latch asked (`uses` 0 accepted), REVERB ROOM on the send; says "BASE: rehearsal only, not a qualification row (no FX layer
+       effect playing)" at the start and in the result, and never sets PASS_MARK (it is null)
 DUB TAPE (id 1) must be registered in both. Factor A (--clock): int (the chain, command 74, bank 8 x 16, restarted whenever it ends, polled
 every 0.5 s) or ext (CLK USB: the PC's MIDI Start and 24 clocks a beat, every clock counted). --din-row: a 20 s row on CLK TRS (the AUDIO4c's
 DIN out, port name with "DIN") before an ext run, its pulses counted (7.37's check, not a factor).
@@ -79,6 +82,16 @@ DUB_LOAD = {"FDBK": 55, "SEND": 127, "FILTER": 60, "TIML": UG.dub_t_val(6), "TIM
 # the preflight's line (fx_insert.c, the governor: a released DUB comes back while the heaviest half without it plus its 450 us is under 85 % of
 # the 2,901 us half, 2,465 us, i.e. the mix alone under about 2,015 us; BUILD.md 7.46)
 NODUB_MAX_US = 1900
+
+
+BASE_NOTE = "BASE: rehearsal only, not a qualification row (no FX layer effect playing)"
+LEVELS = {"FX": {"module": 3, "rtype": "ROOM", "qualifies": True}, "REV": {"module": 2, "rtype": "SHIMR", "qualifies": True},
+          "BASE": {"module": 3, "rtype": "ROOM", "qualifies": False}}
+
+
+def pass_mark(fx, parts_ok):
+    """PASS_MARK from its parts' conjunction; None for a level that is not a qualification row (BASE)"""
+    return bool(parts_ok) if LEVELS[fx]["qualifies"] else None
 
 
 def design_check(nodub, withdub, dub):
@@ -226,7 +239,7 @@ def main():
     ap.add_argument("out", nargs="?"); ap.add_argument("label", nargs="?")
     ap.add_argument("--order", type=int, help="print a block's order and exit")
     ap.add_argument("--clock", choices=("int", "ext"))
-    ap.add_argument("--fx", choices=("FX", "REV"))
+    ap.add_argument("--fx", choices=tuple(LEVELS))
     ap.add_argument("--minutes", type=float, default=120.0)
     ap.add_argument("--period-min", type=float, default=None, help="default 10 (a third of --minutes when that is under 30)")
     ap.add_argument("--sample-s", type=float, default=20.0)
@@ -278,7 +291,10 @@ def main():
         mono = vn["min"] + vn["names"].index("MONO")
         tab = UG.fx_table(u)
         mods = u.modules()
-        want = {1: "DUB TAPE", 3 if A.fx == "FX" else 2: "FX LAYER" if A.fx == "FX" else "REVERB MODES"}
+        if A.fx == "BASE":
+            print(f"qual_soak: {BASE_NOTE}", flush=True)
+        lv = LEVELS[A.fx]
+        want = {1: "DUB TAPE", lv["module"]: UG.FX_NAMES[lv["module"]]}
         for mid, nm in want.items():
             if (UG.fx_row(tab, mid) or {}).get("state") != 7:
                 raise SystemExit(f"qual_soak: refusing to run: {nm} (module id {mid}) is not registered on the unit (FX_TABLE {tab}); level {A.fx} needs it")
@@ -287,7 +303,7 @@ def main():
         if A.fx == "REV" and (UG.fx_row(tab, 3) or {}).get("state") == 7:
             print("qual_soak: note: FX LAYER is registered too (7.37's REV level has REVERB MODES in its place): logged, not refused", flush=True)
         now = datetime.datetime.now()
-        head = {"label": A.label, "version": info["version"], "clock": A.clock, "fx": A.fx, "block": A.block, "day": now.strftime("%Y-%m-%d %A"),
+        head = {"note": BASE_NOTE if A.fx == "BASE" else None, "label": A.label, "version": info["version"], "clock": A.clock, "fx": A.fx, "block": A.block, "day": now.strftime("%Y-%m-%d %A"),
                 "time_of_day": now.strftime("%H:%M"), "minutes": A.minutes, "period_min": A.period_min, "sample_s": A.sample_s, "warmup_s": A.warmup_s,
                 "ids": ids.found, "types": ID["TYPES"], "fx_table": tab, "modules": mods, "pack": u.pack_state(), "backup": g.backup}
         log(head)
@@ -317,7 +333,7 @@ def main():
             UG.setp(u, ID["DUB"]["ECHO"], 0)
         u.select(0)
         UG.setp(u, ID["VCE"], mono)
-        rtype = ID["TYPES"].index("ROOM" if A.fx == "FX" else "SHIMR")
+        rtype = ID["TYPES"].index(lv["rtype"])
         for gid, v in ((ID["G_RTYPE"], rtype), (ID["G_BPM"], BPM)):
             if u.get_global(gid) != v:
                 u.set_global(gid, v)
@@ -441,7 +457,7 @@ def main():
             u.req(74, [3])
         end["replies_end"] = replies(u)
         log(end)
-        mid = 3 if A.fx == "FX" else 2
+        mid = lv["module"]
         uses_ok = all((r.get("fx_uses", {}).get(UG.FX_NAMES[mid]) or (0, 0))[1] == 1 for r in rows)
         late = sum(r["interval_late"] for r in rows) + end["last_interval_late"]
         verdict = {"late_halves": late, "worst_us": max([r["interval_worst_us"] for r in rows] + [end["last_interval_worst_us"]]),
@@ -497,14 +513,18 @@ def main():
             out["objects_differing"] = diff
         else:
             out["objects_1_up_identical"] = None
+    if A.fx == "BASE":
+        out["note"] = BASE_NOTE
     if isinstance(res, dict) and "preflight" in res:
         out["preflight"] = res["preflight"]["preflight"]
     elif isinstance(res, dict):
         v = res["verdict"]
-        out["PASS_MARK"] = bool(v["late_halves"] == 0 and v["dac_silences"] == 0 and v["dub_running_at_end"] and v["uses_1_every_row"] and v["return_within_3db"]
+        out["PASS_MARK"] = pass_mark(A.fx, v["late_halves"] == 0 and v["dac_silences"] == 0 and v["dub_running_at_end"] and v["uses_1_every_row"] and v["return_within_3db"]
                                 and (A.clock == "int" or v["all_clocks_received"]) and res["end"]["answering_at_end"]
                                 and out["restore"] and out["restore"].get("verify") == "ok" and not out["left"] and out.get("objects_1_up_identical"))
     log(out)
+    if A.fx == "BASE":
+        print(f"qual_soak: {BASE_NOTE}", flush=True)
     if isinstance(err, KeyboardInterrupt):
         raise err
     return 0 if err is None else 1
