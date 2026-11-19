@@ -194,6 +194,13 @@ def soak_checks():
     check(Q.pass_mark("BASE", True) is None and Q.pass_mark("FX", True) is True and Q.pass_mark("REV", False) is False
           and Q.LEVELS["BASE"]["module"] == 3 and Q.LEVELS["BASE"]["rtype"] == "ROOM" and "rehearsal only" in Q.BASE_NOTE,
           "the soak's --fx BASE: FX LAYER, ROOM, never a PASS_MARK; FX and REV as before")
+    tl = lambda uses: [{"id": 1, "state": 7, "uses": 1}, {"id": 3, "state": 7, "uses": uses}]
+    check(Q.latch_problem("FX", tl(1)) is None and "not 1" in Q.latch_problem("FX", tl(0)) and "none" in Q.latch_problem("FX", tl(0)[:1])
+          and Q.latch_problem("BASE", tl(0)) is None and Q.latch_problem("REV", []) is None and "GLITCH" in Q.LATCH_STEPS,
+          "the soak's FX level: `uses` 1 for id 3 required (at the start and at the end), BASE and REV not asked")
+    src = open(os.path.join(HERE, "soak", "qual_soak.py")).read()
+    check(src.index("lp = latch_problem(A.fx, tab)") < src.index("saved = g.save(bank=BANK)") and "not v.get(\"latch_at_end\") and" in src,
+          "the soak's FX latch: refused before anything is saved or written; a latch lost by the end makes PASS_MARK false")
     p = subprocess.run([sys.executable, os.path.join(HERE, "soak", "qual_soak.py"), "--help"], capture_output=True, text=True)
     check(p.returncode == 0 and "BASE" in p.stdout, "qual_soak.py --fx takes BASE")
     waits = []

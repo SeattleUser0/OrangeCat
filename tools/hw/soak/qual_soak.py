@@ -89,6 +89,20 @@ LEVELS = {"FX": {"module": 3, "rtype": "ROOM", "qualifies": True}, "REV": {"modu
           "BASE": {"module": 3, "rtype": "ROOM", "qualifies": False}}
 
 
+LATCH_STEPS = ("latch GLITCH by hand on the unit: FX LATCH on, then hold FX and press GLITCH's key (no editor command reaches the layer's keys); "
+               "FX_TABLE must then show `uses` 1 for FX LAYER (id 3)")
+
+
+def latch_problem(fx, tab):
+    """None when the level's latch holds: FX needs FX_TABLE `uses` 1 for id 3 (GLITCH latched by hand); else what is wrong"""
+    if fx != "FX":
+        return None
+    row = UG.fx_row(tab, 3)
+    if not row or row.get("uses") != 1:
+        return f"FX LAYER (id 3) shows `uses` {row.get('uses') if row else 'none (not in FX_TABLE)'}, not 1: GLITCH is not latched"
+    return None
+
+
 def pass_mark(fx, parts_ok):
     """PASS_MARK from its parts' conjunction; None for a level that is not a qualification row (BASE)"""
     return bool(parts_ok) if LEVELS[fx]["qualifies"] else None
@@ -298,6 +312,9 @@ def main():
         for mid, nm in want.items():
             if (UG.fx_row(tab, mid) or {}).get("state") != 7:
                 raise SystemExit(f"qual_soak: refusing to run: {nm} (module id {mid}) is not registered on the unit (FX_TABLE {tab}); level {A.fx} needs it")
+        lp = latch_problem(A.fx, tab)
+        if lp:
+            raise SystemExit(f"qual_soak: refusing to run: level FX: the run refuses to start unless FX_TABLE shows `uses` 1 for id 3: {lp}. To do: {LATCH_STEPS}")
         if A.fx == "REV" and "SHIMR" not in ID["TYPES"]:
             raise SystemExit(f"qual_soak: refusing to run: the reverb TYPE has no SHIMR ({ID['TYPES']})")
         if A.fx == "REV" and (UG.fx_row(tab, 3) or {}).get("state") == 7:
@@ -465,7 +482,10 @@ def main():
                    "usb_holes": sum(r["usb_holes"] for r in rows), "dub_running_at_end": end["dub_at_end"]["running"],
                    "uses_1_every_row": uses_ok, "return_first_db": first["return_db"], "return_last_db": last["return_db"],
                    "return_within_3db": abs(last["return_db"] - first["return_db"]) <= 3.0, "all_clocks_received": end.get("all_clocks_received"),
-                   "take_failures": end["take_failures_total"], "dub_gov_fires_end": end["dub_at_end"]["gov_fires"]}
+                   "take_failures": end["take_failures_total"], "dub_gov_fires_end": end["dub_at_end"]["gov_fires"],
+                   "latch_at_end": latch_problem(A.fx, end["fx_table_at_end"])}
+        if verdict["latch_at_end"]:
+            print(f"qual_soak: THE LATCH WAS LOST during the run: {verdict['latch_at_end']}: PASS_MARK false", flush=True)
         log({"pass_mark_parts": verdict})
         return {"rows": rows, "end": end, "verdict": verdict}
 
@@ -519,7 +539,9 @@ def main():
         out["preflight"] = res["preflight"]["preflight"]
     elif isinstance(res, dict):
         v = res["verdict"]
-        out["PASS_MARK"] = pass_mark(A.fx, v["late_halves"] == 0 and v["dac_silences"] == 0 and v["dub_running_at_end"] and v["uses_1_every_row"] and v["return_within_3db"]
+        if v.get("latch_at_end"):
+            out["PASS_MARK_why_false"] = f"the latch was lost during the run: {v['latch_at_end']}"
+        out["PASS_MARK"] = pass_mark(A.fx, not v.get("latch_at_end") and v["late_halves"] == 0 and v["dac_silences"] == 0 and v["dub_running_at_end"] and v["uses_1_every_row"] and v["return_within_3db"]
                                 and (A.clock == "int" or v["all_clocks_received"]) and res["end"]["answering_at_end"]
                                 and out["restore"] and out["restore"].get("verify") == "ok" and not out["left"] and out.get("objects_1_up_identical"))
     log(out)
