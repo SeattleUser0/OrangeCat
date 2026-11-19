@@ -2764,3 +2764,55 @@ against 49,152). Please build your streaming and the 8 KB buffer on this:
   would then have to borrow as well (`res_borrow` while stopped; a load while playing waits).
 - Not touched on my branch: the three loader bugs the review found (rename, erase of the loaded slot then save, a full overlay blocking saves); nothing here relies on
   how they behave now.
+
+## Step 9 (November 18, 2026, branch ui-step9, from linux-hw 6bd44237): the new interface is the default, the Stage and the six switches are gone. For Session A
+
+The owner picked layout 1, strips (docs/orangecat/ui/main_M1.png), with the dials in the knobs' own colours and their labels, and ordered step 9 built with it. The branch is `ui-step9` (not `ui-main-screen`: that one was cut from r3-format2 and the loader work in it conflicts with Session A's changes of the same files in linux-hw; my milestone-4 commit 3e04d051 stays on r3-format2 and is not in this branch). Commits, each a step of the plan:
+
+| commit | step |
+|---|---|
+| 10d769a5 | UI_DESIGN.md's layouts and the step 9 plan, the mockup harness (carried from ui-main-screen onto linux-hw) |
+| cd2acfa5 | **1:** the main screen (`firmware/src/ui_main.c`) is HOME's first page and the default; the old Stage compiled behind `OC_STAGE_OLD 1`. **Tagged `stage-last`**: the way back (the tag compiles both ways: `OC_CHECK` with `OC_STAGE_OLD=1` passes; the last commit whose full suite passed with the Stage as the default is linux-hw 6bd44237) |
+| 61905cd6, e9e53a00 | **2:** `ui_stage.c` and MENU > HOME PAGE out; the tests for the main screen; `run_tests.sh` |
+| db3366dd, 6fb01f35 range | **3 to 8:** `OC_MIXER`, `OC_LANES`, `OC_STEP_PAGES`, `OC_SHIFT_MAP`, `OC_EDIT_SHEETS`, `OC_HOME_PIC` removed one at a time (a small tool, `unifdef`-like, drove the `#if` lines; each was read) |
+| 9190028f | **9:** the guide and the web tables (`fw_tables.js`, `controls_src.json`, `gen_controls.mjs`, CONTROLS.md, controls.html regenerated) |
+
+**Measured** (CI's own build, `ci_step.py build`, the Nightly's flags; linux-hw 6bd44237 before, the head after):
+
+| | before | after |
+|---|---|---|
+| image | 537,456 B | **532,548 B (-4,908 B)** |
+| RAM .data+.bss | 96,616 B | 96,568 B (-48) |
+| pool | 181,520 B | 181,520 B |
+| audio working arena | 76,736 B | 76,928 B (+192; the minimum is 49,152) |
+
+The plan's estimate was -5.5 to -6.5 KB: the new screen costs more than the 0.9 to 1.5 KB I assumed (dials with labels, a step strip a row, short labels). Steps 3 to 8 are **image-identical**: the build of e9e53a00 (steps 1 and 2) and of 1ab7b9d4 (the six switches out) are the same 532,548 bytes and differ in six bytes, the build id's hash.
+
+### What the owner will notice
+
+- Power-on lands on the main screen: four rows, a track a row, under each name its 16 steps with a white bar under the step playing; the selected row on a wash of its colour; at the foot the selected track's four knobs as dials in the knob colours with their labels and values. HOME turns: main screen, picture, DUB (while the track's ECHO is above 0), chord view. HOME from another screen lands on the main screen (or the chord view where it was left).
+- The state words: OFF (grey), WAIT, MUTE (red), FROZEN (blue), one at the right of the row, in that order when two meet. A place not in use is a grey "Add track" row. While the music plays the header's right says BAR and the bar in view (the selected track's, as its row's steps); stopped it says the engine as before.
+- **Gone:** the Stage's step lights (the dots; the steps are the strip now), its scope band with the notes and chord over the waveform, its REC border (an armed track shows in the header's REC mark only), the pattern pills (the pattern letter and the next one waiting) and the role word (DRUMS, CHORDS, T1): the row says the sound and the state. MENU > HOME PAGE.
+- **Changed:** KNOB 1 to 4 on HOME always move the engine's table (the macros), so MACRO's HOME knobs are HARM TIMB MRPH PLUCK: the old TRACKS page's MODL on KNOB 1 is gone from HOME (it stays on the Sound sheet's MODEL row). The knobs do not drop in over the rows any more (the dials are always there); they still drop in over the chord view.
+- Not noticed on purpose: every other screen, the audio and the saved formats are as they were (the full suite and the identical image above). A settings byte with the old HOME PAGE bit (favorites row 15 byte 24 bit 6) set or clear loads as it did and nothing writes it again.
+
+### Decisions I took (the safer reading; say if one is wrong)
+
+1. **The header is the shared 30 px one**, not the mockup's 36 px own header: it carries the toast, ERASING, WAIT LOOP, the REC mark, the battery and the octave chip on every screen, and a second header would lose them on HOME. The rows start at y 32 (34 px each), the dials at y 170 (labels 218 .. 239 is the value row). The mockup's "BAR n" and "S1" in the header became the chip: BAR while playing; the song number was not shown (the header never had it).
+2. **The chord view keeps the knobs dropping in over it** (`stage_knobs`, `stage_columns`, in `ui_rows.c`): it is a page that stays and a knob turned there would show nothing. The plan listed the drop-in as going with the Stage; it goes from the main screen only.
+3. **The picture and DUB pages are not remembered:** HOME from another screen lands on the main screen (the chord view stays where it was), as the TRACKS default did.
+4. **`OC_HOME_PIC` has no "off".** Builds that named it as 0 (the legacy jobs, `home_pic_off`) are gone; a core.h that has no switch cannot be built without the macros and the scene trailer. The tag is the way back.
+5. **Left for a cleanup of its own, not deleted here:** `ui_sections.c`'s tabs and map (`sec_on()` is a constant 0 now; the functions are dead code the linker drops: the image is identical), `drum_flash` in the DRUM engines (written in the audio interrupt, read by nothing since the Stage went; I did not touch audio code), the `HOME_PIC_BIT` define and favorites.c's comment of the reserved bit, and comments in the firmware that still say "Stage".
+6. A label wider than its 58 px cell (ENV AMT, VIBRATO) uses the card's own short form (`cell_label`: ENV, VIB); wider still it is cut in free text. No lint finding in any palette.
+
+### Tests that changed
+
+`tests/stage_mute_test.c` is now `tests/main_state_test.c` (21 checks: the state words on four, two and one track, OFF, WAIT, MUTE, FROZEN and their precedence, a long name, the steps and the playhead, the dials and a knob turned, the page turn, the picture's and DUB's sound lines); `tests/home_pic_test.c` (the HOME PAGE menu, the TRACKS hash pair and the COMMIT block out; the page turn, the old settings bit and the knobs' ids in); `ui_test.c` (the frozen row, the places not in use, the DRUM hit flag, the knobs after DRUM SOUND on the main screen; the Stage's idle-pill and REC-border checks out, and 149 lines of old-path checks of the sheets switch), `ui_render.c` (a new block: the main screen in every palette: resting, playing, every state word, WAIT, a knob turning, a pending name, one track, two, the greyed places: lint and MONO gray, 0 findings), `shift_test.c`, `clip_test.c`, `dub_perf_test.c`, `dub_layer_keys_test.c`, `editor_test.c` (a macro's SET is no longer refused "in TRACKS"), `run_tests.sh` (the HOME hash pairs and the sheet job's HOME check out; `BS_OFF` still switches the remaining switches off, the six are gone from it). The legacy jobs (`ui_legacy`, `seq_notes_legacy` and the like) now differ from the main jobs only by the switches that are left.
+
+### For Session A: what to check on the unit
+
+1. Power-on: the main screen, not the Stage; HOME turns it, the picture, DUB, the chord view. 2. Turn a knob on it: the dial moves, its value under it changes, the rows stay. 3. GLO + OCT+ on the selected track: its row says OFF; again: WAIT or nothing; MUTE a track (GLO's black keys): the row says MUTE in red. 4. Play: the white bar runs under the steps (a four-track pattern, one of 32 steps: the bar in view changes at step 17; the header says BAR 2). 5. The frame cost: the rows redraw every other frame and a row's steps alone when only the playhead moves (about 150 x 10 px a step per track); the host's draw-cost line is in the suite's report, the unit's is yours.
+
+### For Session D (the guide)
+
+Done here because the suite fails without it (`test_tables.mjs`, `test_controls.mjs`): `web/app/lib/fw_tables.js` regenerated (the menu has no HOME PAGE); `controls_src.json`: HOME's first four bullets rewritten for the main screen and its state words, the DUB page's "Set MENU > HOME PAGE to PICTURE" and the HOME PAGE menu line removed, the MACRO knob lines (HARM TIMB MRPH PLUCK, MODL off HOME), the muted-track note, "the Stage row says OFF" now "HOME's row"; `gen_controls.mjs`: the HOME knob table has one column (the main screen's dials and the picture's are the same four knobs). `CONTROLS.md` and `controls.html` regenerated, 165 web tests pass. **Please read the wording** (it is mine, in the guide's voice as I read it) and the top line of the guide (the Nightly and tables id) when you next regenerate on a Nightly. `web/app/README.md` and `app.js` still say "HOME PAGE" in their lists of menu rows the editor link cannot set: left, yours.
