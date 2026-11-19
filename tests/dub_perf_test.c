@@ -8,7 +8,7 @@
  *            and the motion base untouched
  *   RENDER   through the DUB module (tests/dub_module_host.h), sample for sample: CUT held = ECHO 0 for the same blocks (so a CUT recorded as ECHO 0 plays as the live trigger); a throw = SEND at that level;
  *            HOLD = FDBK 100; DIVE = SPEED 0; RISE = SPEED 127; DIVE and RISE together = SPEED 64; a control (nothing) differs from each
- *   PAGES    the HOME turn is PICTURE, TRACKS, CHORD while the track's ECHO is 0 and PICTURE, DUB, TRACKS, CHORD above it; the four knobs on DUB are FDBK SEND FILTER ECHO; the page keeps its place
+ *   PAGES    the HOME turn is MAIN, PICTURE, CHORD while the track's ECHO is 0 and MAIN, PICTURE, DUB, CHORD above it; the four knobs on DUB are FDBK SEND FILTER ECHO; the page keeps its place
  *            when ECHO is turned to 0; DUB needs PICTURE chosen
  *   DRAW     the page draws (the keys, the picture, the help line), a key held changes the pixels, the budget: 2 s of play with a throw key every 300 ms and KICK every 500 ms, mean under 11,000 px
  *            a 100 ms frame and worst under 22,000 (UI_DESIGN.md section 3)
@@ -121,9 +121,11 @@ static void play_frames(uint32_t ms)
         frame();
     }
 }
-static void pic_on(void)                                /* (step 9: the new interface is the only one; HOME lands on the main screen) */
+static void pic_on(void)                                /* (step 9: HOME lands on the main screen; one tap on it is the picture page) */
 {
     go_home();
+    frames(100);
+    press(B_HOME);
     frames(100);
 }
 static uint32_t screen_hash(void)
@@ -225,11 +227,11 @@ int main(void)
         ui_power_on();
         pic_on();
         TSEL->p[P_DUB_ECHO] = 0;
-        ok = ui.home_pg == 2u; press(B_HOME); ok &= ui.home_pg == 0u; press(B_HOME); ok &= ui.home_pg == 1u; press(B_HOME); ok &= ui.home_pg == 2u;
-        chk("PAGES   ECHO 0: HOME turns PICTURE, TRACKS, CHORD (the DUB page is not in the turn)", ok);
+        ok = ui.home_pg == 2u; press(B_HOME); ok &= ui.home_pg == 1u; press(B_HOME); ok &= ui.home_pg == 0u; press(B_HOME); ok &= ui.home_pg == 2u;
+        chk("PAGES   ECHO 0: HOME turns MAIN, PICTURE, CHORD (the DUB page is not in the turn)", ok);
         TSEL->p[P_DUB_ECHO] = 100;
-        ok = ui.home_pg == 2u; press(B_HOME); ok &= ui.home_pg == DUB_PG; press(B_HOME); ok &= ui.home_pg == 0u; press(B_HOME); ok &= ui.home_pg == 1u; press(B_HOME); ok &= ui.home_pg == 2u;
-        chk("PAGES   ECHO above 0: PICTURE, DUB, TRACKS, CHORD", ok);
+        ok = ui.home_pg == 2u; press(B_HOME); ok &= ui.home_pg == DUB_PG; press(B_HOME); ok &= ui.home_pg == 1u; press(B_HOME); ok &= ui.home_pg == 0u; press(B_HOME); ok &= ui.home_pg == 2u;
+        chk("PAGES   ECHO above 0: MAIN, PICTURE, DUB, CHORD", ok);
         press(B_HOME); frames(200);
         {   int16_t *p = TSEL->p;
             turn(EN_K1, 5); turn(EN_K2, -3); turn(EN_K3, 4); turn(EN_K4, -2);
