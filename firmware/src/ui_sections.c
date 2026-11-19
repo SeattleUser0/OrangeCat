@@ -104,11 +104,8 @@ static uint32_t sec_of(uint32_t i)                      /* page i's section (an 
 /* sections to show: an EDIT page of an engine with more than one */
 static int sec_on(void)
 {
-    if (OC_EDIT_SHEETS || ui.home || cur_page()->fam != FAM_EDIT)   /* (the new interface 0.2: the sheets take over the
-                                                         * sections' jobs, ui_sheets.c; the map is no longer opened) */
-        return 0;
-    sec_build();
-    return sec.n > 1u;
+    return 0;                                           /* (the new interface 0.2: the sheets take over the sections' jobs, ui_sheets.c; the map is no
+                                                         * longer opened. Step 9: always, the sections' tabs and map below are left for a cleanup of their own) */
 }
 static void sec_go(uint32_t k)                          /* to section k: the page last used in it */
 {

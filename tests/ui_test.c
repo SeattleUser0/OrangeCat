@@ -575,13 +575,8 @@ static int test_frozen_lock(void)
     turn(EN_K3, 2);
     bad += check("frozen phrase: the step knobs change nothing", !memcmp(before, trk[0].step, sizeof before));
     ui.cursor = 0;
-#if OC_STEP_PAGES
     turn(EN_PRESET, 2);                           /* (ui-build 4: NOTES' KNOB 1 is PITCH, refused here; PRESETS moves the cursor) */
     bad += check("frozen phrase: PRESETS still moves about", ui.cursor == 2u);
-#else
-    turn(EN_K1, 2);
-    bad += check("frozen phrase: KNOB 1 still moves about", ui.cursor == 2u);
-#endif
     ui.msg_t = 0;
     press(B_REC);
     bad += check("frozen phrase: REC refused", song.rec == 0u && msg_is("UNFREEZE TO EDIT"));
@@ -592,19 +587,16 @@ static int test_frozen_lock(void)
     go_home();
     ui.force = 1;
     frame();
-    {   /* HOME: the frozen track's row greyed with a blue tint (ui_stage.c), its role FROZEN */
-        uint32_t mono = ux.mono, sel = song.sel == 0u;
-        uint16_t tc, bg, px;
-        ux.mono = 0;                                    /* (a colour palette: the tint is blue) */
+    {   /* HOME: the frozen track's row says FROZEN (ui_main.c mn_row: the word in a pill, in the blue ink; the name grey) */
+        uint32_t mono = ux.mono, x, y, blue = 0;
+        ux.mono = 0;                                    /* (a colour palette: the word is blue) */
         ui.msg_t = 0;                                   /* (the message over the first row gone) */
         ui.force = 1;
         frame();
-        tc = ux_mix(T_DIM, ST_FROZEN_BLUE, 55);
-        bg = ux_mix(T_BG, tc, sel ? 24 : 11);
-        px = host_screen[(uint32_t)(st_row_y(0) + 3) * 240u + BOX_X + 20u];
-        px = (uint16_t)((px >> 8) | (px << 8));
-        bad += check("frozen phrase: HOME shows the track greyed with a blue tint",
-                     px == bg && (tc & 31u) > ((tc >> 11) & 31u) + 4u);
+        for (y = (uint32_t)MN_Y; y < (uint32_t)MN_Y + 22u; y++)
+            for (x = 150u; x < 238u; x++)
+                blue += host_screen[y * 240u + x] == swap16(mn_ink(MN_FROZEN));
+        bad += check("frozen phrase: HOME's row says FROZEN in the blue ink", blue > 10u && mn_state(0) == MN_FROZEN);
         ux.mono = (uint8_t)mono;
         ui.force = 1;
     }
@@ -1043,21 +1035,18 @@ static int test_track_count(void)
     song.ntrk = 1;                                      /* (a song down to one track) */
     ui.force = 1; frame();
     bad += check("UNUSED TRACKS SHOW: four rows, the places not in use greyed (Add track)", stage_rows() == NTRK &&
-                 st_row_h() == (ST_ROWS_H - 6) / 4 && stage.col[1] && stage.col[3]);
+                 st_row_h() == (ST_ROWS_H - 6) / 4 && mn.col[1] && mn.col[3]);
     hold(B_HOME); ui.menu_sel = MI_TRACKS; press(B_OCTUP); hold(B_HOME);
     ui.force = 1; frame();
     bad += check("  menu UNUSED TRACKS (OCT+): HIDE, the one track the wide card",
                  (GLO_SELECT & TRACKS_HIDE) && stage_rows() == 1u && st_row_h() == ST_ROWS_H);
     hold(B_HOME); ui.menu_sel = MI_TRACKS; turn(EN_K1, -1); hold(B_HOME);
     bad += check("  KNOB 1 left: SHOW again", !(GLO_SELECT & TRACKS_HIDE) && stage_rows() == NTRK && ui.home);
-    bad += check("  no pattern at all: Stage's card shows no pattern pill, no steps (a synth)", stage_seq_idle(0));
-    one_note(&trk[0], 3, 60);
-    ok = !stage_seq_idle(0);
+    one_note(&trk[0], 3, 60);                           /* (step 4 of track 1: its cell lights in the track's colour on the main screen) */
+    ui.force = 1; frame();
+    bad += check("  a note in track 1's pattern: its cell on the main screen is lit in the track's colour",
+                 host_screen[(uint32_t)(MN_Y + MN_STEP_Y + 2) * 240u + (uint32_t)(MN_STEP_X + 3 * 9 + 3)] == swap16(T_TRK(0)));
     track_defaults_steps(&trk[0]);
-    song.rec = 1;
-    ok &= !stage_seq_idle(0);
-    song.rec = 0;
-    bad += check("  a note, or armed to record: they come back", ok && stage_seq_idle(0));
     turn(EN_ALGO, 1);
     bad += check("  ALGORITHM: no other track to select", song.sel == 0);
     trk[2].engine = trk[2].eng_req;
@@ -1183,9 +1172,11 @@ static int test_home_view(void)
     ui_power_on();
     go_home(); frame();
     press(B_HOME);
-    bad += check("HOME on Stage: the second page (the chord view)", ui.home && ui.home_pg == 1u);
     press(B_HOME);
-    bad += check("  HOME again: Stage", ui.home && ui.home_pg == 0u);
+    bad += check("HOME on the main screen: two taps reach the second page (the chord view; the picture is the first)", ui.home && ui.home_pg == 1u);
+    press(B_HOME);
+    bad += check("  HOME again: the main screen", ui.home && ui.home_pg == 0u);
+    press(B_HOME);
     press(B_HOME);
     open_family(FAM_EDIT); frame();
     press(B_HOME);
@@ -1208,7 +1199,7 @@ static int test_home_view(void)
     bad += check("  let go: the last ones, faded", faded && ((on[1] >> (60 - 32)) & 1u));
     before = TSEL->p[ENGINES[TSEL->eng_req]->knob[0]];
     turn(EN_K1, 3);
-    bad += check("  KNOB 1: the sound's, as on Stage", ui.home_pg == 1u &&
+    bad += check("  KNOB 1: the sound's, as on the main screen", ui.home_pg == 1u &&
                  (TSEL->eng_req == ENGI_PROPHET || TSEL->eng_req == ENGI_CZ || TSEL->p[ENGINES[TSEL->eng_req]->knob[0]] != before));
     ui_power_on();
     return bad;
@@ -2690,140 +2681,7 @@ static int test_popups(void)
         press(B_OCTDN);
         bad += check("LISTS: OCT- on a list: Stage", ui.home);
     }
-#if !OC_EDIT_SHEETS   /* (ui-build 2: the category map is gone, EDIT opens the sheets; tests/sheet_test.c covers the sheets in every engine, on the build set's switches) */
-    {   /* sections (ui_sections.c): PRESETS the next section and back to the page last used; EDIT: the map */
-        uint32_t f;
-        ui_power_on(); set_engine_of(TSEL, ENGI_PROPHET); go_title("P5 FLT ENV"); frame();
-        f = ui.page;
-        turn(EN_PRESET, 1);
-        o = str_eq(sec.name[sec_of(ui.page)], "Amp");
-        turn(EN_PRESET, -1);
-        bad += check("SECTIONS: PRESETS the next section (Filter -> Amp), back: the page last used in it (FLT ENV)",
-                     o && ui.page == f);
-        press(B_EDIT);
-        o = smap.on && smap.row == sec_of(ui.page);
-        turn(EN_K2, 1); turn(EN_K1, 0); press(B_OCTUP);
-        bad += check("SECTIONS: EDIT on an EDIT page: the map; KNOB 2 a row down, OCT+ opens its page",
-                     o && !smap.on && str_eq(sec.name[sec_of(ui.page)], "Amp"));
-        press(B_EDIT); press(B_EDIT);
-        bad += check("SECTIONS: EDIT again closes the map", !smap.on);
-        press(B_EDIT);
-        uint32_t row = smap.row;
-        turn(EN_K2, 3);
-        o = smap.row == row + 3u;
-        turn(EN_K2, -3);
-        bad += check("SECTIONS: map KNOB 2 counts categories, including several detents in one frame",
-                     o && smap.row == row);
-        turn(EN_K2, -1);                              /* Filter remembers FLT ENV, not Amp's page column */
-        uint8_t pg[8];
-        smap_pages(smap.row, pg);
-        bad += check("SECTIONS: a category selects its remembered page independently of the previous category",
-                     str_eq(sec.name[smap.row], "Filter") && pg[smap.col] == f);
-        press(B_HOME);
-        bad += check("SECTIONS: HOME leaves the category map immediately", ui.home && !smap.on);
-        set_engine_of(TSEL, ENGI_CZ); go_title("C1 PIT R1-4"); frame(); press(B_EDIT);
-        row = smap.row; o = 1;
-        for (uint32_t k = row; k + 1u < sec.n; k++) {
-            turn(EN_K2, 1);
-            o &= smap.row == k + 1u;
-        }
-        for (uint32_t k = smap.row; k > 0u; k--) {
-            turn(EN_K2, -1);
-            o &= smap.row == k - 1u;
-        }
-        bad += check("SECTIONS: CZ map visits each category once regardless of its envelope page count", o);
-        press(B_HOME);
-        ui_power_on(); set_engine_of(TSEL, ENGI_PROPHET); frame(); press(B_EDIT); press(B_EDIT);
-        uint8_t sp[8];
-        smap_pages(smap.row, sp);
-        turn(EN_K1, 1);
-        o = smap.on && str_eq(sec.name[smap.row], "Sound") && str_eq(PAGES[sp[smap.col]].title, "EDIT 2");
-        turn(EN_K1, -1); turn(EN_K2, 1);
-        bad += check("SECTIONS: Prophet map, one detent each: KNOB 1 Filter/tune -> PW/mix, KNOB 2 Sound -> Osc",
-                     o && smap.on && str_eq(sec.name[smap.row], "Osc"));
-        press(B_HOME);
-        const uint32_t engines[] = {ENGI_PROPHET, ENGI_FM6, ENGI_CZ, 3u, ENGI_DRUM};
-        int categories = 1, pages = 1;
-        for (uint32_t e = 0; e < NELEM(engines); e++) {
-            ui_power_on(); set_engine_of(TSEL, engines[e]); frame(); press(B_EDIT); press(B_EDIT);
-            categories &= smap.on;
-            uint8_t opened = ui.page;
-            for (uint32_t r = 0; r < sec.n; r++) {
-                uint8_t pp[8];
-                uint32_t count = smap_pages(r, pp);
-                for (uint32_t c = 0; c < count; c++)
-                    for (int32_t dir = -1; dir <= 1; dir += 2) {
-                        smap.row = (uint8_t)r; smap.col = (uint8_t)c; ui.force = 1; frame();
-                        turn(EN_K2, dir);
-                        categories &= smap.on && ui.page == opened &&
-                            smap.row == (uint32_t)clamp((int32_t)r + dir, 0, (int32_t)sec.n - 1);
-                        for (uint32_t k = 0; k < 2u; k++) {
-                            smap.row = (uint8_t)r; smap.col = (uint8_t)c; ui.force = 1; frame();
-                            turn(k ? EN_SELECT : EN_K1, dir);
-                            pages &= smap.on && ui.page == opened && smap.row == r &&
-                                smap.col == (uint32_t)clamp((int32_t)c + dir, 0, (int32_t)count - 1);
-                        }
-                    }
-                smap.row = (uint8_t)r; smap.col = 0; ui.force = 1; frame();
-                turn(EN_K1, (int32_t)count - 1);             /* several detents in one frame: each a page */
-                pages &= smap.row == r && smap.col == count - 1u;
-            }
-            press(B_HOME);
-        }
-        bad += check("SECTIONS: map KNOB 2 moves one category a detent from every page in every engine", categories);
-        bad += check("SECTIONS: map KNOB 1 / SELECT move one page a detent inside the category in every engine", pages);
-        /* The Drum example: KNOB 1 stays within Sound; KNOB 2 jumps straight to Drum.
-         * A fresh category starts at its first page; a previously opened page is still recalled. */
-        ui_power_on(); set_engine_of(TSEL, ENGI_DRUM); go_title("EDIT 1"); frame(); press(B_EDIT);
-        uint8_t drum_pages[8];
-        uint32_t sound_row = smap.row;
-        char first[16], second[16];
-        uint32_t sound_pages = smap_pages(sound_row, drum_pages);
-        sec_short(drum_pages[0], first, sizeof first); sec_short(drum_pages[1], second, sizeof second);
-        int map_pixels = map_pixels_match_full();
-        bad += check("DRUM MAP: opens Sound with Kit selected, Hit beside it, Drum below",
-                     smap.on && str_eq(sec.name[sound_row], "Sound") && sound_pages == 2u && !smap.col &&
-                     str_eq(first, "Kit") && str_eq(second, "Hit") && str_eq(sec.name[sound_row + 1u], "Drum"));
-        turn(EN_K1, 1);
-        map_pixels &= map_pixels_match_full();
-        bad += check("DRUM MAP: one KNOB 1 detent selects Hit while Sound and Drum below stay put",
-                     smap.on && smap.row == sound_row && smap.col == 1u &&
-                     str_eq(sec.name[smap.row + 1u], "Drum"));
-        turn(EN_K2, 1);
-        map_pixels &= map_pixels_match_full();
-        smap_pages(smap.row, drum_pages);
-        bad += check("DRUM MAP: one KNOB 2 detent selects Drum sound in Drum, with Lanes below",
-                     smap.on && smap.row == sound_row + 1u && !smap.col &&
-                     str_eq(PAGES[drum_pages[smap.col]].title, "DRUM SOUND") &&
-                     str_eq(sec.name[smap.row + 1u], "Lanes"));
-        bad += check("DRUM MAP: each one-detent screen matches a complete redraw", map_pixels);
-        press(B_OCTUP);
-        bad += check("DRUM MAP: OCT+ opens the selected Drum sound page", !smap.on && str_eq(cur_page()->title, "DRUM SOUND"));
-        go_title("DRUM MIX"); frame();
-        uint32_t drum_mix = ui.page;
-        go_title("EDIT 2"); frame(); press(B_EDIT);
-        o = smap.row == sound_row && smap.col == 1u;
-        turn(EN_K2, 1);
-        smap_pages(smap.row, drum_pages);
-        bad += check("DRUM MAP: one KNOB 2 detent recalls Drum mix after it has been opened",
-                     o && smap.row == sound_row + 1u && drum_pages[smap.col] == drum_mix);
-        turn(EN_K2, -1); smap_pages(smap.row, drum_pages);
-        bad += check("DRUM MAP: one reverse detent recalls Hit inside Sound",
-                     smap.row == sound_row && str_eq(PAGES[drum_pages[smap.col]].title, "EDIT 2"));
-        turn(EN_K1, -1); turn(EN_K1, -1);
-        bad += check("DRUM MAP: KNOB 1 stops at Kit without leaving Sound", smap.row == sound_row && !smap.col);
-        turn(EN_K1, 1); turn(EN_K1, 1);
-        bad += check("DRUM MAP: KNOB 1 stops at Hit without leaving Sound", smap.row == sound_row && smap.col == 1u);
-        press(B_HOME);
-    }
-    go_page(GR_SONG); frame();
-    hold(B_OCTUP);
-    bad += check("POPUPS: SONG, OCT+ held: the song's sheet (no play)", pop.on == POP_SHEET && !song.playing);
-    press(B_OCTUP);
-    bad += check("POPUPS: Insert row (the sheet's first row)", !pop.on && msg_is("ROW INSERTED"));
-#else
     /* (the sections and the SONG sheet's first row are the old flow: sheet_test's, and step_pages_test's NOTES) */
-#endif
     return bad;
 }
 static int test_song_view(void)
@@ -3164,9 +3022,6 @@ static int test_product_ux(void)
         }
         ok &= changed;
     }
-#if !OC_EDIT_SHEETS                               /* (the ENV family opens as a sheet: the lift is drawn on its page, sheet_test) */
-    bad += check("all palettes: the knob turning is lifted in place, the others and the page stay", ok);
-#endif
     bad += check("SAMPLE and SLICE retired from selectors with reserved stored IDs",!eng_ok(4) && !eng_ok(13) && !ENGINES[4]->npresets && !ENGINES[13]->npresets);
     ui_power_on(); return bad;
 }
@@ -3638,9 +3493,6 @@ static int test_cz1_pages(void)
     tr = song.sel % NTRK;
     set_engine_of(TSEL, ENGI_CZ);
     frame();
-#if !OC_EDIT_SHEETS                               /* (EDIT's sheets are sheet_test's: SELECT walks them in every engine) */
-    bad += check("CZ-1 EDIT cycle: tone pages and VOICE, without bank/patch pages", engine_cycle(CYC, NELEM(CYC)));
-#endif
     /* every value, every setting: what is put reads back; the others stay (END's level, a SUS past END aside) */
     for (id = 0; id < LCZ_NP; id++) {
         if (!CZ_PD[id].label)
@@ -3793,9 +3645,6 @@ static int test_edit_cycle(void)
         ok &= !str_eq(PAGES[i].title, "ENGINE");
     bad += check("no ENGINE page (engines are the EDIT layer's)", ok);
     set_engine_of(TSEL, 3);
-#if !OC_EDIT_SHEETS                               /* (sheet_test: EDIT's sheets in every engine) */
-    bad += check("EDIT cycle (SID): EDIT 1 EDIT 2 VOICE VOICE 2 EDIT 1", engine_cycle(CYC_A, NELEM(CYC_A)));
-#endif
 #if MELODEE_LEGACY_EXTRAS                           /* (PHASE: retired) */
     set_engine_of(TSEL, 2);
     TSEL->p[P_E7] = 0;
@@ -3808,19 +3657,12 @@ static int test_edit_cycle(void)
     bad += check("PHASE DCW1 knob edits its saved parameter", TSEL->p[P_FM1_ATK] > 0);
 #endif
     set_engine_of(TSEL, ENGI_FM6);
-#if !OC_EDIT_SHEETS
-    bad += check("EDIT cycle (FM6): EDIT 1 EDIT 2, FM6's 16 pages, VOICE VOICE 2",
-                 TSEL->eng_req == ENGI_FM6 && engine_cycle(CYC_F, NELEM(CYC_F)));
-#endif
     (void)CYC_D;
     go_title("OP2 ENV"); ui.fam_last[FAM_EDIT] = ui.page;
     set_engine_of(TSEL, 3); frame();
     bad += check("an OP page of a track no longer DIGITAL falls back to EDIT 1", str_eq(cur_page()->title, "EDIT 1"));
     go_title("EDIT 2"); ui.fam_last[FAM_EDIT] = ui.page;
     go_home(); press(B_EDIT);
-#if !OC_EDIT_SHEETS                               /* (a sheet opens on its first page; sheet_test: EDIT comes back to where it started) */
-    bad += check("EDIT remembers its last page (as every family)", str_eq(cur_page()->title, "EDIT 2"));
-#endif
     return bad;
 }
 
@@ -3954,10 +3796,6 @@ static int test_tempo_select(void)
     ok = !str_eq(cur_page()->title, "NOTES") && ui.cursor == 4u;
     turn(EN_SELECT, -1);
     turn(EN_K1, 3);
-#if !OC_STEP_PAGES                                /* (ui-build 4: NOTES' KNOB 1 is PITCH, SELECT the page: step_pages_test) */
-    bad += check("SELECT on NOTES turns the page (and back); KNOB 1 moves through the steps",
-                 ok && ui.cursor == 7u && str_eq(cur_page()->title, "NOTES"));
-#endif
     go_title("TEMPO");
     turn(EN_K1, 4);
     turn(EN_K2, 10);
@@ -5519,9 +5357,6 @@ static int test_bughunt_ui2(void)
             a[k][1] = text_in(BOX_X + 180, Y + ly - 8, BOX_X + 230, Y + ly + 16);   /* the pan, or Mute */
         }
         ok = a[0][0] && !a[0][1] && !a[1][0] && a[1][1] && !a[2][0] && !a[2][1] && !a[3][0] && a[3][1];
-#if !OC_MIXER                                     /* (ui-build 6: the bars are in the knobs' colors and drawn elsewhere: mixer_test) */
-        bad += check("MIXER: K1 lights the level's bar, K2 the pan, K4 Mute, K3 nothing", ok);
-#endif
     }
     {   /* 4. renaming the slot the music came from renames the music: the next SAVE prefills the new name */
         char pn[16];
@@ -5670,13 +5505,12 @@ static int test_home_notes(void)
     int bad = 0;
     const char *q;
     ui_power_on();
-    bad += check("HOME has no invented notes before the first key", !graph_notes());
+    bad += check("HOME has no invented notes before the first key", !live_last[0][1] && !live_held[0][1]);
     key_down(7); /* C4 */
     bad += check("panel C4 enters HOME after mapping", live_last[0][1] == (1u << 28));
     key_up(7);
     frame();
-    bad += check("a panel tap between frames remains visible after release", graph_notes() &&
-                 live_last[0][1] == (1u << 28) && !live_held[0][1]);
+    bad += check("a panel tap between frames remains visible after release", live_last[0][1] == (1u << 28) && !live_held[0][1]);
     ui_power_on();
     TSEL->p[P_QUANT] = Q_MPC;
     midi_event(0x90, 0, 101, 100);
@@ -5721,7 +5555,7 @@ static int test_home_notes(void)
     return bad;
 }
 
-/* Stage (HOME, ui_stage.c): the selected track's engine's own four knobs (PROPHET and CZ-1: their native panel values,
+/* HOME (ui_main.c, ui.c stage_page): the selected track's engine's own four knobs (PROPHET and CZ-1: their native panel values,
  * edited as their pages edit them), no footer; SEQ > PATTERNS: KNOB k queues track k's pattern; the lights' grammar:
  * dim something there, bright happening now, breathing waiting (the third plane); the DRUM lanes' flashes */
 static uint32_t plane_led(uint32_t plane, uint32_t id)          /* led id in dim plane `plane` (0..2) */
@@ -5833,17 +5667,14 @@ static int test_stage(void)
     drum_flash[3] = 0;
     input_on(TSEL, 38, 100); input_off(TSEL, 38);
     events_block(2);
-    bad += check("a DRUM hit flags its lane for Stage (SNARE)", (drum_flash[3] >> 1) & 1u);
-    go_home();
-    frame();
-    bad += check("  .. Stage takes it and lights the lane's name", !drum_flash[3] && stage.hit_t[1]);
+    bad += check("a DRUM hit flags its lane (SNARE): the engine's own flag, nothing on HOME reads it since the Stage went", (drum_flash[3] >> 1) & 1u);
     ui_power_on();
     return bad;
 }
 
-/* Stage's knobs after DRUM SOUND (the page HOME keeps): Stage's cards alone, nothing sent while they rest (last in
+/* HOME's main screen after DRUM SOUND (the page HOME keeps): a knob turned redraws the dials, and at rest nothing is sent (last in
  * main: its frames move the clock the breathing checks read) */
-static int test_stage_knobs_after_drum(void)
+static int test_main_knobs_after_drum(void)
 {
     int bad = 0;
     uint32_t k;
@@ -5856,12 +5687,12 @@ static int test_stage_knobs_after_drum(void)
     go_home();
     frame(); frame();
     turn(EN_K1, 1);
-    for (k = 0; k < ST_DROP + 2u; k++)
+    for (k = 0; k < 6u; k++)
         frame();
     s0 = host_sent;
     frames(160);
-    bad += check("Stage after DRUM SOUND: the knobs out, not redrawn over the page's cards each frame",
-                 stage.out && host_sent == s0 && memcmp(ui.col[0], "DRUM|", 5));
+    bad += check("main screen after DRUM SOUND: a knob turned, then nothing is sent at rest",
+                 host_sent == s0);
     ui_power_on();
     return bad;
 }
@@ -6503,13 +6334,6 @@ static int test_seq_keys(void)
         GLO_SELECT = 0;
     }
     ui_power_on();
-    song.ntrk = 2;
-    song.rec = 2u;
-    stop_transport();
-    bad += check("an armed track's row: its border lit (stopped: breathing), the other none",
-                 stage_rec_lv(1) && !stage_rec_lv(0));
-    song.rec = 0;
-    ui_power_on();
     return bad;
 }
 #ifndef UI_TEST_NO_MAIN                                 /* (Orange Cat 0.5.3: tests/oc_pages_test.c has its own) */
@@ -6836,7 +6660,7 @@ int main(void)
     bad += test_bughunt_ui2();
     bad += test_piano_roll();
     bad += test_fm6_charts();
-    bad += test_stage_knobs_after_drum();
+    bad += test_main_knobs_after_drum();
     bad += test_admission();
 
     if (getenv("UI_SCREEN_DIR")) chain_screens(getenv("UI_SCREEN_DIR"));

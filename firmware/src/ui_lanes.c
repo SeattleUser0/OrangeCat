@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner. */
 /* The new interface, step 5 (docs/orangecat/UI_DESIGN.md Part 1 section 5 "Drums", Part 2 drum_lanes.png; docs/orangecat/UI_BUILD.md
- * "Step 5: EDIT > LANES"): DRUM-X's first lane page as the table of its eight sounds, behind OC_LANES (core.h; it needs
- * OC_STEP_PAGES).
+ * "Step 5: EDIT > LANES"): DRUM-X's first lane page as the table of its eight sounds (always on since step 9; it needed
+ * the step pages).
  *
  * The page keeps release-2's four knobs (params.c: LEVEL, TUNE, DECAY, PAN of the lane ui.lane, edited through page_desc and
  * edit_param as before: nothing of the editing is new). What is new: the four cards are drawn in the knobs' cozy colors with
@@ -13,7 +13,6 @@
  * Revisions:
  *   (the new interface 0.5, branch ui-build) first version.
  */
-#if OC_LANES
 static int lanes_page(void) { return !ui.home && cur_page()->graph == GR_LANES && MELODEE_DRUMX && TSEL->eng_req == ENGI_DRUMX; }
 static const uint8_t LANES_ID[4] = {DXL_LEVEL, DXL_TUNE, DXL_DECAY, DXL_PAN};
 
@@ -72,4 +71,3 @@ static void graph_lanes(const track_t *t, int32_t h)
         }
     }
 }
-#endif

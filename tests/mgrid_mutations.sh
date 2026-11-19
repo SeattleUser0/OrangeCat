@@ -6,7 +6,7 @@
 # Prints, per mutant, the failing lines; exit 1 if any mutant passes (the test cannot tell the rule is broken).
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-SW="-DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_ONE_AUTH=1 -DOC_MGRID=1 -DOC_REC_CLEAR=1 -DMELODEE_USB_AUDIO=1 -w"
+SW="-DOC_ONE_AUTH=1 -DOC_MGRID=1 -DOC_REC_CLEAR=1 -DMELODEE_USB_AUDIO=1 -w"
 # number|file|old|new|the check that must fail (a word of its line)
 MUTANTS=(
 "1^firmware/src/ui_input.c^settings_chord_add || mgrid_page()^settings_chord_add^DW1"

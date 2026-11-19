@@ -342,19 +342,15 @@ static const param_desc_t *global_desc(uint32_t id)
     return &GP[id];
 }
 static uint32_t scale_count(const track_t *t);          /* seq.c */
-#if OC_HOME_PIC
 static const param_desc_t *mac_desc(const track_t *t, uint32_t id);   /* (oc_macro.c, the new interface: HOME's macro knobs) */
-#endif
 static const param_desc_t *track_desc(const track_t *t, uint32_t id)
 {
-#if OC_HOME_PIC
     {
         const param_desc_t *md;
         if (id >= P_MAC0 && id <= P_MAC3 && (md = mac_desc(t, id)) != 0)   /* (UI_BUILD.md 1a) a macro knob: its name,
                                                        * -64 .. 63 (TP[] keeps the stores' and the editor's reserved view) */
             return md;
     }
-#endif
     if (id == P_APRATE && t->p[P_APSYNC]) {           /* (Orange Cat 0.6.0, Jiant) AUTO PAN on the tempo: a division */
         static const param_desc_t AP_BEAT = {"RATE", F_ENUM, 0, 7, 2, N_APDIV, 0};
         return &AP_BEAT;
@@ -608,7 +604,7 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
 static const page_t PAGES[] = {
     /* (Orange Cat 0.6.0) FX: the effects (jfx.c, Jiant FM's pages). The track's: its DIST and sends, DIST, AUTO PAN;
      * the project's: the buses, the SLICER, the MASTER */
-    /* (ui-fix2 1, the owner's order of November 1, 2026, with the sheets: OC_EDIT_SHEETS) first the track's sends, named SENDS
+    /* (ui-fix2 1, the owner's order of November 1, 2026, with the sheets) first the track's sends, named SENDS
      * (the page feeds the shared effects; it was "FX", which said nothing of that); then the shared effects (DELAY .. MASTER,
      * every track's); last the track's own: DIST, AUTO PAN, DUB SETUP, DUB, DUB 2. Without the sheets release-2's order: the
      * sends, DIST, AUTO PAN, DUB, then the shared ones. (Session A reworks the DUB pages' knobs; their names and order stay.) */
@@ -633,11 +629,7 @@ static const page_t PAGES[] = {
     {"SL PITCH 3", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLP0 + 8, G_SLP0 + 9, G_SLP0 + 10, G_SLP0 + 11}}, \
     {"SL PITCH 4", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLP0 + 12, G_SLP0 + 13, G_SLP0 + 14, G_SLP15}}, \
     {"MASTER", FAM_FX, SC_GLOBAL, GR_NONE, {G_DJF, G_CLIP, G_LEVEL, G_SPKEQ}},
-#if OC_EDIT_SHEETS
     PG_FX_SENDS PG_FX_SHARED PG_FX_DIST PG_FX_APAN PG_FX_SETUP PG_FX_DUB
-#else
-    PG_FX_SENDS PG_FX_DIST PG_FX_APAN PG_FX_SETUP PG_FX_DUB PG_FX_SHARED      /* (round 13: DUB SETUP, DUB, DUB 2 in this order without the sheets too) */
-#endif
 #undef PG_FX_SENDS
 #undef PG_FX_DIST
 #undef PG_FX_APAN
@@ -730,7 +722,7 @@ static const page_t PAGES[] = {
     {"LANES 2", FAM_EDIT, SC_TRACK, GR_NONE, {P_LN4, P_LN5, P_LN6, P_LN7}},
     /* (Orange Cat 0.14.2) DRUM-X: the lane the keys picked (a key struck picks its lane, as the grid's lane keys do), its four values; then its
      * sound values; then the kit's own (dxl_desc, eng_drumx.c dxk_t). A placeholder for Session C's page */
-    {"LANES", FAM_EDIT, SC_DXLANE, GR_LANES, {DXL_LEVEL, DXL_TUNE, DXL_DECAY, DXL_PAN}},   /* (the new interface 0.5: with OC_LANES the table, ui_lanes.c) */
+    {"LANES", FAM_EDIT, SC_DXLANE, GR_LANES, {DXL_LEVEL, DXL_TUNE, DXL_DECAY, DXL_PAN}},   /* (the new interface 0.5: the table, ui_lanes.c) */
     {"LANES 2", FAM_EDIT, SC_DXLANE, GR_NONE, {DXL_LAYER, DXL_PUNCH, DXL_ATK, DXL_BEND}},
     {"LANES 3", FAM_EDIT, SC_DXLANE, GR_NONE, {DXL_TONE, DXL_FDBK, DXL_HANDS, DXL_DUCK}},
     {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, {P_VOICE, P_GLIDE, P_GLMODE, P_PRIO}},
@@ -749,9 +741,7 @@ static const page_t PAGES[] = {
     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
     {"NOTES", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
-#if OC_STEP_PAGES
     {"FEEL", FAM_SEQ, SC_STEP, GR_FEEL, {0, 1, 2, 3}},   /* (the new interface 0.4, UI_BUILD.md step 4) the steps' chance, ratchet, nudge, type (ui_feel.c) */
-#endif
     {"TRACKER", FAM_SEQ, SC_STEP, GR_TRACKER, {0, 1, 2, 3}},   /* (Orange Cat 0.4.2) the phrase as rows (ui_tracker.c) */
 #if OC_MGRID
     {"GRID", FAM_SEQ, SC_STEP, GR_MGRID, {0, 1, 2, 3}},   /* (melodic-grid) a pitched track's steps on the keys (ui_mgrid.c); not on DRUM, DRUM-X, kit or slice tracks (ui.c page_visible) */

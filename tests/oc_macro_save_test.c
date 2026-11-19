@@ -2,7 +2,7 @@
  * Copyright 2026 Jeremiah Conner. */
 /* The new interface, step 1a (docs/orangecat/UI_BUILD.md): HOME's knob macros through the firmware's own saves and loads
  * (project.c, upreset.c, ui.c on tests/ui_test.c's stubs), built with OC_HOME_PIC=1.
- *   cc -O1 -w -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o oc_macro_save_test tests/oc_macro_save_test.c -lm
+ *   cc -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o oc_macro_save_test tests/oc_macro_save_test.c -lm
  * Until the Release 3 format revision a save commits the macros into their targets (and stores them as 0) and every load
  * sets them to 0 (UI_BUILD.md 1a). Checked:
  *   PROJECT   macros turned on SHAPES and MACRO, the project saved and loaded: every parameter is what the interrupt was

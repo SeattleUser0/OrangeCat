@@ -16,12 +16,8 @@
 
 static int bad, nchk;
 static void chk(const char *what, int ok) { nchk++; printf("dub_layer_keys: %-150s %s\n", what, ok ? "ok" : "FAIL"); bad += !ok; }
-static void pic_on(void)
+static void pic_on(void)                                /* (step 9: the new interface is the only one; HOME lands on the main screen) */
 {
-    hold(B_HOME);
-    ui.menu_sel = MI_HOME_PAGE;
-    if (!home_pic_on()) press(B_OCTUP);
-    hold(B_HOME);
     go_home();
     frames(100);
 }
@@ -56,10 +52,6 @@ static int quiet2(void) { return trk[2].p[P_MUTE] == 0 && trk[3].p[P_MUTE] == 0 
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
-#if !OC_HOME_PIC
-    printf("dub_layer_keys: built without OC_HOME_PIC: nothing to check\n");
-    return 0;
-#else
     uint32_t j;
     int ok;
     start(1, 0); j = song.sel % 4u;
@@ -163,5 +155,4 @@ int main(void)
 
     printf("dub_layer_keys: %d checks, %d failed\n", nchk, bad);
     return bad != 0;
-#endif
 }

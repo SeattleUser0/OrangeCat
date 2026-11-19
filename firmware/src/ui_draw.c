@@ -83,6 +83,9 @@ static void head_chip_text(char *b)
         str_cpy(b, "copy 1 to 1", 16);
         b[5] = (char)('1' + ui.ptc_src % NPAT);
         b[10] = (char)('1' + ui.ptc_dst % NPAT);
+    } else if (ui.home && !ui.home_pg && song.playing) {   /* (step 9) the main screen while the music runs: the bar in view (the selected track's, as its row's steps) */
+        str_cpy(b, "BAR ", 8);
+        fmt_int(b + 4, (int32_t)(TSEL->seq_idx < (uint32_t)clamp(TSEL->p[P_SLEN], 1, NSTEP) ? TSEL->seq_idx / 16u : 0u) + 1);
     } else if (ui.home) {                               /* Stage: the engine (a kit: its name, "909 KIT") */
         if (browse_pending()) { uint32_t kk, s = browse_shown(&kk); e = src_engine(s, kk); }
         if ((MELODEE_DRUM && ENGINES[eng_idx(e)] == &ENG_DRUM) && !browse_pending()) sound_name(TSEL, b);
@@ -101,12 +104,10 @@ static void head_chip_text(char *b)
         str_cpy(b, t, 16);
     }
 }
-#if OC_EDIT_SHEETS
 static int sh_dots(uint32_t *n, uint32_t *k);           /* ui_sheets.c (included below): a sheet's rows, the page's place */
 static int sh_row(uint32_t i);
 static int sh_tabs(void);
 static int sh_lower(void);
-#endif
 /* the page's place in its family: a dot a page, the page's a pill in the track's colour (no room: "3/12") */
 static void head_pages(int32_t x, int32_t x1)          /* (x: after the transport's marks; x1: where the chip, or the
                                                          * battery, starts) */
@@ -115,10 +116,8 @@ static void head_pages(int32_t x, int32_t x1)          /* (x: after the transpor
     uint32_t i, n = 0, k = 0, sc = sec_on() ? sec_of(ui.page) + 1u : 0u;
     if (designer_on() && !name_on())                    /* the designer: its stage's pages */
         designer_pages(&n, &k);
-#if OC_EDIT_SHEETS
     else if (!name_on() && sh_dots(&n, &k))             /* (the new interface 0.2) a sheet: its rows */
         ;
-#endif
     else for (i = 0; i < page_n(); i++)                 /* (an engine in sections: the section's pages) */
         if (page_at(i)->fam == pg->fam && page_visible(i) &&
             (!sc || ((MELODEE_FM6 && page_at(i)->scope == SC_FMOP) ? (MELODEE_FM6 && page_at(ui.page)->scope == SC_FMOP) : sec_of(i) + 1u == sc))) {
@@ -158,9 +157,7 @@ static int head_toast(int32_t x)
         w += 40;                                        /* (a keycap: its pill wider than its word) */
     return m[0] && w > 236 - x;
 }
-#if OC_HOME_PIC
 static uint32_t home_pic_cycle(uint8_t *o);               /* (dub-perf) ui_home_pic.c: the pages of HOME's turn */
-#endif
 static void draw_head(void)
 {
     char b[16], chip[16];
@@ -227,7 +224,6 @@ static void draw_head(void)
         }
         if (!ui.home) {                                 /* a page: where it is in its family */
             head_pages(x + 6, 236 - cw - (low ? 22 : 0));
-#if OC_HOME_PIC
         } else if (home_pic_on()) {                     /* (the new interface, UI_BUILD.md 1c) HOME's three pages, PICTURE TRACKS
                                                          * CHORD (home_pg 2, 0, 1), where there is room (none: no dots) */
             uint8_t cyc[4];                             /* (dub-perf) PICTURE, DUB where it is in the turn, TRACKS, CHORD */
@@ -238,7 +234,6 @@ static void draw_head(void)
                 cv_rrect(x, H_HEAD / 2 - 3, w, 6, 3, i == at ? T_THEME : T_LINE, T_BG);
                 x += w + 6;
             }
-#endif
         } else if (x + 6 + 28 <= 236 - cw - (low ? 22 : 0) - 6) {   /* HOME: its two pages (Stage, the chord view),
                                                                    * where there is room */
             uint32_t i;
@@ -293,7 +288,7 @@ static void binary_badge(int32_t xc, int32_t y, int32_t h, const char *val, uint
     if (!on) cv_rrect(xc - w / 2 + 1, y + 1, w - 2, h - 2, 5, fill, T_LINE);
     cv_text_c(xc, ty_y(y + h / 2, TY_LB), TY_LB, on ? "ON" : "OFF", on ? T_INK : T_MID, fill);
 }
-static uint8_t stage_drop_rows;                         /* Stage's knobs dropping in: the cards' bottom rows only, 0 all */
+static uint8_t stage_drop_rows;                         /* the knobs dropping in over the chord view: the cards' bottom rows only, 0 all */
 enum { CS_CARD, CS_RING, CS_CAPTURE };               /* how draw_column draws a knob: CARD, RING: the strip's cell (the
                                                          * large type); CAPTURE: kept for a list's rows, ui_list.c */
 static void list_capture(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc);
@@ -541,19 +536,17 @@ static const char *frz_word(uint32_t k, int playing)
 static uint32_t frz_state(uint32_t k) { return k >= 4u ? 0u : frz[k].st != FZ_OFF ? 1u : frz_track_frozen(k) ? 2u : 0u; }
 #endif
 #include "ui_sections.c"                                /* the EDIT pages in sections, the map */
-#include "ui_stage.c"                                   /* Stage (HOME) */
+#include "ui_rows.c"                                    /* (step 9) what the Stage left: MIXER's rows, the waveform, a knob's words */
 #include "ui_view.c"                                    /* HOME's second page: the chord, pictures of what plays */
-#if OC_HOME_PIC
 #include "oc_scene.c"                                   /* (the new interface, UI_BUILD.md 1b) the pictures' interpreter */
 #include "ui_home_pic.c"                                /* (UI_BUILD.md 1c) HOME's picture page */
-#endif
+#include "ui_main.c"                                    /* (step 9) HOME's main screen: the strips and the dials */
 #include "ui_browser.c"                                 /* SAVE > PRESETS, the sound browser */
 #include "ui_patterns.c"                                /* SEQ > PATTERNS, SEQ > SONG */
 #include "ui_tracker.c"                                 /* (Orange Cat 0.4.2) SEQ > TRACKER */
 #include "ui_pool.c"                                    /* (Orange Cat 0.4.4) SEQ > PHRASES */
 #include "ui_groove.c"                                  /* (Orange Cat 0.4.5) SEQ > GROOVE */
 static int own_screen(void);
-#if OC_MGRID || OC_STEP_PAGES                   /* (their only callers; ui_feel.c, feel_hund, is not in a build with both off) */
 /* (melodic-grid trim) the PITCH and LENGTH texts of the picked note, one copy for NOTES and GRID */
 static __attribute__((noinline)) void dial_pitch(char *sn, uint32_t chosen, const step_t *st)
 {
@@ -567,7 +560,6 @@ static __attribute__((noinline)) void dial_len(char *sn, uint32_t chosen, uint32
     } else if (selected) fmt_int(sn, (int32_t)step_note_length(TSEL, start));
     else str_cpy(sn, "--", 12);
 }
-#endif
 
 static void draw_columns(void)
 {
@@ -666,7 +658,6 @@ static void draw_columns(void)
         return;
     }
 #endif
-#if OC_STEP_PAGES
     if (cur_page()->graph == GR_FEEL) {                 /* (the new interface 0.4, ui_feel.c) the cursor step's four values */
         const step_t *st = &TSEL->step[ui.cursor % NSTEP];
         uint32_t k;
@@ -677,13 +668,11 @@ static void draw_columns(void)
         }
         return;
     }
-#endif
     if (cur_page()->graph == GR_ROLL && !grid_on()) {
         uint32_t chosen = notes_selected(TSEL), start = notes_manual_start(TSEL);
         const step_t *st = start < NSTEP ? &TSEL->step[start] : 0;
         int selected = chosen < RECORD_MAX || (st && st->n);
         char sn[12], u[12];
-#if OC_STEP_PAGES
         if (!drum_track(TSEL) && !bulk.on && !ui.note_move && !ui.note_copy) {   /* (the new interface 0.4) PITCH START LEN VEL */
             dial_pitch(sn, chosen, st);
             draw_column(0, "PITCH", sn, "", selected ? T_COZY(0u) : T_DIM, -1, ICON_PITCH);
@@ -725,7 +714,6 @@ static void draw_columns(void)
                         selected ? T_COZY(3u) : T_DIM, -1, ICON_ACCENT);
             return;
         }
-#endif
         fmt_int(sn, (int32_t)ui.cursor + 1); u[0] = '/'; fmt_int(u + 1, TSEL->p[P_SLEN]);
         draw_column(0, ui.note_copy?"COPY":bulk.on||ui.note_move?"MOVE":"STEP", sn, bulk.on||ui.note_move?"":u, VAL(0u), -1, ICON_AUTO);
         uint32_t pitch = chosen < RECORD_MAX ? recording[chosen].note : st && st->n ? st->note[notes_manual_slot(st)] : last_note;
@@ -1094,9 +1082,7 @@ static void draw_confirm(void)
 #include "ui_motion.c"                                  /* MOTION: its lanes */
 #include "ui_scales.c"                                  /* SCALES: a screen of its own */
 #include "ui_designer.c"                                /* guided native sound creation */
-#if OC_EDIT_SHEETS
 #include "ui_sheets.c"                                  /* (the new interface 0.2, UI_BUILD.md step 2) EDIT's sheets */
-#endif
 static int own_screen(void)                             /* a page drawn whole by its own code, no cards or footer */
 {
     uint32_t g = cur_page()->graph;
@@ -1150,7 +1136,6 @@ static void draw_page(void)
         melodee_dbg.stage = 4;
         draw_columns();
         melodee_dbg.stage = 5;
-#if OC_HOME_PIC
         if (ui.home && !hp.landed) {                    /* (the first HOME frame after power-on: its landing page) */
             hp.landed = 1;
             home_pic_land();
@@ -1162,11 +1147,10 @@ static void draw_page(void)
         if (ui.home && (ui.home_pg == 2u || ui.home_pg == DUB_PG))   /* (the new interface, UI_BUILD.md 1c) HOME's picture page, and DUB's */
             home_pic_draw();
         else
-#endif
         if (ui.home && ui.home_pg)                      /* HOME's second page (ui_view.c) */
             view_draw();
-        else if (ui.home)                               /* Stage: its panel and the lanes (ui_stage.c), no footer */
-            stage_draw();
+        else if (ui.home)                               /* the main screen (ui_main.c), no footer */
+            main_draw();
         else
             draw_graph();
     }
@@ -1200,7 +1184,6 @@ static void ui_draw_frame(void);
 static void ui_draw(void)                               /* (gfx.c: the fills wait for the frame's canvases) */
 {
     gfx_frame(1);
-#if OC_EDIT_SHEETS
     {   /* (the new interface 0.2) the sheets made once this frame, when first asked for (ui_sheets.c sh_get) */
         sh_ctx_t c;
         c.made = 0;
@@ -1208,9 +1191,6 @@ static void ui_draw(void)                               /* (gfx.c: the fills wai
         ui_draw_frame();
         sh_now = 0;
     }
-#else
-    ui_draw_frame();
-#endif
     gfx_frame(0);
 }
 static void ui_draw_frame(void)

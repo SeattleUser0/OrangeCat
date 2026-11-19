@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner. */
-/* The new interface, step 3 (docs/orangecat/UI_BUILD.md "Step 3: the SHIFT map"): HOME as SHIFT with OC_SHIFT_MAP=1
+/* The new interface, step 3 (docs/orangecat/UI_BUILD.md "Step 3: the SHIFT map"): HOME as SHIFT (always on since step 9)
  * (firmware/src/ui_shift.c), through tests/ui_test.c's host UI (its own tests are not run here).
- *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o shift_test tests/shift_test.c -lm
+ *   cc -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o shift_test tests/shift_test.c -lm
  * Checked:
  *   TAP     a HOME tap (and a 480 ms press) is a tap (HOME's page steps): no MENU; a tap seen only as an edge opens
  *           nothing; with EDIT held first HOME is release-2's (no SHIFT)
@@ -58,10 +58,6 @@ static void settle(void)                                /* the engine switched o
 
 int main(void)
 {
-#if !OC_SHIFT_MAP
-    printf("shift: built without OC_SHIFT_MAP\n");
-    return 0;
-#else
     setvbuf(stdout, NULL, _IONBF, 0);
     {   /* TAP */
         int ok;
@@ -116,13 +112,12 @@ int main(void)
         frames(50);
         chk("CLOSE   the MENU open: HOME held closes it at 700 ms; the release does not open it again", ok && !ui.menu);
     }
-    {   /* KNOB on HOME's picture page (MACRO: KNOB 2's id from its knob table: HARM, plain) */
+    {   /* KNOB on HOME's main screen (MACRO: KNOB 2's id from its knob table: HARM, plain) */
         int16_t m0;
         uint32_t id;
         ui_power_on();
         set_engine_of(TSEL, ENGI_MACRO);
         settle();
-        GLO_SELECT |= HOME_PIC_BIT;
         go_home();
         frames(100);
         id = kdef_of(ENGI_MACRO)[1].kind == KD_PLAIN ? kdef_of(ENGI_MACRO)[1].id : P_MAC0 + 1u;
@@ -131,8 +126,7 @@ int main(void)
         turn(EN_K2, 1);
         wait_frames(60);
         up(B_HOME);
-        chk("KNOB    SHIFT + KNOB 2 on HOME's picture: its table's id moves, no MENU, no tap", TSEL->p[id] != m0 && !ui.menu && ui.home && ui.home_pg == 2u);
-        GLO_SELECT &= (uint8_t)~HOME_PIC_BIT;
+        chk("KNOB    SHIFT + KNOB 2 on HOME's main screen: its table's id moves, no MENU, no tap", TSEL->p[id] != m0 && !ui.menu && ui.home && ui.home_pg == 0u);
     }
     {   /* FINE: five detents 5 ms apart on a long range: accelerated without SHIFT, one step each with it */
         int32_t d0, d1;
@@ -287,7 +281,6 @@ int main(void)
         ui_power_on();
         set_engine_of(TSEL, ENGI_MACRO);
         settle();
-        GLO_SELECT |= HOME_PIC_BIT;
         go_home();
         frames(100);
         id = kdef_of(ENGI_MACRO)[1].kind == KD_PLAIN ? kdef_of(ENGI_MACRO)[1].id : P_MAC0 + 1u;
@@ -300,9 +293,7 @@ int main(void)
         chk("LATE    a knob after 700 ms: the MENU is open, the page's knob did not move", ui.menu && TSEL->p[id] == m0);
         hold(B_HOME);
         frames(20);
-        GLO_SELECT &= (uint8_t)~HOME_PIC_BIT;
     }
     printf("shift: %d failed\n", nbad);
     return nbad != 0;
-#endif
 }

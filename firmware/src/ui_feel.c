@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner. */
 /* The new interface, step 4 (docs/orangecat/UI_DESIGN.md Part 1 section 4 "FEEL", Part 2 feel.png; docs/orangecat/UI_BUILD.md
- * "Step 4: the step pages"): SEQ > FEEL, behind OC_STEP_PAGES (core.h; it needs OC_SHIFT_MAP).
+ * "Step 4: the step pages"): SEQ > FEEL (always on since step 9).
  *
  * The page: the four dials (CHANCE, RATCH, NUDGE, TYPE: the cursor step's values, drawn by ui_draw.c draw_columns from
  * feel_text) over the 16 steps of the cursor's page as tiles, four by four. A tile: the step's number and its value of
@@ -16,7 +16,6 @@
  * Revisions:
  *   (the new interface 0.4, branch ui-build) first version.
  */
-#if OC_STEP_PAGES
 static uint8_t feel_k;                                  /* the knob turned last, 0 .. 3: what the tiles show */
 
 static const char *const FEEL_NAME[4] = {"CHNC", "RATCH", "NUDGE", "TYPE"};   /* (the card has room for four or five capitals) */
@@ -128,4 +127,3 @@ static void feel_hund(char *b, uint32_t h, int always)
         fmt_int(b + str_len(b), (int32_t)f);
     }
 }
-#endif

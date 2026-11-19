@@ -2,7 +2,7 @@
 
 # Orange Cat controls
 
-For the Nightly v0.16.0-6872dc and later (firmware commit 6872dc4d, November 17, 2026). Made from the firmware's tables 9585985a: when they change, this page is made again.
+For the Nightly v0.16.0-6872dc and later (firmware commit 6872dc4d, November 17, 2026). Made from the firmware's tables 9f1b6842: when they change, this page is made again.
 
 What every knob, button and key does on the unit, page by page. It describes the Nightly build: the new interface with HOME's pictures, the four knobs and the EDIT sheets, with the FX order SENDS first and the track's own effects last.
 
@@ -63,20 +63,20 @@ SEQ is not a layer, but with it held the keys are silent pattern keys. SEQ tappe
 
 ## HOME
 
-HOME has up to four pages. MENU > HOME PAGE chooses the first. With TRACKS (the default) a HOME tap on HOME toggles TRACKS and CHORD. With PICTURE it steps PICTURE, DUB, TRACKS, CHORD; DUB is in the turn only while the selected track's ECHO is above 0.
+HOME has up to four pages, in this turn of a HOME tap on HOME: the main screen, PICTURE, DUB (only while the selected track's ECHO is above 0), CHORD. Power-on, and HOME from another screen, land on the main screen (or on CHORD where it was left). The old TRACKS page (the Stage) and MENU > HOME PAGE are gone.
 
-- TRACKS: one row per track in use, with its numeral, sound name and the bar's 16 steps; the selected track is outlined. Under them the notes played over the waveform. A muted track is grey and says MUTE in red where its role (DRUMS, CHORDS, T1) stands; a frozen track is grey-blue and says FROZEN. A track turned OFF (GLO held, OCT+ tapped) is grey and says OFF there; turned ON again it says WAIT in the accent color until it has its memory back. KNOB 1 to 4 are the selected engine's first four values; they drop in over the rows when turned.
-- CHORD: the twelve notes as a wheel in fifths with the song's key. Notes sounding on the tracks are lit in the track colors and the chord is named in the middle. The knobs drop in over the wheel.
-- PICTURE: the sound line (track, sound name, its place in the factory list; a knob turned shows its name and value there), four dials in the knob colors (blue, green, white, orange), a value row and the engine's picture. PACK MISSING in red means the asset pack is not installed. A macro knob moves around the sound as stored (-64 to +63); going back to TRACKS keeps the offsets in the sound. While the selected track is muted its numeral is grey and the line says MUTE in red at the right (also on DUB). A track turned OFF says OFF there instead, and WAIT in the accent color while a track turned ON waits for memory.
+- Main screen: under the header (the tempo, the transport mark, REC, messages; while the music plays its right says BAR and the bar in view) four rows, a track a row: its number on its colour (the selected one's in full), the sound's name (white on the selected row, grey on the others), at the right one state word when it applies, and under the name the track's 16 steps in view: a cell lit in the track's colour for a note, a dimmer one for a tie, and a white bar under the cell playing (the bar in view is the one playing, the first while stopped; a pattern shorter than 16 steps shows only its steps). The selected row is on a faint wash of its colour. The state words, in this order when two meet: OFF (grey), WAIT (a track turned ON that waits for its memory), MUTE (red) and FROZEN (blue). A place not in use is a grey row "Add track" (MENU > UNUSED TRACKS). At the foot the selected track's four knobs as dials in the knob colors (blue, green, white, orange), each with its label and its value under it; the knob just turned has the larger pointer. ALGORITHM selects the track, PRESETS steps its sound, KNOB 1 to 4 are the dials. A macro dial starts at the top and moves around the sound as stored (-64 to +63).
+- CHORD: the twelve notes as a wheel in fifths with the song's key. Notes sounding on the tracks are lit in the track colors and the chord is named in the middle. The knobs drop in over the wheel when turned.
+- PICTURE: the sound line (track, sound name, its place in the factory list; a knob turned shows its name and value there), the four dials, a value row and the engine's picture. PACK MISSING in red means the asset pack is not installed. While the selected track is muted its numeral is grey and the line says MUTE in red at the right; OFF and WAIT say so there too (also on DUB).
 - DUB: the tape loop and the performance keys, see "DUB performance view".
 - On every HOME page: SELECT turns HOME SELECT (BPM at first). PRESETS browses the sounds, one a click, wrapping at both ends; a fast turn loads when it rests. EDIT opens the EDIT sheets. ENV, LFO, SCL, ARP, FX, GLO, SAVE and SEQ open their pages. OCT- and OCT+ shift the octave. PLAY plays what it played last. REC held (stopped) clears the selected track. SAVE opens PROJECT.
 
 HOME's four knobs by engine:
 
-| Engine | KNOB 1 to 4 on TRACKS | KNOB 1 to 4 on PICTURE |
-|---|---|---|
-| MACRO | MODL HARM TIMB MRPH | HARM TIMB MRPH PLUCK (macro) |
-| DRUM-X | MRPH TUNE TONE DECY | MRPH TUNE TONE DECY |
+| Engine | KNOB 1 to 4 (the main screen's dials and PICTURE's) |
+|---|---|
+| MACRO | HARM TIMB MRPH PLUCK (macro) |
+| DRUM-X | MRPH TUNE TONE DECY |
 
 ## Tracks OFF lend their memory: more MACRO voices
 
@@ -123,7 +123,7 @@ KNOB 1 to 4: LEVEL of T1 to T4 (recorded as motion when armed).
 - SELECT: what MENU > GLO SELECT says (BPM at first).
 - PLAY: RESTART from the top without stopping.
 - OCT- (on release): puts back the mutes, levels and BPM from when the layer opened ("MIX PUT BACK"). It does not undo a track OFF.
-- OCT+ (a tap, on release): the selected track OFF, or ON again ("T2 OFF", "T2 ON", playing "T2 ON AT LOOP"). An OFF track is not played and gives its memory back; its steps, sound and mix are kept, its keys and MIDI make no sound, the Stage row says OFF. Turned ON it takes its memory back (WAIT while there is none) and plays from the next launch point (ARP's LAUNCH). Works on every page, the DUB page too.
+- OCT+ (a tap, on release): the selected track OFF, or ON again ("T2 OFF", "T2 ON", playing "T2 ON AT LOOP"). An OFF track is not played and gives its memory back; its steps, sound and mix are kept, its keys and MIDI make no sound, HOME's row says OFF. Turned ON it takes its memory back (WAIT while there is none) and plays from the next launch point (ARP's LAUNCH). Works on every page, the DUB page too.
 
 ### [SCL] SET
 
@@ -759,7 +759,7 @@ Only once the selected track has motion (record it by arming REC and turning a s
 
 ## DUB performance view
 
-HOME's DUB page. Set MENU > HOME PAGE to PICTURE, make sure the selected track's ECHO is above 0, then tap HOME on HOME until the tape loop shows. Tap HOME again, or press a page button, to leave. It needs the DUB TAPE module to sound.
+HOME's DUB page. Make sure the selected track's ECHO is above 0, then tap HOME on HOME until the tape loop shows. Tap HOME again, or press a page button, to leave. It needs the DUB TAPE module to sound.
 
 - The four knobs: KNOB 1 FDBK, KNOB 2 SEND, KNOB 3 FILTER, KNOB 4 ECHO (0 to 127; ECHO 0 turns DUB off). A knob turned shows its value in the sound line.
 - The keys are the octave C4 to B4, whatever OCT is set to. Every other key plays the track.
@@ -822,7 +822,7 @@ MACRO has 25 models. VA is built into the firmware and is always there. The othe
 
 The line under the list is the room meter. It says how many sectors the module area (18) and the tail region (3) hold, what the other modules take, and what the pick needs in one run. Install does not start until the pick fits; when it does not, leave a model or a wave bank out.
 
-- On the unit, MACRO's MODL knob (KNOB 1 on TRACKS, the MODEL row of the Sound sheet) steps over a model that is not installed.
+- On the unit, MACRO's MODEL row of the Sound sheet (HOME's KNOB 1 was MODL on the old TRACKS page, gone in step 9) steps over a model that is not installed.
 - A sound or a project that names a model that is not installed loads and keeps every setting. MODL shows MISSG, the track plays VA with those settings, and the screen says MODULE MISSING. Install the model and the track plays it again.
 - Installing the pick does not change a sound: a model plays as it did when it was built in.
 - PRESETS lists a MACRO sound (factory or user) only while its model is installed; the others stay stored and come back with the model.
@@ -879,9 +879,8 @@ Hold HOME alone for 0.7 s to open it (a combo within 0.7 s is a SHIFT shortcut i
 - PICKER POPUPS: ON or OFF: a card with the names around the value when a knob turns a value that is a name from a long list.
 - KNOB ACCEL: ON or OFF: fast turns step more than one.
 - HOME SELECT: What SELECT turns on HOME: BPM, MOD WHEEL (sent as CC 1), LEVEL, SWING, TRANSPOSE, CHORD, ARP RATE, CHAIN SLOT or OFF.
-- HOME PAGE: HOME's first page: TRACKS (the default) or PICTURE. PICTURE adds the dials and picture page and the DUB page. Going back to TRACKS keeps the macro offsets in the sounds.
 - GLO SELECT: The same choices: what SELECT turns with GLO held on any page.
-- UNUSED TRACKS: SHOW (a grey "Add track" row on HOME's TRACKS and the mixer) or HIDE (tracks in use share the rows).
+- UNUSED TRACKS: SHOW (a grey "Add track" row on HOME's main screen and the mixer) or HIDE (tracks in use share the rows).
 - SCREEN OFF: NEVER, 5 MIN, 15 MIN, 30 MIN or 60 MIN.
 - CALIBRATION: OCT+ runs the HARDWARE CALIBRATION setup screen.
 - ABOUT: OCT+ opens the credits and version. PRESETS scrolls; OCT- goes back.
@@ -894,7 +893,7 @@ These points in older documents or notes do not match the Nightly. This guide fo
 
 - REC held does not open the mixer. Older notes say it does; on the Nightly it is the clear countdown when stopped and Capture when playing.
 - SELECT on HOME does not step HOME's pages. A HOME tap does. SELECT turns MENU > HOME SELECT (BPM at first).
-- MACRO's HOME knobs are MODL, HARM, TIMB, MRPH on the TRACKS page and HARM, TIMB, MRPH, PLUCK on the PICTURE page.
+- MACRO's HOME knobs are HARM, TIMB, MRPH, PLUCK (before step 9 the old TRACKS page had MODL, HARM, TIMB, MRPH).
 - EDIT tapped again on a sheet row goes to the next sheet; it does not show "the second page". SELECT steps the rows and PRESETS steps the sheets.
 - DELAY's FDBK shows 0 to 94 %, not "past 100 %".
 - SAVE does not reach PRESETS by a tap: SAVE opens PROJECT, then USER. PRESETS is reached with SELECT inside the SAVE pages.
@@ -912,4 +911,4 @@ These points in older documents or notes do not match the Nightly. This guide fo
 - A MACRO track playing POLY can sound more voices while other tracks are OFF; older notes say a track's voices are fixed by its engine.
 - GLO + OCT+ turns the selected track OFF or ON, and GLO's footer reads TRK OFF where it said DONE; older notes have no track OFF.
 - Both FM-1 flash chips are supported (Puya P25Q80 and UCUN UC25HQ80); older notes and older firmware know only the Puya chip, and a UC25HQ80 unit on them loses its saves at power-off.
-- A muted track says MUTE on HOME's TRACKS page and a frozen one says FROZEN, where its role stands; older notes say a muted track is only grey.
+- A muted track says MUTE on HOME's main screen, an OFF one OFF and a frozen one FROZEN; older notes say a muted track is only grey and that HOME's first page is chosen in the menu.

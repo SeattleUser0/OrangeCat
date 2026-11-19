@@ -52,7 +52,8 @@ if git cat-file -e "$OLD_COMMIT^{commit}" 2>/dev/null; then
     (cd "$OUT/fxi_old" && patch -p1 -s < "$ROOT/tests/fx_insert_old_spring.patch") || { echo "fx_insert_diff: the spring hunks did not apply to OLD"; exit 1; }
     # (san-fix) OLD is the reference, not the code under test: built without the sanitizers (SAN=1's CC carries them), since the pinned tree
     # keeps the left shifts of negative values the SAN=1 suite found in NEW, and UBSan would stop its probe before the comparison
-    (cd "$OUT/fxi_old" && $CC -fno-sanitize=all $FLAGS -o "$OUT/fxi_old_bin" tests/fx_insert_test.c -lm) || { echo "fx_insert_diff: compile (OLD)"; exit 1; }
+    # (ui step 9) the six switches the build set no longer lists (they are always on now) are on in OLD, whose core.h still tests them
+    (cd "$OUT/fxi_old" && $CC -fno-sanitize=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 $FLAGS -o "$OUT/fxi_old_bin" tests/fx_insert_test.c -lm) || { echo "fx_insert_diff: compile (OLD)"; exit 1; }
     "$OUT/fxi_old_bin" > "$OUT/fxi_old.out" 2>&1 || { cat "$OUT/fxi_old.out"; echo "fx_insert_diff: OLD probe failed"; exit 1; }
     lines "$OUT/fxi_old.out" > "$OUT/fxi_old.lines"
     if cmp -s "$OUT/fxi_old.lines" "$OUT/fxi_new.lines"; then echo "fx_insert_diff: OLD == NEW, sample for sample ($(wc -l < "$OUT/fxi_new.lines") lines: $(grep -c ' blocks ' "$OUT/fxi_new.lines") scenarios)"

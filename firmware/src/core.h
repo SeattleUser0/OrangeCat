@@ -116,49 +116,11 @@
                                    * image as the fallback when the module is skipped); 0: the built-in engine is kept and the module is "shadowed".
                                    * tools/orangecat_engines.sh sets 1 for the proof of concept (docs/orangecat/ENGINE_LOADING_PLAN.md, step 4) */
 #endif
-#ifndef OC_HOME_PIC
-#define OC_HOME_PIC 0             /* (Orange Cat, the new interface, branch ui-build: docs/orangecat/UI_BUILD.md) 1: step 1 as it lands: the four
-                                   * knobs' macros (1a: oc_knobs.c, oc_macro.c), the scene interpreter and the pack's scene trailer (1b: oc_scene.c),
-                                   * HOME's picture page (1c); 0: none of it is compiled and the firmware is release-2's. Off until the whole HOME
-                                   * path works (UI_BUILD.md, step 1) */
-#endif
-#ifndef OC_EDIT_SHEETS
-#define OC_EDIT_SHEETS 0          /* (the new interface 0.2, branch ui-build: docs/orangecat/UI_BUILD.md step 2) 1: EDIT's sheets (ui_sheets.c):
-                                   * EDIT turns the sheets (SOUND, ENV, MOD, FX, VOICE; a native engine's sections), SELECT walks their
-                                   * rows, the tabs and the knobs' colors drawn; 0: EDIT's pages, sections and map as release-2's */
-#endif
-#ifndef OC_SHIFT_MAP
-#define OC_SHIFT_MAP 0            /* (the new interface 0.3, branch ui-build: docs/orangecat/UI_BUILD.md step 3; ui-fix 6) 1: HOME is SHIFT
-                                   * (ui_shift.c): SHIFT + a knob fine, + PRESETS the engine, + EDIT init, + OCT copy and paste; held alone
-                                   * 0.7 s the MENU (the map of step 3 withdrawn by the owner, October 31, 2026); 0: HOME as release-2's */
-#endif
-#ifndef OC_STEP_PAGES
-#define OC_STEP_PAGES 0           /* (the new interface 0.4, branch ui-build: docs/orangecat/UI_BUILD.md step 4) 1: the step pages: NOTES' knobs PITCH START
-                                   * LEN VEL with PRESETS the cursor, FEEL (ui_feel.c), the tracker's note length on a manual chord, the combos on NOTES and
-                                   * FEEL; 0: NOTES, TRACKER and the SEQ pages as release-2's */
-#endif
-#define GR_FEEL 0x60              /* (the new interface 0.4) FEEL's graph kind: outside fw_pages.h's enum so the module interface's id does not move (no page has it
-                                   * with OC_STEP_PAGES 0) */
-#ifndef OC_LANES
-#define OC_LANES 0                /* (the new interface 0.5, branch ui-build: docs/orangecat/UI_BUILD.md step 5) 1: DRUM-X's EDIT > LANES as the eight-lane table
-                                   * (ui_lanes.c), PRESETS picks the lane; 0: the page as release-2's */
-#endif
-#if OC_LANES && !OC_STEP_PAGES
-#error "OC_LANES needs OC_STEP_PAGES (each step of the new interface ships behind the one before: UI_BUILD.md)"
-#endif
-#ifndef OC_MIXER
-#define OC_MIXER 0                /* (the new interface 0.6, branch ui-build: docs/orangecat/UI_BUILD.md step 6) 1: the mixer's bars and values in the knobs' colors
-                                   * (ui_pages.c pv_strip); 0: as release-2's */
-#endif
-#if OC_MIXER && !OC_LANES
-#error "OC_MIXER needs OC_LANES (each step of the new interface ships behind the one before: UI_BUILD.md)"
-#endif
+#define GR_FEEL 0x60              /* (the new interface 0.4) FEEL's graph kind: outside fw_pages.h's enum so the module interface's id does not move (the step pages are always on
+                                   * since step 9) */
 #ifndef OC_CLIP
 #define OC_CLIP 0                 /* (the new interface 0.10, branch ui-build: docs/orangecat/UI_BUILD.md step 10) 1: SHIFT + OCT- / OCT+ copy and paste the selected
                                    * track's sound (ui_clip.c); 0: SHIFT + OCT says LATER (a message), as release-2's */
-#endif
-#if OC_CLIP && !OC_MIXER
-#error "OC_CLIP needs OC_MIXER (each step of the new interface ships behind the one before: UI_BUILD.md)"
 #endif
 #ifndef OC_CLIP_SEL
 #define OC_CLIP_SEL 0             /* (the new interface 0.11, branch ui-build: docs/orangecat/UI_BUILD.md step 11) 1: SHIFT + OCT- / OCT+ copy and paste the selected
@@ -195,16 +157,10 @@
                                    * load boundaries; every manual gesture on a recorded cell deletes its events through the history; START
                                    * converts a manual note; a key on a recorded step replaces it); 0: as 0.16.0 */
 #endif
-#if OC_ONE_AUTH && !OC_STEP_PAGES
-#error "OC_ONE_AUTH needs OC_STEP_PAGES (UI_BUILD.md ui-fix 7)"
-#endif
 #ifndef OC_SLIDE
 #define OC_SLIDE 0                /* (ui-fix 8, branch ui-fix: docs/orangecat/UI_BUILD.md "ui-fix 8") 1: a step's SLIDE is a legato glide in every
                                    * voice mode, for manual steps (seq.c seq_slide_voice) and recorded notes that overlap (recording.c); ENV +
                                    * KNOB 4 sets it on a recorded step too, the roll draws it; 0: as 0.16.0 (a true slide on a LEGATO track only) */
-#endif
-#if OC_SLIDE && !OC_STEP_PAGES
-#error "OC_SLIDE needs OC_STEP_PAGES (UI_BUILD.md ui-fix 8)"
 #endif
 #ifndef OC_START_NUDGE
 #define OC_START_NUDGE 0          /* (ui-fix2 5, branch ui-fix2: docs/orangecat/UI_BUILD.md "ui-fix2 5") 1: NOTES' KNOB 2 (START) on a typed note moves it in time by the step's
@@ -225,9 +181,6 @@
                                    * (about a second) and clears what the page is about: HOME the track, a SEQ page its values, the FX pages the track's
                                    * effects, GLO every track's music, MOTION the track's automation; one undo level brings it back (ui_clear.c) */
 #endif
-#if OC_REC_CLEAR && !OC_STEP_PAGES
-#error "OC_REC_CLEAR needs OC_STEP_PAGES (UI_BUILD.md ui-fix2 2)"
-#endif
 #ifndef OC_MGRID
 #define OC_MGRID 0                /* (melodic-grid, docs/orangecat/MELODIC_GRID_PLAN.md) 1: SEQ > GRID, the melodic step grid: a pitched track's 16 white keys are the steps of a page, the first four black keys the pages;
                                    * a white key picks a step and the keyboard then plays its notes (ui_mgrid.c, ui_mgrid_edit.c). Input only: no format, audio or scheduler change; needs OC_ONE_AUTH */
@@ -242,20 +195,7 @@
 #define OC_PROJECT_PAGE 0         /* (ui-fix2 3, branch ui-fix2: docs/orangecat/UI_BUILD.md "ui-fix2 3") 1: one plain project page: SAVE opens it, the slot now in
                                    * use is marked and named on screen with whether it has unsaved changes, a LOAD over unsaved changes asks first (ui_slots.c) */
 #endif
-#if OC_LANES
 #define GR_LANES 0x61             /* (the new interface 0.5) LANES' graph kind (outside fw_pages.h's enum, as GR_FEEL) */
-#else
-#define GR_LANES GR_NONE
-#endif
-#if OC_STEP_PAGES && !OC_SHIFT_MAP
-#error "OC_STEP_PAGES needs OC_SHIFT_MAP (each step of the new interface ships behind the one before: UI_BUILD.md)"
-#endif
-#if OC_SHIFT_MAP && !OC_EDIT_SHEETS
-#error "OC_SHIFT_MAP needs OC_EDIT_SHEETS (each step of the new interface ships behind the one before: UI_BUILD.md)"
-#endif
-#if OC_EDIT_SHEETS && !OC_HOME_PIC
-#error "OC_EDIT_SHEETS needs OC_HOME_PIC (each step of the new interface ships behind the one before: UI_BUILD.md)"
-#endif
 #ifndef MELODEE_DRUMX
 #define MELODEE_DRUMX 1           /* (Orange Cat 0.9.0) DRUM-X (engine 9, the slot of the retired PHYS): Jiant FM's drum engine, a kit of
                                    * eight synthesized sounds with a MORPH between two patches (eng_drumx.c, drumx_voice.c, GPL-3.0-only).

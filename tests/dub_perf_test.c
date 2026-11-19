@@ -8,7 +8,7 @@
  *            and the motion base untouched
  *   RENDER   through the DUB module (tests/dub_module_host.h), sample for sample: CUT held = ECHO 0 for the same blocks (so a CUT recorded as ECHO 0 plays as the live trigger); a throw = SEND at that level;
  *            HOLD = FDBK 100; DIVE = SPEED 0; RISE = SPEED 127; DIVE and RISE together = SPEED 64; a control (nothing) differs from each
- *   PAGES    the HOME turn is PICTURE, TRACKS, CHORD while the track's ECHO is 0 and PICTURE, DUB, TRACKS, CHORD above it; the four knobs on DUB are FDBK SEND FILTER ECHO; the page keeps its place
+ *   PAGES    the HOME turn is MAIN, PICTURE, CHORD while the track's ECHO is 0 and MAIN, PICTURE, DUB, CHORD above it; the four knobs on DUB are FDBK SEND FILTER ECHO; the page keeps its place
  *            when ECHO is turned to 0; DUB needs PICTURE chosen
  *   DRAW     the page draws (the keys, the picture, the help line), a key held changes the pixels, the budget: 2 s of play with a throw key every 300 ms and KICK every 500 ms, mean under 11,000 px
  *            a 100 ms frame and worst under 22,000 (UI_DESIGN.md section 3)
@@ -121,13 +121,11 @@ static void play_frames(uint32_t ms)
         frame();
     }
 }
-static void pic_on(void)
+static void pic_on(void)                                /* (step 9: HOME lands on the main screen; one tap on it is the picture page) */
 {
-    hold(B_HOME);
-    ui.menu_sel = MI_HOME_PAGE;
-    if (!home_pic_on()) press(B_OCTUP);
-    hold(B_HOME);
     go_home();
+    frames(100);
+    press(B_HOME);
     frames(100);
 }
 static uint32_t screen_hash(void)
@@ -140,10 +138,6 @@ int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
     if (dub_host_module_set() != FXM_OK) { printf("dub_perf: the DUB module did not register\n"); return 2; }
-#if !OC_HOME_PIC
-    printf("dub_perf: built without OC_HOME_PIC: nothing to check\n");
-    return 0;
-#else
     {   /* KEYS */
         static const uint8_t L[6] = {13, 38, 64, 89, 108, 127};
         static const uint8_t WK[6] = {7, 9, 11, 12, 14, 16};      /* C D E F G A */
@@ -233,11 +227,11 @@ int main(void)
         ui_power_on();
         pic_on();
         TSEL->p[P_DUB_ECHO] = 0;
-        ok = ui.home_pg == 2u; press(B_HOME); ok &= ui.home_pg == 0u; press(B_HOME); ok &= ui.home_pg == 1u; press(B_HOME); ok &= ui.home_pg == 2u;
-        chk("PAGES   ECHO 0: HOME turns PICTURE, TRACKS, CHORD (the DUB page is not in the turn)", ok);
+        ok = ui.home_pg == 2u; press(B_HOME); ok &= ui.home_pg == 1u; press(B_HOME); ok &= ui.home_pg == 0u; press(B_HOME); ok &= ui.home_pg == 2u;
+        chk("PAGES   ECHO 0: HOME turns MAIN, PICTURE, CHORD (the DUB page is not in the turn)", ok);
         TSEL->p[P_DUB_ECHO] = 100;
-        ok = ui.home_pg == 2u; press(B_HOME); ok &= ui.home_pg == DUB_PG; press(B_HOME); ok &= ui.home_pg == 0u; press(B_HOME); ok &= ui.home_pg == 1u; press(B_HOME); ok &= ui.home_pg == 2u;
-        chk("PAGES   ECHO above 0: PICTURE, DUB, TRACKS, CHORD", ok);
+        ok = ui.home_pg == 2u; press(B_HOME); ok &= ui.home_pg == DUB_PG; press(B_HOME); ok &= ui.home_pg == 1u; press(B_HOME); ok &= ui.home_pg == 0u; press(B_HOME); ok &= ui.home_pg == 2u;
+        chk("PAGES   ECHO above 0: MAIN, PICTURE, DUB, CHORD", ok);
         press(B_HOME); frames(200);
         {   int16_t *p = TSEL->p;
             turn(EN_K1, 5); turn(EN_K2, -3); turn(EN_K3, 4); turn(EN_K4, -2);
@@ -254,9 +248,7 @@ int main(void)
         TSEL->p[P_DUB_ECHO] = 0; frames(100);
         chk("PAGES   ECHO turned to 0 on the page: the page stays (the knob that turns it on is on it)", ui.home_pg == DUB_PG);
         press(B_HOME); frames(100);
-        chk("PAGES   HOME leaves it, the keys are notes again", ui.home_pg == 0u && dub_view_on == 0);
-        home_pic_set(0); frames(100);
-        chk("PAGES   TRACKS chosen: never the DUB page", ui.home_pg != DUB_PG);
+        chk("PAGES   HOME leaves it (to the chord view), the keys are notes again", ui.home_pg == 1u && dub_view_on == 0);
         {   /* (round 18 review) leaving HOME for any other screen clears the view: no page leaves the keys C4 .. B4 as DUB's */
             uint32_t i, stuck = 0, seen = 0;
             for (i = 0; i < NPAGES; i++) {
@@ -308,5 +300,4 @@ int main(void)
     }
     printf("dub_perf: %d checks, %d failed\n", nchk, bad);
     return bad != 0;
-#endif
 }

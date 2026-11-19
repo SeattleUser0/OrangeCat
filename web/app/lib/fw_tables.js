@@ -5551,7 +5551,6 @@ export const FW = {
   "PICKER POPUPS",
   "KNOB ACCEL",
   "HOME SELECT",
-  "HOME PAGE",
   "GLO SELECT",
   "UNUSED TRACKS",
   "SCREEN OFF",

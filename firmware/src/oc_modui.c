@@ -11,7 +11,6 @@
  * Session A's parameter-copy rule (MODULE_FORMAT_R3.md 5, "Native and effect-store macro targets wait").
  * The reader: rd(ctx, addr, buf, n) as fw_pages_check's (addresses of the module's own space). `img` and `link`: the scene's pointer is img + (address - link) (on the
  * unit img = link: the module runs in place). */
-#if OC_HOME_PIC
 static void modui_retire(uint32_t e)
 {
     uint32_t f, i;
@@ -100,6 +99,3 @@ static uint32_t modui_publish(uint32_t e, fw_pages_rd rd, void *ctx, uint32_t de
     if (slot >= OC_MODUI_N) return FWU_FULL;
     return code;
 }
-#else
-static void modui_retire(uint32_t e) { (void)e; }
-#endif

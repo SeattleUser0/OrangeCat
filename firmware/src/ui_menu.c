@@ -20,9 +20,6 @@ enum { MI_COLOR, MI_HOLD, MI_LIGHTS,
        MI_USB, MI_USB_INPUT,
 #endif
        MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_AUTOSAVE, MI_PICKER, MI_ACCEL, MI_HOME_SEL,
-#if OC_HOME_PIC
-       MI_HOME_PAGE,                               /* (the new interface, UI_BUILD.md 1c) HOME PAGE: TRACKS or PICTURE */
-#endif
        MI_GLO_SEL, MI_TRACKS, MI_SCREEN, MI_PANEL, MI_ABOUT, MI_DESIGNER, MI_BACK,
        MI_COUNT };
 static const char *const MI_NAME[MI_COUNT] = {"COLOR", "HOLD", "LIGHTS",
@@ -31,9 +28,6 @@ static const char *const MI_NAME[MI_COUNT] = {"COLOR", "HOLD", "LIGHTS",
 #endif
                                               "AUDIO CLICK", "CLICK LEVEL", "COUNT-IN", "NOTE PREVIEW", "CHORD ENTRY",
                                               "AUTOSAVE", "PICKER POPUPS", "KNOB ACCEL", "HOME SELECT",
-#if OC_HOME_PIC
-                                              "HOME PAGE",
-#endif
                                               "GLO SELECT", "UNUSED TRACKS", "SCREEN OFF", "CALIBRATION", "ABOUT", "SOUND DESIGNER", "BACK"};
 #if MELODEE_USB_AUDIO
 /* USB AUDIO's four settings, as ua_off_want (UA_OFF_OUT | UA_OFF_IN) */
@@ -291,9 +285,6 @@ static void draw_menu(void)
             if (i == MI_PICKER) value = PREF_BITS & PREF_PICK_OFF ? "OFF" : "ON";
             if (i == MI_AUTOSAVE) value = settings_autosave ? "ON" : "OFF";
             if (i == MI_HOME_SEL) value = HS_NAME[home_select()];
-#if OC_HOME_PIC
-            if (i == MI_HOME_PAGE) value = home_pic_on() ? "PICTURE" : "TRACKS";
-#endif
             if (i == MI_GLO_SEL) value = HS_NAME[glo_select()];
             if (i == MI_TRACKS) value = GLO_SELECT & TRACKS_HIDE ? "HIDE" : "SHOW";
             if (i == MI_SCREEN) value = (const char *const[]){"NEVER", "5 MIN", "15 MIN", "30 MIN", "60 MIN"}[scr_get()];
@@ -425,13 +416,6 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
         HOME_SELECT = (uint8_t)(s > 0 ? (v + 1u < HS_N ? v + 1u : v) : s < 0 ? (v ? v - 1u : 0u) : (v + 1u) % HS_N);
         ui.force = 1; ok = 0;
     }
-#if OC_HOME_PIC
-    if ((s || ok) && ui.menu == 1 && ui.menu_sel == MI_HOME_PAGE) {  /* KNOB 1 right PICTURE, left TRACKS; OCT+ toggles (ui_home_pic.c:
-                                                         * back to TRACKS commits the macros into the sounds) */
-        home_pic_set(s > 0 ? 1 : s < 0 ? 0 : !home_pic_on());
-        ok = 0;
-    }
-#endif
     if ((s || ok) && ui.menu == 1 && ui.menu_sel == MI_TRACKS) {     /* KNOB 1 right HIDE, left SHOW; OCT+ toggles */
         uint32_t hide = s > 0 ? 1u : s < 0 ? 0u : !(GLO_SELECT & TRACKS_HIDE);
         GLO_SELECT = (uint8_t)(hide ? GLO_SELECT | TRACKS_HIDE : GLO_SELECT & ~TRACKS_HIDE);

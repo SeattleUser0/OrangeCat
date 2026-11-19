@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner. */
 /* The new interface, step 4 (docs/orangecat/UI_BUILD.md "Step 4: the step pages"): the editing of FEEL, NOTES' knob map and
- * the tracker's chord length, behind OC_STEP_PAGES. Included by ui_input.c before ui_input() (it needs edit_param, the
+ * the tracker's chord length. Included by ui_input.c before ui_input() (it needs edit_param, the
  * bulk selection and note_tools.c). The page and its reading are ui_feel.c.
  *   - feel_edit: FEEL's four knobs, each set on every selected step (the value worked out from the cursor's step, set,
  *     not added), with the frozen-phrase, chain and live-recording guards of its own (edit_param exempts KNOB 1 of the
@@ -15,7 +15,6 @@
  * Revisions:
  *   (the new interface 0.4, branch ui-build) first version.
  */
-#if OC_STEP_PAGES
 #if OC_MGRID
 static void mgrid_knob(uint32_t k, int32_t s);                  /* ui_mgrid_edit.c */
 #endif
@@ -184,4 +183,3 @@ static int tracker_chord_length(uint32_t at, uint32_t col, int32_t steps)
         if (i < RECORD_MAX && notes_nth(t, at, c) == i) ui.tk_col = (uint8_t)c;
     return 1;
 }
-#endif

@@ -354,7 +354,6 @@ static int oc_mod_pages_check(uint32_t i, const fw_mod_hdr_t *h)
 #include "oc_modui.c"                                           /* r3-pages touch 1 of 4 */
 static void oc_mod_ui_publish(uint32_t i, const fw_mod_hdr_t *h)   /* r3-pages touch 2 of 4 */
 {
-#if OC_HOME_PIC
     uint32_t base = oc_mod_flash(i), p, link = oc_mod_link(i);
     oc_mod_rdctx_t c;
     uint8_t w[4];
@@ -364,9 +363,6 @@ static void oc_mod_ui_publish(uint32_t i, const fw_mod_hdr_t *h)   /* r3-pages t
     if (oc_mod_rd(&c, h->engine_ptr + (uint32_t)offsetof(engine_t, pages), w, 4u) || !(p = fwp_u32(w)))
         return;
     (void)modui_publish(h->engine & 0xFFu, oc_mod_rd, &c, p, link + FW_MOD_CODE_OFF, link + h->length, (const uint8_t *)(uintptr_t)link, link);
-#else
-    (void)i; (void)h;
-#endif
 }
 /* (Release 3 step 4) the effect module's descriptor at engine_ptr, read from the flash through the module's own address space; 0 good (*id, *version, *n set) */
 static int oc_fx_desc_check_rd(oc_rd_t rd, void *rctx, uint32_t link, const fw_mod_hdr_t *h, uint32_t *id, uint32_t *version, uint8_t *n)

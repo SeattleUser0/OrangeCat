@@ -3,7 +3,7 @@
 /* The new interface, step 1b (docs/orangecat/UI_BUILD.md): with OC_HOME_PIC=1 the asset pack's install path takes the pack with HOME's
  * scene trailer after its tables (firmware/src/oc_pack.c, oc_pack.h OC_PACK_MAXLEN), on tests/persistence_test.c's simulated NOR
  * (tests/oc_pack_test.c is the same path with the switch off).
- *   cc -O1 -w -DOC_HOME_PIC=1 -Ibuild/gen -Ifirmware/src -o oc_pack_trailer_test tests/oc_pack_trailer_test.c -lm
+ *   cc -O1 -w -Ibuild/gen -Ifirmware/src -o oc_pack_trailer_test tests/oc_pack_trailer_test.c -lm
  * Checked:
  *   BASE      the tables alone install as before (the header's length, hash and CRC the tables')
  *   TRAILER   the tables and a trailer after them install whole: every byte in flash, the pack good, pk_trailer_ok

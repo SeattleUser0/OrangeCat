@@ -2,7 +2,7 @@
  * Copyright 2026 Jeremiah Conner. */
 /* The new interface, step 11 (docs/orangecat/UI_BUILD.md "Step 11: copy and paste of notes and of a step's feel") with OC_CLIP_SEL=1, through
  * tests/ui_test.c's host UI.
- *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o clip_sel_test tests/clip_sel_test.c -lm
+ *   cc -O1 -w -DOC_CLIP=1 -DOC_CLIP_SEL=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o clip_sel_test tests/clip_sel_test.c -lm
  * Checked:
  *   NOTES   a range of recorded notes copied and pasted at the cursor: the same notes, velocities, lengths and distances; one undo; a manual
  *           chord step pasted as events at its length; the clipboard survives the paste (twice); a paste past the loop's end wraps

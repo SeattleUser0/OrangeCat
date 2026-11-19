@@ -442,9 +442,9 @@ static void home_pic_draw(void)
 static uint32_t home_pic_cycle(uint8_t *o)
 {
     uint32_t n = 0;
+    o[n++] = 0;                                         /* (the main screen, the picture, DUB where it is in the turn, the chord view) */
     o[n++] = 2;
     if (TSEL->p[P_DUB_ECHO] > 0 || ui.home_pg == DUB_PG) o[n++] = DUB_PG;
-    o[n++] = 0;
     o[n++] = 1;
     return n;
 }
@@ -456,49 +456,8 @@ static void home_pic_next(void)
     ui.home_pg = o[(i + 1u) % n];
     ui.force = 1;
 }
-/* HOME entered (go_home, the first frame after power-on): its landing page, the picture when PICTURE is chosen */
+/* HOME entered (go_home, the first frame after power-on): its landing page */
 static void home_pic_land(void)
 {
-    if (home_pic_on()) ui.home_pg = 2;
-    else if (ui.home_pg > 1u) ui.home_pg = 0;
-}
-
-/* (MENU > HOME PAGE back to TRACKS, ui_menu.c) track t's macros committed into its targets and set to 0, as a save commits them, so
- * no offset is left where no knob shows it (the design review, UI_BUILD.md 1c). A target a motion lane plays is left as it is (its
- * base is motion's). With the interrupt off: it never sees the targets moved and the macros still on */
-static void mac_commit(track_t *t)
-{
-    int16_t v[MAC_N];
-    const knob_def_t *kd = kdef_of(t->eng_req);
-    uint32_t i, k = (uint32_t)(t - trk) % NTRK, f;
-    if (!kd)
-        return;
-    f = motion_guard();                                 /* (the interrupt not in between; the state before restored after) */
-    for (i = 0; i < MAC_N; i++)                         /* (each target's committed value, before anything is written) */
-        v[i] = kd[i / KD_TGT].t[i % KD_TGT].id == KD_NOT ? 0 : mac_saved_value(t, kd[i / KD_TGT].t[i % KD_TGT].id);
-    for (i = 0; i < MAC_N; i++) {
-        uint32_t id = kd[i / KD_TGT].t[i % KD_TGT].id;
-        if (id != KD_NOT && kd[i / KD_TGT].kind == KD_MACRO && !mac_motion(k, id))
-            t->p[id] = v[i];
-    }
-    for (i = 0; i < 4u; i++)
-        if (kd[i].kind == KD_MACRO)
-            t->p[P_MAC0 + i] = 0;
-    motion_unguard(f);
-}
-/* MENU > HOME PAGE set: PICTURE (on 1) or TRACKS */
-static void home_pic_set(int on)
-{
-    if (on == home_pic_on())
-        return;
-    if (on) {
-        GLO_SELECT = (uint8_t)(GLO_SELECT | HOME_PIC_BIT);
-    } else {
-        momentary_restore();                            /* (a momentary take on a macro back first: it would put an offset back) */
-        for (uint32_t k = 0; k < NTRK; k++) mac_commit(&trk[k]);
-        GLO_SELECT = (uint8_t)(GLO_SELECT & ~HOME_PIC_BIT);
-        sync_reload = 1;                                /* (the editor: the committed values) */
-    }
-    home_pic_land();
-    ui.force = 1;
+    if (ui.home_pg > 1u) ui.home_pg = 0;                /* (step 9: the main screen lands, the picture and DUB are a turn of HOME away; the chord view stays where it was) */
 }

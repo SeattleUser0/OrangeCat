@@ -174,13 +174,7 @@ static void ed_dev_put(uint32_t g, int16_t v)
  * the same cell). The other reserved ids stay refused (param_reserved, global_reserved: padding the stores zero) */
 static int ed_macro(const track_t *t, uint32_t id)
 {
-#if OC_HOME_PIC
-    return home_pic_on() && id >= P_MAC0 && id <= P_MAC3 && mac_desc(t, id) != 0;   /* (Session A's review) only while MENU > HOME PAGE is PICTURE: in TRACKS the unit has no macro knob
-                                                                                      * to show or centre an offset (mac_commit zeroes them on the way back, ui_home_pic.c) */
-#else
-    (void)t; (void)id;
-    return 0;
-#endif
+    return id >= P_MAC0 && id <= P_MAC3 && mac_desc(t, id) != 0;   /* (step 9: the macros are the unit's knobs, always) */
 }
 static int ed_may_set(const track_t *t, uint32_t scope, uint32_t id)
 {
@@ -1462,20 +1456,14 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                                                             * library banks held presets until 0.9.0; the pack takes none now), the stored length (3 x 7 bits), the stored
                                                             * hash (5 x 7 bits), this build's length (3 x 7), its hash (5 x 7), the area (3 x 7) */
         uint32_t len, hash, st = oc_pack_info(&len, &hash);
-#if OC_HOME_PIC
         ed_b(st); ed_b(st == 1u && pk_tr.ok ? 1u : 0u);   /* (Round 26) as the last scan found it (oc_pack.c pk_tr) */       /* (round 9) the second byte: bit 0 a whole scene trailer is in the area (the installer page writes the pack again when its file has one and this is 0) */
-#else
-        ed_b(st); ed_b(0);
-#endif
         ed_b(len); ed_b(len >> 7); ed_b(len >> 14);
         for (i = 0; i < 5u; i++) ed_b(hash >> (7u * i));
         ed_b(OC_PACK_LEN); ed_b(OC_PACK_LEN >> 7); ed_b(OC_PACK_LEN >> 14);
         for (i = 0; i < 5u; i++) ed_b(OC_PACK_HASH >> (7u * i));
         ed_b(OC_PACK_AREA); ed_b(OC_PACK_AREA >> 7); ed_b(OC_PACK_AREA >> 14);
         {   uint32_t tl = 0, tc = 0;                            /* (Round 26) appended: the scene trailer's length and the CRC-32 of all of it (its header too) as stored, 0 and 0 with none */
-#if OC_HOME_PIC
             if (st == 1u && pk_tr.ok) { tl = pk_tr.len; tc = pk_tr.crc; }
-#endif
             ed_b(tl); ed_b(tl >> 7); ed_b(tl >> 14);
             for (i = 0; i < 5u; i++) ed_b(tc >> (7u * i));
         }

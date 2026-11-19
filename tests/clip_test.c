@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner. */
 /* The new interface, step 10 (docs/orangecat/UI_BUILD.md "Step 10: copy and paste of a sound") with OC_CLIP=1, through tests/ui_test.c's host UI.
- *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DOC_STEP_PAGES=1 -DOC_LANES=1 -DOC_MIXER=1 -DOC_CLIP=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o clip_test tests/clip_test.c -lm
+ *   cc -O1 -w -DOC_CLIP=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o clip_test tests/clip_test.c -lm
  * Checked:
  *   COPY    SHIFT + OCT- keeps the selected track's sound; says so; the track is unchanged
  *   PASTE   SHIFT + OCT+ on another track: engine, preset, every sound parameter equal; the mix (LEVEL, PAN) and the steps stay the track's
@@ -50,7 +50,6 @@ static void settle(void)
 }
 static void on_home(void)
 {
-    GLO_SELECT |= HOME_PIC_BIT;
     go_home();
     frames(60);
 }

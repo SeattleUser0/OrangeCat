@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner. */
 /* The new interface, step 3 (docs/orangecat/UI_DESIGN.md Part 1 section 1 "HOME held: the SHIFT map", the owner's
- * decision 4; docs/orangecat/UI_BUILD.md "Step 3: the SHIFT map"): behind OC_SHIFT_MAP (core.h; it needs
- * OC_EDIT_SHEETS).
+ * decision 4; docs/orangecat/UI_BUILD.md "Step 3: the SHIFT map"): always on since step 9 (it needed
+ * the sheets).
  *
  * HOME is SHIFT from its press, when the press begins with nothing modal up (no MENU, confirm, NAME, NEW SONG, popup,
  * layer or the designer: the design review's 6 and 11). Let go before 700 ms with nothing else touched: a tap, as
@@ -31,17 +31,13 @@ static uint8_t sh_st;                                   /* SHF_*: HOME is SHIFT;
 
 static int shift_on(void) { return (sh_st & SHF_ON) != 0u; }
 /* where the combos act: HOME's pages and a sheet's row (elsewhere they are eaten) */
-#if OC_STEP_PAGES
 /* (the new interface 0.4, UI_BUILD.md step 4) NOTES (melodic) and FEEL: the combos act here too: + a knob a fine turn, + PRESETS
  * stretches the selected range, + EDIT deletes it (FEEL: back to the defaults); copy and paste are LATER */
 static int shift_steppg(void) { return feel_page() || notes_page(); }
-#endif
 static int shift_here(void)
 {
-#if OC_STEP_PAGES
     if (shift_steppg())
         return 1;
-#endif
     return ui.home || (!page_over && sh_row(ui.page));
 }
 static void shift_combo(void) { sh_st |= SHF_COMBO; }
@@ -83,14 +79,12 @@ static uint32_t shift_input(uint32_t home, uint32_t *pressed, uint32_t notes)
     if (*pressed & eb) {                                /* SHIFT + EDIT: init (the confirm), never EDIT's own jobs */
         *pressed &= ~eb;
         ui.edit_t0 |= 2u;
-#if OC_STEP_PAGES
         if (shift_steppg()) {                           /* (the new interface 0.4) the selection, or the step, deleted */
             if (feel_page()) feel_reset(1);
             else if (bulk.on) notes_bulk_delete();
             else if (chain_busy()) ui_message("STOP TO EDIT");   /* (as EDIT tapped) */
             else step_delete_edit();
         } else
-#endif
         if (shift_here() && !cf_refused(CF_INIT_SOUND))
             confirm_open(CF_INIT_SOUND, song.sel);      /* (as the OCT+ sheet's row, ui_popup.c) */
     }
@@ -125,9 +119,7 @@ static int shift_knob(uint32_t k, int32_t s)
     if (!shift_here())
         return 1;
     sh_st |= SHF_FINE;                                  /* (accel_by: no acceleration for this detent; RAM only) */
-#if OC_STEP_PAGES
     if (!steppg_knob(k, s))                             /* (the new interface 0.4: NOTES' and FEEL's knobs) */
-#endif
     page_knob(k, s);
     sh_st &= (uint8_t)~SHF_FINE;
     return 1;
@@ -143,10 +135,8 @@ static int shift_presets(int32_t s)
         browse_commit();
         select_engine(eng_step(TSEL->eng_req, s > 0 ? 1 : -1));
     }
-#if OC_STEP_PAGES
     else if (shift_steppg())
         bulk_stretch(s > 0 ? 1 : -1);                   /* (the new interface 0.4) the range's end a step */
-#endif
     return 1;
 }
 /* ALGO, SELECT turned while HOME is SHIFT: their own jobs, but a combo (no MENU) */
