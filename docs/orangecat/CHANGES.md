@@ -14,6 +14,7 @@ This is the list of changes a player can see or that touch the data on the unit,
 - Effects are modules: **DUB TAPE**, the **FX layer** (GLITCH, TAPE STOP with SCRATCH, SHUFFLE, FREEZE) and the **REVERB MODES** (SPRING, SHIMMER, RESO; ROOM and CLOUD stay built in). The default install ticks DUB TAPE and the FX layer.
 - **MACRO's models** are a module you pick on the page (the default pick is MACRO's own models 1 to 14).
 - When the ticked set does not fit, the page asks which effect module gives way this time; a unit holding REVERB MODES gets a one-click path to the default set (the page asks, removes it, installs the rest). A ticked module is never removed.
+- **Upgrading from 0.15.0 Standard:** the page plans the modules for the firmware it is about to install. Before it writes anything it names what will stop working under the new firmware (0.15.0's own modules, such as PROPHET; a sample longer than the new firmware keeps: keep its WAV and load it again shorter) and asks. If the unit's memory cannot hold the default set, it says so before writing anything and tells you what to free.
 - **Both FM-1 flash chips are supported:** Puya P25Q80 (0x856014) and UCUN UC25HQ80 (0xB36014). On any other chip the unit and the page say FLASH NOT SUPPORTED and write nothing. The page refuses a firmware package that does not know the unit's chip.
 
 **Tracks**
