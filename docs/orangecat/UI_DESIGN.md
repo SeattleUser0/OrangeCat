@@ -11,7 +11,7 @@ ui-build, its log in docs/orangecat/UI_BUILD.md. The screens are drawn by the fi
 Revisions:
 - 0.6 (November 16, 2026, Round 27 item 3, branch r27-off): decision 7 below, the control that turns a track OFF (GLO + OCT+),
   and what an OFF track shows on HOME's pages.
-- 0.7 (November 18, 2026, branch ui-step9, from ui-main-screen): the main screen's three layouts ("The main screen", before Part 3) and the plan of step 9 (after Part 3's table). Design only: nothing in the firmware changes.
+- 0.7 (November 18, 2026, branch ui-step9, from ui-main-screen; step 9 built the same day, layout 1): the main screen's three layouts ("The main screen", before Part 3) and the plan of step 9 (after Part 3's table). Design only: nothing in the firmware changes.
 - 0.5 (October 31, 2026, branch ui-fix): the owner withdrew the SHIFT map after playing the Nightly (decision 4 reversed): HOME held
   opens the MENU, HOME as SHIFT keeps every combo (UI_BUILD.md "ui-fix 6"). The map's passages below (the controls table, section
   1's "HOME held: the SHIFT map", the page table, Part 3 step 3 and `shift_map.png`) are the design as it was and are not amended.
@@ -747,7 +747,9 @@ Steps 1 to 3 are the interface the owner sees; step 1 alone is enough to try the
 
 ## Step 9, planned (November 18, 2026): the new interface becomes the default, the old Melodee screens and their code come out
 
-Owner approved; built after the owner picks the main screen (above), so both land together. Nothing is built yet. The owner's answers (November 18): the Stage's step lights, scope band and REC border are not kept unless the new layout needs one; there is no way back to the Stage or to a Melodee-only build (the tag before the removal is the way back); track OFF is already built (Session A: hold GLO, tap OCT+ on the selected track); the chord view stays.
+**Built the same day (branch ui-step9): the owner picked layout 1, strips, with the dials in the knobs' own colours and their labels; what was built, the measured sizes (-4,908 B of flash), the decisions that differ from this plan (the shared 30 px header, the chord view's knob drop-in kept, `ui_sections.c` left for its own cleanup) and the tests that changed are in UI_BUILD.md "Step 9". The tag `stage-last` is the way back.** The plan as written:
+
+Owner approved; built after the owner picks the main screen (above), so both land together. The owner's answers (November 18): the Stage's step lights, scope band and REC border are not kept unless the new layout needs one; there is no way back to the Stage or to a Melodee-only build (the tag before the removal is the way back); track OFF is already built (Session A: hold GLO, tap OCT+ on the selected track); the chord view stays.
 
 **What stays the same.** The Orange Cat build already turns every switch of the new interface on (`tools/orangecat_engines.sh`: `OC_HOME_PIC`, `OC_EDIT_SHEETS`, `OC_SHIFT_MAP`, `OC_STEP_PAGES`, `OC_LANES`, `OC_MIXER` = 1). What the owner sees as "Melodee" is therefore three things: the Stage as the first HOME page (MENU > HOME PAGE = TRACKS is the default value), the code kept for the switches off, and the screens only the Stage's knobs reach.
 
