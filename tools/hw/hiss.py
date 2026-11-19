@@ -211,7 +211,7 @@ def main():
             raise SystemExit(f"hiss: refusing to run: {sorted(need)} need the REVERB MODES module (id 2) registered; FX_TABLE: {tab}")
         if any(d != "off" for _, d, _ in cases) and (UG.fx_row(tab, 1) or {}).get("state") != 7:
             raise SystemExit(f"hiss: refusing to run: a DUB case needs the DUB TAPE module (id 1) registered; FX_TABLE: {tab}")
-        saved = g.save(bank=None)                        # (no transport: the steps are not played; every global and parameter, the sounds saved)
+        saved = g.save(bank=None)                        # (no transport: the steps are not played; the tools' globals, every parameter, the sounds saved)
         rout = u.global_id("ROUT")
         if u.get_global(rout) != 0:
             u.set_global(rout, 0)                        # CH1-4: channel 1 is track 1

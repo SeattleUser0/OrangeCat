@@ -10,14 +10,14 @@ independent reviews), taken out of it so seqtest.py, hiss.py and soak/qual_soak.
                          tools/hw/oc_install.mjs backup: the page's captureBackup, written and read back) to OUT/backup-LABEL-TIME.json: no backup,
                          no run; then the keep-alive (a read-only PING, command 25, every second on a port of its own) holds the unit's autosave
                          (5 s stopped and untouched) off for the whole run
-  g.save(bank=7)         every global, every parameter of the four tracks, the sounds / levels / mutes / the current patterns' steps (fm1hw
+  g.save(bank=7)         the globals the tools write (CLK, BPM, ROUT, the reverb's TYPE), every parameter of the four tracks, the sounds / levels / mutes / the current patterns' steps (fm1hw
                          snapshot), each track's pattern, the OFF bits (when the firmware has them), then every track moved to `bank` (its
                          steps and motion flags saved, its motion play turned off while the run plays it): each recorded in `done` as made
   g.restore()            undoes exactly what `done` lists, each step retried (5 tries, backoff 0.5 .. 8 s, the link reopened after a second
                          failure), on any exception, Ctrl-C and SIGTERM (a second Ctrl-C during the restore is ignored): the transport stopped
                          and every note off and CLK back first, then the bank's steps and motion, the patterns, the sounds, the parameters
-                         (only those that differ; DUB's ECHO last: the line is sized when ECHO turns on, from the times then), the globals
-                         (only those that differ: a global write goes to the settings sector), the OFF bits, the selection; then it reads
+                         (only those that differ; DUB's ECHO last: the line is sized when ECHO turns on, from the times then), those globals
+                         (only where they differ: a global write goes to the settings sector), the OFF bits, the selection; then it reads
                          everything back and prints MISMATCH for each difference and LEFT TO PUT BACK for each step that never succeeded. On
                          either, the keep-alive goes on (no autosave of what is there) until the operator has restored the backup and pressed
                          Ctrl-C.
@@ -320,7 +320,17 @@ class Guard:
         except StopIteration:
             pass
         self.clk = u.global_id("CLK")
-        self.glob = {g: u.get_global(g) for g in range(self.gcount)}
+        # the globals the tools write (CLK, BPM, ROUT, the reverb's TYPE: rise_proof's set), not all of them: a global that moves by itself
+        # (a slot, a meter) would read as a MISMATCH and hold the run for a restore it does not need
+        gl = {self.clk, u.global_id("BPM"), u.global_id("ROUT")}
+        for g in range(self.gcount):
+            try:
+                d = desc_full(u, 1, g)
+            except Exception:
+                continue
+            if d["label"] == "TYPE" and "ROOM" in d["names"]:
+                gl.add(g)
+        self.glob = {g: u.get_global(g) for g in sorted(gl)}
         self.done.append("globals")
         try:
             self.off0 = u.trk_off()["off"]

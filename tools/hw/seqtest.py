@@ -570,7 +570,7 @@ def main():
             dropped = [c for c in cells if c[0] not in ("light", "heavy")]
             cells = [c for c in cells if c[0] in ("light", "heavy")]
             log({"note": "the image has no v8 step bytes: the feel and slide cells are not run", "dropped": [":".join(c) for c in dropped]})
-        saved = g.save(bank=BANK)                        # (every global and parameter, the sounds and steps, the patterns; the tracks now on BANK)
+        saved = g.save(bank=BANK)                        # (the tools' globals, every parameter, the sounds and steps, the patterns; the tracks now on BANK)
         runs = [c for c in cells for _ in range(REPS)]
         random.Random(SEED).shuffle(runs)
         order = [("warm", runs[0])] + [(f"r{k:02d}", c) for k, c in enumerate(runs)]
