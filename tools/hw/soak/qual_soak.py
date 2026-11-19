@@ -5,14 +5,18 @@
 for today's firmware, with midicap.py beside it.
 
   qual_soak.py OUT LABEL --clock int|ext --fx FX|REV [--minutes 120] [--period-min 10] [--sample-s 20] [--warmup-s 120] [--cap-s 10]
-               [--din-row] [--block N]
+               [--din-row] [--block N] [--preflight-s 60] [--preflight-only]
   qual_soak.py --order BLOCK          the four cells of a block in 7.37's order: random.Random(20261114 + BLOCK).shuffle
 
-THE LOAD (7.37, Release 2's qualification load, 7.18): pattern bank 8 (index 7, saved and put back) on all four tracks: MACRO VA BASS,
-DRUM-X TECHNO RAW, MACRO VA BASS, DRUM-X TECHNO RAW, the chord on every step (fm1hw setup), LEN 16, DIV 1/16, CHRD OFF, sends 64 (REV, DLY,
-CHO), 120 BPM; DUB TAPE on track 1 as dub_convert_old (dub_fields.h) maps 7.18's "LEN 32K, PTRN SLAP, SPACE 1/8, SPRP OFF" with the track's
-default FEEDBACK 55, SEND 127, FILTER 60: taps 0.5 and 1.5 beats (indexes 6 and 10), SPRING 0, SPEED 64, SYNC, DRIVE 6, WOW 0, ECHO 100
-written last (the old LEN has no field today). Factor B (--fx), a state of the unit's modules that this script checks and does not change:
+THE LOAD (7.37 Q1, Round 31's: BUILD.md 7.50 has the arithmetic): pattern bank 8 (index 7, saved and put back), LEN 16, DIV 1/16, CHRD OFF,
+120 BPM. Track 1 MACRO VA BASS, VCE MONO, one note a step (C3 G3 C4 G3, a bass line); track 2 DRUM-X TECHNO RAW, the kick (36) on every beat
+(steps 1 5 9 13); track 3 DRUM-X TECHNO RAW, the snare lane (38) between the beats (steps 3 7 11 15); track 4 DRUM-X TECHNO RAW resting (no
+step: an idle track costs no measurable CPU, 7.31, and a DRUM-X track holds 960 B of the arena, a MACRO one 11 KB). REVERB 64 on every
+track, DELAY and CHORUS 0. DUB TAPE on track 1 as dub_convert_old (dub_fields.h) maps 7.18's "LEN 32K, PTRN SLAP, SPACE 1/8, SPRP OFF"
+with the track's default FEEDBACK 55, SEND 127, FILTER 60: taps 0.5 and 1.5 beats (indexes 6 and 10), SPRING 0, SPEED 64, SYNC, DRIVE 6,
+WOW 0, ECHO 100 written last. (Release 2's load, two VA BASS chords and two DRUM-X chords with
+every send 64, peaks over the 2,015 us DUB's governor lets it back under: the rehearsal's DUB ended in DUB FULL.) Factor B (--fx), a state
+of the unit's modules that this script checks and does not change:
   FX   the default set: FX LAYER (module id 3) registered, REVERB ROOM on the send; GLITCH LATCHED BY HAND before the run (FX LATCH on, FX +
        GLITCH's key: no editor command reaches the layer's keys): the run refuses to start unless FX_TABLE shows `uses` 1 for id 3
   REV  REVERB MODES (id 2) in the FX layer's place (the page's give-way choice), TYPE SHIMR on the send: refuses unless id 2 is registered
@@ -20,8 +24,15 @@ DUB TAPE (id 1) must be registered in both. Factor A (--clock): int (the chain, 
 every 0.5 s) or ext (CLK USB: the PC's MIDI Start and 24 clocks a beat, every clock counted). --din-row: a 20 s row on CLK TRS (the AUDIO4c's
 DIN out, port name with "DIN") before an ext run, its pulses counted (7.37's check, not a factor).
 
+THE PREFLIGHT (the design check, before anything is timed): the transport started on the run's clock with every DUB field written but ECHO
+(0: DUB off), --preflight-s (60) of the load, the worst half read (AUDIO_STATS, reset at the start); then ECHO 100, --preflight-s again,
+the worst half with DUB and DUB's state read. DESIGN INVALID (nothing more is run; the guard puts everything back) when the worst half
+without DUB is over 1,900 us (DUB's governor lets a released DUB back only while that peak plus its 450 us estimate is under 85 % of the
+half, 2,465 us: under about 2,015 us; 1,900 keeps 115 us of margin) or DUB is not running with its memory at the end (state 2, ready, no
+DUB FULL). The numbers are printed either way. --preflight-only: the preflight, then the restore.
+
 THE RUN: the backup (unit_guard: no backup, no run), midicap.py started beside it (its own ALSA client), the editor's reply counters reset
-(AUDIO_STATS [1, 5]), the load, the transport, --warmup-s with the load playing (7.37: 2 minutes), then the first capture, then every
+(AUDIO_STATS [1, 5]), the load, the transport, the preflight, --warmup-s with the load playing (7.37: 2 minutes), then the first capture, then every
 --period-min an interval row, the last capture in the last minute, then the end. Each interval row: the interval's late halves and worst half
 (the counters read for everything since the last row began, then reset), a --sample-s capture of both paths (DAC silences, USB holes, peak,
 RMS, the share of 0.5 s windows playing), DUB's state (jfx_full, the governor's firings, track 1's instance: running = state 2, ready, no DUB
@@ -60,6 +71,24 @@ import unit_guard as UG                                 # noqa: E402
 BANK, BPM = 7, 120
 A = None
 ID = {}
+# the load (BUILD.md 7.50): track 1's bass line (one note a step, VA BASS MONO), the DRUM-X lanes of tracks 2 and 3 (step index: note)
+BASS = (48, 55, 60, 55)
+DRUMS = {1: {i: 36 for i in (0, 4, 8, 12)}, 2: {i: 38 for i in (2, 6, 10, 14)}}
+DUB_LOAD = {"FDBK": 55, "SEND": 127, "FILTER": 60, "TIML": UG.dub_t_val(6), "TIMR": UG.dub_t_val(10), "SPRNG": 0,
+            "SPEED": UG.DUB_SPD_MID, "MODE": UG.dub_mode(0, 1), "TAPE": UG.dub_tape(6, 0), "ECHO": 100}
+# the preflight's line (fx_insert.c, the governor: a released DUB comes back while the heaviest half without it plus its 450 us is under 85 % of
+# the 2,901 us half, 2,465 us, i.e. the mix alone under about 2,015 us; BUILD.md 7.46)
+NODUB_MAX_US = 1900
+
+
+def design_check(nodub, withdub, dub):
+    """the preflight's verdict from the two AUDIO_STATS reads (worst_us, late) and DUB's state at the end: (ok, reasons)"""
+    why = []
+    if nodub["worst_us"] > NODUB_MAX_US:
+        why.append(f"the worst half without DUB is {nodub['worst_us']} us, over {NODUB_MAX_US} us (DUB's governor would keep a released DUB out)")
+    if not dub.get("running"):
+        why.append(f"DUB is not running with its memory at the end of the preflight (state {dub.get('inst1')}, DUB FULL bits {dub.get('dubfull')})")
+    return not why, why
 
 
 def log(o, name="qual"):
@@ -76,6 +105,28 @@ def order(block):
     cells = [("int", "FX"), ("int", "REV"), ("ext", "FX"), ("ext", "REV")]
     random.Random(20261114 + block).shuffle(cells)
     return cells
+
+
+def preflight(u, wait, secs, echo_on):
+    """the design check (BUILD.md 7.50): secs of the load with DUB off (its worst half), echo_on(), secs with DUB (its worst half and DUB's state at
+    the end); the verdict by design_check, printed"""
+    dub0 = dubstate(u)
+    u.stats(reset=True)
+    wait(secs)
+    nodub = u.stats()
+    echo_on()
+    u.stats(reset=True)
+    wait(secs)
+    withdub = u.stats()
+    dub1 = dubstate(u)
+    ok, why = design_check(nodub, withdub, dub1)
+    pre = {"preflight": "DESIGN VALID" if ok else "DESIGN INVALID", "seconds_each": secs, "nodub_worst_us": nodub["worst_us"],
+           "nodub_late": nodub["late"], "nodub_max_us": NODUB_MAX_US, "dub_worst_us": withdub["worst_us"], "dub_late": withdub["late"],
+           "dub_running": dub1["running"], "dub_state": dub1, "gov_fires_in_preflight": dub1["gov_fires"] - dub0["gov_fires"], "why": why}
+    print(f"qual_soak: PREFLIGHT {pre['preflight']}: worst half without DUB {nodub['worst_us']} us (line {NODUB_MAX_US}), with DUB "
+          f"{withdub['worst_us']} us, late {nodub['late']} / {withdub['late']}, DUB running {dub1['running']}, governor firings "
+          f"{pre['gov_fires_in_preflight']}" + ("" if ok else ": " + "; ".join(why)), flush=True)
+    return pre
 
 
 def tracked(u, path):
@@ -183,6 +234,8 @@ def main():
     ap.add_argument("--cap-s", type=float, default=10.0)
     ap.add_argument("--din-row", action="store_true")
     ap.add_argument("--block", type=int, default=None)
+    ap.add_argument("--preflight-s", type=float, default=60.0, help="each half of the preflight: the load without DUB, then with it (default 60)")
+    ap.add_argument("--preflight-only", action="store_true", help="the preflight, then the restore: nothing timed")
     A = ap.parse_args()
     if A.order is not None:
         print(json.dumps({"block": A.order, "order": order(A.order)}))
@@ -217,10 +270,12 @@ def main():
         info = u.info()
         ids = UG.Ids(u, "qual_soak")
         ID.update(REV=ids.t("REV"), DLY=ids.t("DLY"), CHO=ids.t("CHO"), DUB=ids.dub(), LEN=ids.t_first("LEN"), DIV=ids.t_first("DIV"),
-                  CHRD=ids.t_first("CHRD"), VOIC=ids.t_first("VOIC"), G_BPM=ids.g("BPM"), G_CLK=ids.g("CLK"))
+                  CHRD=ids.t_first("CHRD"), VOIC=ids.t_first("VOIC"), VCE=ids.t_first("VCE"), G_BPM=ids.g("BPM"), G_CLK=ids.g("CLK"))
         ID["G_RTYPE"], ID["TYPES"] = ids.reverb_type()
         dn = next(d for d in ids.tp if d["id"] == ID["DIV"])
         div16 = dn["min"] + dn["names"].index("1/16")
+        vn = next(d for d in ids.tp if d["id"] == ID["VCE"])
+        mono = vn["min"] + vn["names"].index("MONO")
         tab = UG.fx_table(u)
         mods = u.modules()
         want = {1: "DUB TAPE", 3 if A.fx == "FX" else 2: "FX LAYER" if A.fx == "FX" else "REVERB MODES"}
@@ -241,24 +296,34 @@ def main():
         st["midicap"] = subprocess.Popen([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "midicap.py"), mcap])
         r0 = replies(u, True)
         log({"replies_reset": r0 is not None})
-        # ---- the load
+        # ---- the load (BUILD.md 7.50): VA BASS MONO's bass line, two DRUM-X lanes, track 4 DRUM-X resting (960 B of state, not a MACRO's 11 KB); REVERB 64 everywhere; DUB on track 1 written but ECHO
         va, tr = u.preset_number("MACRO", "VA BASS"), u.preset_number("DRUM-X", "TECHNO RAW")
-        u.setup(["MACRO", "DRUM-X", "MACRO", "DRUM-X"], [va, tr, va, tr])
+        nstep = info["nstep"]
+        for t, (eng, pn) in enumerate((("MACRO", va), ("DRUM-X", tr), ("DRUM-X", tr), ("DRUM-X", tr))):
+            u.preset(t, fm1hw.ENGINES[eng], pn)
+            u.mix(t, 0)
+            for i in range(nstep):
+                note = BASS[i % len(BASS)] if t == 0 else DRUMS.get(t, {}).get(i % 16)
+                if note is not None:
+                    u.step(t, i, (note,))
+                else:
+                    u.step(t, i, (), time_=2)
         for t in range(4):
             u.select(t)
-            for p in (ID["REV"], ID["DLY"], ID["CHO"]):
-                UG.setp(u, p, 64)
+            for p, v in ((ID["REV"], 64), (ID["DLY"], 0), (ID["CHO"], 0)):
+                UG.setp(u, p, v)
             for p, v in ((ID["LEN"], 16), (ID["DIV"], div16), (ID["CHRD"], 0), (ID["VOIC"], 0)):
                 UG.setp(u, p, v)
             UG.setp(u, ID["DUB"]["ECHO"], 0)
+        u.select(0)
+        UG.setp(u, ID["VCE"], mono)
         rtype = ID["TYPES"].index("ROOM" if A.fx == "FX" else "SHIMR")
         for gid, v in ((ID["G_RTYPE"], rtype), (ID["G_BPM"], BPM)):
             if u.get_global(gid) != v:
                 u.set_global(gid, v)
         time.sleep(1.5)
         u.select(0)
-        UG.write_dub(u, ID["DUB"], {"FDBK": 55, "SEND": 127, "FILTER": 60, "TIML": UG.dub_t_val(6), "TIMR": UG.dub_t_val(10), "SPRNG": 0,
-                                    "SPEED": UG.DUB_SPD_MID, "MODE": UG.dub_mode(0, 1), "TAPE": UG.dub_tape(6, 0), "ECHO": 100})
+        UG.write_dub(u, ID["DUB"], {k: v for k, v in DUB_LOAD.items() if k != "ECHO"})     # (the times first: ECHO, the preflight's second half, sizes the line)
         time.sleep(1.5)
         # ---- the DIN row (a check before an external run)
         if A.din_row:
@@ -319,6 +384,15 @@ def main():
             log(ret)
             return ret
 
+        # ---- the preflight: the load without DUB, then with it; DESIGN INVALID stops here (the guard's restore follows)
+        pre = preflight(u, wait, A.preflight_s, lambda: UG.setp(u, ID["DUB"]["ECHO"], DUB_LOAD["ECHO"]))
+        log(pre)
+        ok, why = pre["preflight"] == "DESIGN VALID", pre["why"]
+        if not ok:
+            raise SystemExit("qual_soak: DESIGN INVALID: " + "; ".join(why) + ": nothing more is run")
+        if A.preflight_only:
+            return {"preflight": pre}
+        t0 = time.monotonic()
         wait(A.warmup_s)
         u.stats(reset=True)
         f0 = u.trk_off()["failures"]
@@ -423,7 +497,9 @@ def main():
             out["objects_differing"] = diff
         else:
             out["objects_1_up_identical"] = None
-    if isinstance(res, dict):
+    if isinstance(res, dict) and "preflight" in res:
+        out["preflight"] = res["preflight"]["preflight"]
+    elif isinstance(res, dict):
         v = res["verdict"]
         out["PASS_MARK"] = bool(v["late_halves"] == 0 and v["dac_silences"] == 0 and v["dub_running_at_end"] and v["uses_1_every_row"] and v["return_within_3db"]
                                 and (A.clock == "int" or v["all_clocks_received"]) and res["end"]["answering_at_end"]
