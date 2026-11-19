@@ -2389,7 +2389,6 @@ int main(int argc, char **argv)
             }
     }
 #endif
-#if OC_EDIT_SHEETS
     {   /* (ui-fix 5, October 31, 2026) the effect pages in the FX button's order (the owner's: DUB TAPE, DIST, AUTO PAN, the sends, then
          * the shared DELAY, REVERB, CHORUS, SLICER, MASTER), each reached as the FX button reaches it (open_family), in every palette,
          * linted and MONO gray as every screen above; NIGHT, DAY and CONTRAST written as PPMs (fxorder_<nn>_<title>) */
@@ -2593,7 +2592,6 @@ int main(int argc, char **argv)
             }
         fprintf(rep, "(the new interface 0.2) EDIT's sheets: %u screens over every palette\n", (unsigned)ns);
     }
-#endif
     {   /* (the new interface 0.4, UI_BUILD.md step 4) FEEL (as set, each knob last turned, a range, the step playing, an empty page),
          * NOTES with its new strip (a recorded note, a manual note, nothing) and the SHIFT map on both, in every palette, linted and
          * MONO gray; NIGHT, DAY and CONTRAST written as PPMs (feel_<scene>, notes_<scene>) (the two map screens of step 4 went with the

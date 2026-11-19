@@ -2,7 +2,7 @@
  * Copyright 2026 Jeremiah Conner. */
 /* The new interface, step 3 (docs/orangecat/UI_DESIGN.md Part 1 section 1 "HOME held: the SHIFT map", the owner's
  * decision 4; docs/orangecat/UI_BUILD.md "Step 3: the SHIFT map"): always on since step 9 (it needed
- * OC_EDIT_SHEETS).
+ * the sheets).
  *
  * HOME is SHIFT from its press, when the press begins with nothing modal up (no MENU, confirm, NAME, NEW SONG, popup,
  * layer or the designer: the design review's 6 and 11). Let go before 700 ms with nothing else touched: a tap, as

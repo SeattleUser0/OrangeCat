@@ -125,11 +125,6 @@
 #if !OC_HOME_PIC
 #error "OC_HOME_PIC=0: HOME's old Stage is gone (step 9); there is no build without the main screen. The tag stage-last is the way back."
 #endif
-#ifndef OC_EDIT_SHEETS
-#define OC_EDIT_SHEETS 0          /* (the new interface 0.2, branch ui-build: docs/orangecat/UI_BUILD.md step 2) 1: EDIT's sheets (ui_sheets.c):
-                                   * EDIT turns the sheets (SOUND, ENV, MOD, FX, VOICE; a native engine's sections), SELECT walks their
-                                   * rows, the tabs and the knobs' colors drawn; 0: EDIT's pages, sections and map as release-2's */
-#endif
 #define GR_FEEL 0x60              /* (the new interface 0.4) FEEL's graph kind: outside fw_pages.h's enum so the module interface's id does not move (the step pages are always on
                                    * since step 9) */
 #ifndef OC_CLIP
@@ -210,9 +205,6 @@
                                    * use is marked and named on screen with whether it has unsaved changes, a LOAD over unsaved changes asks first (ui_slots.c) */
 #endif
 #define GR_LANES 0x61             /* (the new interface 0.5) LANES' graph kind (outside fw_pages.h's enum, as GR_FEEL) */
-#if OC_EDIT_SHEETS && !OC_HOME_PIC
-#error "OC_EDIT_SHEETS needs OC_HOME_PIC (each step of the new interface ships behind the one before: UI_BUILD.md)"
-#endif
 #ifndef MELODEE_DRUMX
 #define MELODEE_DRUMX 1           /* (Orange Cat 0.9.0) DRUM-X (engine 9, the slot of the retired PHYS): Jiant FM's drum engine, a kit of
                                    * eight synthesized sounds with a MORPH between two patches (eng_drumx.c, drumx_voice.c, GPL-3.0-only).

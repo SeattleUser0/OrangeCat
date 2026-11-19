@@ -679,16 +679,11 @@ static void open_family(uint32_t fam)
         ui.page = !ui.home && k < n ? pg[(k + 1u) % n]                 /* again: the next one; from elsewhere the */
                   : native_page(ui.fam_last[fam], fam) && fam_has(fam, ui.fam_last[fam]) ? ui.fam_last[fam] : pg[0];
                                                                         /* engine's page last used, else its first */
-#if OC_EDIT_SHEETS
     } else if (fam == FAM_FX && (ui.home || cur_page()->fam != FAM_FX)) {
         ui.page = (uint8_t)page_first(FAM_FX);        /* (ui-fix 1, the owner's finding) FX from elsewhere: the first effect
                                                          * page; on an effect page: the next one, below, round every page.
                                                          * Release-2 came back to the first page from any but the first, so
                                                          * FX only ever showed the first two */
-#else
-    } else if (fam == FAM_FX && (ui.home || ui.page != page_first(FAM_FX))) {
-        ui.page = (uint8_t)page_first(FAM_FX);        /* FX: the track's rack (from its slots and SHARED too); */
-#endif
 #if OC_PROJECT_PAGE
     } else if (fam == FAM_SAVE && !ui.home && cur_page()->graph == GR_SLOTS) {   /* (ui-fix2 3) SAVE again on the PROJECT page: the sound's USER slots
                                                          * (PRESETS has its own button), and back */

@@ -608,7 +608,7 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
 static const page_t PAGES[] = {
     /* (Orange Cat 0.6.0) FX: the effects (jfx.c, Jiant FM's pages). The track's: its DIST and sends, DIST, AUTO PAN;
      * the project's: the buses, the SLICER, the MASTER */
-    /* (ui-fix2 1, the owner's order of November 1, 2026, with the sheets: OC_EDIT_SHEETS) first the track's sends, named SENDS
+    /* (ui-fix2 1, the owner's order of November 1, 2026, with the sheets) first the track's sends, named SENDS
      * (the page feeds the shared effects; it was "FX", which said nothing of that); then the shared effects (DELAY .. MASTER,
      * every track's); last the track's own: DIST, AUTO PAN, DUB SETUP, DUB, DUB 2. Without the sheets release-2's order: the
      * sends, DIST, AUTO PAN, DUB, then the shared ones. (Session A reworks the DUB pages' knobs; their names and order stay.) */
@@ -633,11 +633,7 @@ static const page_t PAGES[] = {
     {"SL PITCH 3", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLP0 + 8, G_SLP0 + 9, G_SLP0 + 10, G_SLP0 + 11}}, \
     {"SL PITCH 4", FAM_FX, SC_GLOBAL, GR_NONE, {G_SLP0 + 12, G_SLP0 + 13, G_SLP0 + 14, G_SLP15}}, \
     {"MASTER", FAM_FX, SC_GLOBAL, GR_NONE, {G_DJF, G_CLIP, G_LEVEL, G_SPKEQ}},
-#if OC_EDIT_SHEETS
     PG_FX_SENDS PG_FX_SHARED PG_FX_DIST PG_FX_APAN PG_FX_SETUP PG_FX_DUB
-#else
-    PG_FX_SENDS PG_FX_DIST PG_FX_APAN PG_FX_SETUP PG_FX_DUB PG_FX_SHARED      /* (round 13: DUB SETUP, DUB, DUB 2 in this order without the sheets too) */
-#endif
 #undef PG_FX_SENDS
 #undef PG_FX_DIST
 #undef PG_FX_APAN

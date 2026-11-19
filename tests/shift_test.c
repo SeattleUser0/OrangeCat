@@ -2,7 +2,7 @@
  * Copyright 2026 Jeremiah Conner. */
 /* The new interface, step 3 (docs/orangecat/UI_BUILD.md "Step 3: the SHIFT map"): HOME as SHIFT (always on since step 9)
  * (firmware/src/ui_shift.c), through tests/ui_test.c's host UI (its own tests are not run here).
- *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o shift_test tests/shift_test.c -lm
+ *   cc -O1 -w -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o shift_test tests/shift_test.c -lm
  * Checked:
  *   TAP     a HOME tap (and a 480 ms press) is a tap (HOME's page steps): no MENU; a tap seen only as an edge opens
  *           nothing; with EDIT held first HOME is release-2's (no SHIFT)

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner. */
 /* The new interface, step 2 (docs/orangecat/UI_DESIGN.md Part 1 section 1, Part 3 step 2; docs/orangecat/UI_BUILD.md
- * "Step 2: EDIT's sheets"): EDIT's sheets, behind OC_EDIT_SHEETS (core.h; it needs OC_HOME_PIC).
+ * "Step 2: EDIT's sheets"): EDIT's sheets (always on since step 9).
  *
  * A sheet is a group of pages (its rows) drawn under one tab: the engine's own sections (SOUND: EDIT 1 and 2; the
  * Prophet's Osc .. Wheel; FM6's Algo, OP1 .. OP6, Pitch, LFO, Ctrl; CZ-1's lines; DRUM-X's Kit and Lanes), then Env

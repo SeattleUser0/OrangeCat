@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright 2026 Jeremiah Conner. */
-/* The new interface, step 2 (docs/orangecat/UI_BUILD.md "Step 2: EDIT's sheets"): EDIT's sheets with OC_EDIT_SHEETS=1
+/* The new interface, step 2 (docs/orangecat/UI_BUILD.md "Step 2: EDIT's sheets"): EDIT's sheets (always on since step 9)
  * (firmware/src/ui_sheets.c), through tests/ui_test.c's host UI (its own tests are not run here: main is ours).
- *   cc -O1 -w -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o sheet_test tests/sheet_test.c -lm
+ *   cc -O1 -w -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o sheet_test tests/sheet_test.c -lm
  * Checked, on every engine the build has:
  *   COVER   SELECT from SOUND's first row walks every page release-2's navigation reached (its own page_scroll over the
  *           EDIT, ENV and LFO families, and the ENV and LFO buttons' lists) and comes back to where it started; on FM6
@@ -71,10 +71,6 @@ static int on_sheet(const sh_ctx_t *c, uint32_t k)     /* the page shown is a ro
 
 int main(void)
 {
-#if !OC_EDIT_SHEETS
-    printf("sheets: built without OC_EDIT_SHEETS\n");
-    return 0;
-#else
     uint32_t e, engines = 0;
     setvbuf(stdout, NULL, _IONBF, 0);
     for (e = 0; e < NENGINES; e++) {
@@ -365,5 +361,4 @@ int main(void)
     }
     printf("sheets: %d failed\n", nbad);
     return nbad != 0;
-#endif
 }
