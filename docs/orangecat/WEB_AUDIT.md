@@ -125,7 +125,7 @@ Most used first (the installer page and the controls guide, then the web app, th
 
 ## Not fixed (after round 6)
 
-Web app: only needs-command items: A4 A12 (DUB's HOME picture: the scene, item 2) A27's values (item 9) A34 and A57's REC-held clears (item 3) A36 A37 A38 A40 (item 4) A47 and A19's menu rows (item 5). Other pages: E6 E7 (firmware), E1's firmware side (item 6), E11 (the editor's offline mock still uses the all-engines host build's tables; it affects only `editor.html?mock=1` and the editor's tests, and generating it is a build step of its own: left for a round of its own).
+Web app: only needs-command items: A4 A12 (DUB's HOME picture: the scene, item 2) A27's values (item 9) A34 and A57's REC-held clears (item 3) A36 A37 A38 A40 (item 4) A47 and A19's menu rows (item 5). Other pages: E6 E7 (firmware), E1's firmware side (item 6), E11 closed in web-r7 (the mock's Nightly profile, `?mock=1`; `?mock=all` is the all-engines mock).
 
 ## For Session A: commands the firmware lacks (not added here)
 
@@ -189,6 +189,38 @@ Checked and fine: every write clamped by the unit's descriptor; the editor runs 
 - The stale sentence in the web-r4 entry above ("MUTE on the Stage is not written") is corrected in place.
 
 **Tests.** Full SAN=1 suite through `tools/suite_lock.sh` (slot 1, suites.slice, `--parallel 3`) in a checkout pinned at b77d60ed after `ci_step.py build`: **passed, 280 jobs, 16,889 s** (other sessions' builds and suites ran beside it). Web app tests 164 pass. This entry is a doc-only commit on top of b77d60ed.
+
+## For Session A: web-r7, E11 (the editor's offline mock), from web-r6 4074540e and linux-hw 6bd44237
+
+**Ready: yes.** Branch web-r7 is web-r6 (4074540e, not yet merged into linux-hw) plus:
+- 1a530d24: the merge of linux-hw 6bd44237, no conflicts.
+- 51a8761f: E11. No firmware command; one test-only table in tests/web_tables.c.
+
+Merging web-r7 merges web-r6 too.
+
+**E11.** `makeMockDevice({ nightly })` is the Nightly as the page sees it:
+- The engines the Nightly does not build read "-" in INFO, NAMES and ENGSEL, with no sounds (engines.c). The editor's E1 path turns off the FM6, CZ-1 and Prophet panels.
+- It powers on with the Nightly's TRK_DEF, the four MACRO sounds, and its user sounds are MACRO's.
+
+`MOCK_NIGHTLY` (engines 8 and 9, the TRK_DEF) lives in editor.html's protocol section and is held to the firmware's tables. tests/web_tables.c now writes `trkDef` under the Nightly's switches, and fw_tables.js is regenerated: the only change is the new key, and the tables fingerprint is 1f75a8c5.
+
+The page's switches:
+- `editor.html?mock=1` is the Nightly profile.
+- `?mock=all` is the all-engines mock, whose tables are still checked equal to desc.json.
+
+Tried in headless Chrome: `?mock=1` connects with DRUM-X and MACRO only; `?mock=all` connects with every engine; no console errors in either.
+
+**The guide.** Only the header changed: it names Nightly 269260 (commit 269260b6, November 18, 2026; nothing the owner sees changed since 6872dc) and the new tables fingerprint.
+
+**Not in web-r7: the rewrite of HOME and the main screen.** It waits for Session C's listing of the main screen (layout 1) and step 9 in UI_BUILD.md. Neither linux-hw nor ui-main-screen has one yet. It will come as the next commit on web-r7, with the Release 3 notes in CHANGES.md's words.
+
+**Tests.** Full SAN=1 suite through `tools/suite_lock.sh` (slot 1, suites.slice, `--parallel 3`) in a checkout pinned at 51a8761f, after `ci_step.py build`: **passed, 293 jobs, 14,948 s**. Also passing:
+- the web app's 176 tests
+- `web/test_web.mjs`, which now includes the mock profile checks
+- test_editor_layout, the installer tests and test_flash_refuse
+- `gen_proto`, `gen_fw_tables` and `gen_controls --check`
+
+This entry is a doc-only commit on top of 51a8761f.
 
 ## For Session A: web-r6, the four debounce fixes and the guide for Nightly v0.16.0-6872dc (linux-hw 1dbeda9d merged)
 
