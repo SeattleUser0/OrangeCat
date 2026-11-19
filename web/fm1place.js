@@ -151,24 +151,30 @@ function fromUnit(unit) {
 // region; FLASH_MAP_R3.md 10) will read it once the page has installed that firmware over an older one. What the older firmware said is read for what it is: its starts sit at
 // the same sectors (OC_SECT; 0.15.0 reports 3 of them, sectors 0, 6 and 4), so a module the older firmware lists stays where it is. A module of another interface (the unit's
 // MOD_INFO iface against the build's, `iface`: every module an older build wrote, 0.15.0's 4-sector WHEEL and its SHAPES among them) is refused by the new firmware
-// (oc_module.c MD_REFUSED): junk the planner may write over, never "already installed"; with the same interface the modules stay as they are. A start the older firmware
-// did not report (0.15.0's 3..17, the tail) is planned as empty: the new firmware treats anything there without its magic and CRC as empty (10.4). The six low sectors are
-// the area's (the new firmware's first boot moves the record store out of them: smp_modules_low); the older firmware's lowOk (0.15.0: absent, so false) and its "biggest
-// run" do not apply to it. This is the page's plan before a byte is written; runSet reads the unit again once the new firmware is on and places the set there, so nothing is
-// written into a layout the firmware no longer has. -> a unit object as fromUnit takes it, mod.predicted: what the older firmware reported ({nstarts, sectors, lowOk}).
-function afterFirmware(unit, { tail = true, iface = null } = {}) {
+// (oc_module.c MD_REFUSED): junk the planner may write over, never "already installed" (listed in mod.predicted.junk, with the starts the older firmware could not read in
+// mod.predicted.unread: the page names them all before the firmware is written); with the same interface the modules stay as they are. A start the older firmware did not
+// report (0.15.0's 3..17, the tail) is planned as empty: the new firmware treats anything there without its magic and CRC as empty (10.4).
+// (the review) The six low sectors: the new firmware's first boot makes them the module area's only when the record store has room to move what lives there (smp_slot.c
+// smp_claim; "with no room nothing moves"). `lowOk` is what the caller KNOWS of that (the older firmware's own lowOk, or its sample slot claimed: then nothing of the store lives
+// there); unknown is false, the safe plan. -> a unit object as fromUnit takes it, mod.predicted: {nstarts, sectors, lowOk (the older firmware's), lowAssumed, junk, unread}.
+function afterFirmware(unit, { tail = true, iface = null, lowOk = false } = {}) {
   if (!unit || !unit.mod || !unit.mod.starts) return unit;
   const n = OC_STARTS + (tail ? OC_TAIL : 0), old = unit.mod.starts, keep = iface != null && (unit.mod.iface >>> 0) === (iface >>> 0);
   const at = (i) => (i < old.length && (!unit.mod.sectorOf || unit.mod.sectorOf[i] === OC_SECT[i]) ? old[i] : null);
+  const fxAt = (i) => (unit.fx && unit.fx.effects ? unit.fx.effects.find((e) => !e.resident && e.start === i) : null) || null;
+  const junk = [], unread = [];
   const starts = Array.from({ length: n }, (_, i) => {
     const x = at(i);
     if (!x || !x.state) return { state: MD.EMPTY, why: 0, engine: 0, length: 0 };
     const ok = x.state === MD.OK || x.state === MD.CRASHED || x.state === MD.NOSLOT;
+    if (!ok) unread.push({ start: i, length: x.length || 0 });
+    else if (!keep) { const e = fxAt(i); junk.push(e ? { start: i, kind: e.kind || 1, mid: e.id >>> 0 } : { start: i, engine: x.engine }); }
     return keep || !ok ? { ...x } : { state: 2, why: 0, engine: x.engine, length: x.length };   // 2: MD_REFUSED (another interface)
   });
   const fx = keep && unit.fx ? { effects: unit.fx.effects.filter((e) => e.resident || (e.start != null && at(e.start))) } : null;
-  const mod = { ...unit.mod, nstarts: n, sectors: OC_AREA, lowOk: true, starts, sectorOf: OC_SECT.slice(0, n),
-                predicted: { nstarts: old.length, sectors: unit.mod.sectors, lowOk: !!unit.mod.lowOk } };
+  const low = !!unit.mod.lowOk || !!lowOk;
+  const mod = { ...unit.mod, nstarts: n, sectors: OC_AREA, lowOk: low, starts, sectorOf: OC_SECT.slice(0, n),
+                predicted: { nstarts: old.length, sectors: unit.mod.sectors, lowOk: !!unit.mod.lowOk, lowAssumed: low, junk, unread } };
   if (!keep) { delete mod.crcs; delete mod.pages; }
   delete mod.fw; delete mod.tail;
   return { ...unit, mod, engines: keep ? unit.engines : null, fx };

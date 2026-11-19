@@ -466,6 +466,14 @@ export async function probeUnit(link, { fx = false } = {}) {
 }
 // (Release 3 step 4) the unit's modules for the page's lists: MOD_INFO, ENGINES and the Effects table
 export const listUnit = (link) => probeUnit(link, { fx: true });
+// (Round 31, the review) 110 SLOT_INFO (editor.c ED_SLOT_INFO, in every firmware since 0.6.0): the sample slot's state, 0 not claimed (the record store had no room to move
+// out of the slot's sectors at boot), 1 empty, 2 a sample. On a firmware before Release 3 (0.15.0: a 22 sector slot, 0xB2000..0xC7FFF) a claimed slot means no record of the
+// store lives in its sectors, the six below the module area (0xC2000..0xC7FFF) among them: a Release 3 firmware's first boot then has nothing to move and makes them the module
+// area's (smp_slot.c smp_claim). -> {state} or null (no reply). Asked by the page only, never by runSet (its requests are held byte for byte: test_installer_set.mjs 17f)
+export async function slotInfo(link) {
+  const a = await link.ask([110, []], { timeout: 300, retries: 1 });
+  return a && a.length ? { state: a[0] } : null;
+}
 
 export const OC_CODES = { pack: (rc) => packCode(rc), mod: (rc) => modCode(rc) };   // (Round 27, for the tests)
 const packCode = (rc) => (rc === 2 ? "packStop" : rc === 3 ? "packOldFw" : rc === 4 ? "packRestart" : rc === 9 ? "flashWrite" : "packFail");   /* (Round 27) 9: the flash did not take the write */

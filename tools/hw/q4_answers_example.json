@@ -6,7 +6,8 @@
  ],
  "a2-nightly": [
   {"starts": "No other place is free, so the module that is in the unit is erased first.", "answer": true, "why": "modInPlaceConfirm"},
-  {"starts": "The set you ticked does not fit beside the modules as they sit in the FM-1 now. The page can take", "answer": true, "why": "rearrangeConfirm: the Nightly's set over the Standard's modules"}
+  {"starts": "The set you ticked does not fit beside the modules as they sit in the FM-1 now. The page can take", "answer": true, "why": "rearrangeConfirm: the Nightly's set over the Standard's modules"},
+  {"starts": "Install writes the new firmware first, then reads the FM-1 again and installs the modules where the new firmware places them.", "answer": true, "why": "fwFirstConfirm (Round 31): 0.15.0 -> the Nightly; it names 0.15.0's modules the new firmware does not load and what the plan assumes of the six low sectors (logged with the dialog)"}
  ],
  "c1-stock": [
   {"starts": "Has the complete backup file been saved to this computer? Continue to return to official V15.", "answer": true, "why": "stockConfirm: the page's backup was just downloaded into OUT (q4_install checks it is there and reads back after the step)"}
@@ -20,6 +21,7 @@
   "rearrangeDropConfirm / dropConfirm ('... is in the FM-1 but not in the set you ticked: the page removes it ...'): a module removed for good; no rule, so the run stops and the lead decides",
   "stockConfirmNoBackup ('Return to official V15 without creating a backup?'): the tool never skips the page's backup",
   "transitConfirm, fxRemoveConfirm: not reached by these cases",
-  "d-repeat and b-nightly: (d) must ask nothing (7.37), so any dialog stops it; (b) installs onto an empty module area, nothing to ask"
+  "d-repeat and b-nightly: (d) must ask nothing (7.37), so any dialog stops it; (b) installs onto an empty module area, nothing to ask",
+  "fwFirstConfirm in d-repeat or b-nightly: a Nightly-to-Nightly install never asks it; there it stops the run (the unit was not on the Nightly)"
  ]
 }

@@ -93,6 +93,15 @@ const txt = (idq) => ev(`(document.getElementById(${JSON.stringify(idq)})||{}).t
 const RETRY = /not found|did not come back/i;
 // (Round 31) the page's own ends of an Install: TEXT.sumTitle and the summary ("Result: ...", ja "結果: "), or TEXT.done alone ("Done", ja "完了しました"; transitDone)
 const finishedText = (s) => /^(Result: |結果: )/.test((s || "").trim()) || /^(Done|完了しました)$/.test((s || "").trim()) || /^TransitFM1 installed\.|^TransitFM1をインストールしました/.test((s || "").trim());
+// (Round 31, the review) the parts of a "Result: ..." line that are not a success: every "Firmware/Pack/Module: X" whose X is not installed, already current, not chosen or
+// "this release has none", and every other line but the done rearrange and the named removal (e.g. "No place is free for the module.", "... has no place for it. Nothing was
+// written", "not for this firmware", "... REMOVE IT FIRST", the roll back, a declined or stopped rearrange). [] for a clean result
+const resultProblems = (s) => {
+  const t = (s || "").trim().replace(/^(Result: |結果: )/, "");
+  const okVal = /^(installed|already current, left as it is|not chosen|this release has none|インストールしました|すでに最新です（そのまま）|選びませんでした|このリリースにはありません)$/;
+  const okLine = /^(The modules were taken off and installed again in an order that fits\.|Removed to make room, not put back|モジュールをいったん消し、入る順番で入れ直しました。|空きを作るために消しました)/;
+  return t.split(" | ").filter((part) => { const m = /^(Firmware|Pack|Module|ファームウェア|パック|モジュール): (.*)$/.exec(part); return m ? !okVal.test(m[2].trim()) : !okLine.test(part.trim()); });
+};
 const result = { url, build: build || null, stock: opt.stock || null, out, attempts: [] };
 try {
   await send("Browser.grantPermissions", { origin: new URL(url).origin, permissions: ["midi", "midiSysex"] });
@@ -161,8 +170,10 @@ try {
   // page ended it with its own result: the summary line ("Result: ...") or "Done" (a firmware alone, the stock install). Any other end (a refusal: the room meter's text, a
   // module in the way, "Install waits until you choose") is NOT ok, with the page's text as the error
   result.finished = finishedText(result.final);
-  result.ok = !unmatched.length && !!result.attempts.length && !result.attempts[result.attempts.length - 1].timedOut && result.finished && !RETRY.test(result.final || "") && !/error|stopped|refus|could not|failed/i.test(result.final || "");
+  result.problems = result.finished && /^(Result: |結果: )/.test((result.final || "").trim()) ? resultProblems(result.final) : [];   // (the review) a part that failed is not ok either
+  result.ok = !unmatched.length && !!result.attempts.length && !result.attempts[result.attempts.length - 1].timedOut && result.finished && !result.problems.length && !RETRY.test(result.final || "") && !/error|stopped|refus|could not|failed/i.test(result.final || "");
   if (!result.ok && result.attempts.length && !result.finished && !result.attempts[result.attempts.length - 1].timedOut) result.error = "the page ended without a result (nothing it reports as done): " + (result.final || "(no status)");
+  else if (!result.ok && result.problems.length) result.error = "the page's result has parts that did not install: " + result.problems.join(" | ");
 } catch (e) {
   result.error = String(e && e.message || e);
   result.ok = false;
