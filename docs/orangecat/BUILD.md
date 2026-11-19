@@ -5532,3 +5532,18 @@ banks; its rows' results are unchanged (and asserted).
 - 7.44 / 7.45 / 7.46 (Round 29) report the fault itself, not results.
 
 Two copies of the sequencer test exist and have drifted: the repository's tools/hw/seqtest.py (already on today's ids; its DUB 1 times are 53 / 74) and ~/fm1-hw/r11/seqtest.py (the one Round 28's rise_cap_run.py used; fixed now, ids from the descriptor, its DUB 1 at 1/16T as the firmware's own converter maps the Round 10 cell). Before the qualification (7.37 Q2) one of them becomes the only one, in the repository.
+
+### 7.49 Round 30 (November 18, 2026)
+
+*Item 1, the format revision's RAM: not made to fit in this round, at the worst case; the verdict plainly.* The borrow (7.47; branch r30-borrow, three independent review rounds, the shipped default checked unchanged by a preprocessor diff each time) is built and proven on the host: **with OC_PJ4=1 the image links** (551,600 B; the audio arena 50,464 B against its 49,152 B minimum, so the worst-case budget while playing holds); a save while playing waits and the screen says UNSAVED, the save runs at the stop; PLAY, the chain, scenes, MIDI Start/Continue and the clock's resync wait while the borrow is held; the power-cut series runs through the borrowed memory (a cut at every program and erase: the slot reads as before or as after). **It does not fit at the worst case:** a save needs 38,836 B of borrowed memory; with four MACRO/SHAPES tracks and the card pool busy (frozen takes, USB recording) the stopped arena gives 30,320 B today and 38,088 B with Session C's smaller kept-phrase buffer: 748 B short; the unit then says NO MEMORY TO SAVE and writes nothing (no data lost, the save does not happen). With the card pool idle every case fits. **What closes it:** Session C's other half, the record's parts streamed to the store one at a time (it takes the 15,232 B sections buffer out of the save's need), not built yet; or giving up the hot sets during a save (19,928 B), not built. Playback is not hurt by the borrow (the arena keeps its budget while playing; a save at a stop fades and cuts the effects' tails for about 30 ms, autosave too). **The unit procedure was not run (my decision, the safer reading):** an OC_PJ4=1 image converts the unit's projects at boot, and Session C's loader has three blocking data-loss bugs found by this round's review (renaming a slot destroys its phrases; erasing the loaded slot then saving saves nothing; a full overlay blocks every save: UI_BUILD.md "For Session C (from Session A, Round 30)"). So, the owner's rule: **the format revision does not fit at the worst case after this round; it can fit once Session C streams the parts and fixes the loader.** Whether Release 3 waits for that or ships without the format revision (moving it to Release 4) is the owner's call.
+
+*Item 2.* seqtest.py's DUB cells use the firmware's own labels (above); suspect results marked.
+
+*Item 3.* The owner's units were not connected (the watcher ran through the round).
+
+*Item 4.* web-r6: Session D has not listed the debounce fixes; not merged.
+
+*Merged.* Session C's milestone 3, the loader (bdcef09f), behind OC_PJ4 0 (the shipped build unchanged in behaviour; +16 B there, now guarded by the borrow's merge to 537,456 B); the borrow.
+
+*Tests.* Full SAN=1 suite green on b5c1bbcd (293 jobs, 7,776 s); OC_PJ4=1 builds and links. Site step run locally.
+

@@ -1,3 +1,15 @@
+# Orange Cat Nightly (Round 30): what changed for you since 6872dc
+
+Written November 18, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. Nothing you can hear changes in this Nightly: the new project format stays switched off.
+
+1. **The new project format and the unit's memory.** I built the part that lends the audio memory to a save while the music is stopped: with it the new format fits the unit's memory and playback keeps its full budget. A save while playing waits (the screen says UNSAVED) and runs when you stop. **But at the worst case it still falls 748 bytes short:** four big synth tracks plus frozen takes or a USB recording leave too little; the unit would say NO MEMORY TO SAVE and keep the old save. It fits once Session C finishes streaming the project to flash in pieces (not built yet). Session C's loader also has three bugs that would lose phrases (found in review), so the new format was not tried on the test unit. **Your decision:** wait for Session C's streaming and fixes, or ship Release 3 without the new format and move it to Release 4.
+2. **The rising cap:** stays in, with its limit written down (no late audio in any run; not proven together with DUB on the big track). DUB's way of switching itself off stays as it is.
+3. **The sequencer test** now reads every setting's number from the unit itself, so DUB's settings are right again; the few earlier results that used the wrong numbers are marked.
+4. **Your two units were not connected this round.** Connect one (USB, switched on) and I read its flash chip; nothing is written.
+5. **Tested:** full SAN=1 suite green (293 jobs).
+
+---
+
 # Orange Cat Nightly v0.16.0-6872dc (Round 29): what changed for you since a5b382
 
 Written November 18, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. **This Nightly is on the test unit, installed from the live page with the page's defaults.** The firmware is the same as a5b382 (this Nightly adds test tools and documents).
