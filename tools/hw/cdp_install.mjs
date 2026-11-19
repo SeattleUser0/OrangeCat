@@ -11,7 +11,8 @@
 //    old driver missed "Result: ..." and ended on its own timeout while the page had finished).
 //  - --stock FILE: the stock section's file input (#stock-file) given the file through DOM.setFileInputFiles, the page's check awaited
 //    ("Official V15 verified"), then #stock-go. The page's backup download is allowed into OUT (Browser.setDownloadBehavior).
-//  - Every dialog (confirm, alert) is logged with its text and accepted: they are the page's questions. --decline makes it answer no.
+//  - Every dialog (confirm, alert) is logged with its text and accepted: they are the page's questions. --decline makes it answer no;
+//    --ask puts every confirm dialog to the operator (its text on stderr, the typed answer: yes is OK, anything else Cancel).
 //  - The page's versions (#dual-version, #nightly-version, the release picked) are logged; --expect TEXT refuses to press Install when the
 //    chosen build's label does not contain TEXT (nothing is written then).
 //
@@ -22,11 +23,17 @@ import { spawn } from "child_process";
 import { mkdirSync, mkdtempSync, writeFileSync, existsSync, readdirSync } from "fs";
 import { tmpdir } from "os";
 import { resolve } from "path";
+import { createInterface } from "readline";
+// (review, Round 31) --ask: a confirm dialog is put to the operator on the terminal (stderr / stdin), the typed answer passed back
+const askOperator = (text) => new Promise((res) => {
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  rl.question(`\nTHE PAGE ASKS:\n  ${text}\n  type yes to answer OK, anything else answers Cancel: `, (a) => { rl.close(); res(a.trim() === "yes"); });
+});
 
 const args = process.argv.slice(2), opt = {};
 for (let i = 0; i < args.length; i++) {
   const k = args[i].replace(/^--/, "");
-  if (["decline"].includes(k)) opt[k] = true; else opt[k] = args[++i];
+  if (["decline", "ask"].includes(k)) opt[k] = true; else opt[k] = args[++i];
 }
 const url = opt.url, build = opt.build, minutes = Number(opt.minutes || 25), retries = Number(opt.retries || 3);
 const out = resolve(opt.out || mkdtempSync(tmpdir() + "/oc-cdp-")), port = Number(opt.port || 9224);
@@ -49,8 +56,8 @@ ws.onmessage = async (m) => {
   const d = JSON.parse(m.data);
   if (d.id && pending.has(d.id)) { pending.get(d.id)(d); pending.delete(d.id); }
   if (d.method === "Page.javascriptDialogOpening") {
-    const accept = !opt.decline || d.params.type === "alert";
-    dialogs.push({ at: new Date().toISOString(), type: d.params.type, text: d.params.message, answered: accept ? "yes" : "no" });
+    const accept = d.params.type === "alert" || (opt.ask && d.params.type === "confirm" ? await askOperator(d.params.message) : !opt.decline);
+    dialogs.push({ at: new Date().toISOString(), type: d.params.type, text: d.params.message, answered: accept ? "yes" : "no", by: opt.ask && d.params.type === "confirm" ? "operator" : "driver" });
     say(`DIALOG (${d.params.type}, answered ${accept ? "yes" : "no"}):`, d.params.message.slice(0, 300));
     send("Page.handleJavaScriptDialog", { accept });
   }

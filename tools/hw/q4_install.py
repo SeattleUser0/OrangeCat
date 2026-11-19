@@ -25,8 +25,11 @@ unit's state read before and after each install. The lead's tool: it writes firm
                                                     download kept in OUT; then the Nightly from the live page onto the stock unit
   q4_install.py OUT LABEL d                         (d) the Nightly again over (a)'s result: expected nothing written (no firmware write, every part
                                                     "already current") and no question
-Common: --url (default the live page), --nightly-build (default build-nightly-dual), --minutes (25 per install), --yes (no typed
-confirmation; otherwise each install, wipe and the stock restore asks for the word the prompt names). Every step is logged to
+Common: --url (default the live page), --nightly-build (default build-nightly-dual), --minutes (25 per install), --yes (no typed INSTALL
+confirmation; a wipe always asks for WIPE and the stock restore for STOCK). (Review fixes, Round 31) A complete backup, read back, before every
+install from the page and before every wipe (or --backup FILE for the wipes, read back); a1 and c1 put the page's own questions to the
+operator (cdp_install.mjs --ask); c stops unless the page's backup download is in OUT and reads back; a failed stock restore prints the
+recovery route (docs/RECOVERY.md, tools/fm1_recover.py). A backup taken on a Nightly does not restore onto 0.15.0 Standard. Every step is logged to
 OUT/q4-LABEL.log (one JSON line each) with the page's questions (its dialogs), the writes (the firmware's write lines, the summary per part)
 and the state after; the page's own log of each attempt is kept (OUT/<step>/page-log-attemptN.txt).
 """
@@ -56,8 +59,11 @@ def log(o):
         f.write(line + "\n")
 
 
+ALWAYS_TYPED = ("WIPE", "STOCK")                         # (review, Round 31) --yes never covers an erase or the stock restore
+
+
 def confirm(word, what):
-    if A.yes:
+    if A.yes and word not in ALWAYS_TYPED:
         return
     got = input(f"q4_install: {what}\n  type {word} to go on (anything else stops): ").strip()
     if got != word:
@@ -98,31 +104,53 @@ def state(tag):
 def backup(tag):
     path = os.path.join(A.out, f"backup-{A.label}-{tag}-{datetime.datetime.now():%Y%m%d-%H%M%S}.json")
     rc, out, err = node("tools/hw/oc_install.mjs", "backup", path)
-    ok = rc == 0 and os.path.exists(path)
-    log({"backup": tag, "file": path if ok else None, "ok": ok, "msg": (out + err).strip()[-300:]})
+    ok, n = rc == 0 and os.path.exists(path), None
+    if ok:
+        try:
+            n = len(objects_of(path))                    # (read back: it parses and names its objects)
+            ok = n > 0
+        except (ValueError, KeyError, OSError):
+            ok = False
+    log({"backup": tag, "file": path if ok else None, "ok": ok, "objects": n, "msg": (out + err).strip()[-300:],
+         "restore": RESTORE_HINT})
     if not ok:
-        raise SystemExit(f"q4_install: the backup ({tag}) failed: nothing more is done")
+        raise SystemExit(f"q4_install: the backup ({tag}) failed or does not read back: nothing more is done")
+    print(f"q4_install: BACKUP {path} ({n} objects). {RESTORE_HINT}", flush=True)
     return path
+
+
+RESTORE_HINT = ("Restore it with web/editor.html, Complete backup > Restore backup, on the firmware it was taken on or a newer one: a backup taken on a "
+                "Nightly is refused by 0.15.0 Standard (web/fm1backup.js: an object that firmware does not support), so put the Nightly back first; "
+                "if anything was changed while the Standard ran, take a second backup there before going on.")
+RECOVERY_HINT = ("If the FM-1 does not start (or shows only the update screen and the page cannot reach it): docs/RECOVERY.md, \"FM-1 USB recovery\" "
+                 "(ROM recovery mode and tools/fm1_recover.py); for the stock path its section \"Return to stock from running Melodee\". Do not try "
+                 "another way first; nothing more is done here.")
 
 
 def objects_of(path):
     return {o["id"]: (o["size"], o["crc"]) for o in json.load(open(path))["objects"]}
 
 
-def page(step, build=None, stock=None, expect=None):
+def page(step, build=None, stock=None, expect=None, ask=False, take_backup=True):
+    """(review, Round 31) a complete backup, read back, before every install from the page (take_backup False only where no editor answers:
+    a unit on stock V15 holds no Orange Cat data); ask: every confirm dialog of the page is put to the operator (typed answer), not answered yes"""
+    if take_backup:
+        backup(f"before-{step}")
     d = os.path.join(A.out, step)
     cmd = ["tools/hw/cdp_install.mjs", "--url", A.url, "--out", d, "--minutes", str(A.minutes), "--retries", "3"]
     cmd += ["--stock", os.path.abspath(stock)] if stock else ["--build", build]
     if expect:
         cmd += ["--expect", expect]
+    if ask:
+        cmd += ["--ask"]
     log({"page": step, "cmd": "node " + " ".join(cmd)})
-    p = subprocess.run(["node", *cmd], cwd=REPO, timeout=A.minutes * 60 * 3 + 300, capture_output=True, text=True)
+    p = subprocess.run(["node", *cmd], cwd=REPO, timeout=A.minutes * 60 * 3 + 300, stdout=subprocess.PIPE, text=True)   # (stdin and stderr the operator's: --ask's questions)
     sys.stdout.write(p.stdout[-6000:])
     last = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else "{}"
     try:
         res = json.loads(last)
     except ValueError:
-        res = {"ok": False, "error": "no result line", "stderr": p.stderr[-400:]}
+        res = {"ok": False, "error": "no result line"}
     short = {"page": step, "ok": res.get("ok"), "error": res.get("error"), "page_versions": res.get("page"), "chosen": res.get("chosen"),
              "stock_check": res.get("stockCheck"), "downloads": res.get("downloads"), "final": res.get("final"),
              "attempts": [{k: a.get(k) for k in ("attempt", "status", "timedOut", "dialogs", "fwWrites", "fwWriteMax", "summary")} for a in res.get("attempts", [])]}
@@ -131,22 +159,23 @@ def page(step, build=None, stock=None, expect=None):
     return res
 
 
-def nightly(step):
+def nightly(step, take_backup=True):
     confirm("INSTALL", f"install the Nightly ({A.nightly_build}) from {A.url} onto the unit now?")
-    return page(step, build=A.nightly_build)
+    return page(step, build=A.nightly_build, take_backup=take_backup)
 
 
 def case_a():
     s0 = state("a: before")
+    print(f"q4_install: case a. The backup taken next is the Nightly's: {RESTORE_HINT}", flush=True)
     confirm("INSTALL", f"install {A.standard} Standard (build-dual) from {A.url} onto the unit now? (a downgrade from a Nightly: the page's own warnings apply)")
-    r1 = page("a1-standard", build="build-dual", expect=A.standard)
+    r1 = page("a1-standard", build="build-dual", expect=A.standard, ask=True)
     if not r1.get("ok"):
         raise SystemExit("q4_install: the Standard install did not end clean: stop and look (nothing more is done)")
     s1 = state("a: after Standard")
     if not A.no_pause:
         input("q4_install: now save on the unit: projects, user presets, a pool phrase and a scene (the plan's objects). Press Enter when done: ")
-    b1 = backup("a-saved")
-    r2 = nightly("a2-nightly")
+    b1 = backup("a-saved")                              # (on the Standard: what the Nightly must keep; it doubles as the backup before a2)
+    r2 = nightly("a2-nightly", take_backup=False)
     s2 = state("a: after the Nightly")
     b2 = backup("a-after")
     o1, o2 = objects_of(b1), objects_of(b2)
@@ -156,7 +185,22 @@ def case_a():
     return r2
 
 
+def checked_backup(tag, given):
+    """(review, Round 31) before a wipe: --backup FILE (it must read back) or a new backup now (read back)"""
+    if given:
+        try:
+            n = len(objects_of(given))
+        except (ValueError, KeyError, OSError) as e:
+            raise SystemExit(f"q4_install: --backup {given} does not read back ({e!r}): refused")
+        if not n:
+            raise SystemExit(f"q4_install: --backup {given} holds no objects: refused")
+        log({"backup_given": given, "objects": n})
+        return given
+    return backup(tag)
+
+
 def mod_remove_all():
+    checked_backup("before-b-wipe-modules", A.backup)
     confirm("WIPE", "erase the WHOLE module area (MOD_REMOVE 127: every engine and effect module, the tail region too)? The page installs them again")
     u = fm1hw.Unit()
     try:
@@ -170,6 +214,7 @@ def mod_remove_all():
 
 
 def presets_wipe():
+    checked_backup("before-b-wipe-presets", A.backup)
     confirm("WIPE", "erase EVERY user preset (the editor's library Erase, slot by slot)?")
     u = fm1hw.Unit()
     try:
@@ -188,6 +233,8 @@ def presets_wipe():
 
 
 def projects_wipe():
+    checked_backup("before-b-projects", A.backup)
+    confirm("WIPE", "erase every project slot on the panel now (the steps follow)?")
     u = fm1hw.Unit()
     try:
         before = fm1hw.library(u)["objects"]
@@ -214,11 +261,26 @@ def case_c():
         raise SystemExit("q4_install: the stock file's digest is not the page's STOCK_V15_SHA256: refused")
     state("c: before the stock restore")
     confirm("STOCK", "return the unit to the official V15 firmware through the page's stock section now? (the page backs the unit up first: the file is kept in OUT)")
-    r = page("c1-stock", stock=A.stock)
+    r = page("c1-stock", stock=A.stock, ask=True)
     if not r.get("ok"):
-        raise SystemExit("q4_install: the stock restore did not end clean: stop and look (nothing more is done)")
+        print(f"q4_install: the stock restore did not end clean. {RECOVERY_HINT}", flush=True)
+        log({"c": "stock restore not clean", "recovery": RECOVERY_HINT})
+        raise SystemExit("q4_install: stop and look (nothing more is done)")
+    dl = os.path.join(A.out, "c1-stock", "downloads")
+    files = [os.path.join(dl, f) for f in sorted(os.listdir(dl))] if os.path.isdir(dl) else []
+    good = []
+    for f in files:
+        try:
+            if objects_of(f):
+                good.append(f)
+        except (ValueError, KeyError, OSError):
+            pass
+    log({"c": "the page's backup download", "files": files, "readable": good})
+    if not good:
+        raise SystemExit(f"q4_install: the page's own backup is not in {dl} (or does not read back): stop before installing over it "
+                         f"(this script's own backup from before the stock restore is in OUT)")
     state("c: on stock V15 (the editor does not answer there: expected)")
-    r2 = nightly("c2-nightly")
+    r2 = nightly("c2-nightly", take_backup=False)    # (stock V15 has no editor and no Orange Cat data to back up)
     state("c: after the Nightly")
     return r2
 
@@ -246,7 +308,8 @@ def main():
     ap.add_argument("--stock")
     ap.add_argument("--minutes", type=float, default=25.0)
     ap.add_argument("--no-pause", action="store_true")
-    ap.add_argument("--yes", action="store_true")
+    ap.add_argument("--yes", action="store_true", help="no typed INSTALL confirmation (WIPE and STOCK are always typed)")
+    ap.add_argument("--backup", help="b's wipes: a backup file already taken (it must read back); else one is taken first")
     A = ap.parse_args()
     os.makedirs(A.out, exist_ok=True)
     log({"q4": A.case, "label": A.label, "url": A.url, "at": datetime.datetime.now().isoformat(timespec="seconds")})

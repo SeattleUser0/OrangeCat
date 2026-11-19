@@ -300,7 +300,8 @@ class Guard:
             if r.returncode != 0 or not os.path.exists(self.backup) or os.path.getsize(self.backup) < 1000:
                 raise SystemExit(f"{self.tool}: no backup, no run (oc_install.mjs backup failed)")
             self.say(f"BACKUP {self.backup}. To restore it: open web/editor.html (the live page or `web/quick-host.sh`), connect, "
-                     f"Complete backup > Restore backup, choose this file.")
+                     f"Complete backup > Restore backup, choose this file, with the same firmware on the unit (a backup taken on a Nightly is refused by 0.15.0 "
+                     f"Standard: web/fm1backup.js refuses objects that firmware does not support).")
         self.alive.set()
         self.ka = threading.Thread(target=self.keepalive, daemon=True)
         self.ka.start()
