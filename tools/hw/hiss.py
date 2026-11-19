@@ -4,7 +4,7 @@
 """The hiss check (BUILD.md 7.21's method, 7.22's harness; Release 3 qualification Q3, 7.37; brought into the repository in Round 31, 7.50,
 from ~/fm1-hw/r11/hiss.py, which is no longer used).
 
-  hiss.py OUT LABEL [--cases CASES] [--reps 3] [--seed 20261116] [--idle-reps 3] [--hold 3.0] [--tail 3.0]
+  hiss.py OUT LABEL [--cases CASES] [--reps 3] [--seed 20261116] [--idle-reps 3] [--hold 3.0] [--tail 3.0] [--swap-fx [--ocm-dir DIR]]
 
 CASES: a comma list of rev:dub:vel. rev: off | room | spring | shimr | reso | cloud (the reverb's TYPE by its name on the unit: ROOM is
 resident, SPRING SHIMR RESO come from the REVERB MODES module, MODULE_IDS.md id 2) | dly (the DELAY send alone) | cho (the CHORUS send alone)
@@ -29,15 +29,26 @@ inputs 1 and 2 kept, its 0.5 s of leading zeros waited out; the FM-1's USB audio
 same file (~/fm1-hw/r11/wt/tools/hw/capture.py is byte for byte this one), so the numbers compare with 7.21 / 7.22's.
 
 Ids: every parameter and global by its label (unit_guard.Ids); refuses to run when a label is missing, or when a case needs a reverb mode
-whose module (REVERB MODES, id 2) is not registered (FX_TABLE state 7), or DUB TAPE's (id 1) for a dub case.
+whose module (REVERB MODES, id 2) is not registered (FX_TABLE state 7; with --swap-fx: checked after the swap), or DUB TAPE's (id 1) for a
+dub case.
+--swap-fx (Round 31, BUILD.md 7.50: the default set fills the module area, 21 of 21 sectors, so REVERB MODES has no room beside the FX layer):
+inside the guard, after the backup and before anything is written, the build's two files for the firmware on the unit are found in --ocm-dir
+(default build/: orangecat-reverb-V.ocm and orangecat-fxlayer-V.ocm whose V is the unit's INFO version, the shorter hash a prefix of the
+longer; none or two: refused) and FX_TABLE must show FX LAYER (id 3) registered and idle, REVERB MODES (id 2) absent. Then FX_REMOVE 3 (EXT
+132, the transport stopped), `oc_install.mjs fx` with the reverb's file, REVERB MODES registered checked; the cases; then (also after a
+failure in the cases) every send 0 and TYPE ROOM, FX_REMOVE 2, `oc_install.mjs fx` with the FX layer's file, and FX_TABLE compared with the
+one before (each module's id, start, sectors, version, state). A step that fails stops the swap: what is in the unit is printed with the way
+back (the installer page's Install with its default ticks puts the default set back, FX LAYER included).
 SAFETY: unit_guard.py (a complete backup first, autosave held off, the step-exact restore read back). Fixed from r11: its restore wrote the
 parameters before loading track 1's sound back (the preset load then overwrote them), and its DUB writes used Release 2's ids (45 LEN,
 46 PTRN, 47 SPRP, 107 SPACE: today SPEED, MODE, TAPE, ECHO).
 """
 import argparse
+import glob
 import json
 import os
 import random
+import subprocess
 import sys
 import time
 
@@ -49,6 +60,8 @@ from fm1hw import v14                                   # noqa: E402
 import unit_guard as UG                                 # noqa: E402
 
 NOTE, SETTLE = 48, 2.5
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+REV_ID, FXL_ID = 2, 3                                   # MODULE_IDS.md: REVERB MODES, FX LAYER
 DEFAULT = ",".join(f"{c}:{v}" for v in (30, 100) for c in ("off:off", "room:off", "spring:off", "shimr:off", "off:spring"))
 MODE_NAMES = {"room": "ROOM", "spring": "SPRING", "shimr": "SHIMR", "reso": "RESO", "cloud": "CLOUD"}
 A = None
@@ -122,6 +135,148 @@ def dub_values(kind):
             "MODE": UG.dub_mode(0, 1), "TAPE": UG.dub_tape(6, 0), "ECHO": 100}
 
 
+# ---------------------------------------------------------------------------------------------------- --swap-fx
+WAY_BACK = ("the way back: the installer page (web/index_pkg.html, the live Nightly page), Install with its default ticks: it puts the default set "
+            "back (FX LAYER included; the reverb's module is not in it); or by hand: node tools/hw/oc_install.mjs fx FXLAYER.ocm (FX_REMOVE 2 first when "
+            "REVERB MODES holds the place)")
+
+
+def ocm_for(build_dir, kind, version):
+    """the build's orangecat-KIND-V.ocm for the firmware on the unit (INFO's version, e.g. v0.16.0-fcdc36): V's X.Y.Z equal and its hash the unit's
+    (the shorter of the two a prefix of the longer, 5 digits at least); a version without a hash must be equal. Exactly one, else SystemExit"""
+    v = version[1:] if version.startswith("v") else version
+    base, _, h = v.partition("-")
+    pre = f"orangecat-{kind}-"
+    found = []
+    for f in sorted(glob.glob(os.path.join(build_dir, pre + "*.ocm"))):
+        fv = os.path.basename(f)[len(pre):-len(".ocm")]
+        fb, _, fh = fv.partition("-")
+        if fb != base:
+            continue
+        if (not h and not fh) or (h and fh and min(len(h), len(fh)) >= 5 and (fh.startswith(h) or h.startswith(fh))):
+            found.append(f)
+    if len(found) != 1:
+        have = sorted(os.path.basename(x) for x in glob.glob(os.path.join(build_dir, pre + "*.ocm")))
+        raise SystemExit(f"hiss: refusing to run: --swap-fx needs one {pre}*.ocm for the unit's firmware {version} in {build_dir}: "
+                         f"{'none matches' if not found else 'several match: ' + str(found)} (there: {have[:8]}{' ...' if len(have) > 8 else ''})")
+    return found[0]
+
+
+def fx_remove(u, mid):
+    """FX_REMOVE (132 through EXT, web/EDITOR_PROTOCOL.md): the module's sectors erased; rc 0 or RuntimeError (2: the transport runs or the module
+    plays)"""
+    r = u.req(0, [132 - 128, *[(mid >> (7 * j)) & 127 for j in range(5)]], timeout=12.0)
+    if not r or r[0] != 132 - 128 or len(r) < 2:
+        raise RuntimeError(f"FX_REMOVE {mid}: not its reply: {r}")
+    if r[1] != 0:
+        raise RuntimeError(f"FX_REMOVE {mid}: refused, rc {r[1]}")
+    return r
+
+
+def install_fx(path):
+    """the page's installFx from the PC (oc_install.mjs fx FILE): its own MIDI client; RuntimeError unless it exits 0"""
+    env = dict(os.environ, PYTHON=sys.executable)
+    r = subprocess.run(["node", os.path.join(REPO, "tools", "hw", "oc_install.mjs"), "fx", path], env=env)
+    if r.returncode != 0:
+        raise RuntimeError(f"oc_install.mjs fx {os.path.basename(path)} exited {r.returncode}")
+
+
+def fx_key(tab):
+    """what the swap must put back as it was: each module's id, start, sectors, version, state"""
+    return sorted((x["id"], x["start"], x["sectors"], tuple(x["version"]), x["state"]) for x in (tab or []))
+
+
+class FxSwap:
+    """--swap-fx's steps (see the module's text); `install` and `pause` are the harness's (oc_install.mjs, time.sleep) unless a test gives its own"""
+
+    def __init__(self, g, build_dir, say, install=install_fx, pause=time.sleep):
+        self.g, self.say, self.pause = g, say, pause
+        self._install = install
+        self.version = self.u.info()["version"]
+        self.tab0 = UG.fx_table(self.u)
+        fl, rv = UG.fx_row(self.tab0, FXL_ID), UG.fx_row(self.tab0, REV_ID)
+        if not fl or fl["state"] != 7:
+            raise SystemExit(f"hiss: refusing to run: --swap-fx needs FX LAYER (id 3) registered (FX_TABLE {self.tab0})")
+        if rv:
+            raise SystemExit(f"hiss: refusing to run: --swap-fx: REVERB MODES (id 2) is in the unit already (FX_TABLE {self.tab0}); run without --swap-fx")
+        self.files = {"reverb": ocm_for(build_dir, "reverb", self.version), "fxlayer": ocm_for(build_dir, "fxlayer", self.version)}
+        self.out_done = self.back_done = self.back_tried = False
+        self.steps = []
+
+    @property
+    def u(self):
+        return self.g.u
+
+    def install(self, path):
+        """the editor link closed while oc_install.mjs has the unit (its own client), opened again after, whatever happens"""
+        try:
+            self.g.u.close()
+        except Exception:
+            pass
+        self.g.u = None
+        try:
+            self._install(path)
+        finally:
+            self.g.open()
+
+    def _step(self, name, fn):
+        self.say(f"swap: {name}")
+        try:
+            fn()
+        except BaseException as e:
+            tab = None
+            try:
+                tab = UG.fx_table(self.u)
+            except BaseException:
+                pass
+            self.say(f"SWAP FAILED at '{name}' ({e!r}). Done before it: {self.steps}. The unit's effect modules now: "
+                     f"{[(UG.FX_NAMES.get(x['id'], x['id']), 'start', x['start'], 'state', x['state']) for x in (tab or [])] if tab is not None else 'FX_TABLE not answered'}"
+                     f"; before the swap: {[(UG.FX_NAMES.get(x['id'], x['id']), 'start', x['start']) for x in self.tab0]}. {WAY_BACK}")
+            raise
+        self.steps.append(name)
+
+    def _idle(self, mid):
+        for _ in range(10):
+            row = UG.fx_row(UG.fx_table(self.u), mid)
+            if row and not row["uses"]:
+                return
+            self.pause(1.0)
+        raise RuntimeError(f"module {mid} still in use (FX_TABLE `uses`)")
+
+    def _registered(self, mid, want=True):
+        row = UG.fx_row(UG.fx_table(self.u), mid)
+        if bool(row and row["state"] == 7) != want:
+            raise RuntimeError(f"module {mid} {'not registered' if want else 'still in the table'} after the step: {row}")
+
+    def out(self):
+        self._step("FX LAYER idle", lambda: self._idle(FXL_ID))
+        self._step("FX_REMOVE 3 (FX LAYER)", lambda: fx_remove(self.u, FXL_ID))
+        self._step("FX LAYER gone", lambda: self._registered(FXL_ID, False))
+        self.out_done = True                             # (from here the way back is owed)
+        self._step(f"install {os.path.basename(self.files['reverb'])}", lambda: self.install(self.files["reverb"]))
+        self._step("REVERB MODES registered", lambda: self._registered(REV_ID))
+
+    def back(self, quiet):
+        """quiet(): every send 0 and TYPE ROOM (no module mode playing, or FX_REMOVE refuses)"""
+        if not self.out_done or self.back_done or self.back_tried:
+            return
+        self.back_tried = True                           # (once: a step that fails is not tried again; the way back is printed)
+        self._step("sends 0, TYPE ROOM", quiet)
+        self.pause(3.0)                                  # (the buses go back 2 s after the last send)
+        if UG.fx_row(UG.fx_table(self.u), REV_ID):
+            self._step("REVERB MODES idle", lambda: self._idle(REV_ID))
+            self._step("FX_REMOVE 2 (REVERB MODES)", lambda: fx_remove(self.u, REV_ID))
+        self._step(f"install {os.path.basename(self.files['fxlayer'])}", lambda: self.install(self.files["fxlayer"]))
+
+        def same():
+            now = UG.fx_table(self.u)
+            if fx_key(now) != fx_key(self.tab0):
+                raise RuntimeError(f"FX_TABLE not as before: now {fx_key(now)}, before {fx_key(self.tab0)}")
+        self._step("FX_TABLE as before (ids, starts, sectors, versions, states)", same)
+        self.back_done = True
+        self.say(f"swap: the default set is back: {fx_key(self.tab0)}")
+
+
 def configure(u, rev, dub):
     u.select(0)
     rv = 64 if rev in MODE_NAMES or rev == "all3" else 0
@@ -185,6 +340,8 @@ def main():
     ap.add_argument("--idle-reps", type=int, default=3)
     ap.add_argument("--hold", type=float, default=3.0)
     ap.add_argument("--tail", type=float, default=3.0)
+    ap.add_argument("--swap-fx", action="store_true", help="REVERB MODES in the FX layer's place for the run, the FX layer put back after")
+    ap.add_argument("--ocm-dir", default=os.path.join(REPO, "build"), help="where the build's orangecat-reverb-*.ocm and orangecat-fxlayer-*.ocm are")
     A = ap.parse_args()
     cases = []
     for c in A.cases.split(","):
@@ -196,6 +353,11 @@ def main():
         cases.append((rev, dub, int(vel)))
     os.makedirs(A.out, exist_ok=True)
     g = UG.Guard("hiss", A.out, A.label)
+    st = {"swap": None}
+
+    def quiet(u):
+        u.select(0)
+        configure(u, "off", "off")
 
     def body(u):
         info = u.info()
@@ -204,14 +366,28 @@ def main():
         ID["G_RTYPE"], ID["TYPES"] = ids.reverb_type()
         tab = UG.fx_table(u)
         need = {MODE_NAMES[r] for r, _, _ in cases if r in MODE_NAMES and r != "room"}
-        for n in need:
-            if n not in ID["TYPES"]:
-                raise SystemExit(f"hiss: refusing to run: the reverb TYPE has no {n} on this firmware ({ID['TYPES']})")
-        if need and (UG.fx_row(tab, 2) or {}).get("state") != 7:
-            raise SystemExit(f"hiss: refusing to run: {sorted(need)} need the REVERB MODES module (id 2) registered; FX_TABLE: {tab}")
+
+        def names_ok():
+            for n in need:
+                if n not in ID["TYPES"]:
+                    raise SystemExit(f"hiss: refusing to run: the reverb TYPE has no {n} on this firmware ({ID['TYPES']})")
+        if not A.swap_fx:
+            names_ok()
+        if A.swap_fx:                                    # (read only: the files for the unit's firmware, FX LAYER registered, REVERB MODES absent)
+            st["swap"] = FxSwap(g, A.ocm_dir, g.say)
+            log({"swap_fx": st["swap"].files, "fx_table_before": st["swap"].tab0})
+        elif need and (UG.fx_row(tab, 2) or {}).get("state") != 7:
+            raise SystemExit(f"hiss: refusing to run: {sorted(need)} need the REVERB MODES module (id 2) registered (or --swap-fx); FX_TABLE: {tab}")
         if any(d != "off" for _, d, _ in cases) and (UG.fx_row(tab, 1) or {}).get("state") != 7:
             raise SystemExit(f"hiss: refusing to run: a DUB case needs the DUB TAPE module (id 1) registered; FX_TABLE: {tab}")
         saved = g.save(bank=None)                        # (no transport: the steps are not played; the tools' globals, every parameter, the sounds saved)
+        if st["swap"]:
+            quiet(u)                                     # (the reverb on ROOM, track 1's sends 0: saved above, put back by the restore)
+            st["swap"].out()
+            u = g.u
+            tab = UG.fx_table(u)
+            ID["G_RTYPE"], ID["TYPES"] = UG.Ids(u, "hiss").reverb_type()   # (read again with the module in: the names checked now)
+            names_ok()
         rout = u.global_id("ROUT")
         if u.get_global(rout) != 0:
             u.set_global(rout, 0)                        # CH1-4: channel 1 is track 1
@@ -239,6 +415,8 @@ def main():
             if name != "warm":
                 rows.append(row)
             json.dump({"idle": idle_rows, **rep, "rows": rows}, open(f"{A.out}/rows-{A.label}.json", "w"), indent=1)
+        if st["swap"]:
+            st["swap"].back(lambda: quiet(u))
         summ = {}
         for r in rows:
             k = f"{r['rev']}:{r['dub']}:{r['vel']}"
@@ -246,9 +424,24 @@ def main():
         log({"summary_usb_floor_db": {k: [round(x, 2) for x in v if x is not None] for k, v in summ.items()}})
         return rows
 
-    UG.run_guarded(g, body)
-    log({"restore": getattr(g, "verified", None), "left": g.left})
-    return 0
+    def guarded(u):
+        try:
+            return body(u)
+        finally:
+            sw = st["swap"]
+            if sw and sw.out_done and not sw.back_done:
+                if not sw.back_tried:
+                    g.say("the cases did not end: the FX layer is put back before the restore")
+                    try:
+                        sw.back(lambda: quiet(g.u))
+                    except BaseException:
+                        pass
+                if not sw.back_done:
+                    g.left.append("the effect modules (--swap-fx: see SWAP FAILED above)")
+    UG.run_guarded(g, guarded)
+    sw = st["swap"]
+    log({"restore": getattr(g, "verified", None), "left": g.left, "swap_fx": None if not sw else {"steps": sw.steps, "back": sw.back_done}})
+    return 0 if not sw or sw.back_done else 1
 
 
 if __name__ == "__main__":
