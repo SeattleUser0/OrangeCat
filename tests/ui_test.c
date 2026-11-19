@@ -5715,7 +5715,7 @@ static int test_home_notes(void)
     return bad;
 }
 
-/* Stage (HOME, ui_stage.c): the selected track's engine's own four knobs (PROPHET and CZ-1: their native panel values,
+/* HOME (ui_main.c, ui.c stage_page): the selected track's engine's own four knobs (PROPHET and CZ-1: their native panel values,
  * edited as their pages edit them), no footer; SEQ > PATTERNS: KNOB k queues track k's pattern; the lights' grammar:
  * dim something there, bright happening now, breathing waiting (the third plane); the DRUM lanes' flashes */
 static uint32_t plane_led(uint32_t plane, uint32_t id)          /* led id in dim plane `plane` (0..2) */

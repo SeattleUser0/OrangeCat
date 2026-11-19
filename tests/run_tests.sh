@@ -150,7 +150,7 @@ case ${SAN:-0} in 0) ;; 1) CC="$CC -fsanitize=address,undefined -fno-sanitize=al
 #   is always tested). A job's own flags come after and win, so a test of a step on its own, or of the old paths, names the switch it wants
 #   (-DOC_X=0 / 1). BS_OFF is the same list switched off: the "legacy" jobs keep the old paths in the image tested (UI_BUILD.md: step 9 is the owner's).
 BS=$(grep '^export OC_' tools/orangecat_engines.sh | grep -o 'OC_[A-Z0-9_]*=1' | sed 's/^/-D/' | tr '\n' ' ')
-BS_OFF=$(echo "$BS" | sed 's/=1/=0/g')
+BS_OFF=$(echo "$BS" | sed 's/=1/=0/g; s/OC_HOME_PIC=0/OC_HOME_PIC=1/')   # (step 9: HOME's old Stage is gone, OC_HOME_PIC stays on in the legacy jobs)
 # (close-out 2) BS_NOSTEP is gone: seq_notes_test, seq_edit_test, note_tools_test and drum_editor_test run on the interface as it ships (tests/notes_knobs.h names the knobs once);
 #   each of the three first also runs with every switch off (BS_OFF: the legacy jobs below), the old knobs through the same header
 [ -n "$BS" ] || { echo "run_tests.sh: no OC_ switches found in tools/orangecat_engines.sh" >&2; exit 2; }
@@ -332,23 +332,9 @@ oc_scene_job() {                                  # (the new interface, branch u
         oc_scene_gate:oc_scene_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_PACK_GATE=1 $FW -Itests -- \
         "$OUT/oc_scene_gate" "$OUT/oc_scene_with.pak" "$OUT/oc_scene_without.pak"
 }
-home_pic_job() {                                  # (the new interface, UI_BUILD.md 1c) HOME's picture page
-    _t "new interface 1c: HOME PAGE, the three pages, the knobs' ids, commits, the scenes drawn, cozy colors, the pixel budget" \
+home_pic_job() {                                  # (the new interface, UI_BUILD.md 1c; step 9) HOME's pages: the settings bit, the page turn, the picture
+    _t "new interface 1c: the old HOME PAGE bit, the pages, the knobs' ids, the macros of a removed track, the scenes drawn, cozy colors, the pixel budget" \
         home_pic_test -O1 -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
-    # the switch built in and HOME PAGE at TRACKS: HOME's screens are release-2's, pixel for pixel
-    build home_pic_off home_pic_test -O1 $BS_OFF -DOC_HOME_PIC=0 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
-    echo "== new interface 1c: HOME at TRACKS with the switch built in draws release-2's screens"
-    _h1=$("$OUT/home_pic_test" hash) && _h0=$("$OUT/home_pic_off" hash) || { fail "new interface 1c: the TRACKS hash did not run"; return; }
-    case "$_h1" in [0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]) ;; *) fail "new interface 1c: no TRACKS hash ($_h1)"; return ;; esac
-    [ "$_h1" = "$_h0" ] || fail "new interface 1c: HOME at TRACKS differs from release-2's ($_h1, $_h0)"
-}
-sheet_job() {                                     # (the new interface 0.2, UI_BUILD.md step 2) EDIT's sheets
-    # both switches built in, HOME at TRACKS: HOME's screens are still release-2's, pixel for pixel
-    build home_pic_sheets home_pic_test -O1 -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
-    build home_pic_off2 home_pic_test -O1 $BS_OFF -DOC_HOME_PIC=0 -DMELODEE_USB_AUDIO=1 $FW -Itests || return
-    echo "== new interface 2: HOME at TRACKS with the sheets built in draws release-2's screens"
-    _h2=$("$OUT/home_pic_sheets" hash) && _h0=$("$OUT/home_pic_off2" hash) || { fail "new interface 2: the TRACKS hash did not run"; return; }
-    [ "$_h2" = "$_h0" ] || fail "new interface 2: HOME at TRACKS differs from release-2's ($_h2, $_h0)"
 }
 web_tests() {                                     # the editor mock's tables must equal the firmware's (desc.json)
     if [ $TABLES = 1 ]; then
@@ -781,10 +767,8 @@ if core && [ $TABLES = 1 ]; then
     t "UI with the build set's switches all off (the old flows)" ui_legacy:ui_test $BS_OFF -DMELODEE_USB_AUDIO=1 $FW
     job oc_scene_job
     job home_pic_job
-    # (dev-tools) sheet_job's test as its own job; the function keeps the HOME hash pair
     t "new interface 2: EDIT's sheets: every row reached, EDIT, SELECT, PRESETS, ENV, LFO, fam_last, EDIT's other jobs" \
         sheet_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
-    job sheet_job                                 # (the new interface 0.2, UI_BUILD.md step 2)
     # (dev-tools) the tests of shift_job as jobs of their own: as one job its compiles ran in sequence and set the suite's floor (docs/DEV_CHECKS.md)
     t "new interface 3: HOME as SHIFT: a tap, the MENU at 700 ms held (ui-fix 6), the combos, nothing modal raced" \
         shift_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DOC_EDIT_SHEETS=1 -DOC_SHIFT_MAP=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
@@ -956,8 +940,8 @@ if sound && [ $TABLES = 1 ]; then
     # (round 24, "Track 4 graying out") the DUB page's octave is DUB's under a held layer: a KICK with ARP, GLO, FX or SEQ still down mutes nothing; and a muted track says MUTE
     t "DUB keys under a held layer (round 24): GLO, ARP, FX, SCL, SEQ held on HOME's DUB page, C4 .. B4 stay DUB's (no mute, no staged mute, no punch-in); the other keys, TRACKS and a locked layer as before; sanitizers" \
         dub_layer_keys_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
-    t "a muted track says MUTE (round 24): the TRACKS rows with four, two and one track, FROZEN, a name that takes the role's room, the picture and DUB pages' sound line; sanitizers" \
-        stage_mute_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
+    t "HOME's main screen (step 9): the state words (MUTE, OFF, WAIT, FROZEN) on four, two and one track, a long name, the steps and the playhead, the dials, the page turn, the picture and DUB pages' sound line; sanitizers" \
+        main_state_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DOC_HOME_PIC=1 -DMELODEE_USB_AUDIO=1 $FW -Itests
     # (Round 24, Session A) control-note RECORDING on (OC_CTL_REC 1 is the default): Session A's findings of Round 23 (the step grid untouched, a DUB track only, no editor shows or changes one, the
     #   release after a selection change, the strike inside a block, the bound), undo, erase, copy, double, the pool, a project, the note tools, record quantize, punch-in, count-in and latch;
     #   and the switch off: nothing recorded, stored control notes play
