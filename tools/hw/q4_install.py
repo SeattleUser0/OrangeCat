@@ -23,6 +23,8 @@ unit's state read before and after each install. The lead's tool: it writes firm
   q4_install.py OUT LABEL c --stock FM-1.fwsc       (c) the stock section of the live page with the owner's stock V15 file (its SHA-256 checked
                                                     against web/fm1pkg.js STOCK_V15_SHA256 first), the page's own questions answered yes, its backup
                                                     download kept in OUT; then the Nightly from the live page onto the stock unit
+  Unattended: --answers FILE answers the page's questions by rule (an unmatched one cancels and stops the run, exit non-zero);
+  --confirm WIPE / --confirm STOCK / --confirm INSTALL stand for the typed word in that invocation (logged).
   q4_install.py OUT LABEL d                         (d) the Nightly again over (a)'s result: expected nothing written (no firmware write, every part
                                                     "already current") and no question
 Common: --url (default the live page), --nightly-build (default build-nightly-dual), --minutes (25 per install), --yes (no typed INSTALL
@@ -64,6 +66,9 @@ ALWAYS_TYPED = ("WIPE", "STOCK")                         # (review, Round 31) --
 
 def confirm(word, what):
     if A.yes and word not in ALWAYS_TYPED:
+        return
+    if word in (A.confirm or []):                        # (unattended: --confirm WORD on this one invocation's command line)
+        log({"confirmed": word, "by": "--confirm on the command line", "what": what})
         return
     got = input(f"q4_install: {what}\n  type {word} to go on (anything else stops): ").strip()
     if got != word:
@@ -131,7 +136,7 @@ def objects_of(path):
     return {o["id"]: (o["size"], o["crc"]) for o in json.load(open(path))["objects"]}
 
 
-def page(step, build=None, stock=None, expect=None, ask=False, take_backup=True):
+def page(step, build=None, stock=None, expect=None, ask=True, take_backup=True):
     """(review, Round 31) a complete backup, read back, before every install from the page (take_backup False only where no editor answers:
     a unit on stock V15 holds no Orange Cat data); ask: every confirm dialog of the page is put to the operator (typed answer), not answered yes"""
     if take_backup:
@@ -141,8 +146,13 @@ def page(step, build=None, stock=None, expect=None, ask=False, take_backup=True)
     cmd += ["--stock", os.path.abspath(stock)] if stock else ["--build", build]
     if expect:
         cmd += ["--expect", expect]
-    if ask:
-        cmd += ["--ask"]
+    rules = answers_for(step)
+    if rules is not None:
+        f = os.path.join(A.out, f"answers-{step}.json")
+        json.dump(rules, open(f, "w"), indent=1)
+        cmd += ["--answers", f]
+    else:
+        cmd += ["--ask"]                                 # (no --answers: every page question goes to the operator, never a blind yes)
     log({"page": step, "cmd": "node " + " ".join(cmd)})
     p = subprocess.run(["node", *cmd], cwd=REPO, timeout=A.minutes * 60 * 3 + 300, stdout=subprocess.PIPE, text=True)   # (stdin and stderr the operator's: --ask's questions)
     sys.stdout.write(p.stdout[-6000:])
@@ -154,9 +164,26 @@ def page(step, build=None, stock=None, expect=None, ask=False, take_backup=True)
     short = {"page": step, "ok": res.get("ok"), "error": res.get("error"), "page_versions": res.get("page"), "chosen": res.get("chosen"),
              "stock_check": res.get("stockCheck"), "downloads": res.get("downloads"), "final": res.get("final"),
              "attempts": [{k: a.get(k) for k in ("attempt", "status", "timedOut", "dialogs", "fwWrites", "fwWriteMax", "summary")} for a in res.get("attempts", [])]}
+    short["unmatched_dialogs"] = res.get("unmatched")
     log(short)
+    if res.get("unmatched"):
+        raise SystemExit(f"q4_install: the page asked something no --answers rule matches (answered Cancel): {res['unmatched']}: stopped")
     time.sleep(5.0)                                      # (the unit's ports settle after Chrome closes)
     return res
+
+
+def answers_for(step):
+    """--answers FILE: a list of {starts, answer} (every step), or an object of such lists by case ("a", "c", "d", "b") or by step name
+    ("a1-standard", ...), the step's own list first; None without --answers"""
+    if not A.answers:
+        return None
+    d = json.load(open(A.answers))
+    if isinstance(d, list):
+        return d
+    for k in (step, A.case):
+        if k in d:
+            return d[k]
+    return []                                            # (nothing for this step: any dialog stops it)
 
 
 def nightly(step, take_backup=True):
@@ -309,6 +336,8 @@ def main():
     ap.add_argument("--minutes", type=float, default=25.0)
     ap.add_argument("--no-pause", action="store_true")
     ap.add_argument("--yes", action="store_true", help="no typed INSTALL confirmation (WIPE and STOCK are always typed)")
+    ap.add_argument("--answers", help="unattended: the page's questions answered by rule (tools/hw/q4_answers_example.json); an unmatched one stops the run")
+    ap.add_argument("--confirm", action="append", choices=("WIPE", "STOCK", "INSTALL"), help="the typed word given here instead, for this invocation (logged)")
     ap.add_argument("--backup", help="b's wipes: a backup file already taken (it must read back); else one is taken first")
     A = ap.parse_args()
     os.makedirs(A.out, exist_ok=True)

@@ -13,6 +13,8 @@
 //    ("Official V15 verified"), then #stock-go. The page's backup download is allowed into OUT (Browser.setDownloadBehavior).
 //  - Every dialog (confirm, alert) is logged with its text and accepted: they are the page's questions. --decline makes it answer no;
 //    --ask puts every confirm dialog to the operator (its text on stderr, the typed answer: yes is OK, anything else Cancel).
+//    --answers FILE (unattended): each dialog answered by the rule whose `starts` its text begins with; an unmatched one is cancelled and
+//    stops the run with a non-zero exit (tools/hw/q4_answers_example.json).
 //  - The page's versions (#dual-version, #nightly-version, the release picked) are logged; --expect TEXT refuses to press Install when the
 //    chosen build's label does not contain TEXT (nothing is written then).
 //
@@ -20,7 +22,7 @@
 //   node tools/hw/cdp_install.mjs --url URL --stock FM-1.fwsc [--out DIR] [--minutes 25]
 // The last line printed is one JSON object: {attempts: [...], final, ok}. Close every other program on the FM-1's port first.
 import { spawn } from "child_process";
-import { mkdirSync, mkdtempSync, writeFileSync, existsSync, readdirSync } from "fs";
+import { mkdirSync, mkdtempSync, writeFileSync, existsSync, readdirSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { resolve } from "path";
 import { createInterface } from "readline";
@@ -39,6 +41,19 @@ const url = opt.url, build = opt.build, minutes = Number(opt.minutes || 25), ret
 const out = resolve(opt.out || mkdtempSync(tmpdir() + "/oc-cdp-")), port = Number(opt.port || 9224);
 if (!url || (!build && !opt.stock)) { console.error("cdp_install: --url and --build (or --stock FILE) are needed"); process.exit(2); }
 if (opt.stock && !existsSync(opt.stock)) { console.error("cdp_install: no file " + opt.stock); process.exit(2); }
+// (Round 31, unattended runs) --answers FILE: a JSON list of {starts, answer}: a dialog whose text starts with `starts` (the longest match wins) is
+// answered `answer` and logged with the rule; a dialog no rule matches is CANCELLED, its full text printed, and the run stops non-zero once the
+// page has finished what it is doing (no retry): never a blind yes
+let rules = null;
+if (opt.answers) {
+  rules = JSON.parse(readFileSync(opt.answers, "utf8"));
+  if (!Array.isArray(rules) || !rules.every((r) => typeof r.starts === "string" && r.starts.trim() && typeof r.answer === "boolean")) {
+    console.error("cdp_install: --answers must be a JSON list of {\"starts\": text, \"answer\": true|false}"); process.exit(2);
+  }
+}
+const norm = (x) => String(x).replace(/\s+/g, " ").trim();
+const ruleFor = (text) => rules.filter((r) => norm(text).startsWith(norm(r.starts))).sort((a, b) => norm(b.starts).length - norm(a.starts).length)[0] || null;
+const unmatched = [];
 mkdirSync(out, { recursive: true });
 const dl = resolve(out, "downloads"); mkdirSync(dl, { recursive: true });
 const dir = mkdtempSync(tmpdir() + "/oc-chrome-");
@@ -56,8 +71,19 @@ ws.onmessage = async (m) => {
   const d = JSON.parse(m.data);
   if (d.id && pending.has(d.id)) { pending.get(d.id)(d); pending.delete(d.id); }
   if (d.method === "Page.javascriptDialogOpening") {
-    const accept = d.params.type === "alert" || (opt.ask && d.params.type === "confirm" ? await askOperator(d.params.message) : !opt.decline);
-    dialogs.push({ at: new Date().toISOString(), type: d.params.type, text: d.params.message, answered: accept ? "yes" : "no", by: opt.ask && d.params.type === "confirm" ? "operator" : "driver" });
+    let accept, by, rule = null;
+    if (rules) {
+      rule = ruleFor(d.params.message);
+      if (rule) { accept = rule.answer; by = "rule"; }
+      else {
+        accept = false; by = "UNMATCHED: cancelled, the run stops";
+        unmatched.push(d.params.message);
+        console.error(`\ncdp_install: A DIALOG NO RULE MATCHES (${d.params.type}), answered Cancel; the run stops when the page has finished:\n${d.params.message}\n`);
+      }
+    } else if (d.params.type === "alert") { accept = true; by = "driver (an alert has only OK)"; }
+    else if (opt.ask) { accept = await askOperator(d.params.message); by = "operator"; }
+    else { accept = !opt.decline; by = "driver"; }
+    dialogs.push({ at: new Date().toISOString(), type: d.params.type, text: d.params.message, answered: accept ? "yes" : "no", by, rule: rule && rule.starts });
     say(`DIALOG (${d.params.type}, answered ${accept ? "yes" : "no"}):`, d.params.message.slice(0, 300));
     send("Page.handleJavaScriptDialog", { accept });
   }
@@ -122,12 +148,14 @@ try {
     writeFileSync(resolve(out, `page-log-attempt${k}.txt`), lines.join("\n"));
     result.attempts.push(a);
     say(`attempt ${k} ended: ${a.status}${a.timedOut ? " (the page was still working at the time limit)" : ""}`);
+    if (unmatched.length) { a.stoppedByUnmatchedDialog = true; break; }
     if (a.timedOut || !RETRY.test(a.status)) break;
     if (k < retries) { say(`the page says to press again (${a.status.slice(0, 80)}): attempt ${k + 1} in 10 s`); await sleep(10000); }
   }
   result.downloads = readdirSync(dl);
   result.final = result.attempts.length ? result.attempts[result.attempts.length - 1].status : null;
-  result.ok = !!result.attempts.length && !result.attempts[result.attempts.length - 1].timedOut && !RETRY.test(result.final || "") && !/error|stopped|refus|could not|failed/i.test(result.final || "");
+  result.unmatched = unmatched;
+  result.ok = !unmatched.length && !!result.attempts.length && !result.attempts[result.attempts.length - 1].timedOut && !RETRY.test(result.final || "") && !/error|stopped|refus|could not|failed/i.test(result.final || "");
 } catch (e) {
   result.error = String(e && e.message || e);
   result.ok = false;
