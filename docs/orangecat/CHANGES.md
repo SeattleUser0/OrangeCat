@@ -33,7 +33,6 @@ This is the list of changes a player can see or that touch the data on the unit,
 - **DUB TAPE steps aside in a very busy mix** (DUB FULL on the screen: it switches itself off when the audio gets close to its limit) and comes back when there is room.
 - **The reverb modes are not ticked by default:** a project that uses SPRING, SHIMMER or RESO plays that send dry ("MODULE MISSING: dry") until REVERB MODES is installed.
 - CHIP and VA-VCF are not in the default model pick: on a unit with the default pick, presets that use them play the VA sound until a pick with them is installed.
-- On a project load, phrases kept but not saved in the project left behind are dropped, as before.
 
 ## The two one-way doors
 
