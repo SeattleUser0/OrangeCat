@@ -118,11 +118,11 @@ function genEngine(half) {
 function homeKnobsTable() {
   const rows = [];
   for (const e of FW.engines.filter((x) => x.inBuild)) {
-    const tracks = e.edit.slice(0, 4).map((d) => d.label).join(" ");
-    const pic = e.knobs ? e.knobs.map((k) => k.label + (k.kind === "macro" ? " (macro)" : "")).join(" ") : "the engine's own four, or its module's";
-    rows.push([e.name, tracks, pic]);
+    const own = e.edit.slice(0, 4).map((d) => d.label).join(" ");
+    const pic = e.knobs ? e.knobs.map((k) => k.label + (k.kind === "macro" ? " (macro)" : "")).join(" ") : own;
+    rows.push([e.name, pic]);
   }
-  return { t: "table", head: ["Engine", "KNOB 1 to 4 on TRACKS", "KNOB 1 to 4 on PICTURE"], rows };
+  return { t: "table", head: ["Engine", "KNOB 1 to 4 (the main screen's dials and PICTURE's)"], rows };
 }
 function dubKeysTable() {
   const rows = [];
