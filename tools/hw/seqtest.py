@@ -2,14 +2,20 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 # Round 11, item 1: the sequencer test on the unit, extended (BUILD.md 7.22). Standing check for every release.
+# (Round 31, BUILD.md 7.50) THE ONLY COPY: ~/fm1-hw/r11/seqtest.py (the one Round 28's rise_cap_run.py used, fixed in Round 30) is merged in here and
+# is no longer used. From it: every parameter id this script writes is resolved by its label from the unit's own descriptor at the start (it refuses
+# to run when a label is missing or ambiguous; the ids found are logged); DUB 1 / DUB 2 as the firmware's own converter (dub_fields.h
+# dub_convert_old) maps the Round 10 cell; ECHO written last (the line is sized when ECHO turns on). From this copy: light:2 and heavy:2, DUB_TIML /
+# DUB_TIMR for experiments. New: the Round 29 safety (unit_guard.py: a complete backup first, autosave held off, a step-exact restore read back),
+# --list, and the bench cells (rec, ctl) named in the one list below and run by rectest.py on an OC_HW_TEST image.
 # Revision 3 (r11): the round 10 load cells kept (light/heavy x DUB off/on); new cells for what they could not cover:
 #   feel        ratchets x2 x3 x4, flams, trig conditions (1:2, 2:4, !FILL, FILL), nudge (+16, -8, +31 64ths), accent
 #   feel-ext    the same program on the PC's MIDI clock (CLK USB, Start / 24 clocks a beat / Stop), the pattern banks played without the chain
 #   slide:E:M[:ctl]   (ctl: the same line with no SLIDE, the positive control: every boundary must show an attack) a 303 line on engine E (MACRO | SHAPES) in voice mode M (POLY | MONO | LEGATO | UNISON): a slide glides and does not retrigger,
 #               a slide into the same pitch goes on, and in POLY a chord where one note changes (55 to 59) while two hold
-#   rec         (an OC_HW_TEST image) notes played in over MIDI are recorded with their timing (read back through the test surface and heard
-#               back through the chain), two overlapping recorded notes with SLIDE set on the first (the tracker's FX column) glide
-#   seqtest.py OUT LABEL [CELLS] [REPS=2] [SEED=1] [PASSES=16]
+#   rec, ctl    (bench cells, an OC_HW_TEST image: rectest.py) recorded notes with their timing and the tracker's SLIDE; the control notes KICK HOLD
+#               DIVE RISE recorded on a DUB track, played back, then after SHIFT RIGHT, SHIFT LEFT and REVERSE
+#   seqtest.py OUT LABEL [CELLS|all] [REPS=2] [SEED=1] [PASSES=16]      seqtest.py --list
 # The step command's v8 bytes (d78a402) carry a step's condition, nudge and ratchet; on an older image the feel cells are refused and say so.
 import sys, os, time, json, random, math
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -17,19 +23,34 @@ import numpy as np
 import mido
 import fm1hw, capture
 from fm1hw import v14
+import unit_guard as UG
 
-OUT, LABEL = sys.argv[1], sys.argv[2]
-CELLS = (sys.argv[3] if len(sys.argv) > 3 else "light:0,light:1,light:2,heavy:0,heavy:1,heavy:2,feel,feel-ext,chance,slide:MACRO:POLY,slide:MACRO:MONO,slide:MACRO:LEGATO,slide:MACRO:UNISON,"
-         "slide:SHAPES:POLY,slide:SHAPES:MONO,slide:SHAPES:LEGATO,slide:SHAPES:UNISON").split(",")
-REPS = int(sys.argv[4]) if len(sys.argv) > 4 else 2
-SEED = int(sys.argv[5]) if len(sys.argv) > 5 else 1
-PASSES = int(sys.argv[6]) if len(sys.argv) > 6 else 16
+# THE CELLS (one list). kind "load": run here; "bench": an OC_HW_TEST image, run by rectest.py --cell NAME
+CELLS_ALL = [
+    ("light:0", "load", "track 1 KICK 909, track 2 FOLD PLUCK, one hit a beat each, sends 0, DUB off"),
+    ("light:1", "load", "light:0 with DUB 1 on track 1 (the Round 10 cell as dub_convert_old maps it)"),
+    ("light:2", "load", "light:0 with DUB 2 on track 1 (DUB 1 plus PING, DRIVE 8, WOW 3, SPRING 28: the worst case)"),
+    ("heavy:0", "load", "KICK 909, DRUM-X TECHNO RAW, SHAPES CSAW BASS chords, WHEEL FULL ORGAN chords, sends 64, DUB off"),
+    ("heavy:1", "load", "heavy:0 with DUB 1 on track 1"),
+    ("heavy:2", "load", "heavy:0 with DUB 2 on track 1"),
+    ("feel", "load", "ratchets, flams, trig conditions, nudge, accent (the v8 step bytes)"),
+    ("feel-ext", "load", "feel on the PC's MIDI clock (CLK USB)"),
+    ("chance", "load", "chance 50 and 25 against the binomial's 99 percent region"),
+] + [(f"slide:{e}:{m}", "load", f"a 303 line on {e} in {m}: glides, no retrigger") for e in ("MACRO", "SHAPES") for m in ("POLY", "MONO", "LEGATO", "UNISON")] + [
+    ("rec", "bench", "rectest.py --cell rec: notes recorded over MIDI with their timing, the tracker's SLIDE on a recorded step"),
+    ("ctl", "bench", "rectest.py --cell ctl: KICK HOLD DIVE RISE recorded on a DUB track, played, then after SHIFT RIGHT, SHIFT LEFT, REVERSE"),
+]
+DEFAULT_CELLS = ",".join(c for c, k, _ in CELLS_ALL if k == "load")
+OUT = LABEL = None
+CELLS = DEFAULT_CELLS.split(",")
+REPS, SEED, PASSES = 2, 1, 16
 BPM, NSTEP = 120, 16
 STEP_S = 60.0 / BPM / 4
-REV, DLY, CHO, G_RTYPE, G_BPM, G_CLK = 108, 109, 110, 37, 0, 2
-# DUB TAPE's ten ids (round 13, dub_fields.h): SPEED 45, MODE 46 (64 | PING << 1 | SYNC), TAPE 47 (DRIVE x 12 + WOW - 64), FEEDBACK 104, SEND 105, FILTER 106, ECHO 107, TIME L 111, TIME R 112, SPRING 113
-P_SPD, P_MODE, P_TAPE, P_ECHO, P_FDBK, P_SEND, P_FILT, P_TIML, P_TIMR, P_SPRG = 45, 46, 47, 107, 104, 105, 106, 111, 112, 113
-DUB_IDS = (P_SPD, P_MODE, P_TAPE, P_ECHO, P_FDBK, P_SEND, P_FILT, P_TIML, P_TIMR, P_SPRG)
+# (Round 30 item 2) every parameter id is resolved by its label from the unit's own descriptor (resolve_ids, run at start). Until Round 29 the r11
+# copy wrote Release 2 numbers: 45 LEN, 46 PTRN, 47 SPRP, 107 SPACE, 106 TONE; on today's firmware 45 is SPEED, 46 MODE, 47 TAPE, 107 ECHO, 106 FILTER
+REV = DLY = CHO = G_RTYPE = G_BPM = G_CLK = None
+DUB = {}                                                 # DUB TAPE's ten ids by unit_guard.Ids.dub() key
+DIV_16 = None
 TC = dict(NONE=0, FILL=1, NFILL=2, C1_2=3, C2_2=4, C1_3=5, C2_3=6, C3_3=7, C1_4=8, C2_4=9, C3_4=10, C4_4=11)
 VMODE = dict(POLY=0, MONO=1, LEGATO=2, UNISON=3)
 FLAM_S = 661 / 44100.0
@@ -37,13 +58,13 @@ TOL = 0.012                                              # one onset's match win
 LIGHT = [("MACRO", "KICK 909", ((36,), (36,))), ("MACRO", "FOLD PLUCK", ((60,), (67,)))]
 HEAVY = [("MACRO", "KICK 909", ((36,), (36,))), ("DRUM-X", "TECHNO RAW", ((36,), (38,))), ("SHAPES", "CSAW BASS", ((48, 52, 55, 59), (41, 45, 48, 53))),
          ("WHEEL", "FULL ORGAN", ((60, 64, 67, 71), (65, 69, 72, 77)))]
-os.makedirs(OUT, exist_ok=True)
 BANK = 7                                                 # the spare pattern bank the test plays on (NPAT 8): the owner's patterns untouched
 
 
 def log(o):
     line = json.dumps(o); print(line, flush=True)
-    with open(f"{OUT}/seqtest-{LABEL}.log", "a") as f: f.write(line + "\n")
+    if OUT:
+        with open(f"{OUT}/seqtest-{LABEL}.log", "a") as f: f.write(line + "\n")
 
 
 def n7(r, o, k=5): return sum(r[o + j] << (7 * j) for j in range(k))
@@ -187,14 +208,6 @@ def put_step(u, t, i, notes=(), vel=100, time_=0, slide=0, accent=0, chance=100,
     return u.req(30, body)
 
 
-def banks_select(u, bank):
-    cur = []
-    for k in range(4):
-        r = u.req(73, [k, 0]); cur.append(r[3])
-        r = u.req(73, [k, 1, bank]); assert r[2] == 0, ("pattern request refused", k, bank, r)
-    return cur
-
-
 def clear_steps(u, feel):
     for t in range(4):
         for i in range(NSTEP): put_step(u, t, i, (), time_=2, feel=feel)
@@ -205,20 +218,38 @@ def tracks_setup(u, tracks, sends):
     for t in range(4):
         u.select(t); u.mix(t, 0)
         for p in (REV, DLY, CHO): u.req(3, [0, p, *v14(sends)])
-        u.req(3, [0, P_ECHO, *v14(0)])
+        u.req(3, [0, DUB["ECHO"], *v14(0)])           # DUB off (ECHO 0 is the track's DUB off; the r11 copy wrote "LEN OFF" on id 45, today SPEED)
         u.req(3, [0, PID["VCE"], *v14(0)]); u.req(3, [0, PID["GLD"], *v14(0)])
-    u.set_global(G_RTYPE, 0); u.set_global(G_BPM, BPM)
+        u.req(3, [0, PID["CHRD"], *v14(0)]); u.req(3, [0, PID["VOIC"], *v14(0)])   # (Round 31) no chord stack: a test track must not take the owner's CHRD
+        u.req(3, [0, PID["LEN"], *v14(NSTEP)]); u.req(3, [0, PID["DIV"], *v14(DIV_16)])  # (Round 31) the loop this script assumes: 16 steps of 1/16 (the owner's LEN / DIV may differ)
+    for g, v in ((G_RTYPE, 0), (G_BPM, BPM)):
+        if u.get_global(g) != v: u.set_global(g, v)      # (written only when it differs: a global write goes to the settings sector)
     u.select(0)
 
 
 PID = {}
 
 
-def params_by_label(u):
-    for p in range(u.info()["p_count"]):
-        try: PID.setdefault(u.desc(0, p), p)
-        except Exception: pass
-    for want in ("VCE", "GLD", "LEN", "DIV", "GATE", "ATK", "DEC", "SUS", "REL"): assert want in PID, ("no parameter", want)
+def resolve_ids(u):
+    """every id this script writes, from the unit's descriptor (follows the firmware on the unit); refuses to run if one is missing or ambiguous"""
+    global REV, DLY, CHO, G_RTYPE, G_BPM, G_CLK
+    ids = UG.Ids(u, "seqtest")
+    for want in ("VCE", "GLD", "LEN", "DIV", "GATE", "ATK", "DEC", "SUS", "REL", "CHRD", "VOIC"):
+        PID[want] = ids.t_first(want)
+    REV, DLY, CHO = ids.t("REV"), ids.t("DLY"), ids.t("CHO")
+    DUB.update(ids.dub())
+    G_BPM, G_CLK = ids.g("BPM"), ids.g("CLK")
+    global DIV_16
+    dn = next(d for d in ids.tp if d["id"] == PID["DIV"])["names"]
+    if "1/16" not in dn: raise SystemExit(f"seqtest: refusing to run: DIV has no 1/16 ({dn})")
+    DIV_16 = dn.index("1/16") + next(d for d in ids.tp if d["id"] == PID["DIV"])["min"]
+    G_RTYPE, names = ids.reverb_type()
+    if names[0] != "ROOM": raise SystemExit(f"seqtest: refusing to run: the reverb TYPE's first name is {names[0]!r}, not ROOM")
+    log({"ids": ids.found})
+    return ids
+
+
+params_by_label = resolve_ids                            # (rectest.py's name for it)
 
 
 def v8_ok(u):
@@ -226,16 +257,24 @@ def v8_ok(u):
 
 
 # ------------------------------------------------------------------------------------------------------------ the programs
+def dub_settings(dub):
+    """DUB 1: the round 10 cell (LEN 32K, PTRN SINGLE, FDBK 60, SEND 100, TONE 64, SPACE 7, SPRP OFF) in today's layout, as dub_convert_old
+    (dub_fields.h) maps it: SPACE 7 -> the old division 7 * 14 / 64 = 1 (1/6 beat), SINGLE: both taps there -> 1/16T (index 5); SYNC on, PING off,
+    DRIVE 6, WOW 0, SPEED 64, SPRING 0, ECHO 100 (written last). The old LEN (a 32 KB line) has no field today.
+    DUB 2 (light:2, heavy:2: the worst case, as this copy's since Round 13, 7.24/7.25): the same plus PING on, DRIVE 8, WOW 3, SPRING 28.
+    DUB_TIML / DUB_TIMR (environment) put other times in for an experiment (this copy's since Round 13; not for the qualification)"""
+    ping, drive, wow, spring = (1, 8, 3, 28) if dub == 2 else (0, 6, 0, 0)
+    return {"FDBK": 60, "SEND": 100, "FILTER": 64, "TIML": int(os.environ.get("DUB_TIML", UG.dub_t_val(5))), "TIMR": int(os.environ.get("DUB_TIMR", UG.dub_t_val(5))),
+            "SPRNG": spring, "SPEED": UG.DUB_SPD_MID, "MODE": UG.dub_mode(ping, 1), "TAPE": UG.dub_tape(drive, wow), "ECHO": 100}
+
+
 def program_load(u, load, dub):
     tracks = LIGHT if load == "light" else HEAVY
     tracks_setup(u, tracks, 64 if load == "heavy" else 0)
     clear_steps(u, V8)
     for k, (eng, name, sets) in enumerate(tracks):
         for j, i in enumerate(range(k, NSTEP, 4)): put_step(u, k, i, sets[j % 2], feel=V8)
-    if dub:
-        # DUB on (1): both taps (1/8 dotted and 1/4 dotted), FEEDBACK 60, SEND 100, SPRING 0, WOW 0, DRIVE 6, no PING, ECHO 100: what the old DUB cell asked for; (2): the worst case of the new DUB: PING, WOW 3, DRIVE 8, SPRING 28
-        mode, drive, wow, spring = (3, 8, 3, 28) if dub == 2 else (1, 6, 0, 0)
-        for p, v in ((P_TIML, int(os.environ.get('DUB_TIML', 53))), (P_TIMR, int(os.environ.get('DUB_TIMR', 74))), (P_MODE, 64 | 2 * (dub == 2) | 1), (P_TAPE, drive * 12 + wow - 64), (P_SPRG, spring), (P_SPD, 64), (P_FDBK, 60), (P_SEND, 100), (P_FILT, 64), (P_ECHO, 100)): u.req(3, [0, p, *v14(v)])
+    if dub: UG.write_dub(u, DUB, dub_settings(dub))        # (each write read back: Round 29's lesson; ECHO last)
     exp = []
     for ps in range(PASSES):
         for st in range(NSTEP):
@@ -496,47 +535,60 @@ def run(u, name, cell):
     return row
 
 
+def list_cells():
+    for c, k, what in CELLS_ALL:
+        print(f"{c:22s} {'bench (OC_HW_TEST, rectest.py --cell ' + c + ')' if k == 'bench' else 'seqtest.py':42s} {what}")
+    print(f"default (seqtest.py): {DEFAULT_CELLS}")
+
+
 def main():
-    global V8
-    u = fm1hw.Unit(); info = u.info()
-    params_by_label(u)
-    V8 = v8_ok(u)
-    cells = [tuple(c.split(":")) for c in CELLS]
-    if not V8:
-        dropped = [c for c in cells if c[0] not in ("light", "heavy")]
-        cells = [c for c in cells if c[0] in ("light", "heavy")]
-        log({"note": "the image has no v8 step bytes: the feel and slide cells are not run", "dropped": [":".join(c) for c in dropped]})
-    snap = u.snapshot(); sel0, trk0 = u.tracks()
-    saved = {}
-    for t in range(4):
-        u.select(t); saved[t] = {p: (lambda r: (r[2] | r[3] << 7) - 8192)(u.req(2, [0, p])) for p in (REV, DLY, CHO) + DUB_IDS + (PID["VCE"], PID["GLD"], PID["ATK"], PID["DEC"], PID["SUS"], PID["REL"])}
-    saved_g = {g: u.get_global(g) for g in (G_RTYPE, G_BPM, G_CLK)}
-    banks0 = banks_select(u, BANK)
-    runs = [c for c in cells for _ in range(REPS)]
-    random.Random(SEED).shuffle(runs)
-    order = [("warm", runs[0])] + [(f"r{k:02d}", c) for k, c in enumerate(runs)]
-    log({"label": LABEL, "version": info["version"], "v8": V8, "tracks": trk0, "banks_before": banks0, "bank": BANK, "cells": [":".join(c) for c in cells], "reps": REPS, "seed": SEED,
-         "passes": PASSES, "order": [(n, ":".join(c)) for n, c in order]})
-    rows = []
-    try:
+    global V8, OUT, LABEL, CELLS, REPS, SEED, PASSES
+    if "--list" in sys.argv[1:]:
+        list_cells(); return 0
+    if len(sys.argv) < 3:
+        print(__doc__ if __doc__ else "seqtest.py OUT LABEL [CELLS] [REPS=2] [SEED=1] [PASSES=16] | seqtest.py --list"); list_cells(); return 2
+    OUT, LABEL = sys.argv[1], sys.argv[2]
+    CELLS = (sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] not in ("", "all") else DEFAULT_CELLS).split(",")   # ("" or all: every load cell)
+    REPS = int(sys.argv[4]) if len(sys.argv) > 4 else 2
+    SEED = int(sys.argv[5]) if len(sys.argv) > 5 else 1
+    PASSES = int(sys.argv[6]) if len(sys.argv) > 6 else 16
+    kinds = {c: k for c, k, _ in CELLS_ALL}
+    for c in CELLS:
+        if c.startswith("slide:") and c.endswith(":ctl") and c[:-4] in kinds: continue    # (a slide cell's positive control)
+        if c not in kinds: raise SystemExit(f"seqtest: no cell {c!r} (seqtest.py --list)")
+        if kinds[c] == "bench": raise SystemExit(f"seqtest: {c} is a bench cell: rectest.py OUT LABEL --cell {c} on an OC_HW_TEST image")
+    os.makedirs(OUT, exist_ok=True)
+    g = UG.Guard("seqtest", OUT, LABEL)
+
+    def body(u):
+        global V8
+        info = u.info()
+        resolve_ids(u)
+        V8 = v8_ok(u)
+        cells = [tuple(c.split(":")) for c in CELLS]
+        if not V8:
+            dropped = [c for c in cells if c[0] not in ("light", "heavy")]
+            cells = [c for c in cells if c[0] in ("light", "heavy")]
+            log({"note": "the image has no v8 step bytes: the feel and slide cells are not run", "dropped": [":".join(c) for c in dropped]})
+        saved = g.save(bank=BANK)                        # (the tools' globals, every parameter, the sounds and steps, the patterns; the tracks now on BANK)
+        runs = [c for c in cells for _ in range(REPS)]
+        random.Random(SEED).shuffle(runs)
+        order = [("warm", runs[0])] + [(f"r{k:02d}", c) for k, c in enumerate(runs)]
+        log({"label": LABEL, "version": info["version"], "v8": V8, "saved": saved, "bank": BANK, "cells": [":".join(c) for c in cells], "reps": REPS, "seed": SEED,
+             "passes": PASSES, "order": [(n, ":".join(c)) for n, c in order]})
+        rows = []
         for name, c in order:
             row = run(u, name, c)
             log(row)
             if name != "warm": rows.append(row)
             json.dump(rows, open(f"{OUT}/rows-{LABEL}.json", "w"), indent=1)
-    finally:
-        try: u.req(74, [3])
-        except Exception: pass
-        time.sleep(0.5)
-        u.select(0); u.req(3, [0, P_ECHO, *v14(0)]); time.sleep(0.5)
-        for k in range(4): u.req(73, [k, 1, banks0[k]])
-        u.putback(snap)
-        for t in range(4):
-            u.select(t)
-            for p, v in saved[t].items(): u.req(3, [0, p, *v14(v)])
-        for g, v in saved_g.items(): u.set_global(g, v)
-        u.select(sel0); u.close()
+        log({"summary": {"rows": len(rows), "ok": sum(1 for r in rows if r.get("ok")), "not_ok": [r["name"] + " " + r["cell"] for r in rows if not r.get("ok")]}})
+        return rows
+
+    UG.run_guarded(g, body)
+    log({"restore": getattr(g, "verified", None), "left": g.left})
+    return 0
 
 
 V8 = True
-if __name__ == "__main__": main()
+if __name__ == "__main__": sys.exit(main())

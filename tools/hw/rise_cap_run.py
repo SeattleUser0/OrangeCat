@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Kerem Kilic (Ellic Studio)
-"""(Round 28 item 1, docs/orangecat/BUILD.md 7.42) The rising cap under the sequencer test's heavy cell, on the unit (the lead's run; never from a
+"""(RETIRED in Round 31, BUILD.md 7.50: it refuses to run; rise_proof.py replaced it.) (Round 28 item 1, docs/orangecat/BUILD.md 7.42) The rising cap under the sequencer test's heavy cell, on the unit (the lead's run; never from a
 machine that must not touch the unit).
 
 The sequencer test (~/fm1-hw/r11/seqtest.py) is run as it is, with four changes made from here: (1) its heavy program's fourth track plays the big
@@ -50,6 +50,9 @@ def dub_ok(u):
 
 
 def main():
+    # (Round 31, BUILD.md 7.50) retired: rise_proof.py replaced this recipe (7.44), and it drove ~/fm1-hw/r11/seqtest.py, which is no longer used
+    # (tools/hw/seqtest.py is the only copy) and whose Release 2 DUB names (P_PTRN, P_LEN, ...) neither copy has since Round 30 (7.48)
+    raise SystemExit("rise_cap_run.py is retired (BUILD.md 7.50): use tools/hw/rise_proof.py; the sequencer test is tools/hw/seqtest.py")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("out"); ap.add_argument("label")
     ap.add_argument("--preset", default="CHIP ARP", help="the fourth track's MACRO preset (CHIP ARP: 16 voices; VCF BRASS: 9; VA BASS: 6 at 18 units)")
