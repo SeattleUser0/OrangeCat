@@ -5,6 +5,36 @@
 
 This is the list of changes a player can see or that touch the data on the unit, by version, from 0.7.1 up to Release 1, 0.15.0 (branch `linux-hw`, published as the Nightly; main and the release tag follow when it is approved). The build and test details are in BUILD.md; its "Release 1" section has the measurements behind the last two entries.
 
+## Release 3: Orange Cat 0.17.0 (DRAFT, November 19, 2026; not released, VERSION not set, no tag)
+
+*Drafted from what the Nightlies of Rounds 13 to 30 shipped (docs/orangecat/BUILD.md 7.2x to 7.49). The owner's Release plan 0.9 (in the claude.ai project) has the final contents; this draft was not compared with it: the owner checks it.* **The project format revision, scenes v2, Performance Mode and project-owned phrases are not in Release 3** (the owner, Round 31): they move to Release 4. Projects, presets and phrases are stored as in 0.16.0.
+
+**Install and update**
+- The installer page writes only what changed: firmware, the asset pack and every module are compared with what the unit holds (by checksum) and left alone when they match. A second install of the same set writes nothing.
+- Effects are modules: **DUB TAPE**, the **FX layer** (GLITCH, TAPE STOP with SCRATCH, SHUFFLE, FREEZE) and the **REVERB MODES** (SPRING, SHIMMER, RESO; ROOM and CLOUD stay built in). The default install ticks DUB TAPE and the FX layer.
+- **MACRO's models** are a module you pick on the page (the default pick is MACRO's own models 1 to 14).
+- When the ticked set does not fit, the page asks which effect module gives way this time; a unit holding REVERB MODES gets a one-click path to the default set (the page asks, removes it, installs the rest). A ticked module is never removed.
+- **Both FM-1 flash chips are supported:** Puya P25Q80 (0x856014) and UCUN UC25HQ80 (0xB36014). On any other chip the unit and the page say FLASH NOT SUPPORTED and write nothing. The page refuses a firmware package that does not know the unit's chip.
+
+**Tracks**
+- **Track OFF:** select a track, hold GLO and tap OCT+. An OFF track does not sound, gives its memory back, keeps its steps and sound, and its keys and MIDI channel are silent; its row says OFF. Turning it ON again takes effect at once when stopped, at the loop's end when playing (WAIT while its memory comes back). OFF is saved with the project.
+- **The rising cap:** while tracks are OFF, a MACRO track playing POLY can use their memory for more voices, within the unit's voice budget (a CHIP sound up to 16, VCF and NOISE up to 9, VA up to 6).
+- A muted row says MUTE on the Stage (FROZEN for a frozen phrase).
+
+**Playing and editing**
+- PRESETS walks every engine's sounds and lists only what can play: a user or MACRO sound whose engine or model is not installed is hidden (kept, and back when the module is installed). One sound a click, wrapping at both ends.
+- One slow knob click no longer counts twice when a contact drops out mid-click (all knobs).
+- **SHIFT and REVERSE move everything** in the phrase together: steps, motion, recorded notes and DUB's recorded control notes; undo gives it all back.
+- DUB's KICK, HOLD, DIVE and RISE are recorded as control notes and play back. On the DUB page the DUB keys are DUB's even with another layer held (a KICK never mutes a track).
+
+**Known limits of Release 3**
+- **The rising cap is not proven with DUB TAPE on the big track.** No run on the unit had a late half with it, but the test load could not hold DUB, with or without the cap.
+- **The UC25HQ80 (UCUN) chip is tested in simulation only;** no unit with it has been tried. A UC25HQ80 unit still on an older Orange Cat cannot be updated from the page (it needs the ROM recovery).
+- **DUB TAPE steps aside in a very busy mix** (DUB FULL on the screen: it switches itself off when the audio gets close to its limit) and comes back when there is room.
+- **The reverb modes are not ticked by default:** a project that uses SPRING, SHIMMER or RESO plays that send dry ("MODULE MISSING: dry") until REVERB MODES is installed.
+- CHIP and VA-VCF are not in the default model pick: on a unit with the default pick, presets that use them play the VA sound until a pick with them is installed.
+- On a project load, phrases kept but not saved in the project left behind are dropped, as before.
+
 ## The two one-way doors
 
 1. **0.9.1, the library migration.** The preset library moved into groups of banks that share a spare sector. The first power-on after the upgrade moves the banks. Firmware older than 0.9.1 cannot read the groups and its first save writes over group sectors, so **a downgrade below 0.9.1 destroys the library**. Back the unit up first (the editor's backup), and restore it after the upgrade. Since 0.11.1 the migration finishes after such a round trip, or says LIBRARY NEEDS WIPE; the presets saved in the group before the downgrade are lost where the old firmware wrote over them.
