@@ -133,6 +133,24 @@ def main():
     check(p.returncode == 0 and json.loads(p.stdout)["order"], "qual_soak.py --order 1")
     p = subprocess.run(["node", "--check", os.path.join(HERE, "cdp_install.mjs")], capture_output=True, text=True)
     check(p.returncode == 0, "cdp_install.mjs parses")
+    # (Round 31) the driver's verdict: only the page's own result ends an attempt ok; the room meter's refusal of the rehearsal (q4a2.log) is NOT ok
+    src = open(os.path.join(HERE, "cdp_install.mjs")).read()
+    line = next((l for l in src.splitlines() if l.startswith("const finishedText = ")), "")
+    cases = {"Result: Firmware: installed | Pack: already current, left as it is | Module: installed": True, "Done": True, "結果: ファームウェア": True,
+             "Room: 12 sectors; DUB TAPE 3, FX LAYER 2, WHEEL 4, SHAPES 6 take 15; -3 left. This pick (WAVSHP, FM) needs 9: 12 too many. Leave a model or a wave bank out. Install waits until the models fit.": False,
+             "ENGINE DUB TAPE INSTALLED AT START 18: REMOVE IT FIRST": False, "": False}
+    p = subprocess.run(["node", "-e", line + "\nconsole.log(JSON.stringify(" + json.dumps(list(cases)) + ".map(finishedText)))"], capture_output=True, text=True)
+    check(bool(line) and p.returncode == 0 and json.loads(p.stdout) == list(cases.values()), "cdp_install.mjs: a page refusal (no Result: line) is not ok, the page's result is")
+    # (the review) a Result line with a part that did not install is not ok; the parts are the error
+    i0 = src.index("const resultProblems = "); body = src[i0:src.index("\n};\n", i0) + 3]
+    rcases = {"Result: Firmware: installed | Pack: already current, left as it is | Module: installed | Module: already current, left as it is": 0,
+              "Result: Firmware: installed | Pack: already current, left as it is | Module: installed | The modules were taken off and installed again in an order that fits.": 0,
+              "Result: Firmware: installed | Pack: installed | Module: No place is free for the module.": 1,
+              "Result: Firmware: installed | Pack: installed | Module: MACRO models needs 9 sectors in one run; the biggest run the unit's loader can use is 2. The unit has no place for it. Nothing was written": 1,
+              "Result: Firmware: not chosen | Pack: not chosen | Module: this module is not for this firmware | Module: ENGINE DUB TAPE INSTALLED AT START 18: REMOVE IT FIRST": 2,
+              "Result: Firmware: installed | Pack: installed | Module: installed | There was not enough room, so the modules this run had added were taken out again: the unit is as it was.": 1}
+    p = subprocess.run(["node", "-e", body + "\nconsole.log(JSON.stringify(" + json.dumps(list(rcases)) + ".map((x) => resultProblems(x).length)))"], capture_output=True, text=True)
+    check(p.returncode == 0 and json.loads(p.stdout) == list(rcases.values()), "cdp_install.mjs: a Result with a part that did not install is not ok, the parts named " + (p.stderr or p.stdout)[-200:])
     print(f"\n{len(FAILS)} failed" if FAILS else "\nevery check passed")
     return 1 if FAILS else 0
 

@@ -157,7 +157,16 @@ const TEXT = {
     stageFx: "エフェクトモジュール", fxWhy: "このビルドのエフェクトモジュール（インサート、センド、マスター）。モジュールIDで入ります。エンジンのモジュールとは別に、空いている場所に入ります。",
     stageModels: "MACROのモデル", installModels: "MACROのモデル",
     modelsWhy: "VAはファームウェアに内蔵です。MACROのほかのモデルは、ここで選んで1つのモジュールにします（今日の15モデルにチェック済み）。ほかのモジュールと並べて入れる空きが必要で、リストの下の行がその空きを示します。入らないモデルを外すまでインストールは始まりません。",
-    modelsBuiltIn: "内蔵", modelsNoRoom: "モデルが入るまでインストールは待ちます。",
+    modelsBuiltIn: "内蔵", modelsNoRoom: "モデルが入るまでインストールは待ちます。", modelsAfterFw: "（インストールが先に書き込むファームウェアでの配置です。いまのファームウェアのモジュール領域は{n}セクター、開始位置{s}個です。新しいファームウェアが入ったあとFM-1をもう一度読み、そのファームウェアが置く場所にだけモジュールを書き込みます。）",
+    afterFwJunk: "いまFM-1に入っていて新しいファームウェアでは読み込まれず、上書きされることがあるモジュール: {names}。", unreadAt: "開始位置{n}の読めないモジュール",
+    afterFwLow: "下の6セクターを使う配置です。FM-1はサンプルスロットを確保済みと答えているので、そこにレコードはなく、新しいファームウェアの最初の起動でモジュール用になります。そうならなかった場合は、ファームウェアを書いたあとモジュールは書かず、理由を表示します。",
+    afterFwNoLow: "下の6セクターを使わない配置です。新しいファームウェアがそこを空けるのに必要なレコードストアの空きがあるとFM-1は答えていません（サンプルスロットが未確保）。使うには、FM-1でプロジェクトかパターンを消して再起動し、もう一度インストールしてください。",
+    fwFirstConfirm: "インストールは先に新しいファームウェアを書き込み、そのあとFM-1をもう一度読んで、新しいファームウェアが置く場所にモジュールを入れます。{junk}{low}続けますか？",
+    fwFirstJunk: "いまFM-1に入っている次のモジュールは新しいファームウェアでは動かず、鳴らなくなり、上書きされることがあります: {names}。",
+    fwFirstLow: "モジュールは下の6セクターも使う前提で配置しています。新しいファームウェアの最初の起動でそこを空けられなかった場合、FM-1は新しいファームウェアのままこのセットのモジュールなしになり、ページが理由を表示します。",
+    fwFirstNoLow: "モジュールは下の6セクターを使わずに配置しています。",
+    fwFirstDeclined: "インストールしなかったので何も書き込んでいません。FM-1は元のままです。",
+    sampleLost: "サンプルスロットのサンプル（{name}、{n}バイト）は新しいファームウェアのスロット（{max}バイト）より長いため、失われます。FM-1からサンプルを取り出す方法はないので、残したい場合は元のWAVファイルを保管し、インストール後に短くして読み込み直してください。",
     modelsLoading: "モデルの一覧を読み込み中です。",
     modNoPlace: "FM-1のローダーに入れる場所がありません。何も書き込んでいません。", unitUnread: "FM-1をまだ読んでいません。インストールは先にFM-1を読み、ローダーと同じ方法で場所を決めます。", rolledBack: "場所が足りなかったので、今回新しく入れたモジュールを元に戻しました。",
     unitModsTitle: "ユニットに入っているモジュール", unitRead: "ユニットから読む", unitEngines: "エンジン", unitFx: "エフェクト",
@@ -257,7 +266,16 @@ const TEXT = {
     stageFx: "Effect modules", fxWhy: "The build's effect modules (insert, send, master). They go in by their module id, into a free place beside the engine modules.",
     stageModels: "MACRO models", installModels: "the MACRO models",
     modelsWhy: "VA is built into the firmware. The other models of MACRO come as one module you put together here: tick the models to install (today's fifteen are ticked). The module needs room beside the other modules; the line under the list says how much. Install does not start until the models fit.",
-    modelsBuiltIn: "built in", modelsNoRoom: "Install waits until the models fit.",
+    modelsBuiltIn: "built in", modelsNoRoom: "Install waits until the models fit.", modelsAfterFw: "(Placed for the firmware Install writes first: the FM-1's firmware now has a module area of {n} sectors and {s} starts. Once the new firmware is on, the page reads the FM-1 again and writes each module only where that firmware places it.)",
+    afterFwJunk: "In the FM-1 now, and not loaded by the new firmware (the page may write over them): {names}.", unreadAt: "a module at start {n} it cannot read",
+    afterFwLow: "The plan uses the six low sectors: the FM-1 says its sample slot is claimed, so no record of its store lives there and the new firmware's first start gives them to the modules. If it does not, the page writes the firmware, then no module, and says why.",
+    afterFwNoLow: "The plan leaves the six low sectors out: the FM-1 does not say its record store has the room the new firmware needs to free them (its sample slot is not claimed). To use them, delete a project or patterns on the FM-1, restart it and press Install again.",
+    fwFirstConfirm: "Install writes the new firmware first, then reads the FM-1 again and installs the modules where the new firmware places them. {junk}{low}Continue?",
+    fwFirstJunk: "These modules in the FM-1 now do not work with the new firmware: they stop playing and may be written over: {names}.",
+    fwFirstLow: "The modules are planned on the six low sectors too, which the new firmware frees at its first start; if it cannot, the FM-1 ends with the new firmware and without the modules of this set, and the page says why.",
+    fwFirstNoLow: "The modules are planned without the six low sectors.",
+    fwFirstDeclined: "Not installed, so nothing was written: the FM-1 is as it was.",
+    sampleLost: "The sample in the sample slot ({name}, {n} bytes) is longer than the new firmware's slot keeps ({max} bytes): it will be lost. The FM-1 cannot send a sample back, so keep the WAV file you made it from if you want it, and load it again, shorter, after the install.",
     modelsLoading: "The list of models is loading; Install waits for it.",
     modNoPlace: "The unit's loader has no place for it. Nothing was written; the unit is as it was.", unitUnread: "The unit has not been read yet. Install reads it first and places the modules the way the unit's loader does.", rolledBack: "There was not enough room, so the modules this run had added were taken out again: the unit is as it was.",
     unitModsTitle: "Modules in the unit", unitRead: "Read from the unit", unitEngines: "Engines", unitFx: "Effects",
@@ -408,18 +426,43 @@ function modelsList() {                               /* one box a model, VA loc
     if (it.id) box.addEventListener("change", () => { rememberPick(pickedItems()); installWhat(); });
   });
 }
+/* (Round 31, found on the unit: 0.15.0 Standard -> the Nightly with the default ticks was refused before any write) the firmware box ticked for a build with the tail region on a
+ * unit that does not report it: Install writes the firmware first, and runSet places the modules on the unit as the NEW firmware reads it. The meter, the give-way choice and
+ * the refusal before the first write go by that unit (PLACE.afterFirmware: the new layout, the older build's modules refused for their interface, the low six the area's),
+ * not by the older firmware's module area (0.15.0: 12 sectors, 3 starts, the low six not usable, WHEEL's 4 sectors). Unticked, or a unit with the tail: the unit as read. */
+const fwFirst = () => $("stage-fw").checked && (writing || !$("stage-fw").disabled);   /* (while Install runs the boxes are locked, not "not offered") */
+const tailBuildOf = () => !!(master && master.manifest.places && master.manifest.places.some((x) => x.name === "tail"));
+function unitView() {
+  if (!unitState || !unitState.mod || !unitState.mod.starts || !fwFirst() || !tailBuildOf() || PLACE.isTailUnit(unitState.mod)) return unitState;
+  /* (the review) the low six only when it is KNOWN the new firmware can free them: the unit says its sample slot is claimed (fm1oc.js slotInfo: nothing of the store lives there) */
+  return PLACE.afterFirmware(unitState, {tail: true, iface: master.manifest.hdr ? master.manifest.hdr.iface : null, lowOk: !!(unitState.slot && unitState.slot.state >= 1)});
+}
+/* (the review: never erase without naming it) the modules of the unit that the new firmware will not load (another interface), and the starts it cannot read: by name */
+const ENG_NAMES = {14: "SHAPES", 19: "PROPHET", 7: "WHEEL", 8: "MACRO MODELS"}, FX_NAMES = {1: "DUB TAPE", 2: "REVERB MODES", 3: "FX LAYER", 0x4D08: "MACRO MODELS"};
+const junkNames = (p) => [...p.junk.map((j) => j.kind ? FX_NAMES[j.mid] || "EFFECT 0x" + (j.mid >>> 0).toString(16).toUpperCase() : ENG_NAMES[j.engine] || "ENGINE #" + j.engine),
+  ...p.unread.map((x) => t("unreadAt").replace("{n}", String(x.start)))];
+/* (the re-review) a sample in 0.15.0's slot longer than the new firmware's slot keeps (smp_slot.c SMP_SLOT_MAX 60,896 B): the new firmware reads the slot EMPTY and its tail lies in
+ * the six low sectors the modules may take. The FM-1 has no command that sends a sample back, so the words say to keep the WAV it was made from */
+const NEW_SLOT_MAX = 60896;
+const lostSample = () => { const x = unitState && unitState.slot; return x && x.state === 2 && x.len > NEW_SLOT_MAX ? t("sampleLost").replace("{name}", x.name || "?").replace("{n}", String(x.len)).replace("{max}", String(NEW_SLOT_MAX)) + " " : ""; };
+function afterFwText(p) {
+  const names = junkNames(p), lost = lostSample();
+  return t("modelsAfterFw").replace("{n}", String(p.sectors)).replace("{s}", String(p.nstarts)) + (names.length ? " " + t("afterFwJunk").replace("{names}", names.join(", ")) : "") +
+    " " + t(p.lowAssumed ? "afterFwLow" : "afterFwNoLow") + (lost ? " " + lost.trim() : "");
+}
 function modelsOthers() {                             /* the modules beside the pick: the ticked module stages of this build (an engine module's geometry, an effect module's sectors), and the unit's when read */
-  const tailBuild = !!(master && master.manifest.places && master.manifest.places.some((x) => x.name === "tail"));   /* (round 23, found on the unit) a build with the tail region ships WHEEL re-cut to one sector (fm1place.js ENG_GEO_TAIL); counted as 4, the default pick read "1 too many" and Install stayed locked */
+  const tailBuild = tailBuildOf();   /* (round 23, found on the unit) a build with the tail region ships WHEEL re-cut to one sector (fm1place.js ENG_GEO_TAIL); counted as 4, the default pick read "1 too many" and Install stayed locked */
   const geo = (u) => /orangecat-wheel-/.test(u) ? {name: "WHEEL", sectors: tailBuild ? 1 : 4, only: "area"} : /orangecat-prophet-/.test(u) ? {name: "PROPHET", sectors: 8, only: "area"} : {name: "SHAPES", sectors: 6, only: "area"};   /* (an engine module's geometry is the module area's) */
-  const eng = $("stage-prophet").checked && !$("stage-prophet").disabled ? ocmOf("prophet") : $("stage-mod").checked && !$("stage-mod").disabled ? ocmOf("shapes") : [];
+  const on = (id) => $(id).checked && (writing || !$(id).disabled);   /* (Round 31) while Install runs the boxes are locked: the engine stage still counts (it read "WHEEL 4" from the unit instead) */
+  const eng = on("stage-prophet") ? ocmOf("prophet") : on("stage-mod") ? ocmOf("shapes") : [];
   const fx = fxPick(writing).filter((x) => x.kind !== 4).map((x) => ({name: x.name || "0x" + x.module_id.toString(16), sectors: x.sectors || 1}));   /* (round 25) while Install runs the boxes are locked, not "not offered" */   /* (step 8a) the ticked boxes' effect modules: an optional one counts only when its box is ticked */
-  return PICK.others([...eng.map(geo), ...fx], unitState);
+  return PICK.others([...eng.map(geo), ...fx], unitView());
 }
 /* the places the modules may go: the module area, and the tail region of FLASH_MAP_R3.md option A (the unit says how many sectors it has: MOD_INFO's `tail`; a page that has not
  * read the unit counts the master's own, which a Release 3 firmware has; a unit without one, or a master without one, has the area alone) */
 function modelsPlaces(area) {
   const t0 = master && master.manifest.places ? master.manifest.places.find((x) => x.name === "tail") : null;
-  const tail = unitState && unitState.mod ? (unitState.mod.tail || 0) : t0 ? t0.last - t0.first : 0;
+  const u = unitView(), tail = u && u.mod ? (u.mod.tail || 0) : t0 ? t0.last - t0.first : 0;
   return tail ? [{name: "area", label: "module area", sectors: area}, {name: "tail", label: "tail region", sectors: Math.min(tail, t0 ? t0.last - t0.first : tail)}] : area;
 }
 /* (review of the picker) the modules of this install in the order Install writes them (engine modules, the effect modules, the models last), as the loader's planner
@@ -441,16 +484,17 @@ const modelsPackPlace = () => {   /* "both": the pick's package carries the tail
   const tail = !!(master && (master.manifest.places || []).some((x) => x.name === "tail"));
   if (!tail) return null;
   if (!(unitState && unitState.mod)) return "both";
-  return PLACE.isTailUnit(unitState.mod) || ($("stage-fw").checked && !$("stage-fw").disabled) ? "both" : null;
+  return PLACE.isTailUnit(unitState.mod) || fwFirst() ? "both" : null;   /* (Round 31) fwFirst: the box counts while Install runs too (it is locked then, and read as unticked here before) */
 };
 /* (Round 26, review) does the unit hold this very pick? The pick as Install packs it (PICK.pack, the same items and places; packed once per choice) against the unit's MOD_INFO CRCs
  * (fm1oc.js fxCurrent): then it is not written, and the meter places it where it is, as runSet does. false for a unit that does not report them (it is written, as before) */
 let pickMemo = {key: null, ocm: null};
 function pickStays() {
-  if (!master || !unitState || !unitState.mod || !unitState.mod.crcs || !unitState.fx) return false;
-  const key = JSON.stringify([pickedItems(), modelsPackPlace(), unitState.mod.crcs, unitState.mod.pages]);
+  const uv = unitView();
+  if (!master || !uv || !uv.mod || !uv.mod.crcs || !uv.fx) return false;
+  const key = JSON.stringify([pickedItems(), modelsPackPlace(), uv.mod.crcs, uv.mod.pages]);
   if (pickMemo.key !== key) { let o = null; try { const pk = PICK.pack(master, pickedItems(), 0, null, modelsPackPlace()); o = pk.error ? null : OCM.parse(pk.ocm); } catch (_) { o = null; } pickMemo = {key, ocm: o}; }
-  return !!(pickMemo.ocm && pickMemo.ocm.ok && fxCurrent(pickMemo.ocm, unitState.fx, unitState.mod));
+  return !!(pickMemo.ocm && pickMemo.ocm.ok && fxCurrent(pickMemo.ocm, uv.fx, uv.mod));
 }
 const unitHolds = (st, m) => st.starts.some((x) => (x.state === 7 || x.state === 5 || x.state === 6) && (m.engine != null ? !x.kind && x.engine === m.engine : x.kind && x.mid === m.mid));
 const modelsOk = () => modelsLoading ? !$("stage-models").checked : !$("stage-models").checked || $("stage-models").disabled || !master || (!!modelsRoom && modelsRoom.ok);
@@ -465,9 +509,10 @@ const giveWayKey = () => JSON.stringify([fxTicked(true).map((x) => x.module_id),
     unitState.fx ? unitState.fx.effects.map((e) => [e.start, e.kind, e.id, e.sectors, e.version]) : null] : null]);
 /* the room and the placement of the set the boxes tick, less the module that gives way (fxPick): {room (PICK.room's answer, ok and text as the meter shows them), extra} */
 function meterFor(items, bad) {
-  const area = unitState && unitState.mod ? unitState.mod.sectors : 18, places = modelsPlaces(area);
+  const uv = unitView();                              /* (Round 31) the unit as read, or as the firmware Install writes first will read it */
+  const area = uv && uv.mod ? uv.mod.sectors : 18, places = modelsPlaces(area);
   const room = PICK.room(master.manifest, master.img0.length, items, places, modelsOthers());
-  const st = PLACE.fromUnit(unitState);               /* the unit as it was read: where the loader puts each module (not 18 minus what is installed) */
+  const st = PLACE.fromUnit(uv);                      /* the unit as it was read: where the loader puts each module (not 18 minus what is installed) */
   let extra = "";
   if (items.length && !bad.length) {
     if (!st) { if (room.ok) extra = " " + t("unitUnread"); }
@@ -490,14 +535,15 @@ function meterFor(items, bad) {
           : a.how === "rearrange" && !a.remove.length ? "It fits once " + dropped + " (" + placed(a.plan) + "): Install asks first."
           : a.how === "rearrange" ? "It fits once " + (dropped ? dropped + " and " : "") + a.remove.map((m) => m.name).join(", ") + " are taken off the unit and installed again in an order that fits (" + placed(a.plan) + "): Install asks first."
           : a.how === "blocked" ? a.blockers.map((b) => blockedOne((b.kind === 4 ? b.mid & 0xFF : b.kind ? 127 : b.engine) + ":" + b.start + (b.kind && b.kind !== 4 ? ":" + b.mid : ""))).join(" ")
-          : PLACE.whyNot(st, a.plan.mods, a.plan) + " " + (unitState.mod.lowOk ? "" : "(The six low sectors are not usable on this unit yet.) ") + "Leave a model or a wave bank out.");
+          : PLACE.whyNot(st, a.plan.mods, a.plan) + " " + (uv.mod.lowOk ? "" : "(The six low sectors are not usable on this unit yet.) ") + "Leave a model or a wave bank out.");
     }
     else {
       const stays = pickStays(), mods = placeMods(room.need, true).filter((m, k, a) => k === a.length - 1 ? !stays : !unitHolds(st, m)), r = PLACE.simulate(st, mods);   /* (Round 26) the pick the unit holds is not placed again */
       room.ok = r.ok;
-      if (!r.ok) extra = " " + PLACE.whyNot(st, mods, r) + " " + (unitState.mod.lowOk ? "" : "(The six low sectors are not usable on this unit yet.) ") + "Leave a model or a wave bank out.";
+      if (!r.ok) extra = " " + PLACE.whyNot(st, mods, r) + " " + (uv.mod.lowOk ? "" : "(The six low sectors are not usable on this unit yet.) ") + "Leave a model or a wave bank out.";
       else room.text += " The unit's loader can place it.";
     }
+    if (st && uv.mod.predicted) extra += " " + afterFwText(uv.mod.predicted);
   }
   return {room, extra};
 }
@@ -756,7 +802,9 @@ async function withUnit(job) {
   } catch (e) { if (e && e.code && TEXT[lang][e.code]) sayK(e.code, e.detail ? " " + e.detail : ""); else sayK("error", e && e.message); log(String(e && e.stack || e)); }
   finally { if (link) link.close(); lockInstaller(false); }
 }
-$("unit-read").addEventListener("click", () => { if (!writing) withUnit(async (link) => { sayK("unitProbe"); showUnit(await listUnit(link)); ready(); }); });
+/* (Round 31, the review) a unit without the tail region is asked its sample slot too (unitView: may the new firmware free the six low sectors) */
+async function readUnit(link) { const u = await listUnit(link); if (u && u.mod && !PLACE.isTailUnit(u.mod)) u.slot = await slotInfo(link); return u; }
+$("unit-read").addEventListener("click", () => { if (!writing) withUnit(async (link) => { sayK("unitProbe"); showUnit(await readUnit(link)); ready(); }); });
 $("fx-remove").addEventListener("click", () => {
   const id = Number($("fx-remove-id").value);
   if (writing || !(id > 0) || !confirm(t("fxRemoveConfirm"))) return;
@@ -780,12 +828,21 @@ $("go").addEventListener("click", async () => {
   catch (e) { sayK("denied"); lockInstaller(false); return; }
   if (stages.module) {                                  /* (review of the picker) the unit is read again for every Install, and the room is placed against what it holds now, before a byte is written */
     let u = null;
-    try { const link = await openUnit(midi, 5000); if (link) { try { u = await listUnit(link); } finally { link.close(); } } } catch (e) { u = null; log(String(e && e.message || e)); }
+    try { const link = await openUnit(midi, 5000); if (link) { try { u = await readUnit(link); } finally { link.close(); } } } catch (e) { u = null; log(String(e && e.message || e)); }
     unitState = u ? {...u, read: true} : null;
     modelsMeter();
 
     if (!u && !stages.firmware) { sayK("sNounit"); lockInstaller(false); return; }
     if (u && modelsOn && !(modelsRoom && modelsRoom.ok)) { say($("models-room").textContent); lockInstaller(false); return; }   /* (not modelsOk(): the box is disabled while the page is locked, which reads as ok) */
+    /* (Round 31, the review) the firmware of another layout goes first and the plan is the one the meter made for it: before a byte is written the owner is told which of the
+     * unit's modules stop working and may be written over (by name), and what the plan assumes of the six low sectors */
+    const uv = stages.firmware ? unitView() : null;
+    if (uv && uv.mod && uv.mod.predicted) {
+      const p = uv.mod.predicted, names = junkNames(p);
+      if (!confirm(t("fwFirstConfirm").replace("{junk}", names.length ? t("fwFirstJunk").replace("{names}", names.join(", ")) + " " : "").replace("{low}", t(p.lowAssumed ? "fwFirstLow" : "fwFirstNoLow") + " " + lostSample()))) {
+        sayK("fwFirstDeclined"); lockInstaller(false); return;
+      }
+    }
     /* (round 25) the meter ran again on the unit as read: the effect modules are what it placed now (the one that gives way, if the choice still stands, left out) */
     fxMods = fxPick(true);
     modules = [...engMods, ...fxMods.map((x) => x.url)]; want = [...engMods.map(() => null), ...fxMods.map((x) => ({kind: x.kind, module_id: x.module_id}))];

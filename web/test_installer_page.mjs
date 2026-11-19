@@ -73,7 +73,8 @@ function boot(storage, unit = {model: "FM-1", text: "FM-1_710010300"}, meta = ME
       return {firmware: ctx.stages.firmware ? "installed" : "off", pack: ctx.stages.pack ? "installed" : "off", module: ctx.files.modules.map(() => "installed")};
     },
     OcLink: class { close() {} },
-    listUnit: async () => { unitReads.n++; return unitReads.data; },          // (the review) Install reads the unit before it writes; the test says what the unit holds
+    listUnit: async () => { unitReads.n++; return unitReads.data; },
+    slotInfo: async () => (unitReads.slot == null ? null : typeof unitReads.slot === "object" ? unitReads.slot : {state: unitReads.slot}),   // (Round 31, the review) 110 SLOT_INFO: the sample slot's state (null: no reply)          // (the review) Install reads the unit before it writes; the test says what the unit holds
     Date: class extends Date { static now() { return (unitReads.clock = (unitReads.clock || 0) + 6000); } },   // the page waits for a unit in steps of a second; here the wait runs out at once
     PICK, PLACE, OCM, fxCurrent, ...extra,                       // (Round 26) extra: a test's own stand-ins; the meter asks whether the unit holds the very pick (index_pkg.html pickStays); (the model picker) the packer and the room meter, inlined into the page by make_site.py
   });
@@ -389,9 +390,15 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
     assert.deepEqual(startsOf(empty.runs[0].modules[1]), [...Array.from({length: 16}, (_, i) => i - 6), -58], "the pick's package for a unit with the tail: the area's starts and the tail's");
     assert.ok(!empty.confirms.length, "nothing to ask");
     // the same pick for a unit that reports 18 starts is the area's package, as it always was
+    // (Round 31) for a unit that keeps its firmware (the firmware box unticked). Before Round 31 the box read as unticked here whatever it was (it is locked while Install
+    // runs); ticked, the unit gets the tail build's firmware first and then has the tail: the package carries the tail's starts too (as for a unit that was not read)
     const u18 = await fresh(unitOf([[0, 14, 7, 24160]]), {bytes: tailMaster});
+    u18.element("stage-fw").checked = false; u18.element("stage-fw").listeners.change();
     await press(u18);
-    assert.deepEqual(startsOf(u18.runs[0].modules[1]), Array.from({length: 16}, (_, i) => i - 6), "a unit with 18 starts: no tail start in the package");
+    assert.deepEqual(startsOf(u18.runs[0].modules[1]), Array.from({length: 16}, (_, i) => i - 6), "a unit with 18 starts that keeps its firmware: no tail start in the package");
+    const u18fw = await fresh(unitOf([[0, 14, 7, 24160]]), {bytes: tailMaster});
+    await press(u18fw);
+    assert.deepEqual(startsOf(u18fw.runs[0].modules[1]), [...Array.from({length: 16}, (_, i) => i - 6), -58], "a unit with 18 starts about to get the tail build's firmware: the tail's start too");
     // SHAPES at start 0, DUB TAPE (the effects box: of the set) at sector 7, another module in the tail, the low six not usable: the pick has no run of 3 as the unit
     // stands (1 and 2 are free); with SHAPES and DUB TAPE taken off and put on again in order it has. The meter says so, Install asks, the answer is the user's
     const tfrag = () => { const x = unitOf([[0, 14, 7, 24160], [7, 0, 7, 12288, {id: 1, sectors: 3}], [18, 0, 7, 12288, {id: 0x1234, sectors: 3}]], 21); x.mod.lowOk = false; return x; };
@@ -599,6 +606,180 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
       assert.equal(c2.confirms[0], "The set you ticked does not fit beside the modules as they sit in the FM-1 now. REVERB MODES is in the FM-1 but not in the set you ticked: the page removes it to make room and does not put it back " +
         "(tick it and install it again if you want it back). The page also takes SHAPES, WHEEL, DUB TAPE off the FM-1 and installs them again in an order that fits. It takes about a minute, and until it is done the FM-1 plays " +
         "without those engines and effects. If it is interrupted, press Install again and it finishes the job. Remove REVERB MODES and rearrange the modules?");
+      // (Round 31, found on the unit in the lead's Q4 rehearsal, ~/fm1-hw/captures/r31/q4a2.log) a unit on 0.15.0 Standard (v0.15.0-d6134, installed a minute before over the
+      // Nightly) and Install of the tail build's Nightly with the default ticks: the firmware, SHAPES and WHEEL, DUB TAPE and the FX layer, the 9 sector pick. The unit's
+      // replies as 0.15.0 sent them (q4a2.log "d: before"; q4/a1-standard): MOD_INFO 3 starts, a 12 sector area, no start table, no low-six byte (lowOk false); WHEEL at start 0
+      // (0.15.0's 4 sector geometry) and SHAPES at 1, both 0.15.0's own (another interface, 2284971644); start 2 the Nightly's FX layer, which 0.15.0 refuses (state 2, why 3);
+      // no answer to FX_TABLE. fcdc364b planned the set against THAT area and refused it before any write: "Room: 12 sectors; DUB TAPE 3, FX LAYER 2, WHEEL 4, SHAPES 6 take 15;
+      // -3 left. ... DUB TAPE needs 3 sectors in one run; the biggest run the unit's loader can use is 2. (The six low sectors are not usable on this unit yet.)"
+      {
+        const {parseModInfo, parseEngines, parsePackInfo, runSet: realRunSet, OcLink: RealLink, OC_FX_KIND} = await import("./fm1oc.js");
+        const T = await import("./test_placed_unit.mjs");
+        const n3 = (v) => [v & 127, (v >> 7) & 127, (v >> 14) & 127], n5 = (v) => [0, 1, 2, 3, 4].map((i) => Math.floor(v / 2 ** (7 * i)) & 127);
+        const IF015 = 2284971644;
+        const v015 = ({prophet = false} = {}) => {   // prophet: 0.15.0's PROPHET at start 0 in WHEEL's place (the other engine stage of 0.15.0)
+          const e0 = prophet ? 19 : 7, l0 = prophet ? 34764 : 2928;
+          const mi = [3, 12, 3, 6, 112, ...n5(IF015), ...n5(33558784), ...n5(1702811984), 127, ...[[7, 0, e0, l0], [7, 0, 14, 24160], [2, 3, 0, 5864]].flatMap(([s, w, e, l]) => [s, w, e, ...n3(l)]), 127];
+          const row = (e) => e === e0 ? [2, 7, 0, 0, 1, 0, 0, ...n3(l0), 0] : e === 14 ? [2, 7, 0, 1, 1, 0, 0, ...n3(24160), 0] : [e === 8 || e === 9 ? 1 : 0, 0, 0, 127, 0, 0, 0, ...n3(0), e === 8 ? 4 : 0];
+          const en = [20, ...Array.from({length: 20}, (_, e) => row(e)).flat(), 3, 7, 0, e0, 7, 0, 14, 2, 3, 0];
+          const pi = [1, 0, ...n3(40232), ...n5(1702811984), ...n3(40232), ...n5(1702811984), ...n3(40960)];
+          return {pack: parsePackInfo(pi), mod: parseModInfo(mi), engines: parseEngines(en), fx: null};
+        };
+        {
+          const u = v015();
+          assert.ok(u.mod.nstarts === 3 && u.mod.sectors === 12 && u.mod.lowOk === false && !u.mod.sectorOf && u.mod.starts[2].state === 2 && u.mod.iface === IF015, "the mock reads as 0.15.0's probe in q4a2.log: " + JSON.stringify(u.mod));
+          assert.deepEqual(u.engines.engines.filter((x) => x.src === 2).map((x) => [x.num, x.state, x.start, x.size]), [[7, 7, 0, 2928], [14, 7, 1, 24160]]);
+          assert.equal(PLACE.afterFirmware(u, {iface: 1}).mod.lowOk, false, "(the review) the low six only when it is known the new firmware can free them: unknown is false");
+          const p = PLACE.afterFirmware(u, {iface: 1, lowOk: true});
+          assert.deepEqual(JSON.parse(JSON.stringify(p.mod.predicted)), {nstarts: 3, sectors: 12, lowOk: false, lowAssumed: true, junk: [{start: 0, engine: 7}, {start: 1, engine: 14}], unread: [{start: 2, length: 5864}]}, "what becomes junk, and what 0.15.0 cannot read");
+          assert.ok(PLACE.isTailUnit(p.mod) && p.mod.lowOk && p.mod.sectors === 18 && p.mod.starts.slice(0, 3).every((x) => x.state === 2) && p.mod.starts.slice(3).every((x) => !x.state) && !p.engines,
+            "as the tail build's firmware will read it: 21 starts, the low six the area's, 0.15.0's WHEEL and SHAPES refused (another interface), the rest empty");
+          const same = PLACE.afterFirmware(u, {iface: IF015});
+          assert.ok(same.mod.starts[0].state === 7 && same.mod.starts[1].state === 7 && same.engines, "a unit of the same interface keeps its modules");
+        }
+        // the unit the tail build's firmware reads after it is on (what runSet probes): 0.15.0's WHEEL and SHAPES refused, the Nightly's FX layer OK again at start 2, the
+        // Nightly's old models at start 17 damaged (0.15.0's WHEEL went over sector 6; bad CRC), the tail empty (0.15.0's loader wrote its body over it), the low six the area's
+        const nightlyAfter = (lowOk = true) => {   // lowOk false: the first boot found no room to free the six (smp_slot.c smp_claim)
+          const s = T.unitState(true, [[2, {mid: 3, sectors: 2, kind: 3}]], lowOk);
+          s.starts[0] = {state: 2, kind: 0, mid: 0, engine: 7, length: 2928}; s.starts[1] = {state: 2, kind: 0, mid: 0, engine: 14, length: 24160}; s.starts[17] = {state: 4, kind: 0, mid: 0, engine: 8, length: 36000};
+          return T.placedUnit(s, RealLink);
+        };
+        // the page's Install with the set logic of fm1oc.js runSet: the files fetched by the page stand for the mock's packages of the same modules; the firmware stage swaps the
+        // unit (0.15.0 -> the Nightly as it reads the flash)
+        const flowOf = () => {
+          const f = {fw: 0, unit: null, asked: [], sum: null, lowAfter: true};
+          f.runSet = async (ctx) => {
+            const real = (m) => { const s = String.fromCharCode(...m.slice(0, 64)); return /wheel/.test(s) ? T.engOcm(T.WHEEL, T.AREA) : /shapes/.test(s) ? T.engOcm(T.SHAPES, [0, 6]) : /dub/.test(s) ? T.fxOcm(T.DUB, 3, T.sectsFor(3)) : /fxlayer/.test(s) ? T.fxOcm(3, 2, T.sectsFor(2).slice(0, 18), {kind: 3}) : /reverb/.test(s) ? T.fxOcm(2, 1, T.sectsFor(1).slice(0, 18), {kind: 2}) : T.modelsOcm(9, T.sectsFor(9)); };
+            f.names = Array.from(ctx.files.modules, (m) => m).map((m) => String.fromCharCode(...m.slice(0, 64)).replace(/\.ocm.*$/s, "").replace(/^OCMF.*$/s, "MODELS"));
+            f.sum = JSON.parse(JSON.stringify(await realRunSet({...ctx, sleep: async () => {}, files: {...ctx.files, modules: Array.from(ctx.files.modules, real)},
+              runFirmware: async (p) => { await ctx.runFirmware(p); f.fw++; f.unit = nightlyAfter(f.lowAfter); },
+              openUnit: async () => (f.unit ? f.unit.link() : null), peekUnit: async () => null,
+              confirmRearrange: async (names, drop) => { f.asked.push([names, drop]); return ctx.confirmRearrange(names, drop); }})));
+            return f.sum;
+          };
+          return f;
+        };
+        const openFlow = async ({rev = false, fw = true, slot = 1, prophet = false} = {}) => {   // slot: SLOT_INFO's state (1 claimed and empty; 0 not claimed; null no reply)
+          const f = flowOf(), pg = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...FULL, releases: [FULL]}, {runSet: f.runSet, OC_FX_KIND});
+          await answer(pg, "standard.fwsc");
+          const i = pg.pending.findIndex((q) => q.url.startsWith("orangecat-plaits-")); const [q] = pg.pending.splice(i, 1); q.resolve({ok: true, arrayBuffer: async () => tm.buffer}); await pg.tick(); await pg.tick();
+          pg.element("stage-models").checked = true; pg.element("stage-models").listeners.change();
+          pg.element("stage-fx").checked = true; pg.element("stage-fx").listeners.change();
+          pg.element("stage-fx-opt").checked = rev; pg.element("stage-fx-opt").listeners.change();
+          pg.element("stage-fw").checked = fw; pg.element("stage-fw").listeners.change();
+          pg.unitReads.data = v015({prophet}); pg.unitReads.slot = slot;
+          return {pg, f};
+        };
+        const goFlow = async (pg) => {
+          let done = false; const c = pg.element("go").listeners.click(); c.then(() => { done = true; });
+          for (let k = 0; k < 400 && !done; k++) { while (pg.pending.length) { const p = pg.pending.shift(); p.resolve({ok: true, arrayBuffer: async () => Uint8Array.from(Buffer.from(p.url)).buffer}); } await pg.tick(); }
+          await c;
+        };
+        // 1. the default set: planned for the firmware Install writes first, Install goes on; the firmware, then the set in the goal's order on the unit as the new firmware reads it
+        {
+          const {pg, f} = await openFlow();
+          assert.equal(pg.element("go").disabled, false, "the page as it opens (the unit not read): Install is ready");
+          await goFlow(pg);
+          const room = pg.element("models-room").textContent;
+          assert.equal(pg.unitReads.n, 1, "Install read the unit");
+          assert.doesNotMatch(room, /Room: 12 sectors|WHEEL 4|biggest run|low sectors are not usable|Install waits/, "not planned against 0.15.0's area: " + room);
+          assert.match(room, /^Room: 18 sectors in the module area and 3 in the tail region\. This pick \(WAVSHP, FM, GRAIN\) needs 9 in one run\. The unit's loader can place it: SHAPES 6 \(module area\), MACRO models 9 \(module area\), WHEEL 1 \(module area\), DUB TAPE 3 \(tail region\), FX LAYER 2 \(module area\)\. \(Placed for the firmware Install writes first: the FM-1's firmware now has a module area of 12 sectors and 3 starts\. /, room);
+          assert.equal(pg.runs.length, 0, "(the mock's own runSet is not used here)");
+          assert.ok(f.sum, "Install ran the set: " + pg.element("status").textContent);
+          assert.equal(f.fw, 1, "the firmware first");
+          assert.deepEqual(f.names, ["orangecat-wheel-0.15.0", "orangecat-shapes-0.15.0", "orangecat-dub-0.15.0", "orangecat-fxlayer-0.15.0", "MODELS"], "the page's files, in its order");
+          assert.equal(f.sum.firmware, "installed");
+          assert.deepEqual(f.sum.module, ["installed", "installed", "installed", "current", "installed"], "WHEEL, SHAPES, DUB TAPE and the pick written, the FX layer the new firmware reads is kept: " + JSON.stringify(f.sum));
+          // the goal's order on that unit, as the loader's planner places it: SHAPES at start 1 (sectors 6..11 over 0.15.0's refused copy), the pick at start 16 (sectors -5..3: start
+          // 17 holds the damaged old pick, and an empty start comes first), WHEEL at 17 (sector -6, over it), DUB TAPE in the tail; the FX layer stays at start 2
+          assert.equal(f.unit.ops.join(" "), "begin:14@1 begin:0x4d08@16 begin:7@17 begin:0x1@18", "the goal's order: " + f.unit.ops.join(" "));
+          assert.ok(!f.asked.length && !f.unit.ops.some((o) => o.startsWith("remove")), "no rearrange asked, nothing taken off");
+          // (the review) told before the firmware is written: the modules that stop working, by name, and what the plan assumes of the six low sectors
+          assert.match(room, /In the FM-1 now, and not loaded by the new firmware \(the page may write over them\): WHEEL, SHAPES, a module at start 2 it cannot read\. The plan uses the six low sectors: the FM-1 says its sample slot is claimed/, room);
+          assert.equal(pg.confirms.length, 1, "one question, before the firmware");
+          assert.equal(pg.confirms[0], "Install writes the new firmware first, then reads the FM-1 again and installs the modules where the new firmware places them. These modules in the FM-1 now do not work with the new firmware: " +
+            "they stop playing and may be written over: WHEEL, SHAPES, a module at start 2 it cannot read. The modules are planned on the six low sectors too, which the new firmware frees at its first start; if it cannot, " +
+            "the FM-1 ends with the new firmware and without the modules of this set, and the page says why. Continue?");
+          const st = f.unit.st, at = (i) => st.starts[i];
+          assert.ok(at(1).state === 7 && at(1).engine === 14 && at(16).state === 7 && at(16).mid === 0x4D08 && at(17).state === 7 && at(17).engine === 7 && at(18).state === 7 && at(18).mid === 1 && at(2).state === 7 && at(2).mid === 3, "the unit ends with the whole set");
+          assert.ok(st.starts.every((x, i) => [1, 2, 16, 17, 18].includes(i) ? x.state === 7 : x.state !== 7), "and nothing else usable (0.15.0's WHEEL and SHAPES are gone)");
+          assert.match(pg.element("status").textContent, /Firmware: installed/, pg.element("status").textContent);
+        }
+        // 1b. (the review) the unit does not say its store has the room to free the six (its sample slot not claimed, or no answer): planned without them, the default set does
+        //     not fit: refused before the firmware, saying why; nothing asked, nothing written
+        for (const slot of [0, null]) {
+          const {pg, f} = await openFlow({slot});
+          await goFlow(pg);
+          const room = pg.element("models-room").textContent;
+          assert.ok(f.fw === 0 && !f.sum && !pg.confirms.length, "nothing written, nothing asked: " + room);
+          assert.match(room, /The plan leaves the six low sectors out: the FM-1 does not say its record store has the room the new firmware needs to free them \(its sample slot is not claimed\)\. To use them, delete a project or patterns on the FM-1, restart it and press Install again\./, room);
+          assert.match(pg.element("status").textContent, /Install waits until the models fit\.$/, pg.element("status").textContent);
+        }
+        // 1c. the slot claimed, but the new firmware's first boot keeps the six (the reviewer's case): the owner was told before the firmware, the module stage is refused after it
+        //     with the planner's reason, nothing of the set written
+        {
+          const {pg, f} = await openFlow(); f.lowAfter = false;
+          await goFlow(pg);
+          assert.ok(/if it cannot, the FM-1 ends with the new firmware and without the modules of this set/.test(pg.confirms[0] || ""), "told first: " + pg.confirms[0]);
+          assert.equal(f.fw, 1); assert.ok(f.sum.module.every((m) => m === "current" || m.error === "modNoPlace"), JSON.stringify(f.sum.module)); assert.equal(f.unit.ops.length, 0, "no module written");
+        }
+        // 1d. the question answered no: nothing written; 1e. 0.15.0's PROPHET (not of the set) is named in the meter and the question before it is written over
+        {
+          const {pg, f} = await openFlow(); pg.unitReads.answer = false;
+          await goFlow(pg);
+          assert.ok(f.fw === 0 && !f.sum && pg.confirms.length === 1, "declined: nothing written");
+          assert.equal(pg.element("status").textContent, "Not installed, so nothing was written: the FM-1 is as it was.");
+          const pr = await openFlow({prophet: true}); pr.pg.unitReads.answer = false;
+          await goFlow(pr.pg);
+          assert.match(pr.pg.element("models-room").textContent, /not loaded by the new firmware \(the page may write over them\): PROPHET, SHAPES, a module at start 2 it cannot read\./, pr.pg.element("models-room").textContent);
+          assert.match(pr.pg.confirms[0] || "", /may be written over: PROPHET, SHAPES, a module at start 2 it cannot read\./, pr.pg.confirms[0]);
+        }
+        // 1f. (the re-review) a 0.15.0 sample longer than the new firmware's slot (60,896 B) runs into the six low sectors and reads EMPTY there: named, with its length, in the
+        //     meter and in the question before the firmware; one that fits is not named. SLOT_INFO's reply as editor.c sends it, read by fm1oc.js slotInfo
+        {
+          const {slotInfo: realSlot} = await import("./fm1oc.js");
+          const reply = (len, name) => [2, ...n3(len), 1, ...n3(81408), ...[...name].map((c) => c.charCodeAt(0)), 0];
+          const ask = (r) => realSlot({ask: async () => r});
+          const big = await ask(reply(70000, "VOX")), small = await ask(reply(40000, "KICK"));
+          assert.deepEqual([big.state, big.len, big.name, small.len], [2, 70000, "VOX", 40000], "SLOT_INFO read: " + JSON.stringify(big));
+          const {pg, f} = await openFlow({slot: big}); pg.unitReads.answer = false;
+          await goFlow(pg);
+          const lost = "The sample in the sample slot (VOX, 70000 bytes) is longer than the new firmware's slot keeps (60896 bytes): it will be lost. The FM-1 cannot send a sample back, so keep the WAV file you made it from if you want it, and load it again, shorter, after the install.";
+          assert.ok(pg.element("models-room").textContent.includes(lost), "the meter names the sample: " + pg.element("models-room").textContent);
+          assert.ok((pg.confirms[0] || "").includes(lost) && pg.confirms[0].endsWith(lost + " Continue?"), "and the question before the firmware: " + pg.confirms[0]);
+          assert.equal(f.fw, 0);
+          const ok = await openFlow({slot: small}); ok.pg.unitReads.answer = false;
+          await goFlow(ok.pg);
+          assert.ok(!/sample slot \(/.test(ok.pg.element("models-room").textContent) && !/sample slot \(/.test(ok.pg.confirms[0] || ""), "a sample that fits is not named");
+        }
+        // 2. the optional reverb modes ticked as well (22 sectors on 21): it does not fit even after the new firmware; the page says so on that unit and offers the give-way choice
+        //    (nothing chosen for the owner, nothing written); chosen, Install goes on without it
+        {
+          const {pg, f} = await openFlow({rev: true});
+          assert.equal(pg.element("give-way").hidden, false, "22 of 21 on the page as it opens (the unit not read): the choice");
+          pg.element("gw-2").checked = true; pg.element("gw-2").listeners.change();   // chosen before the unit is read: the read clears it (round 25)
+          await goFlow(pg);
+          assert.equal(f.fw, 0, "nothing written"); assert.ok(!f.sum);
+          const gw = pg.element("give-way");
+          assert.equal(gw.hidden, false, "the give-way choice: " + pg.element("models-room").textContent);
+          assert.ok([1, 2, 3].every((id) => gw.innerHTML.includes(`id="gw-${id}"`)), gw.innerHTML);
+          assert.match(pg.element("status").textContent, /Placed for the firmware Install writes first[^]*Install waits until you choose\.$/, pg.element("status").textContent);
+          pg.element("gw-2").checked = true; pg.element("gw-2").listeners.change();
+          await goFlow(pg);
+          assert.equal(f.fw, 1); assert.ok(f.sum && !f.names.some((x) => /reverb/.test(x)), "the reverb modes left out: " + f.names);
+          assert.equal(f.unit.ops.join(" "), "begin:14@1 begin:0x4d08@16 begin:7@17 begin:0x1@18");
+        }
+        // 3. the firmware box unticked: the unit keeps 0.15.0, whose module area is what the modules would go into: refused as before, with its reasons, nothing written
+        {
+          const {pg, f} = await openFlow({fw: false});
+          await goFlow(pg);
+          assert.ok(!f.sum && f.fw === 0, "nothing written");
+          assert.match(pg.element("models-room").textContent, /^Room: 12 sectors; .*the biggest run the unit's loader can use is 2\. \(The six low sectors are not usable on this unit yet\.\) /, pg.element("models-room").textContent);
+          assert.doesNotMatch(pg.element("models-room").textContent, /Placed for the firmware/);
+        }
+        for (const k of ["modelsAfterFw", "afterFwJunk", "unreadAt", "afterFwLow", "afterFwNoLow", "fwFirstConfirm", "fwFirstJunk", "fwFirstLow", "fwFirstNoLow", "fwFirstDeclined", "sampleLost"])
+          assert.equal((template.match(new RegExp("\\b" + k + ":", "g")) || []).length, 2, k + " in ja and en");
+      }
       for (const k of ["rearrangeDropConfirm", "dropConfirm", "droppedDone", "giveWayAsk", "giveWayWait", "giveWayChosen", "sectorsWord", "sectorWord"])
         assert.equal((template.match(new RegExp("\\b" + k + ":", "g")) || []).length, 2, k + " in ja and en");
       assert.equal([...template.matchAll(/(rearrangeDropConfirm|dropConfirm): "[^"]*\{drop\}[^"]*\{drop\}[^"]*"/g)].length, 4, "the questions name the module that is removed, in both languages");
