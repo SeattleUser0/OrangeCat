@@ -203,6 +203,27 @@ def soak_checks():
           "the soak's FX latch: refused before anything is saved or written; a latch lost by the end makes PASS_MARK false")
     p = subprocess.run([sys.executable, os.path.join(HERE, "soak", "qual_soak.py"), "--help"], capture_output=True, text=True)
     check(p.returncode == 0 and "BASE" in p.stdout, "qual_soak.py --fx takes BASE")
+    check(Q.design_check({"worst_us": 1700}, {"worst_us": 2100}, {"running": True}, 1)[0] is False
+          and Q.design_check({"worst_us": 1700}, {"worst_us": 2100}, {"running": True}, 0)[0] is True,
+          "the soak's preflight: a governor firing during it is DESIGN INVALID even with DUB running at the end")
+    gl = Q.governor_line()
+    check(gl["DUBK_GOV_US"] == 450 and gl["FX_BACK_US"] == 2466 and Q.NODUB_MAX_US == 1900, f"the preflight's line from the firmware source: {gl}")
+    with tempfile.TemporaryDirectory() as d:
+        os.makedirs(os.path.join(d, "firmware", "src"))
+        for f in ("dub_kern.h", "fx_insert.c", "core.h"):
+            t = open(os.path.join(REPO, "firmware", "src", f)).read()
+            open(os.path.join(d, "firmware", "src", f), "w").write(t.replace("#define DUBK_GOV_US 450u", "#define DUBK_GOV_US 500u"))
+        try:
+            Q.governor_line(d); refused = False
+        except SystemExit as e:
+            refused = "DESIGN INVALID" in str(e)
+        check(refused, "the preflight refuses when DUBK_GOV_US is not the assumed 450")
+        os.remove(os.path.join(d, "firmware", "src", "fx_insert.c"))
+        try:
+            Q.governor_line(d); refused = False
+        except SystemExit as e:
+            refused = "cannot be read" in str(e)
+        check(refused, "the preflight refuses when the governor's source cannot be read")
     waits = []
     for worst, dub_end, want in (((1850, 2300), (0, 0, 2, 1), "DESIGN VALID"), ((1901, 2300), (0, 0, 2, 1), "DESIGN INVALID"),
                                  ((1700, 2100), (1, 1, 0, 0), "DESIGN INVALID"), ((1700, 2100), (0, 0, 2, 0), "DESIGN INVALID")):
@@ -263,6 +284,8 @@ def swap_checks():
                     if ("remove", mid) in self.fail:
                         return [4, 2, 0, 0, 0]
                     self.mods = [x for x in self.mods if x["id"] != mid]
+                    if ("lost", mid) in self.fail:
+                        raise TimeoutError("the reply to FX_REMOVE lost (the module erased)")
                     return [4, 0, 0, 0, 0]
                 raise TimeoutError
 
@@ -310,15 +333,16 @@ def swap_checks():
               and quiet == [1] and sw.back_done and g.opens == 2 and H.fx_key(H.UG.fx_table(g.u)) == H.fx_key(sw.tab0),
               f"--swap-fx: FX_REMOVE 3, the reverb installed, the sends quiet, FX_REMOVE 2, the FX layer installed, the table as before: {log}")
         for fail, want_log, want_back in (({("install", "reverb")}, [("remove", 3), ("install", "orangecat-reverb-0.16.0-fcdc364.ocm"), ("install", "orangecat-fxlayer-0.16.0-fcdc364.ocm")], True),
-                                          ({("remove", 3)}, [("remove", 3)], False)):
+                                          ({("remove", 3)}, [("remove", 3)], True),
+                                          ({("lost", 3)}, [("remove", 3), ("install", "orangecat-fxlayer-0.16.0-fcdc364.ocm")], True)):
             g, sw, log, say = setup(fail)
             try:
                 sw.out(); failed = False
-            except RuntimeError:
+            except (RuntimeError, TimeoutError):
                 failed = True
             sw.back(lambda: None)
             check(failed and log == want_log and sw.back_done == want_back and any("SWAP FAILED" in x and "Install with its default ticks" in x for x in say),
-                  f"--swap-fx: {sorted(fail)} fails: stops, says what is left and the way back; then the way back {'runs' if want_back else 'is not owed'}: {log}")
+                  f"--swap-fx: {sorted(fail)} fails: stops, says what is left and the way back; the way back reads the table and writes only what is missing: {log}")
         g, sw, log, say = setup({("install", "fxlayer")})
         sw.out()
         try:

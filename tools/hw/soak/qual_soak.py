@@ -32,7 +32,8 @@ THE PREFLIGHT (the design check, before anything is timed): the transport starte
 the worst half with DUB and DUB's state read. DESIGN INVALID (nothing more is run; the guard puts everything back) when the worst half
 without DUB is over 1,900 us (DUB's governor lets a released DUB back only while that peak plus its 450 us estimate is under 85 % of the
 half, 2,465 us: under about 2,015 us; 1,900 keeps 115 us of margin) or DUB is not running with its memory at the end (state 2, ready, no
-DUB FULL). The numbers are printed either way. --preflight-only: the preflight, then the restore.
+DUB FULL), or DUB's governor fired during it. The line is derived from the firmware source (DUBK_GOV_US 450, FX_BACK_US 2,466:
+2,466 - 450 - 116 = 1,900); other values or an unreadable source refuse. The numbers are printed either way. --preflight-only: the preflight, then the restore.
 
 THE RUN: the backup (unit_guard: no backup, no run), midicap.py started beside it (its own ALSA client), the editor's reply counters reset
 (AUDIO_STATS [1, 5]), the load, the transport, the preflight, --warmup-s with the load playing (7.37: 2 minutes), then the first capture, then every
@@ -79,9 +80,30 @@ BASS = (48, 55, 60, 55)
 DRUMS = {1: {i: 36 for i in (0, 4, 8, 12)}, 2: {i: 38 for i in (2, 6, 10, 14)}}
 DUB_LOAD = {"FDBK": 55, "SEND": 127, "FILTER": 60, "TIML": UG.dub_t_val(6), "TIMR": UG.dub_t_val(10), "SPRNG": 0,
             "SPEED": UG.DUB_SPD_MID, "MODE": UG.dub_mode(0, 1), "TAPE": UG.dub_tape(6, 0), "ECHO": 100}
-# the preflight's line (fx_insert.c, the governor: a released DUB comes back while the heaviest half without it plus its 450 us is under 85 % of
-# the 2,901 us half, 2,465 us, i.e. the mix alone under about 2,015 us; BUILD.md 7.46)
-NODUB_MAX_US = 1900
+# the preflight's line (fx_insert.c, the governor: a released DUB comes back while the heaviest half without it plus its DUBK_GOV_US is under
+# FX_BACK_US, 85 % of the half; BUILD.md 7.46), derived from the firmware's source by governor_line() at the start of every run
+GOV_ASSUMED = {"DUBK_GOV_US": 450, "FX_BACK_US": 2466}  # (2,902 us * 85 / 100 in the firmware's integers; the text's 2,465 rounds the half to 2,901)
+NODUB_MARGIN_US = 116
+NODUB_MAX_US = GOV_ASSUMED["FX_BACK_US"] - GOV_ASSUMED["DUBK_GOV_US"] - NODUB_MARGIN_US        # 1,900
+
+
+def governor_line(repo=os.path.dirname(os.path.dirname(HW))):
+    """DUBK_GOV_US (dub_kern.h) and FX_BACK_US (fx_insert.c: HALF_FRAMES * 1e6 / FS * 85 / 100, core.h) from the source the build uses;
+    SystemExit when they cannot be read or differ from GOV_ASSUMED (the preflight's 1,900 us would then be wrong)"""
+    import re
+    try:
+        src = {f: open(os.path.join(repo, "firmware", "src", f)).read() for f in ("dub_kern.h", "fx_insert.c", "core.h")}
+        gov = int(re.search(r"#define DUBK_GOV_US (\d+)u", src["dub_kern.h"]).group(1))
+        m = re.search(r"#define FX_BACK_US \(\(HALF_FRAMES \* 1000000u / FS\) \* (\d+)u / 100u\)", src["fx_insert.c"])
+        half = int(re.search(r"#define HALF_FRAMES (\d+)", src["core.h"]).group(1))
+        fs = int(re.search(r"#define FS (\d+)", src["core.h"]).group(1)) if re.search(r"#define FS (\d+)", src["core.h"]) else 44100
+        back = (half * 1000000 // fs) * int(m.group(1)) // 100
+    except (OSError, AttributeError) as e:
+        raise SystemExit(f"qual_soak: DESIGN INVALID: DUB's governor constants cannot be read from the firmware source ({e!r}): the preflight's line is unknown")
+    got = {"DUBK_GOV_US": gov, "FX_BACK_US": back}
+    if got != GOV_ASSUMED:
+        raise SystemExit(f"qual_soak: DESIGN INVALID: DUB's governor constants are {got}, the preflight assumes {GOV_ASSUMED}: revisit NODUB_MAX_US (BUILD.md 7.50)")
+    return {**got, "readmit_us": back - gov, "nodub_max_us": NODUB_MAX_US}
 
 
 BASE_NOTE = "BASE: rehearsal only, not a qualification row (no FX layer effect playing)"
@@ -108,9 +130,12 @@ def pass_mark(fx, parts_ok):
     return bool(parts_ok) if LEVELS[fx]["qualifies"] else None
 
 
-def design_check(nodub, withdub, dub):
-    """the preflight's verdict from the two AUDIO_STATS reads (worst_us, late) and DUB's state at the end: (ok, reasons)"""
+def design_check(nodub, withdub, dub, fires=0):
+    """the preflight's verdict from the two AUDIO_STATS reads (worst_us, late), DUB's state at the end and the governor's firings in the
+    preflight: (ok, reasons)"""
     why = []
+    if fires:
+        why.append(f"DUB's governor fired {fires} time(s) during the preflight (an eviction: the load with DUB passed the release line)")
     if nodub["worst_us"] > NODUB_MAX_US:
         why.append(f"the worst half without DUB is {nodub['worst_us']} us, over {NODUB_MAX_US} us (DUB's governor would keep a released DUB out)")
     if not dub.get("running"):
@@ -146,7 +171,7 @@ def preflight(u, wait, secs, echo_on):
     wait(secs)
     withdub = u.stats()
     dub1 = dubstate(u)
-    ok, why = design_check(nodub, withdub, dub1)
+    ok, why = design_check(nodub, withdub, dub1, dub1["gov_fires"] - dub0["gov_fires"])
     pre = {"preflight": "DESIGN VALID" if ok else "DESIGN INVALID", "seconds_each": secs, "nodub_worst_us": nodub["worst_us"],
            "nodub_late": nodub["late"], "nodub_max_us": NODUB_MAX_US, "dub_worst_us": withdub["worst_us"], "dub_late": withdub["late"],
            "dub_running": dub1["running"], "dub_state": dub1, "gov_fires_in_preflight": dub1["gov_fires"] - dub0["gov_fires"], "why": why}
@@ -295,6 +320,7 @@ def main():
     def body(u):
         tracked(u, tmo)
         info = u.info()
+        gl = governor_line()                              # (before anything is written: a changed governor refuses here)
         ids = UG.Ids(u, "qual_soak")
         ID.update(REV=ids.t("REV"), DLY=ids.t("DLY"), CHO=ids.t("CHO"), DUB=ids.dub(), LEN=ids.t_first("LEN"), DIV=ids.t_first("DIV"),
                   CHRD=ids.t_first("CHRD"), VOIC=ids.t_first("VOIC"), VCE=ids.t_first("VCE"), G_BPM=ids.g("BPM"), G_CLK=ids.g("CLK"))
@@ -322,7 +348,7 @@ def main():
         now = datetime.datetime.now()
         head = {"note": BASE_NOTE if A.fx == "BASE" else None, "label": A.label, "version": info["version"], "clock": A.clock, "fx": A.fx, "block": A.block, "day": now.strftime("%Y-%m-%d %A"),
                 "time_of_day": now.strftime("%H:%M"), "minutes": A.minutes, "period_min": A.period_min, "sample_s": A.sample_s, "warmup_s": A.warmup_s,
-                "ids": ids.found, "types": ID["TYPES"], "fx_table": tab, "modules": mods, "pack": u.pack_state(), "backup": g.backup}
+                "ids": ids.found, "types": ID["TYPES"], "fx_table": tab, "modules": mods, "pack": u.pack_state(), "backup": g.backup, "governor": gl}
         log(head)
         saved = g.save(bank=BANK)
         log({"saved": saved})

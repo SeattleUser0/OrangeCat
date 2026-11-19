@@ -248,28 +248,40 @@ class FxSwap:
         if bool(row and row["state"] == 7) != want:
             raise RuntimeError(f"module {mid} {'not registered' if want else 'still in the table'} after the step: {row}")
 
+    def _table(self):
+        tab = UG.fx_table(self.u)
+        if tab is None:
+            raise RuntimeError("FX_TABLE not answered")
+        return tab
+
     def out(self):
         self._step("FX LAYER idle", lambda: self._idle(FXL_ID))
+        self.out_done = True                             # (from FX_REMOVE on the way back is owed: a lost reply may hide an erase; back() reads the table first)
         self._step("FX_REMOVE 3 (FX LAYER)", lambda: fx_remove(self.u, FXL_ID))
         self._step("FX LAYER gone", lambda: self._registered(FXL_ID, False))
-        self.out_done = True                             # (from here the way back is owed)
         self._step(f"install {os.path.basename(self.files['reverb'])}", lambda: self.install(self.files["reverb"]))
         self._step("REVERB MODES registered", lambda: self._registered(REV_ID))
 
     def back(self, quiet):
-        """quiet(): every send 0 and TYPE ROOM (no module mode playing, or FX_REMOVE refuses)"""
+        """quiet(): every send 0 and TYPE ROOM (no module mode playing, or FX_REMOVE refuses). Each step looks at FX_TABLE first: a module
+        already as before is not written again"""
         if not self.out_done or self.back_done or self.back_tried:
             return
         self.back_tried = True                           # (once: a step that fails is not tried again; the way back is printed)
         self._step("sends 0, TYPE ROOM", quiet)
         self.pause(3.0)                                  # (the buses go back 2 s after the last send)
-        if UG.fx_row(UG.fx_table(self.u), REV_ID):
-            self._step("REVERB MODES idle", lambda: self._idle(REV_ID))
-            self._step("FX_REMOVE 2 (REVERB MODES)", lambda: fx_remove(self.u, REV_ID))
-        self._step(f"install {os.path.basename(self.files['fxlayer'])}", lambda: self.install(self.files["fxlayer"]))
+        st = {}
+        self._step("FX_TABLE read", lambda: st.update(tab=self._table()))
+        if fx_key(st["tab"]) != fx_key(self.tab0):
+            if UG.fx_row(st["tab"], REV_ID):
+                self._step("REVERB MODES idle", lambda: self._idle(REV_ID))
+                self._step("FX_REMOVE 2 (REVERB MODES)", lambda: fx_remove(self.u, REV_ID))
+                self._step("FX_TABLE read", lambda: st.update(tab=self._table()))
+            if fx_key(st["tab"]) != fx_key(self.tab0):
+                self._step(f"install {os.path.basename(self.files['fxlayer'])}", lambda: self.install(self.files["fxlayer"]))
 
         def same():
-            now = UG.fx_table(self.u)
+            now = self._table()
             if fx_key(now) != fx_key(self.tab0):
                 raise RuntimeError(f"FX_TABLE not as before: now {fx_key(now)}, before {fx_key(self.tab0)}")
         self._step("FX_TABLE as before (ids, starts, sectors, versions, states)", same)
