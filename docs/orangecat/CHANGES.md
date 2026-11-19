@@ -11,7 +11,7 @@ This is the list of changes a player can see or that touch the data on the unit,
 
 **The interface**
 - **The new interface is the default:** HOME's pages, the EDIT sheets, the four knobs per engine, HOME as SHIFT. *(Waits for step 9:)* the new main screen, layout 1 with a strip per track, and the old Melodee screens and their code removed.
-- **GRID, the melodic step grid:** a SEQ page (pitched tracks) showing the phrase as notes over steps, to enter and edit notes on the grid; velocity, accent, slide and the other feel stay in FEEL, the note's sheet and TRACKER.
+- **GRID, the melodic step grid:** a SEQ page on pitched tracks for entering steps on the keys: the 16 white keys pick a step (the first black keys pick the page of 16), then the keyboard plays that step's notes in; velocity, accent, slide and the other feel stay in FEEL, the note's sheet and TRACKER.
 - **DUB TAPE's performance view:** the DUB page with its keys (KICK, HOLD, DIVE, RISE), recorded as control notes and played back.
 - **The web app and the controls guide** (every key, knob and page, following each release).
 
