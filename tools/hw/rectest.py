@@ -212,6 +212,7 @@ def cell_rec(s, u, reps, passes):
         polls, running = S.play_chain(u, passes * PASS_S, 0)
         st = u.stats()
         ra.stop(); xu, rate_u = ru.stop()
+        time.sleep(S.RELEASE_S); v_rel = u.voices()       # (Round 32) the hung-note check
         mu = xu.mean(axis=1); ons, peaks = S.onsets(mu, rate_u)
         t0 = S.grid_origin(ons, (0,), passes)
         env, dt = S.envelope_db(mu, rate_u)
@@ -228,8 +229,9 @@ def cell_rec(s, u, reps, passes):
             detail["glide"] = gs
         json.dump(detail, open(f"{OUT}/slide-{LABEL}-{name}.json", "w"), indent=1)
         row = {"name": name, "cell": "rec", "take": {"sent": sent, "events": n_ev, "ok": ok_rec, "rows": cmp, "armed_after": still_armed, "playing_after_stop": playing},
-               "slide_set": slide, "play": {**res, "late": st["late"], "worst_us": st["worst_us"], "slide": summary, "still_running": running}}
-        row["ok"] = ok_rec and slide["ok"] and res.get("missed") == [] and all(v.get("cell_fail", v["fail"]) == 0 for v in summary.values())
+               "slide_set": slide, "play": {**res, "late": st["late"], "worst_us": st["worst_us"], "slide": summary, "still_running": running},
+               "voices_after_release": v_rel, "hung": S.hung(v_rel)}
+        row["ok"] = ok_rec and slide["ok"] and res.get("missed") == [] and all(v.get("cell_fail", v["fail"]) == 0 for v in summary.values()) and not row["hung"]
         # (Round 31) the take out of bank 8 (the r11 form only logged what TRACK_STEP left: the recorded notes stayed in the live project)
         row["cleared"] = pattern_sheet(s, u, 4, confirm=True)
         row["left_after_clear"] = len(read_back(s))
@@ -280,11 +282,13 @@ def capture_run(u, name, passes, take=None):
     info = take() if take else {"polls": S.play_chain(u, passes * PASS_S, 1)}
     st = u.stats()
     ra.stop(); xu, rate = ru.stop()
+    time.sleep(S.RELEASE_S); v_rel = u.voices()           # (Round 32) a hung note: voices sounding or gated after the stop and the release
     mu = xu.mean(axis=1)
     ons, _ = S.onsets(mu, rate)
     t0 = S.grid_origin(ons, (0,), passes)
     E, dt = env2(mu, rate)
-    return {"t0": t0, "E": E, "dt": dt, "late": st["late"], "worst_us": st["worst_us"], **({} if take is None else {"take": info})}
+    return {"t0": t0, "E": E, "dt": dt, "late": st["late"], "worst_us": st["worst_us"], "voices_after_release": v_rel, "hung": S.hung(v_rel),
+            **({} if take is None else {"take": info})}
 
 
 def detect(P, ref, thr, dt, places, first=1):
@@ -388,7 +392,7 @@ def cell_ctl(s, u, passes):
         res = detect(passes_of(r["E"], r["dt"], r["t0"], passes), ref, thr, r["dt"], places) if r["t0"] is not None else {}
         judged = {n: v for n, v in res.items() if proven[n]}
         rows.append({"run": k, "tool_notice": notice, "expected_steps_0based": places, "controls": res, "not_judged": [n for n in places if not proven[n]],
-                     "ok": bool(res) and all(v["ok"] for v in judged.values()), "late": r["late"], "worst_us": r["worst_us"]})
+                     "ok": bool(res) and all(v["ok"] for v in judged.values()) and not r["hung"], "hung": r["hung"], "late": r["late"], "worst_us": r["worst_us"]})
         log({key: v for key, v in rows[-1].items() if key != "controls"} | {"controls": {n: {x: v[x] for x in ("step", "n", "bad", "ok")} for n, v in res.items()}})
     cleared = pattern_sheet(s, u, 4, confirm=True)
     drone_steps(u); S.put_step(u, 1, 0, (36,)); time.sleep(2.0)
@@ -397,10 +401,11 @@ def cell_ctl(s, u, passes):
     nres = detect(passes_of(neg["E"], neg["dt"], neg["t0"], passes), ref, thr, neg["dt"], last) if neg["t0"] is not None else {}
     heard_after = {n: sum(1 for p in v["passes"] if p["heard"]) for n, v in nres.items()}
     rows.append({"run": "after Clear pattern (negative control)", "notice": cleared, "heard_at_reversed_places": heard_after,
-                 "ok": bool(nres) and all(h <= len(nres[n]["passes"]) // 8 for n, h in heard_after.items())})
+                 "ok": bool(nres) and all(h <= len(nres[n]["passes"]) // 8 for n, h in heard_after.items()) and not neg["hung"], "hung": neg["hung"]})
     log(rows[-1])
     json.dump(rows, open(f"{OUT}/ctl-{LABEL}.json", "w"), indent=1)
-    verdict = ("PASS" if all(r.get("ok", True) for r in rows if r["run"] != "take") and all(proven.values()) else
+    global CTL_VERDICT
+    verdict = CTL_VERDICT = ("PASS" if all(r.get("ok", True) for r in rows if r["run"] != "take") and all(proven.values()) else
                "INCOMPLETE (the detector not proven for " + ", ".join(n for n, p in proven.items() if not p) + ")" if not all(proven.values()) and all(r.get("ok", True) for r in rows if r["run"] != "take") else "FAIL")
     log({"ctl_verdict": verdict})
     return rows
@@ -434,9 +439,30 @@ def main():
         log({"label": LABEL, "version": info["version"], "cell": a.cell, "reps": a.reps, "passes": a.passes, "bank": BANK, "plan": PLAN if a.cell == "rec" else CTL})
         return cell_rec(s, u, a.reps, a.passes) if a.cell == "rec" else cell_ctl(s, u, a.passes)
 
-    UG.run_guarded(g, body)
-    log({"restore": getattr(g, "verified", None), "left": g.left})
-    return 0
+    rows = UG.run_guarded(g, body)
+    ok = rec_ctl_pass(a.cell, rows, CTL_VERDICT)
+    if a.cell == "rec":
+        print(f"rectest: rec: {rec_totals(rows or [])} onsets, {'PASS' if ok else 'FAIL'}", flush=True)
+    log({"restore": getattr(g, "verified", None), "left": g.left, "pass": ok})
+    return 0 if ok and getattr(g, "verified", {}).get("verify") == "ok" and not g.left else 1
+
+
+CTL_VERDICT = None
+
+
+def rec_totals(rows):
+    """(Round 32) the rec cell's onsets matched of expected over its replicates"""
+    return f"{sum((r.get('play') or {}).get('matched', 0) or 0 for r in rows)} of {sum((r.get('play') or {}).get('expected', 0) or 0 for r in rows)}"
+
+
+def rec_ctl_pass(cell, rows, ctl_verdict):
+    """(Round 32) rec: every replicate ok (onsets, slide, no hung note) and its onsets all matched; ctl: the verdict PASS"""
+    if cell == "ctl":
+        return ctl_verdict == "PASS"
+    if not rows:
+        return False
+    m, e = (int(x) for x in rec_totals(rows).split(" of "))
+    return all(r.get("ok") for r in rows) and e > 0 and m == e
 
 
 if __name__ == "__main__":

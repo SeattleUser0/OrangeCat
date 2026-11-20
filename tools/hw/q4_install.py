@@ -27,6 +27,15 @@ unit's state read before and after each install. The lead's tool: it writes firm
   --confirm WIPE / --confirm STOCK / --confirm INSTALL stand for the typed word in that invocation (logged).
   q4_install.py OUT LABEL d                         (d) the Nightly again over (a)'s result: expected nothing written (no firmware write, every part
                                                     "already current") and no question
+  q4_install.py OUT LABEL plan                      (Round 32) the order of the qualification: the units (a then d), b, c, each twice, shuffled by
+                                                    random.Random(20261117) (d stays right after its a), printed and saved to OUT/q4-plan-LABEL.json
+  q4_install.py OUT LABEL identity [--against FILE] (Round 32) read only: the image the unit runs (INFO's version, MOD_INFO's image block), saved;
+                                                    with --against an earlier identity file: equal or exit 1 (7.37 Q2: the candidate reinstalled)
+(Round 32, BUILD.md 7.37 Q4) Every Nightly install needs --expect VERSION (the page must offer that version, else nothing is pressed); after it
+every module of the default set is judged registered (state 7) at the start of --layout (the page's log names no starts: the layout the plan
+expects, default the default set's, 7.33); case a compares the objects saved before the Nightly byte for byte after (only those; new ones
+listed) and each saved project's read-back (loaded over the editor) with the one before, and exits 1 on a difference; the wipes check their
+result is empty; an operator prompt that reads end of input stops cleanly with the unit's state printed.
 Common: --url (default the live page), --nightly-build (default build-nightly-dual), --minutes (25 per install), --yes (no typed INSTALL
 confirmation; a wipe always asks for WIPE and the stock restore for STOCK). (Review fixes, Round 31) A complete backup, read back, before every
 install from the page and before every wipe (or --backup FILE for the wipes, read back); a1 and c1 put the page's own questions to the
@@ -40,6 +49,7 @@ import datetime
 import hashlib
 import json
 import os
+import random
 import re
 import subprocess
 import sys
@@ -52,6 +62,120 @@ import fm1hw                                            # noqa: E402
 
 LIVE = "https://seattleuser0.github.io/OrangeCat/webapp/installer/"
 A = None
+PLAN_SEED = 20261117
+DEFAULT_LAYOUT = "SHAPES=1,FX LAYER=2,WHEEL=5,MACRO MODELS=17,DUB TAPE=18"   # (7.33: the order the page produced for the default set)
+ENGINE_OF = {"SHAPES": 14, "WHEEL": 7}
+FX_ID_OF = {"DUB TAPE": 1, "REVERB MODES": 2, "FX LAYER": 3, "MACRO MODELS": 0x4D08}
+
+
+class Stopped(SystemExit):
+    pass
+
+
+def ask(prompt):
+    """input() for the operator (a wrapper may answer it); end of input is a clean stop: the unit's state printed, exit 3, never a crash between steps"""
+    try:
+        return input(prompt)
+    except EOFError:
+        print("\nq4_install: end of input at the operator's prompt: stopping here, nothing more is done", flush=True)
+        try:
+            state("stopped at end of input")
+        except BaseException as e:
+            print(f"q4_install: the state could not be read: {e!r}", flush=True)
+        raise Stopped(3)
+
+
+def plan_order(seed=PLAN_SEED):
+    """(Round 32) the units [(a, d), (b,), (c,)] each twice, shuffled: d stays right after its a"""
+    units = [("a", "d"), ("b",), ("c",)] * 2
+    random.Random(seed).shuffle(units)
+    return [c for u in units for c in u]
+
+
+def layout_of(text):
+    out = {}
+    for part in text.split(","):
+        name, _, start = part.rpartition("=")
+        if name.strip() not in ENGINE_OF and name.strip() not in FX_ID_OF:
+            raise SystemExit(f"q4_install: --layout: no module {name.strip()!r} (known: {sorted(ENGINE_OF) + sorted(FX_ID_OF)})")
+        out[name.strip()] = int(start)
+    return out
+
+
+def judge_layout(probe, layout):
+    """(Round 32) every module of the layout registered (state 7) at its start, from the page's own probe (oc_install.mjs list): engine modules by
+    MOD_INFO's starts, effect and models modules by the Effects table -> (ok, rows)"""
+    rows = []
+    mod = (probe or {}).get("mod") or {}
+    fx = ((probe or {}).get("fx") or {}).get("effects") or []
+    for name, start in layout.items():
+        if name in ENGINE_OF:
+            st = (mod.get("starts") or [])
+            at = [k for k, x in enumerate(st) if x.get("engine") == ENGINE_OF[name] and x.get("state") == 7]
+            got = {"state": st[start]["state"] if start < len(st) else None, "starts_ok": at}
+            good = start in at
+        else:
+            x = next((e for e in fx if e.get("id") == FX_ID_OF[name]), None)
+            got = {"state": x and x.get("state"), "start": x and x.get("start")}
+            good = bool(x) and x.get("state") == 7 and x.get("start") == start
+        rows.append({"module": name, "start": start, "got": got, "ok": good})
+    return all(r["ok"] for r in rows) and bool(rows), rows
+
+
+def compare_objects(before, after):
+    """(Round 32) the backup objects present before, byte for byte after (the data when both files carry it, else size and CRC-32); new ones listed,
+    not differences -> {"differing", "missing", "new", "kept"}"""
+    def by_id(path):
+        return {o["id"]: o for o in json.load(open(path))["objects"]}
+    b, a = by_id(before), by_id(after)
+    differing, missing = {}, []
+    for k, o in b.items():
+        if k == 0:
+            continue
+        if k not in a:
+            missing.append(k); continue
+        n = a[k]
+        same = (o.get("data") == n.get("data")) if ("data" in o and "data" in n) else (o["size"], o["crc"]) == (n["size"], n["crc"])
+        if not same or (o["size"], o["crc"]) != (n["size"], n["crc"]):
+            differing[k] = {"before": (o["size"], o["crc"]), "after": (n["size"], n["crc"])}
+    new = sorted(k for k in a if k not in b and k != 0)
+    return {"differing": differing, "missing": missing, "new": new, "kept": not differing and not missing}
+
+
+def projects_readback(u):
+    """(Round 32) each used project slot loaded over the editor (PROJECT op 0) and read back: every track's engine, preset, level, mute and its
+    current pattern's steps, BPM. What this cannot check without the panel: that it sounds as before (by ear), the scenes and pool phrases playing"""
+    out = {}
+    bpm = u.global_id("BPM")
+    for slot in range(4):
+        q = u.req(9, [2, slot], timeout=3.0)
+        if not (len(q) > 2 and q[2]):
+            continue
+        u.req(9, [0, slot], timeout=12.0)
+        time.sleep(1.5)
+        snap = u.snapshot()
+        out[slot] = {"tracks": [{k: t[k] for k in ("engine", "preset", "level", "mute")} | {"steps": t["steps"]} for t in snap["tracks"]], "bpm": u.get_global(bpm)}
+    return out
+
+
+def compare_projects(before, after):
+    """the read-backs compared slot by slot (a step compared over the bytes both firmwares send) -> list of differences"""
+    diff = []
+    for slot in sorted(set(before) | set(after), key=int):
+        b, a = before.get(slot), after.get(slot)
+        if b is None or a is None:
+            diff.append(f"slot {int(slot) + 1}: {'gone' if a is None else 'new'}"); continue
+        if b["bpm"] != a["bpm"]:
+            diff.append(f"slot {int(slot) + 1}: BPM {b['bpm']} -> {a['bpm']}")
+        for t, (tb, ta) in enumerate(zip(b["tracks"], a["tracks"])):
+            for k in ("engine", "preset", "level", "mute"):
+                if tb[k] != ta[k]:
+                    diff.append(f"slot {int(slot) + 1} track {t + 1} {k}: {tb[k]} -> {ta[k]}")
+            for i, (sb, sa) in enumerate(zip(tb["steps"], ta["steps"])):
+                n = min(len(sb), len(sa))
+                if sb[:n] != sa[:n]:
+                    diff.append(f"slot {int(slot) + 1} track {t + 1} step {i + 1} differs")
+    return diff
 
 
 def log(o):
@@ -70,7 +194,7 @@ def confirm(word, what):
     if word in (A.confirm or []):                        # (unattended: --confirm WORD on this one invocation's command line)
         log({"confirmed": word, "by": "--confirm on the command line", "what": what})
         return
-    got = input(f"q4_install: {what}\n  type {word} to go on (anything else stops): ").strip()
+    got = ask(f"q4_install: {what}\n  type {word} to go on (anything else stops): ").strip()
     if got != word:
         raise SystemExit("q4_install: stopped by the operator")
 
@@ -187,8 +311,17 @@ def answers_for(step):
 
 
 def nightly(step, take_backup=True):
-    confirm("INSTALL", f"install the Nightly ({A.nightly_build}) from {A.url} onto the unit now?")
-    return page(step, build=A.nightly_build, take_backup=take_backup)
+    if not A.expect:
+        raise SystemExit("q4_install: a Nightly install needs --expect VERSION (the version the page must offer; Round 32)")
+    confirm("INSTALL", f"install the Nightly ({A.nightly_build}, expecting {A.expect}) from {A.url} onto the unit now?")
+    r = page(step, build=A.nightly_build, take_backup=take_backup, expect=A.expect)
+    if r.get("ok"):
+        s = state(f"{step}: the modules")
+        ok, rows = judge_layout(s.get("probe"), layout_of(A.layout))
+        log({"modules_judged": step, "ok": ok, "rows": rows})
+        if not ok:
+            raise SystemExit(f"q4_install: {step}: a module of the layout is not registered at its start: {[x for x in rows if not x['ok']]}")
+    return r
 
 
 def case_a():
@@ -200,18 +333,34 @@ def case_a():
         raise SystemExit("q4_install: the Standard install did not end clean: stop and look (nothing more is done)")
     s1 = state("a: after Standard")
     if not A.no_pause:
-        input("q4_install: now save on the unit: projects, user presets, a pool phrase and a scene (the plan's objects). Press Enter when done: ")
-    b1 = backup("a-saved")                              # (on the Standard: what the Nightly must keep; it doubles as the backup before a2)
+        ask("q4_install: now save on the unit: projects, user presets, a pool phrase and a scene (the plan's objects). Press Enter when done: ")
+    b1 = backup("a-saved")
+    u = fm1hw.Unit()
+    try:
+        p1 = projects_readback(u)                        # (on the Standard: each saved project loaded and read back)
+    finally:
+        u.close()
+    log({"case": "a", "projects_before": p1})                              # (on the Standard: what the Nightly must keep; it doubles as the backup before a2)
     r2 = nightly("a2-nightly", take_backup=False)
     s2 = state("a: after the Nightly")
     if not r2.get("ok"):                                 # (Round 31) a refusal (no "Result:" line) is not an install: nothing to compare
         log({"case": "a", "ok": False, "error": r2.get("error") or r2.get("final")})
         raise SystemExit(f"q4_install: case a: the Nightly install did not end clean (NOT ok): {r2.get('error') or r2.get('final')}")
     b2 = backup("a-after")
-    o1, o2 = objects_of(b1), objects_of(b2)
-    diff = {k: {"saved": o1.get(k), "after": o2.get(k)} for k in sorted(set(o1) | set(o2)) if k != 0 and o1.get(k) != o2.get(k)}
-    log({"case": "a", "objects_compared": len(set(o1) | set(o2)) - (0 in o1), "objects_differing": diff, "kept_byte_for_byte": not diff,
+    cmp = compare_objects(b1, b2)
+    u = fm1hw.Unit()
+    try:
+        p2 = projects_readback(u)
+    finally:
+        u.close()
+    pd = compare_projects(p1, p2)
+    ok = cmp["kept"] and not pd
+    log({"case": "a", "objects": cmp, "projects_after": p2, "projects_differing": pd, "kept_byte_for_byte": cmp["kept"], "ok": ok,
+         "checked": "each saved object's bytes; each project's tracks (engine, preset, level, mute), its current pattern's steps and BPM, loaded over the editor",
+         "not_checked": "that the projects sound as before (by ear), the scenes and pool phrases playing, the user presets heard: the panel's and the ear's",
          "note": "a difference is a finding unless the format revision's conversion documents it (7.37 Q4 pass mark)"})
+    if not ok:
+        raise SystemExit(f"q4_install: case a: NOT kept: objects {cmp['differing'] or ''} {cmp['missing'] or ''} projects {pd[:8]}")
     return r2
 
 
@@ -237,10 +386,14 @@ def mod_remove_all():
         before = u.modules()
         r = u.req(124, [127], timeout=30.0)
         time.sleep(1.0)
-        log({"b": "modules", "command": "MOD_REMOVE 127 (editor 124)", "rc": r[0] if r else None, "reply": r, "starts_before": before, "starts_after": u.modules()})
+        after = u.modules()
+        log({"b": "modules", "command": "MOD_REMOVE 127 (editor 124)", "rc": r[0] if r else None, "reply": r, "starts_before": before, "starts_after": after})
     finally:
         u.close()
-    state("b: after the module area erase")
+    s = state("b: after the module area erase")
+    left = modules_left(after, s.get("probe"))
+    if left:
+        raise SystemExit(f"q4_install: the module area is not empty after MOD_REMOVE 127: {left}")
 
 
 def presets_wipe():
@@ -273,14 +426,48 @@ def projects_wipe():
     print("q4_install: no editor command erases a project slot (BUILD.md 7.50 case b). On the unit, stopped, for each project slot A to D\n"
           "  (GUIDE.md, the project page): SAVE (the PROJECT page), KNOB 1 to the slot, OCT+ (its menu: Load, Save here, Rename, Boot, Erase),\n"
           "  KNOB 2 to Erase, OCT+, and OCT+ again for the question.")
-    input("  Press Enter when every slot is erased: ")
+    ask("  Press Enter when every slot is erased: ")
     u = fm1hw.Unit()
     try:
         after = fm1hw.library(u)["objects"]
     finally:
         u.close()
     changed = {k: {"before": before.get(k), "after": after.get(k)} for k in sorted(set(before) | set(after)) if before.get(k) != after.get(k)}
-    log({"b": "projects", "path": "the panel: SAVE > the slot > OCT+ > Erase > OCT+ > OCT+ (ui_slots.c SHEET_PROJECT, CF_ERASE_PROJ)", "objects_changed": changed})
+    u = fm1hw.Unit()
+    try:
+        used = [k for k in range(4) if (lambda q: len(q) > 2 and q[2])(u.req(9, [2, k], timeout=3.0))]
+    finally:
+        u.close()
+    log({"b": "projects", "path": "the panel: SAVE > the slot > OCT+ > Erase > OCT+ > OCT+ (ui_slots.c SHEET_PROJECT, CF_ERASE_PROJ)", "objects_changed": changed,
+         "slots_used_after": [k + 1 for k in used]})
+    if used:
+        raise SystemExit(f"q4_install: project slots still used after the erase: {[k + 1 for k in used]}")
+
+
+def modules_left(starts, probe):
+    """(Round 32) what a whole-area erase left: a start not empty (MD_EMPTY 0) or an effect module in the table"""
+    left = [f"start {k}: state {x['state']}" for k, x in enumerate(starts or []) if x.get("state")]
+    left += [f"effect module {e.get('id')} at start {e.get('start')}" for e in (((probe or {}).get("fx") or {}).get("effects") or [])]
+    return left if starts is not None else ["MOD_INFO not answered"]
+
+
+def identity(path_against=None):
+    import unit_guard as UG
+    u = fm1hw.Unit()
+    try:
+        idn = UG.image_identity(u)
+    finally:
+        u.close()
+    f = os.path.join(A.out, f"identity-{A.label}-{datetime.datetime.now():%Y%m%d-%H%M%S}.json")
+    json.dump(idn, open(f, "w"), indent=1)
+    out = {"identity": idn, "file": f}
+    if path_against:
+        was = json.load(open(path_against))
+        out["against"] = path_against
+        out["equal"] = bool(idn.get("image")) and was.get("image") == idn.get("image") and was.get("version") == idn.get("version")
+    log(out)
+    print(f"q4_install: IMAGE {idn['id']}" + ("" if not path_against else f": {'EQUAL to' if out['equal'] else 'NOT EQUAL to'} {was.get('id')}"), flush=True)
+    return out
 
 
 def case_c():
@@ -340,7 +527,10 @@ def main():
     global A
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("out"); ap.add_argument("label")
-    ap.add_argument("case", choices=("state", "a", "b-wipe-modules", "b-wipe-presets", "b-projects", "b", "c", "d"))
+    ap.add_argument("case", choices=("state", "a", "b-wipe-modules", "b-wipe-presets", "b-projects", "b", "c", "d", "plan", "identity"))
+    ap.add_argument("--expect", help="the version the page must offer for the Nightly (required for every Nightly install)")
+    ap.add_argument("--layout", default=DEFAULT_LAYOUT, help=f"where each module must be registered after a Nightly install (default {DEFAULT_LAYOUT})")
+    ap.add_argument("--against", help="identity: an earlier identity file to compare with")
     ap.add_argument("--url", default=LIVE)
     ap.add_argument("--nightly-build", default="build-nightly-dual")
     ap.add_argument("--standard", default="0.15.0")
@@ -354,6 +544,26 @@ def main():
     A = ap.parse_args()
     os.makedirs(A.out, exist_ok=True)
     log({"q4": A.case, "label": A.label, "url": A.url, "at": datetime.datetime.now().isoformat(timespec="seconds")})
+    try:
+        return run_case()
+    except Stopped as e:
+        return e.code
+
+
+def run_case():
+    if A.case == "plan":
+        order = plan_order()
+        f = os.path.join(A.out, f"q4-plan-{A.label}.json")
+        json.dump({"seed": PLAN_SEED, "order": order}, open(f, "w"))
+        log({"plan": order, "seed": PLAN_SEED, "file": f})
+        print("q4_install: the order: " + " ".join(order), flush=True)
+        return 0
+    if A.case == "identity":
+        r = identity(A.against)
+        return 0 if (not A.against or r["equal"]) else 1
+    if A.case in ("a", "b", "c", "d") and not A.expect:
+        raise SystemExit("q4_install: cases a, b, c and d install the Nightly: --expect VERSION is required (Round 32)")
+    layout_of(A.layout)
     if A.case == "state":
         state("state")
     elif A.case == "a":

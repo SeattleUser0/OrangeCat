@@ -15,7 +15,11 @@
 #               a slide into the same pitch goes on, and in POLY a chord where one note changes (55 to 59) while two hold
 #   rec, ctl    (bench cells, an OC_HW_TEST image: rectest.py) recorded notes with their timing and the tracker's SLIDE; the control notes KICK HOLD
 #               DIVE RISE recorded on a DUB track, played back, then after SHIFT RIGHT, SHIFT LEFT and REVERSE
-#   seqtest.py OUT LABEL [CELLS|all] [REPS=2] [SEED=1] [PASSES=16]      seqtest.py --list
+#   seqtest.py OUT LABEL [CELLS|all] [REPS=2] [SEED=20261115] [PASSES=16]      seqtest.py --list
+# (Round 32, BUILD.md 7.37 Q2) the qualification's SEED 20261115 and REPS 2 are the defaults; a row fails on a hung note (voices sounding or gated
+# 3 s after the stop: every note released), and a DUB cell fails when DUB was evicted (the governor fired or DUB FULL during it); each cell's total
+# of onsets is printed and judged (every replicate's expected onsets matched); a cell the image cannot run is refused, not skipped; exit 1 when
+# any cell fails.
 # The step command's v8 bytes (d78a402) carry a step's condition, nudge and ratchet; on an older image the feel cells are refused and say so.
 import sys, os, time, json, random, math
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -43,7 +47,8 @@ CELLS_ALL = [
 DEFAULT_CELLS = ",".join(c for c, k, _ in CELLS_ALL if k == "load")
 OUT = LABEL = None
 CELLS = DEFAULT_CELLS.split(",")
-REPS, SEED, PASSES = 2, 1, 16
+REPS, SEED, PASSES = 2, 20261115, 16
+RELEASE_S = 3.0                                          # (Round 32) after the stop, before the voices are read: every release over
 BPM, NSTEP = 120, 16
 STEP_S = 60.0 / BPM / 4
 # (Round 30 item 2) every parameter id is resolved by its label from the unit's own descriptor (resolve_ids, run at start). Until Round 29 the r11
@@ -507,14 +512,18 @@ def run(u, name, cell):
         polls, running = play_chain(u, play_s, dub)
     st = u.stats(); m1 = memory(u); v = u.voices()
     xa, rate_a = ra.stop(); xu, rate_u = ru.stop()
+    time.sleep(RELEASE_S)
+    v_rel = u.voices()
+    d1 = dubstate(u) if dub else None
     mu = xu.mean(axis=1); ons, peaks = onsets(mu, rate_u)
     ref = (0,) if kind != "slide" else (0, 4)
     t0 = grid_origin(ons, ref, PASSES)
     env, dt = envelope_db(mu, rate_u)
-    res = match(ons, peaks, t0, exp, rules, env=env, dt=dt) if t0 is not None else {"error": "no onset"}
+    res = match(ons, peaks, t0, exp, rules, env=env, dt=dt) if t0 is not None else {"error": "no onset", "expected": sum(1 for e in exp if e["req"]), "matched": 0}
     a = capture.analyse(xa, rate_a); uu = capture.analyse(xu, rate_u)
     row = {"name": name, "cell": ":".join(cell), "passes": PASSES, "t0": t0, **res, "late": st["late"], "worst_us": st["worst_us"], "load_pct": st.get("load_pct"),
            "mem_before": m0, "mem_after": m1, "voices_end": v, "dac_silences": max(a["ch1"]["dac_silences"], a["ch2"]["dac_silences"]), "usb_holes": uu["ch1"]["dropouts"],
+           "voices_after_release": v_rel, "dub_after": d1, "dub_evicted": dub_evicted(d0, polls, d1) if dub else None, "dub_cell": bool(dub),
            "dub_before": d0, "dub_polls_changes": [p for i, p in enumerate(polls) if i == 0 or p[1:] != polls[i - 1][1:]], "still_running": running, "clock_gap_ms": clock_gap}
     if kind == "slide" and t0 is not None:
         summary, detail = slide_checks(mu, rate_u, ons, t0, rules, PASSES, unison=cell[2] == "UNISON")
@@ -530,9 +539,46 @@ def run(u, name, cell):
             tail = sum(x for x in pmf if x <= pmf[hits])
             grp.append(dict(chance=c, hits=hits, of=n, p=round(tail, 4), ok=bool(tail >= 0.01)))
         row["chance_groups"] = grp
-    row["ok"] = (res.get("missed") == [] and all(g["ok"] for g in row.get("chance_groups", [])) and not res.get("forbidden_hit") and not res.get("flam_bad") and all(c["ok"] for c in res.get("chance", {}).values())
-                 and all(s["cell_fail"] == 0 for s in row.get("slide", {}).values()))
+    row["ok"], row["why"] = row_ok(row)
     return row
+
+
+def hung(v):
+    """(Round 32) a note still sounding or gated after the stop and RELEASE_S: hung"""
+    return bool(v) and (v.get("sounding", 0) > 0 or v.get("gated", 0) > 0)
+
+
+def dub_evicted(d0, polls, d1):
+    """(Round 32) DUB evicted during the cell: the governor's firings rose (before, every poll, after) or DUB FULL showed (bits 0xF0)"""
+    g0 = (d0 or {}).get("gov", 0)
+    seen = [(p[2], p[3]) for p in polls] + ([(d1["gov"], d1["full"])] if d1 else [])
+    return any(gv > g0 or (full >> 4) for gv, full in seen)
+
+
+def row_ok(row):
+    """(ok, why) of one run: every onset, the chance, flam and slide rules, no hung note, and DUB not evicted in a DUB cell"""
+    why = []
+    if row.get("error") or row.get("missed") != []: why.append(f"onsets missed: {len(row.get('missed') or [])} of {row.get('expected')}" if not row.get("error") else row["error"])
+    if not all(g["ok"] for g in row.get("chance_groups", [])) or not all(c["ok"] for c in row.get("chance", {}).values()): why.append("chance outside its region")
+    if row.get("forbidden_hit"): why.append("a forbidden onset")
+    if row.get("flam_bad"): why.append("flams")
+    if not all(sl["cell_fail"] == 0 for sl in row.get("slide", {}).values()): why.append("slide checks")
+    if hung(row.get("voices_after_release")): why.append(f"a hung note: {row['voices_after_release']} {RELEASE_S} s after the stop")
+    if row.get("dub_cell") and row.get("dub_evicted"): why.append("DUB evicted in a DUB cell (the governor fired or DUB FULL)")
+    return not why, why
+
+
+def cell_totals(rows):
+    """(Round 32) per cell: onsets matched of expected over its replicates (e.g. 512 of 512) and the cell's verdict (every replicate ok)"""
+    out = {}
+    for r in rows:
+        c = out.setdefault(r["cell"], {"matched": 0, "expected": 0, "runs": 0, "ok": True, "why": []})
+        c["matched"] += r.get("matched", 0) or 0; c["expected"] += r.get("expected", 0) or 0; c["runs"] += 1
+        if not r.get("ok"): c["ok"] = False; c["why"] += [f"{r['name']}: {w}" for w in r.get("why", ["not ok"])]
+    for c in out.values():
+        if c["matched"] != c["expected"] or not c["expected"]: c["ok"] = False
+        c["total"] = f"{c['matched']} of {c['expected']}"
+    return out
 
 
 def list_cells():
@@ -546,11 +592,11 @@ def main():
     if "--list" in sys.argv[1:]:
         list_cells(); return 0
     if len(sys.argv) < 3:
-        print(__doc__ if __doc__ else "seqtest.py OUT LABEL [CELLS] [REPS=2] [SEED=1] [PASSES=16] | seqtest.py --list"); list_cells(); return 2
+        print(__doc__ if __doc__ else "seqtest.py OUT LABEL [CELLS] [REPS=2] [SEED=20261115] [PASSES=16] | seqtest.py --list"); list_cells(); return 2
     OUT, LABEL = sys.argv[1], sys.argv[2]
     CELLS = (sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] not in ("", "all") else DEFAULT_CELLS).split(",")   # ("" or all: every load cell)
     REPS = int(sys.argv[4]) if len(sys.argv) > 4 else 2
-    SEED = int(sys.argv[5]) if len(sys.argv) > 5 else 1
+    SEED = int(sys.argv[5]) if len(sys.argv) > 5 else 20261115
     PASSES = int(sys.argv[6]) if len(sys.argv) > 6 else 16
     kinds = {c: k for c, k, _ in CELLS_ALL}
     for c in CELLS:
@@ -566,10 +612,9 @@ def main():
         resolve_ids(u)
         V8 = v8_ok(u)
         cells = [tuple(c.split(":")) for c in CELLS]
-        if not V8:
-            dropped = [c for c in cells if c[0] not in ("light", "heavy")]
-            cells = [c for c in cells if c[0] in ("light", "heavy")]
-            log({"note": "the image has no v8 step bytes: the feel and slide cells are not run", "dropped": [":".join(c) for c in dropped]})
+        refused = refused_cells(cells, V8)
+        if refused:                                      # (Round 32) refused, not skipped: a qualification cell the image cannot run is a finding
+            raise SystemExit(f"seqtest: refusing to run: the image has no v8 step bytes, so these cells cannot run: {refused} (choose the cells, or the image)")
         saved = g.save(bank=BANK)                        # (the tools' globals, every parameter, the sounds and steps, the patterns; the tracks now on BANK)
         runs = [c for c in cells for _ in range(REPS)]
         random.Random(SEED).shuffle(runs)
@@ -582,12 +627,23 @@ def main():
             log(row)
             if name != "warm": rows.append(row)
             json.dump(rows, open(f"{OUT}/rows-{LABEL}.json", "w"), indent=1)
-        log({"summary": {"rows": len(rows), "ok": sum(1 for r in rows if r.get("ok")), "not_ok": [r["name"] + " " + r["cell"] for r in rows if not r.get("ok")]}})
+        tot = cell_totals(rows)
+        for c, t in tot.items():
+            print(f"seqtest: {c}: {t['total']} onsets, {'PASS' if t['ok'] else 'FAIL'}" + ("" if t["ok"] else f" ({'; '.join(t['why'][:4])})"), flush=True)
+        log({"summary": {"rows": len(rows), "ok": sum(1 for r in rows if r.get("ok")), "not_ok": [r["name"] + " " + r["cell"] for r in rows if not r.get("ok")],
+                         "cells": tot, "all_cells_pass": all(t["ok"] for t in tot.values())}})
+        st_["pass"] = bool(tot) and all(t["ok"] for t in tot.values())
         return rows
 
+    st_ = {"pass": False}
     UG.run_guarded(g, body)
-    log({"restore": getattr(g, "verified", None), "left": g.left})
-    return 0
+    log({"restore": getattr(g, "verified", None), "left": g.left, "all_cells_pass": st_["pass"]})
+    return 0 if st_["pass"] and getattr(g, "verified", {}).get("verify") == "ok" and not g.left else 1
+
+
+def refused_cells(cells, v8):
+    """(Round 32) the cells this image cannot run (no v8 step bytes: every cell but light and heavy)"""
+    return [] if v8 else [":".join(c) for c in cells if c[0] not in ("light", "heavy")]
 
 
 V8 = True

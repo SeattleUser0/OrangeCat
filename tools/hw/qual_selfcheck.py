@@ -160,6 +160,7 @@ def main():
     check(p.returncode == 0 and json.loads(p.stdout) == list(rcases.values()), "cdp_install.mjs: a Result with a part that did not install is not ok, the parts named " + (p.stderr or p.stdout)[-200:])
     soak_checks()
     swap_checks()
+    round32_checks()
     print(f"\n{len(FAILS)} failed" if FAILS else "\nevery check passed")
     return 1 if FAILS else 0
 
@@ -375,6 +376,120 @@ def swap_checks():
         except RuntimeError:
             failed = True
         check(failed and log == [] and not sw.out_done, "--swap-fx: an FX layer in use is not removed")
+
+
+def attempt(what, fn):
+    """one Round 32 check: an exception (on e26960bc the functions do not exist) is a failure, not a crash"""
+    try:
+        ok = fn()
+    except BaseException as e:                           # noqa: BLE001
+        ok = False
+        what += f" (raised {e!r:.120})"
+    check(bool(ok), what)
+
+
+def round32_checks():
+    """(Round 32, BUILD.md 7.37) the blocking review items, on fakes: each fails on e26960bc"""
+    import argparse as AP
+    spec = importlib.util.spec_from_file_location("qual_soak_r32", os.path.join(HERE, "soak", "qual_soak.py"))
+    Q = importlib.util.module_from_spec(spec); spec.loader.exec_module(Q)
+    # ---- Q1
+    attempt("Q1: two -180 dB returns do not pass the 3 dB rule; -40 / -41 does; -40 / -44 does not",
+            lambda: not Q.return_ok(-180.0, -180.0) and Q.return_ok(-40.0, -41.0) and not Q.return_ok(-40.0, -44.0))
+    ns = lambda **k: AP.Namespace(**{"clock": "int", "din_row": False, "preflight_only": False, **k})
+    attempt("Q1: --clock ext without --din-row is refused; with it, or internal, accepted",
+            lambda: Q.args_problem(ns(clock="ext")) and Q.args_problem(ns(clock="ext", din_row=True)) is None and Q.args_problem(ns()) is None)
+    v = {"late_halves": 0, "dac_silences": 0, "dub_running_at_end": True, "uses_1_every_row": True, "return_within_3db": True, "return_first_db": -40,
+         "return_last_db": -41, "all_clocks_received": True, "row_errors": 0}
+    good = dict(end={"answering_at_end": "v"}, clock="int", restore={"verify": "ok"}, left=[], identical=True)
+    attempt("Q1: an interval row that raised an error fails the pass mark (and a clean run passes)",
+            lambda: Q.soak_problems(v, **good) == [] and any("error" in w for w in Q.soak_problems({**v, "row_errors": 1}, **good)))
+    attempt("Q1: the start check: a DUB instance left running refuses, the FX layer's latch is the level's",
+            lambda: Q.start_problem([{"id": 1, "uses": 1}]) and Q.start_problem([{"id": 1, "uses": 0}, {"id": 3, "uses": 1}]) is None)
+    r = [21, 18, 0, 3, 40] + [0] * 16 + [7, 0, 14, 0, 0, 0] * 21 + [127] + [21] + list(range(58, 79)) + [1] + [21] + [0] * 210 + n5(0x8A000) + n5(0x12345678) + n5(0x0BADF00D) + [1]
+
+    class IU:
+        def info(self): return {"version": "ORANGE CAT v0.16.0-e2696"}
+        def req(self, cmd, args=(), timeout=3.0):
+            assert cmd == 120
+            return r
+    attempt("Q1: the image's identity from MOD_INFO's image block (length, body CRC, the rest's CRC) with INFO's version",
+            lambda: UG.parse_image(r) == {"len": 0x8A000, "crc": 0x12345678, "rest": 0x0BADF00D} and UG.image_identity(IU())["id"].endswith("crc 12345678 rest 0badf00d")
+            and UG.parse_image(r[:-16]) is None)
+    # ---- Q2
+    import seqtest as S
+    attempt("Q2: seqtest's defaults are the qualification's: SEED 20261115, REPS 2", lambda: S.SEED == 20261115 and S.REPS == 2)
+    row = {"name": "r00", "cell": "heavy:1", "expected": 512, "matched": 512, "missed": [], "voices_after_release": {"sounding": 0, "gated": 0}, "dub_cell": True, "dub_evicted": False}
+    attempt("Q2: a hung note fails a row; DUB evicted fails a DUB cell, not a cell without DUB",
+            lambda: S.row_ok(row)[0] and not S.row_ok({**row, "voices_after_release": {"sounding": 1, "gated": 0}})[0]
+            and not S.row_ok({**row, "dub_evicted": True})[0] and S.row_ok({**row, "dub_cell": False, "dub_evicted": True})[0])
+    attempt("Q2: DUB evicted read from the governor's firings and DUB FULL",
+            lambda: S.dub_evicted({"gov": 2}, [(1.0, 2, 3, 0)], None) and S.dub_evicted({"gov": 2}, [(1.0, 2, 2, 0x10)], None) and not S.dub_evicted({"gov": 2}, [(1.0, 2, 2, 0)], {"gov": 2, "full": 0}))
+    attempt("Q2: the per-cell total judged: 512 of 512 passes, 511 of 512 fails",
+            lambda: S.cell_totals([{**row, "ok": True}, {**row, "name": "r01", "ok": True}])["heavy:1"]["total"] == "1024 of 1024"
+            and not S.cell_totals([{**row, "ok": True, "matched": 511}])["heavy:1"]["ok"])
+    attempt("Q2: a cell the image cannot run (no v8 bytes) is refused, not skipped",
+            lambda: S.refused_cells([("feel",), ("light", "1")], False) == ["feel"] and S.refused_cells([("feel",)], True) == [])
+    sys.argv = ["rectest.py"]
+    import rectest as R
+    attempt("Q2: rectest: rec passes only with every onset and no hung note; ctl only on PASS",
+            lambda: R.rec_ctl_pass("rec", [{"ok": True, "play": {"matched": 16, "expected": 16}}], None)
+            and not R.rec_ctl_pass("rec", [{"ok": False, "hung": True, "play": {"matched": 16, "expected": 16}}], None)
+            and not R.rec_ctl_pass("rec", [], None) and R.rec_ctl_pass("ctl", [], "PASS") and not R.rec_ctl_pass("ctl", [], "INCOMPLETE (x)"))
+    # ---- Q3
+    sys.argv = ["hiss.py"]
+    import hiss as H
+
+    def hr(rev, dub, vel, f): return {"rev": rev, "dub": dub, "vel": vel, "usb": {"steady": {"floor_db": f}}}
+    base = [hr("off", "off", 30, -91.0), hr("off", "off", 100, -81.0)]
+    attempt("Q3: costs within S's plus the margin pass, quieter passes (one-sided), new cases against SPRING's S cost",
+            lambda: H.hiss_verdict(base + [hr("room", "off", 30, -84.6), hr("spring", "off", 30, -87.0), hr("shimr", "off", 30, -80.0), hr("off", "spring", 100, -79.0)], 0.2)["pass"])
+    attempt("Q3: ROOM 2 dB over S's cost at a 1 dB margin fails; the margin is twice the AUDIO4c spread when larger",
+            lambda: not H.hiss_verdict(base + [hr("room", "off", 30, -82.8)], 0.3)["pass"] and H.hiss_verdict(base + [hr("room", "off", 30, -82.8)], 1.5)["pass"])
+    attempt("Q3: a digital-zero USB capture, or no off:off at the velocity, is not judgeable (fails)",
+            lambda: not H.hiss_verdict([hr("off", "off", 30, -180.0), hr("room", "off", 30, -180.0)], 0.2)["pass"] and not H.hiss_verdict([hr("room", "off", 100, -82.0)], 0.2)["pass"])
+    # ---- Q4
+    import q4_install as Q4
+    attempt("Q4: the plan: (a then d), b, c each twice by random.Random(20261117), d right after its a",
+            lambda: (lambda o: len(o) == 8 and sorted(o) == sorted("aabbccdd") and all(o[i + 1] == "d" for i, c in enumerate(o) if c == "a")
+                     and all(o[i - 1] == "a" for i, c in enumerate(o) if c == "d") and o == Q4.plan_order())(Q4.plan_order()))
+    with tempfile.TemporaryDirectory() as d:
+        Q4.A = AP.Namespace(out=d, label="T", case="d", expect=None, layout=getattr(Q4, "DEFAULT_LAYOUT", ""), yes=True, confirm=None, url="x", nightly_build="b")
+        def no_expect():
+            try:
+                Q4.run_case(); return False
+            except SystemExit as e:
+                return "--expect" in str(e)
+        attempt("Q4: a Nightly case without --expect is refused before anything", no_expect)
+        f1, f2 = os.path.join(d, "b1.json"), os.path.join(d, "b2.json")
+        json.dump({"objects": [{"id": 0, "size": 1, "crc": 1}, {"id": 3, "size": 4, "crc": 9, "data": "AAAA"}, {"id": 5, "size": 4, "crc": 7, "data": "BBBB"}]}, open(f1, "w"))
+        json.dump({"objects": [{"id": 0, "size": 2, "crc": 2}, {"id": 3, "size": 4, "crc": 9, "data": "AAAA"}, {"id": 5, "size": 4, "crc": 7, "data": "BBBC"}, {"id": 8, "size": 1, "crc": 1}]}, open(f2, "w"))
+        attempt("Q4: case a's objects: only those present before compared byte for byte, a new one listed, not a difference",
+                lambda: (lambda c: list(c["differing"]) == [5] and c["new"] == [8] and not c["kept"])(Q4.compare_objects(f1, f2)))
+        Q4.state = lambda tag: {"tag": tag}
+        def eof():
+            import builtins
+            old = builtins.input
+            builtins.input = lambda *_: (_ for _ in ()).throw(EOFError())
+            try:
+                Q4.ask("x? "); return False
+            except SystemExit as e:
+                return e.code == 3
+            finally:
+                builtins.input = old
+        attempt("Q4: end of input at a prompt is a clean stop (exit 3, the state read), not a crash", eof)
+    probe = {"mod": {"starts": [{"state": 0, "engine": 0}] + [{"state": 7, "engine": 14}] + [{"state": 0, "engine": 0}] * 3 + [{"state": 7, "engine": 7}] + [{"state": 0, "engine": 0}] * 15},
+             "fx": {"effects": [{"id": 3, "state": 7, "start": 2}, {"id": 0x4D08, "state": 7, "start": 17}, {"id": 1, "state": 7, "start": 18}]}}
+    attempt("Q4: every module of the layout registered at its start; one elsewhere fails",
+            lambda: Q4.judge_layout(probe, Q4.layout_of(Q4.DEFAULT_LAYOUT))[0]
+            and not Q4.judge_layout({**probe, "fx": {"effects": [{"id": 3, "state": 7, "start": 3}]}}, Q4.layout_of(Q4.DEFAULT_LAYOUT))[0])
+    attempt("Q4: a wipe's result checked empty (a start left, or an effect module, fails)",
+            lambda: Q4.modules_left([{"state": 0}] * 21, {"fx": {"effects": []}}) == [] and Q4.modules_left([{"state": 0}, {"state": 7}], None)
+            and Q4.modules_left(None, None))
+    pb = {0: {"tracks": [{"engine": 8, "preset": 1, "level": 0, "mute": 0, "steps": [[1, 2, 3]]}], "bpm": 120}}
+    attempt("Q4: a project's read-back compared (a step over the bytes both firmwares send)",
+            lambda: Q4.compare_projects(pb, {0: {"tracks": [{"engine": 8, "preset": 1, "level": 0, "mute": 0, "steps": [[1, 2, 3, 0, 0]]}], "bpm": 120}}) == []
+            and Q4.compare_projects(pb, {0: {"tracks": [{"engine": 8, "preset": 2, "level": 0, "mute": 0, "steps": [[1, 2, 3]]}], "bpm": 120}}))
 
 
 if __name__ == "__main__":
