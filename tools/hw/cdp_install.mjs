@@ -128,6 +128,9 @@ const finishedText = (s) => /^(Result: |結果: )/.test((s || "").trim()) || /^(
 // (Round 31, the review) the parts of a "Result: ..." line that are not a success: every "Firmware/Pack/Module: X" whose X is not installed, already current, not chosen or
 // "this release has none", and every other line but the done rearrange and the named removal (e.g. "No place is free for the module.", "... has no place for it. Nothing was
 // written", "not for this firmware", "... REMOVE IT FIRST", the roll back, a declined or stopped rearrange). [] for a clean result
+// (Round 32) the plan the page wrote by: its log's "plan: NAME at start N, ... | kept: NAME at start N, ..." line (web/fm1oc.js planLine; the last one of
+// an attempt) -> [{name, start, kept}] or null when the page printed none (a unit with 18 starts, or a page before Round 32)
+const planOf = (lines) => { const l = [...(lines || [])].reverse().find((x) => /^plan: /.test(x)); if (!l) return null; const [w, k] = l.slice(6).split(" | kept: "); const one = (t, kept) => (t || "").split(", ").map((x) => /^(.+) at start (-?\d+)$/.exec(x.trim())).filter(Boolean).map((m) => ({ name: m[1], start: Number(m[2]), kept })); return [...one(w, false), ...one(k, true)]; };
 const resultProblems = (s) => {
   const t = (s || "").trim().replace(/^(Result: |結果: )/, "");
   const okVal = /^(installed|already current, left as it is|not chosen|this release has none|インストールしました|すでに最新です（そのまま）|選びませんでした|このリリースにはありません)$/;
@@ -197,6 +200,7 @@ try {
     a.fwWrites = lines.filter((l) => /^write \d+/.test(l)).length;
     a.fwWriteMax = Math.max(0, ...lines.map((l) => (/^write (\d+)/.exec(l) || [0, 0])[1]).map(Number));
     a.summary = lines.filter((l) => /^(Firmware|Pack|Module|Effect|Models|Result)/i.test(l));
+    a.plan = planOf(lines);
     writeFileSync(resolve(out, `page-log-attempt${k}.txt`), lines.join("\n"));
     result.attempts.push(a);
     say(`attempt ${k} ended: ${a.status}${a.timedOut ? " (the page was still working at the time limit)" : ""}`);
@@ -213,6 +217,7 @@ try {
   }
   result.downloads = readdirSync(dl);
   result.final = result.attempts.length ? result.attempts[result.attempts.length - 1].status : null;
+  result.plan = [...result.attempts].reverse().map((x) => x.plan).find(Boolean) || null;   // (Round 32) the page's plan of the last attempt that printed one
   result.unmatched = unmatched;
   // (Round 31, found in the Q4 rehearsal: the 0.15.0 -> Nightly install was refused by the page's room meter before any write and reported ok) an attempt is ok only when the
   // page ended it with its own result: the summary line ("Result: ...") or "Done" (a firmware alone, the stock install). Any other end (a refusal: the room meter's text, a

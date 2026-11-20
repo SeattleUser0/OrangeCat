@@ -52,6 +52,9 @@ THE PASS MARK (7.37, printed at the end, not a judgment of anything else): 0 lat
 pulses = clocks sent), DUB running at the end, `uses` 1 for the level's module in every row, the last capture's return within 3 dB of the
 first's, the unit answering, put back identical (the guard's read-back) and the backup objects from 1 up identical before and after.
 
+(Round 32, BUILD.md 7.37) the image's identity (INFO's version, MOD_INFO's image block) heads the log; a run starts from the unit as the last
+restore left it (no DUB TAPE or REVERB MODES instance playing: else refused); --clock ext needs --din-row (its result in the pass-mark parts);
+an interval row that raised an error fails PASS_MARK; the 3 dB return rule needs both returns over -90 dBFS; PASS_MARK_fails names each part.
 SAFETY: unit_guard.py (a complete backup first, autosave held off by the keep-alive, the step-exact restore read back, a host suite on the PC
 refuses the run). --minutes N for a rehearsal of a few minutes (--warmup-s and --period-min shorten with it if given).
 """
@@ -161,6 +164,45 @@ def latch_problem(fx, tab):
     if not row or row.get("uses") != 1:
         return f"FX LAYER (id 3) shows `uses` {row.get('uses') if row else 'none (not in FX_TABLE)'}, not 1: GLITCH is not latched"
     return None
+
+
+RETURN_FLOOR_DB = -90.0                                 # (Round 32) a return at or under this is no return (a muted or digital-zero capture: -180 dB)
+
+
+def return_ok(first_db, last_db):
+    """(Round 32) the 3 dB rule with a floor: both returns over RETURN_FLOOR_DB and the last within 3 dB of the first"""
+    return first_db > RETURN_FLOOR_DB and last_db > RETURN_FLOOR_DB and abs(last_db - first_db) <= 3.0
+
+
+def args_problem(a):
+    """(Round 32) what the command line lacks for a run: an external-clock run needs its DIN row (7.37 Q1: before each external run)"""
+    if a.clock == "ext" and not a.din_row and not a.preflight_only:
+        return "--clock ext needs --din-row (7.37 Q1: the DIN clock's 20 s row before each external run, its result recorded)"
+    return None
+
+
+def start_problem(tab):
+    """(Round 32, 7.37's start: the unit as the previous run's restore left it) no DUB TAPE or REVERB MODES instance left playing (`uses` 0 for ids 1
+    and 2; id 3's `uses` is the FX level's latch, checked by the level)"""
+    bad = [f"{UG.FX_NAMES.get(x['id'], x['id'])} `uses` {x['uses']}" for x in (tab or []) if x["id"] in (1, 2) and x.get("uses")]
+    return ("the unit is not as a restore leaves it: " + ", ".join(bad)) if bad else None
+
+
+def soak_problems(v, end, clock, restore, left, identical):
+    """(Round 32) every pass-mark part that fails, by name (the FX latch is judged beside it); an interval row that raised an error had already reset
+    the counters, so its interval is unread: any errored row fails the mark"""
+    why = []
+    if v["late_halves"]: why.append(f"{v['late_halves']} late halves")
+    if v["dac_silences"]: why.append(f"{v['dac_silences']} DAC silences")
+    if not v["dub_running_at_end"]: why.append("DUB not running at the end")
+    if not v["uses_1_every_row"]: why.append("`uses` not 1 in every row")
+    if not v["return_within_3db"]: why.append(f"the return: first {v['return_first_db']} dB, last {v['return_last_db']} dB (within 3 dB, both over {RETURN_FLOOR_DB} dB)")
+    if clock == "ext" and not v["all_clocks_received"]: why.append("a clock lost")
+    if v.get("row_errors"): why.append(f"{v['row_errors']} interval row(s) raised an error (their counters were reset unread)")
+    if not end.get("answering_at_end"): why.append("the unit not answering at the end")
+    if not (restore and restore.get("verify") == "ok") or left: why.append("the restore not clean")
+    if not identical: why.append("the backup objects from 1 up not identical")
+    return why
 
 
 def pass_mark(fx, parts_ok):
@@ -332,6 +374,8 @@ def main():
         return 0
     if not (A.out and A.label and A.clock and A.fx):
         ap.error("OUT LABEL --clock --fx are needed (or --order BLOCK)")
+    if args_problem(A):
+        ap.error(args_problem(A))
     short = A.minutes < 30
     A.period_min = A.period_min if A.period_min is not None else (max(1.0, A.minutes / 3) if short else 10.0)
     A.warmup_s = A.warmup_s if A.warmup_s is not None else (30.0 if short else 120.0)
@@ -339,7 +383,7 @@ def main():
     tmo = f"{A.out}/timeouts-{A.label}.jsonl"
     mcap = f"{A.out}/midicap-{A.label}.jsonl"
     g = UG.Guard("qual_soak", A.out, A.label)
-    st = {"clk": None, "midicap": None, "restarts": 0}
+    st = {"clk": None, "midicap": None, "restarts": 0, "row_errors": 0, "din": None}
 
     def stop_transport():
         c, st["clk"] = st["clk"], None
@@ -397,7 +441,10 @@ def main():
         if A.fx == "REV" and (UG.fx_row(tab, 3) or {}).get("state") == 7:
             print("qual_soak: note: FX LAYER is registered too (7.37's REV level has REVERB MODES in its place): logged, not refused", flush=True)
         now = datetime.datetime.now()
-        head = {"note": BASE_NOTE if A.fx == "BASE" else None, "label": A.label, "version": info["version"], "clock": A.clock, "fx": A.fx, "block": A.block, "day": now.strftime("%Y-%m-%d %A"),
+        sp = start_problem(tab)
+        if sp:
+            raise SystemExit(f"qual_soak: refusing to run: {sp} (7.37: every run starts from the unit as the previous run's restore left it)")
+        head = {"image": UG.image_identity(u), "note": BASE_NOTE if A.fx == "BASE" else None, "label": A.label, "version": info["version"], "clock": A.clock, "fx": A.fx, "block": A.block, "day": now.strftime("%Y-%m-%d %A"),
                 "time_of_day": now.strftime("%H:%M"), "minutes": A.minutes, "period_min": A.period_min, "sample_s": A.sample_s, "warmup_s": A.warmup_s,
                 "ids": ids.found, "types": ID["TYPES"], "fx_table": tab, "modules": mods, "pack": u.pack_state(), "backup": g.backup, "governor": gl}
         log(head)
@@ -439,6 +486,7 @@ def main():
         if A.din_row:
             port = next((n for n in mido.get_output_names() if "DIN" in n), None)
             if not port:
+                st["din"] = {"run": False, "why": "no output port with DIN in its name"}
                 log({"din_row": "no output port with DIN in its name: not run"})
             else:
                 u.set_global(ID["G_CLK"], 2); clockstats(u, True)
@@ -446,7 +494,8 @@ def main():
                     c = PcClock(o.send); c.start(); time.sleep(20.0); c.stop()
                 time.sleep(0.5)
                 cs = clockstats(u)
-                log({"din_row": {"port": port, "sent": c.sent, "received": cs, "all_received": cs["pulses"] == c.sent, "send_gap_max_ms": round(c.gap_max_ms, 1)}})
+                st["din"] = {"run": True, "port": port, "sent": c.sent, "received": cs, "all_received": cs["pulses"] == c.sent, "send_gap_max_ms": round(c.gap_max_ms, 1)}
+                log({"din_row": st["din"]})
         # ---- the transport
         if A.clock == "ext":
             u.set_global(ID["G_CLK"], 1); clockstats(u, True)
@@ -532,7 +581,8 @@ def main():
                     rows.append(row); log(row)
                     json.dump(rows, open(f"{A.out}/rows-{A.label}.json", "w"), indent=1, default=str)
                 except Exception as e:
-                    log({"t_min": round(el / 60, 2), "error": repr(e)[:200]})
+                    st["row_errors"] += 1                # (the counters were reset at the row's start: this interval is unread)
+                    log({"t_min": round(el / 60, 2), "error": repr(e)[:200], "row_errors": st["row_errors"]})
             time.sleep(0.5)
         last = ret_capture("cap-last")
         while time.monotonic() - t0 - A.warmup_s < end_s:
@@ -558,7 +608,8 @@ def main():
                    "dac_silences": sum(r["dac_silences"] for r in rows) + first["dac_silences"] + last["dac_silences"],
                    "usb_holes": sum(r["usb_holes"] for r in rows), "dub_running_at_end": end["dub_at_end"]["running"],
                    "uses_1_every_row": uses_ok, "return_first_db": first["return_db"], "return_last_db": last["return_db"],
-                   "return_within_3db": abs(last["return_db"] - first["return_db"]) <= 3.0, "all_clocks_received": end.get("all_clocks_received"),
+                   "return_within_3db": return_ok(first["return_db"], last["return_db"]), "all_clocks_received": end.get("all_clocks_received"),
+                   "row_errors": st["row_errors"], "din_row": st["din"],
                    "take_failures": end["take_failures_total"], "dub_gov_fires_end": end["dub_at_end"]["gov_fires"],
                    "latch_at_end": latch_problem(A.fx, end["fx_table_at_end"])}
         if verdict["latch_at_end"]:
@@ -618,9 +669,8 @@ def main():
         v = res["verdict"]
         if v.get("latch_at_end"):
             out["PASS_MARK_why_false"] = f"the latch was lost during the run: {v['latch_at_end']}"
-        out["PASS_MARK"] = pass_mark(A.fx, not v.get("latch_at_end") and v["late_halves"] == 0 and v["dac_silences"] == 0 and v["dub_running_at_end"] and v["uses_1_every_row"] and v["return_within_3db"]
-                                and (A.clock == "int" or v["all_clocks_received"]) and res["end"]["answering_at_end"]
-                                and out["restore"] and out["restore"].get("verify") == "ok" and not out["left"] and out.get("objects_1_up_identical"))
+        out["PASS_MARK_fails"] = soak_problems(v, res["end"], A.clock, out["restore"], out["left"], out.get("objects_1_up_identical"))
+        out["PASS_MARK"] = pass_mark(A.fx, not v.get("latch_at_end") and not out["PASS_MARK_fails"])
     log(out)
     if A.fx == "BASE":
         print(f"qual_soak: {BASE_NOTE}", flush=True)

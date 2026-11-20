@@ -39,6 +39,9 @@ longer; none or two: refused) and FX_TABLE must show FX LAYER (id 3) registered 
 failure in the cases) every send 0 and TYPE ROOM, FX_REMOVE 2, `oc_install.mjs fx` with the FX layer's file, and FX_TABLE compared with the
 one before (each module's id, start, sectors, version, state). A step that fails stops the swap: what is in the unit is printed with the way
 back (the installer page's Install with its default ticks puts the default set back, FX LAYER included).
+THE PASS MARK (Round 32, BUILD.md 7.37 Q3; hiss_verdict): each case's cost (its USB floor less the session's off at the same velocity) against
+7.21's S cost plus max(1 dB, twice the AUDIO4c idle spread), one-sided; SHIMR and DUB's SPRING against SPRING's S cost, reported as new; exit 1
+on a fail or a case that cannot be judged.
 SAFETY: unit_guard.py (a complete backup first, autosave held off, the step-exact restore read back). Fixed from r11: its restore wrote the
 parameters before loading track 1's sound back (the preset load then overwrote them), and its DUB writes used Release 2's ids (45 LEN,
 46 PTRN, 47 SPRP, 107 SPACE: today SPEED, MODE, TAPE, ECHO).
@@ -292,6 +295,54 @@ class FxSwap:
         self.say(f"swap: the default set is back: {fx_key(self.tab0)}")
 
 
+# ---------------------------------------------------------------------------------------------------- the pass mark (Round 32, BUILD.md 7.37 Q3)
+# Release 1's figures: 7.21's table, column S (0.15.0), the USB capture's floor between the harmonics (dBFS, 3 to 15 kHz), by velocity
+S_FLOOR = {30: {"off": -90.9, "room": -84.7, "spring": -80.5}, 100: {"off": -81.1, "room": -81.9, "spring": -79.7}}
+DIGITAL_ZERO_DB = -170.0
+
+
+def hiss_verdict(rows, a4c_spread_db):
+    """judged as a cost: a case's mean USB floor minus the session's own off:off at the same velocity, against S's cost (S's case minus S's off)
+    plus the margin, the larger of 1 dB and twice the session's AUDIO4c repeatability; one-sided (quieter passes). SHIMMER and DUB's SPRING have no
+    Release 1 figure: against the largest S cost at that velocity (SPRING's) plus the margin, reported as new. Other cases are not judged.
+    -> {"pass": bool, "margin_db", "cases": {case: {...}}}"""
+    margin = max(1.0, 2.0 * a4c_spread_db) if a4c_spread_db is not None else None
+    mean = {}
+    for r in rows:
+        f = (r.get("usb") or {}).get("steady", {}).get("floor_db")
+        mean.setdefault((r["rev"], r["dub"], r["vel"]), []).append(f)
+    out, ok = {}, margin is not None
+    for (rev, dub, vel), fs in sorted(mean.items(), key=str):
+        k = f"{rev}:{dub}:{vel}"
+        if (rev, dub) == ("off", "off"):
+            continue
+        base = mean.get(("off", "off", vel))
+        sref = S_FLOOR.get(vel)
+        if (rev, dub) in (("room", "off"), ("spring", "off")):
+            ref, new = sref and sref[rev] - sref["off"], False
+        elif (rev, dub) in (("shimr", "off"), ("off", "spring")):
+            ref, new = sref and max(sref["room"], sref["spring"]) - sref["off"], True
+        else:
+            out[k] = {"judged": False, "why": "no mark for this case"}
+            continue
+        if ref is None or not base or None in base or None in fs or margin is None:
+            out[k] = {"judged": True, "ok": False, "why": "not judgeable: no Release 1 figure at this velocity, no off:off of the session at it, a capture without a floor, or no repeatability"}
+            ok = False
+            continue
+        b, c = sum(base) / len(base), sum(fs) / len(fs)
+        if b <= DIGITAL_ZERO_DB or c <= DIGITAL_ZERO_DB:
+            out[k] = {"judged": True, "ok": False, "why": f"the USB capture reads digital zero (off {b:.1f}, case {c:.1f} dBFS): not judgeable"}
+            ok = False
+            continue
+        cost = c - b
+        good = cost <= ref + margin
+        out[k] = {"judged": True, "ok": good, "new": new, "cost_db": round(cost, 2), "s_cost_db": round(ref, 2), "limit_db": round(ref + margin, 2),
+                  "floor_db": round(c, 2), "off_db": round(b, 2)}
+        ok = ok and good
+    judged = [v for v in out.values() if v.get("judged")]
+    return {"pass": bool(ok and judged), "margin_db": margin, "cases": out}
+
+
 def configure(u, rev, dub):
     u.select(0)
     rv = 64 if rev in MODE_NAMES or rev == "all3" else 0
@@ -437,6 +488,14 @@ def main():
             k = f"{r['rev']}:{r['dub']}:{r['vel']}"
             summ.setdefault(k, []).append(r["usb"].get("steady", {}).get("floor_db"))
         log({"summary_usb_floor_db": {k: [round(x, 2) for x in v if x is not None] for k, v in summ.items()}})
+        st["verdict"] = hiss_verdict(rows, rep["repeatability"]["a4c_spread_db"])
+        for k, v in st["verdict"]["cases"].items():
+            if v.get("judged"):
+                print(f"hiss: {k}: " + (f"cost {v['cost_db']:+.2f} dB against {v['limit_db']:+.2f} (S {v['s_cost_db']:+.2f} + {st['verdict']['margin_db']:.2f})"
+                                         f"{' NEW (no Release 1 figure: against SPRING' + chr(39) + 's S cost)' if v['new'] else ''}" if "cost_db" in v else v["why"])
+                      + f": {'PASS' if v['ok'] else 'FAIL'}", flush=True)
+        print(f"hiss: Q3 {'PASS' if st['verdict']['pass'] else 'FAIL'} (margin {st['verdict']['margin_db']} dB)", flush=True)
+        log({"q3_verdict": st["verdict"]})
         return rows
 
     def guarded(u):
@@ -456,7 +515,8 @@ def main():
     UG.run_guarded(g, guarded)
     sw = st["swap"]
     log({"restore": getattr(g, "verified", None), "left": g.left, "swap_fx": None if not sw else {"steps": sw.steps, "back": sw.back_done}})
-    return 0 if not sw or sw.back_done else 1
+    passed = bool(st.get("verdict") and st["verdict"]["pass"])
+    return 0 if (not sw or sw.back_done) and passed and getattr(g, "verified", {}).get("verify") == "ok" and not g.left else 1
 
 
 if __name__ == "__main__":

@@ -763,10 +763,10 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
   const held = () => unitState(true, [[1, {engine: SHAPES}], [5, {engine: WHEEL}], [17, {mid: MODELS, sectors: 9, kind: 4}], [18, {mid: DUB, sectors: 3}]]);
   const full = (st) => { const c = new Set(); st.starts.forEach((x, j) => { if (x.state === 7) for (let q = 0; q < PLACE.sectorsOf(st, x.kind ? {mid: x.mid, sectors: Math.ceil(x.length / 4096)} : {engine: x.engine}); q++) c.add(PLACE.OC_SECT[j] + q); }); return c.size; };
   const go = async (u, files) => {
-    const asked = [];
+    const asked = [], logs = [];
     let sum = null, error = null;
-    try { sum = await runSet({stages: MODS, files, openUnit: async () => u.link(), sleep: async () => {}, confirmRearrange: (names) => { asked.push(names.join(", ")); return true; }}); } catch (e) { error = e; }
-    return {sum, error, asked};
+    try { sum = await runSet({stages: MODS, files, log: (l) => logs.push(l), openUnit: async () => u.link(), sleep: async () => {}, confirmRearrange: (names) => { asked.push(names.join(", ")); return true; }}); } catch (e) { error = e; }
+    return {sum, error, asked, logs};
   };
   assert.equal(full(held()), 19, "the unit as it stands holds 19 of its 21 sectors");
   // a.
@@ -774,6 +774,11 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
   assert.ok(!r.error, r.error && r.error.message);
   assert.deepEqual(r.sum.module, ["current", "current", "current", "installed", "installed"], "SHAPES, WHEEL and DUB TAPE are the unit's; the FX layer and the pick are written: " + JSON.stringify(r.sum.module));
   assert.equal(u.ops.join(" "), "begin:0x4d08@17 begin:0x3@2", "the pick again in place (start 17), the FX layer at start 2: the area's last free two sectors");
+  {   // (Round 32) the plan the page writes by, as one log line (the qualification's driver judges each module at these starts)
+    const pl = r.logs.filter((l) => l.startsWith("plan: "));
+    assert.equal(pl.length, 1, "one plan line: " + JSON.stringify(r.logs));
+    for (const want of ["MACRO models at start 17", "FX LAYER at start 2", "kept: ", "SHAPES at start 1", "WHEEL at start 5", "DUB TAPE at start 18"]) assert.ok(pl[0].includes(want), want + " in " + pl[0]);
+  }
   assert.ok(!r.asked.length && !r.sum.rearrange && !u.sent.includes(124) && !u.ops.some((o) => o.startsWith("remove")), "nothing asked, nothing taken off");
   assert.equal(full(u.st), 21, "the unit then holds all of its 21 sectors");
   r = await go(u, SET5);

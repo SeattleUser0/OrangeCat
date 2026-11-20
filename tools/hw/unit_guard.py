@@ -190,6 +190,38 @@ def fx_row(table, mid):
     return next((x for x in (table or []) if x["id"] == mid), None)
 
 
+def parse_image(r):
+    """(Round 32) MOD_INFO's reply (120, web/EDITOR_PROTOCOL.md; web/fm1oc.js parseModInfo) -> the image the unit runs: the commit marker's body
+    length and CRC-32 and the CRC-32 of the rest the update loader writes ({"len", "crc", "rest"}); None when the reply has no image block (a
+    firmware before Round 26) or the marker does not read (all 0)"""
+    def n5(o):
+        return sum(r[o + j] << (7 * j) for j in range(5)) & 0xFFFFFFFF
+    try:
+        n = r[0]
+        i = 21 + 6 * n + 1                               # nstarts .. plan (21 bytes), the starts (6 each), the blocker
+        c = r[i]; i += 1 + c                             # the starts' sectors
+        i += 1                                           # the low six's byte
+        c2 = r[i]; i += 1 + 10 * c2                      # the starts' code and header CRCs
+        if i + 15 > len(r):
+            return None
+        fw = {"len": n5(i), "crc": n5(i + 5), "rest": n5(i + 10)}
+    except IndexError:
+        return None
+    return fw if any(fw.values()) else None
+
+
+def image_identity(u):
+    """(Round 32, BUILD.md 7.37) the image's identity for a run's head: INFO's version and MOD_INFO's image block (len, crc, rest: what the
+    installer page compares to leave a firmware as it is); "image": None when the unit does not report it"""
+    try:
+        r = u.req(120, timeout=1.5)
+    except TimeoutError:
+        r = None
+    img = parse_image(r) if r else None
+    return {"version": u.info()["version"], "image": img,
+            "id": f"{u.info()['version']} len {img['len']} crc {img['crc']:08x} rest {img['rest']:08x}" if img else f"{u.info()['version']} (no image block)"}
+
+
 class Guard:
     def __init__(self, tool, out, label, backup=True):
         self.tool, self.out, self.label, self.want_backup = tool, out, label, backup
