@@ -212,7 +212,7 @@ def cell_rec(s, u, reps, passes):
         polls, running = S.play_chain(u, passes * PASS_S, 0)
         st = u.stats()
         ra.stop(); xu, rate_u = ru.stop()
-        time.sleep(S.RELEASE_S); v_rel = u.voices()       # (Round 32) the hung-note check
+        time.sleep(S.RELEASE_S); v_rel = u.voices(strict=True)   # (Round 32) the hung-note check (None: not judgeable, fails)
         mu = xu.mean(axis=1); ons, peaks = S.onsets(mu, rate_u)
         t0 = S.grid_origin(ons, (0,), passes)
         env, dt = S.envelope_db(mu, rate_u)
@@ -282,7 +282,7 @@ def capture_run(u, name, passes, take=None):
     info = take() if take else {"polls": S.play_chain(u, passes * PASS_S, 1)}
     st = u.stats()
     ra.stop(); xu, rate = ru.stop()
-    time.sleep(S.RELEASE_S); v_rel = u.voices()           # (Round 32) a hung note: voices sounding or gated after the stop and the release
+    time.sleep(S.RELEASE_S); v_rel = u.voices(strict=True)   # (Round 32) a hung note: voices sounding or gated after the stop and the release
     mu = xu.mean(axis=1)
     ons, _ = S.onsets(mu, rate)
     t0 = S.grid_origin(ons, (0,), passes)

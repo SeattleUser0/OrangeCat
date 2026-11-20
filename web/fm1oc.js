@@ -685,7 +685,7 @@ export function arrangementOf(probe, ocms, opts = {}) {
 export function planLine(arr) {
   const w = (arr.plan && arr.plan.steps || []).map((x) => `${x.mod.name} at start ${x.start}`);
   const held = (m) => (arr.st && arr.st.starts || []).findIndex((x) => x && x.state === 7 && (m.engine != null ? !x.kind && x.engine === m.engine : !!x.kind && x.mid === m.mid));
-  const k = (arr.mods || []).filter((m) => m.current).map((m) => `${m.name} at start ${held(m)}`);
+  const k = arr.how === "asis" ? (arr.mods || []).filter((m) => m.current).map((m) => `${m.name} at start ${held(m)}`) : [];   // (a rearrange takes the set's modules off: only plan: names their starts)
   return `plan: ${w.join(", ") || "nothing to write"}${k.length ? " | kept: " + k.join(", ") : ""}`;
 }
 // (round 23) before a rearrange takes anything off the unit: every file of the set against the unit and the start the plan gives it, the way the install will check it (the

@@ -106,6 +106,10 @@ def plan_layout(plan):
     """(Round 32) the page's own plan (cdp_install.mjs result.plan, from its log's plan line) -> {MODULE NAME: start}; None when the page printed none"""
     if not plan:
         return None
+    names = [x["name"].strip().upper() for x in plan]
+    twice = sorted({n for n in names if names.count(n) > 1})
+    if twice:
+        raise SystemExit(f"q4_install: the page's plan names {twice} more than once ({plan}): which start counts is not known; refused")
     return {x["name"].strip().upper(): int(x["start"]) for x in plan}
 
 
