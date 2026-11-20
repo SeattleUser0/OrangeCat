@@ -1,3 +1,22 @@
+# Orange Cat Nightly v0.16.0-a3363d (Round 31): what changed for you since 269260
+
+Written November 19, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. **This Nightly is on the test unit, installed from the live page.** Release 3 goes ahead without the new project format, as you decided (it moves to Release 4 with scenes v2, Performance Mode and project-owned phrases).
+
+1. **The new main screen is in (Session C's step 9, layout 1, strips).** Power-on lands on it: a row a track with its 16 steps and a white bar under the step playing, the selected track's four knobs as dials at the foot. The old Stage and the switches behind it are gone (the image is 4.8 KB smaller). A review found that on the selected row the empty steps could not be seen (same colour as the row): fixed before it went on. On the test unit: the knobs move the sound, GLO + OCT+ turns a track OFF and back, no late audio. Please look at it: the colours, the bar under the steps, HOME turning through the main screen, the picture, DUB and the chord view (the unit cannot show me its screen).
+2. **Upgrading from 0.15.0 Standard works now.** The page refused it before (it planned against 0.15.0's smaller memory). It now plans for the new firmware, says first what will stop working (0.15.0's own modules; a sample too long to keep) and asks once. Tried on the test unit: 0.15.0, then this Nightly with the page's defaults: everything in place.
+3. **The release notes draft (CHANGES.md, Release 3 as 0.17.0)** now follows your Release plan 0.9 list, with your four known limits plus two. Please read it; VERSION is not set and nothing is tagged.
+4. **The qualification tools are rehearsed.** The long soak's load now keeps DUB TAPE running (measured on the unit), and the hiss check swaps the REVERB MODES module in for SPRING and SHIMMER and puts the default set back. The gate itself waits for your go.
+5. **Your checklist, one sitting (about 20 minutes, the test unit, the PC runs the tools and waits for you at each step):**
+   - [ ] **Latch GLITCH** when the soak asks: FX LATCH on, then GLITCH's key (the PC checks it took).
+   - [ ] **Save the test objects** when the install test asks: a project, a user preset, a pool phrase and a scene, each with SAVE.
+   - [ ] **Wipe the project slots** when it asks: SAVE (the PROJECT page), KNOB 1 to the slot, OCT+, KNOB 2 to Erase, OCT+, OCT+ again; slots A to D.
+   - [ ] **Look at the main screen** (point 1) and tell me anything that looks wrong.
+6. **Something to know:** a test browser of mine opened Classic Tabby's Workbench page on this PC (127.0.0.1:8765) once this round, with MIDI allowed. Nothing was clicked and it was closed, but I cannot rule out that the page sent the SMK37 something when it opened. It is now off limits for every Orange Cat tool. The SMK37 restarted three times today (11:18, 14:41, 15:39) in the way a firmware update does; none of my tools talk to it: that looks like Classic Tabby's own work.
+7. **Your two units were not connected this round.** Connect one (USB, switched on) and I read its flash chip; nothing is written.
+8. **Tested:** full SAN=1 suite green (292 jobs).
+
+---
+
 # Orange Cat Nightly v0.16.0-269260 (Round 30): what changed for you since 6872dc
 
 Written November 18, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. **This Nightly is on the test unit, installed from the live page.** Nothing you can hear changes: the new project format stays switched off. If the page ever says the FM-1 in update mode was not found, or did not come back, press Install again: on the test unit both messages came from my test browser missing a port that was there; nothing was lost.
