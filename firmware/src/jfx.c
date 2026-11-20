@@ -2416,6 +2416,8 @@ static void jfx_power_on(void)
     jfx_wait = jfx_grow = 0;
     res_jfx_yield = 0;
     jfx_reset_now();
+    perf_latch_on = 0;                                  /* (Round 32) FX LATCH off, nothing latched: as the unit powers on */
+    perf_all_off();
     lim_env = LIM_T;                                    /* the master's own states (a project load keeps them: no step) */
     lev_env = lev_dg = 0;
     lev_g = lev_cur = 32768;

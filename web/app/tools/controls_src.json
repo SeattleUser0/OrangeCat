@@ -210,11 +210,15 @@
         [
           "F#5",
           "THROW: the mix into the delay and reverb."
+        ],
+        [
+          "G5",
+          "FX LATCH on or off (\"FX LATCH ON\", \"FX LATCH OFF\"; the footer says LATCH ON or LATCH OFF, G5 is lit while it is on). With LATCH on, a tap of an effect's key turns the effect on, and it plays with the keys and FX let go until its key is tapped again. Effects held when LATCH goes on stay on. LATCH OFF lets every latched effect go. LATCH is off when the FM-1 starts and is never saved."
         ]
       ],
       "knobs": "With a GLITCH, TAPE, SHUFFLE or FREEZE key down, KNOB 1 to 4 are its settings (never saved). GLITCH: DENS, PITCH, SIZE, VARI. TAPE: SCRATCH, TIME, CURVE. SHUFFLE: AMOUNT, SIZE, SPEED, VARI. FREEZE: DENS, PITCH, SPRAY, SIZE. With none down, KNOB 4 is FILTER, a low-pass on the whole mix.",
       "others": [
-        "OCT-: every effect off (\"PUNCH-IN: ALL OFF\"). Held effects do not change the octave.",
+        "OCT-: every effect off, latched ones too, and LATCH off (\"PUNCH-IN: ALL OFF\"). Held effects do not change the octave.",
         "GLITCH, TAPE STOP, SHUFFLE and FREEZE come from the FX LAYER module. Without it their cells on the map are dim, the key does nothing and the screen says MODULE MISSING. REPEAT, the mutes, CRUSH, THROW and FILTER are built in and always work."
       ]
     }

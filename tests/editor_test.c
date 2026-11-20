@@ -1530,8 +1530,91 @@ static int fx_protocol(void)
     a[0] = 5; request(ED_EXT, a, 1);
     bad += check("FX_TABLE after: count 0", host_wire[5] == 5 && host_wire[6] == 0);
     ok = 1;
-    for (i = 0; i < 3; i++) { a[0] = (uint8_t)(6 + i); request(ED_EXT, a, 1); ok &= host_wire_n == 0 || host_wire[5] != (uint8_t)(6 + i) || host_wire_n <= 6u; }
-    bad += check("an extension number past FX_TABLE (6, 7, 8): no reply", ok);
+    for (i = 0; i < 3; i++) { a[0] = (uint8_t)(8 + i); request(ED_EXT, a, 1); ok &= host_wire_n == 0 || host_wire[5] != (uint8_t)(8 + i) || host_wire_n <= 6u; }
+    bad += check("an extension number past FX_LATCH (8, 9, 10): no reply", ok);   /* ((Round 32) 7 is 135 FX_LATCH now: fx_latch_protocol) */
+    reset();
+    return bad;
+}
+
+/* (Round 32) 135 FX_LATCH (extension n 7): the FX layer's LATCH and its latched effects from the editor (editor.c ed_latch_handle; jfx_perform.c perf_latch_put). The reply: 0, 7, rc,
+ * latch, latched (2 x 7: bit id - 1), playing (wire id), uses, kill. GLITCH is wire id 4. The FX layer module is a stand-in bank registered as the loader registers one (fx3_modk_set):
+ * its GLITCH kernel holds its share at full and does nothing else; FX_TABLE's `uses` for id 3 is fx3_modk_uses, the reply's uses byte */
+static void fxl_start(const fx3_ctx_t *c) { (void)c; }
+static uint32_t fxl_run(const fx3_ctx_t *c, int32_t *l, int32_t *r, uint32_t n) { (void)l; (void)r; c->st->w = c->go ? 32768 : 0; return n; }
+static const fx3_kcalls_t FXL_CALLS = {fxl_start, fxl_run};
+static void fxl_blocks(uint32_t n) { int32_t o[2 * CTL]; while (n--) mix_block(o, CTL); }
+static uint32_t latch_req(const uint8_t *args, uint32_t n)
+{
+    uint8_t a[4] = {7, 0, 0, 0};
+    for (uint32_t i = 0; i < n; i++) a[1 + i] = args[i];
+    return request(ED_EXT, a, 1u + n);
+}
+/* the reply is rc, latch, latched, playing, uses, kill as given (latched: the wire's bits) */
+static int latch_is(uint32_t rc, uint32_t on, uint32_t latched, int playing, int uses)
+{
+    return host_wire_n == 14u && host_wire[4] == 0 && host_wire[5] == 7 && host_wire[6] == rc && host_wire[7] == on &&
+           (host_wire[8] | (uint32_t)host_wire[9] << 7) == latched && (playing < 0 || host_wire[10] == (uint32_t)playing) && (uses < 0 || host_wire[11] == (uint32_t)uses) && host_wire[12] == 0;
+}
+static int fx_latch_protocol(void)
+{
+    int bad = 0, ok;
+    reset();
+    fx3_modk_clear();
+    perf_latch_on = 0; perf_all_off(); perf_kill = 0;
+    song.g[G_BPM] = 120; song.playing = 0;
+    fxl_blocks(4);
+    latch_req(0, 0);
+    bad += check("FX_LATCH (135) read: rc 0, LATCH off, nothing latched", latch_is(0, 0, 0, 0, 0));
+    latch_req((const uint8_t[]){1}, 1);
+    bad += check("FX_LATCH latch 1: LATCH on, nothing latched", latch_is(0, 1, 0, -1, -1) && perf_latch_on == 1);
+    latch_req((const uint8_t[]){1, 4, 1}, 3);
+    bad += check("FX_LATCH GLITCH on without the FX LAYER module: refused (rc 2), nothing latched", latch_is(2, 1, 0, 0, 0) && perf_latched == 0u);
+    {   /* the stand-in FX LAYER bank: four effects, the caps a module carries */
+        static fx_caps_t c[4];
+        static fx3_reg_t r[4];
+        for (uint32_t k = 0; k < 4u; k++) {
+            memset(&c[k], 0, sizeof c[k]);
+            c[k].magic = FX_CAPS_MAGIC; c[k].size = FX_CAPS_WIRE; c[k].version = FX_CAPS_VERSION; c[k].abi = FX3_ABI_ID;
+            c[k].max_inst = 1; c[k].rates = 1; c[k].ram_work_min = c[k].ram_work_max = 8; c[k].param_bytes = 4;
+            r[k].effect_id = (uint8_t)(k + 1u); r[k].caps = &c[k]; r[k].calls = &FXL_CALLS;
+        }
+        ok = fx3_modk_set(FX3_MODULE_ID, 0x010000u, 4u, r) == FX3M_OK;
+    }
+    latch_req((const uint8_t[]){1, 4, 1}, 3);
+    ok &= latch_is(0, 1, 1u << 3, -1, -1) && perf_latched == PF_BIT(PF_GLT);
+    fxl_blocks(8);
+    latch_req(0, 0);
+    bad += check("FX_LATCH GLITCH on with the module registered: rc 0, latched; stopped, it plays at once: playing 4, uses 1 (FX_TABLE's)",
+                 ok && latch_is(0, 1, 1u << 3, 4, 1) && fx3_modk_uses() == 1u);
+    latch_req((const uint8_t[]){1, 4, 1}, 3);
+    bad += check("FX_LATCH GLITCH on again: idempotent (still latched, not toggled off)", latch_is(0, 1, 1u << 3, 4, 1));
+    latch_req((const uint8_t[]){1, 2, 1}, 3);
+    fxl_blocks(8);
+    latch_req(0, 0);
+    bad += check("FX_LATCH REPEAT 1/16 on as well: both latched, the last latched plays (as a tap: REPEAT 1/16, id 2), uses 0", latch_is(0, 1, (1u << 3) | (1u << 1), 2, 0));
+    latch_req((const uint8_t[]){1, 2, 0}, 3);
+    fxl_blocks(8);
+    latch_req(0, 0);
+    bad += check("FX_LATCH REPEAT 1/16 off: GLITCH plays again, uses 1", latch_is(0, 1, 1u << 3, 4, 1));
+    ok = 1;
+    latch_req((const uint8_t[]){2}, 1); ok &= latch_is(1, 1, 1u << 3, -1, -1);
+    latch_req((const uint8_t[]){1, 0, 1}, 3); ok &= latch_is(1, 1, 1u << 3, -1, -1);
+    latch_req((const uint8_t[]){1, 14, 1}, 3); ok &= latch_is(1, 1, 1u << 3, -1, -1);
+    latch_req((const uint8_t[]){1, 4, 2}, 3); ok &= latch_is(1, 1, 1u << 3, -1, -1);
+    latch_req((const uint8_t[]){0, 4, 1}, 3); ok &= latch_is(1, 1, 1u << 3, -1, -1);
+    bad += check("FX_LATCH out of range (latch 2, effect 0 / 14, on 2, on with latch 0): rc 1, nothing changed", ok && perf_latch_on == 1);
+    song.g[G_BPM] = 60;
+    latch_req((const uint8_t[]){1, 1, 1}, 3);
+    bad += check("FX_LATCH REPEAT 1/8 at 60 BPM (too long for the loop): rc 3, nothing changed", latch_is(3, 1, 1u << 3, -1, -1));
+    song.g[G_BPM] = 120;
+    ok = latch_req((const uint8_t[]){1, 4}, 2) == 0u && latch_req((const uint8_t[]){1, 4, 1, 0}, 4) == 0u;
+    bad += check("FX_LATCH with 2 or 4 bytes: no reply", ok);
+    latch_req((const uint8_t[]){0}, 1);
+    fxl_blocks(40);
+    latch_req(0, 0);
+    bad += check("FX_LATCH latch 0: LATCH off, GLITCH let go (faded out: playing 0, uses 0)", latch_is(0, 0, 0, 0, 0) && perf_latch_on == 0 && fx3_modk_uses() == 0u);
+    fx3_modk_clear();
+    perf_all_off();
     reset();
     return bad;
 }
@@ -2011,7 +2094,7 @@ static int arrange_protocol(void)
 
 int main(void)
 {
-    int bad = kit_protocol() + arrange_protocol() + module_protocol() + module_overlaps() + fx_protocol() + mod_report() + fw_report() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + reply_counters() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
+    int bad = kit_protocol() + arrange_protocol() + module_protocol() + module_overlaps() + fx_protocol() + fx_latch_protocol() + mod_report() + fw_report() + admission_protocol() + pack_protocol() + sample_slot_protocol() + library_transfers() + native_motion_protocol() + prophet_protocol() + bank_protocol() + preferences() + reply_counters() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
               native_protocol() + shared_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_casio_sysex() + concert_pitch() + device_settings() + scale_catalogue() + project_scale_protocol() + web_wire_rule();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
