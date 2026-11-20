@@ -70,8 +70,9 @@ static volatile int8_t perf_gp[4][4] = {{50, 0, 0, 1}, {0, 4, 0, 0}, {60, 2, 20,
 static volatile uint32_t perf_scr;    /* main: TAPE's KNOB 1 detents, a running count */
 static volatile uint32_t perf_held;   /* the effects held (PF_*) */
 static volatile uint32_t perf_down;   /* the effects whose key is down (FX LATCH too): a glitcher's knobs */
-static volatile uint8_t perf_latch_on;   /* main: FX LATCH: a key with FX toggles its effect */
-static volatile uint32_t perf_latched;   /* the effects latched (main clears it) */
+static volatile uint8_t perf_latch_on;   /* main: FX LATCH: a key with FX toggles its effect. (Round 32) Set by FX + G5 (ui_layer.c fx_latch) and editor 135 FX_LATCH; OFF at power-on
+                                          * and after any restart (never saved: a plain static) */
+static volatile uint32_t perf_latched;   /* the effects latched: the ISR's perf_press toggles them; main writes them only with the audio interrupt masked (perf_latch_put) */
 static volatile uint32_t perf_act;    /* .. running (a 1/16 one from its start on) */
 static volatile uint8_t perf_hush;    /* tracks the layer mutes: no new notes (voice.c) */
 static uint16_t perf_ord[PF_N], perf_seq;   /* press order: the last pressed buffer effect plays */
@@ -211,6 +212,18 @@ static void perf_press(uint32_t e, int down)
         perf_held &= ~PF_BIT(e);
 }
 static void perf_all_off(void) { perf_held = perf_latched = perf_down = 0; }
+/* (Round 32) main: FX LATCH on or off (off lets go of every latched effect), then the effects in `set` latched on (as a latched tap: the last pressed plays) and those in `clr`
+ * off. Turned on, the effects held now become latched: their keys' release does nothing under LATCH (perf_press), so held they would play on with no key to end them; latched,
+ * a tap ends them. The audio interrupt reads these and perf_press (the key scan, in it) writes them: THE CALLER MASKS IT (fm1_irq_off), as oc_module.c does for fx3_modk_set */
+static void perf_latch_put(uint32_t on, uint32_t set, uint32_t clr)
+{
+    uint32_t e;
+    if (!on) { perf_latch_on = 0; perf_latched = 0; return; }
+    if (!perf_latch_on) { perf_latched |= perf_held; perf_held = 0; perf_latch_on = 1; }
+    for (e = 0; e < PF_N; e++)
+        if ((set >> e) & 1u) perf_ord[e] = ++perf_seq;
+    perf_latched = (perf_latched | set) & ~clr;
+}
 static volatile uint8_t perf_off_req;   /* main: every effect off (FX + OCT-), done by the next block */
 
 static void perf_start(void) { pf.ph = 0; pf.sync = 1; }   /* the sequencer started: a 1/16 starts with it */

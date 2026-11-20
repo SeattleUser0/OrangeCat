@@ -939,6 +939,9 @@ if sound && [ $TABLES = 1 ]; then
     # (round 24, "Track 4 graying out") the DUB page's octave is DUB's under a held layer: a KICK with ARP, GLO, FX or SEQ still down mutes nothing; and a muted track says MUTE
     t "DUB keys under a held layer (round 24): GLO, ARP, FX, SCL, SEQ held on HOME's DUB page, C4 .. B4 stay DUB's (no mute, no staged mute, no punch-in); the other keys, TRACKS and a locked layer as before; sanitizers" \
         dub_layer_keys_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DMELODEE_USB_AUDIO=1 $FW -Itests
+    # (Round 32) FX LATCH from the panel: FX + G5 toggles it (perf_latch_on was read and never set), the footer, a tap latching, OCT- clearing it, G5 in the other layers
+    t "FX LATCH (Round 32): FX + G5 on / off, the footer LATCH ON / OFF, a tap latches an effect and a second ends it, held effects latched, OCT- clears it, the DUB page, G5 in GLO, ARP, SEQ, SCL and alone; sanitizers" \
+        fx_latch_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DMELODEE_USB_AUDIO=1 $FW -Itests
     t "HOME's main screen (step 9): the state words (MUTE, OFF, WAIT, FROZEN) on four, two and one track, a long name, the steps and the playhead, the dials, the page turn, the picture and DUB pages' sound line; sanitizers" \
         main_state_test -O1 -g -fsanitize=address,undefined -fno-sanitize=alignment -fno-sanitize-recover=all -DMELODEE_USB_AUDIO=1 $FW -Itests
     # (Round 24, Session A) control-note RECORDING on (OC_CTL_REC 1 is the default): Session A's findings of Round 23 (the step grid untouched, a DUB track only, no editor shows or changes one, the

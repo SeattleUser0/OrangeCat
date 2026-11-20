@@ -23,7 +23,8 @@
  *              white keys F3 G3 A3 REPEAT 1/8 1/16 1/32, B3 GLITCH, C4 TAPE STOP; the black keys F#3 .. C#4 mute
  *              T1..T4, G#4 FREEZE, C#5 SHUFFLE, D#5 CRUSH (a sweep), F#5 THROW (the mix into the delay and reverb). With
  *              a GLITCH / TAPE / SHUFFLE / FREEZE key down KNOB 1..4 are its settings (never saved); else KNOB 4 the
- *              FILTER (the DJ FILTER's low-pass). OCT-: every effect off
+ *              FILTER (the DJ FILTER's low-pass). OCT-: every effect off (and FX LATCH off). (Round 32) G5: FX LATCH on / off (fx_latch): on, a tap of an
+ *              effect's key turns it on until it is tapped again (jfx_perform.c perf_press); off lets go of every latched effect. The footer says LATCH ON / LATCH OFF
  * The gesture: let go before HOLD (the menu: 0.3 .. 0.6 s) with nothing else touched: a tap, the button's page.
  * Held past HOLD alone: the map (a peek), letting go does nothing. A key, a knob or a button meanwhile: a combo,
  * the map at once, no tap. Keys pressed with the button down are the layer's (seq.c keyboard_block): silent, no
@@ -44,8 +45,31 @@ static const layer_t LAYERS[LAYER_N] = {
     {B_GLO, LK_SET, FAM_HOME, "[GLO] SET", {{KC_PLAY, "RESTART"}, {KC_OCTDN, "UNDO"}, {KC_OCTUP, "TRK OFF"}}},   /* ((Round 27) OCT+: the selected track OFF / ON; was GLO DONE) */
     {B_SCL, LK_SET, FAM_SCL, "[SCL] SET", {{KC_KEYS, "ROOT"}, {KC_OCTDN, "UNDO"}, {KC_SCL, "DONE"}}},
     {B_ARP, LK_SET, FAM_HOME, "[ARP] PERF", {{KC_SAVE, "+ KEY: STORE"}, {KC_OCTDN, "UNDO"}, {0, 0}}},
-    {B_FX, LK_HOLD, FAM_HOME, "[FX] PUNCH", {{KC_KEYS, "HOLD: EFFECT"}, {KC_OCTDN, "ALL OFF"}, {0, 0}}},
+    {B_FX, LK_HOLD, FAM_HOME, "[FX] PUNCH", {{KC_OCTDN, "CLEAR"}, {KC_G5, "LATCH OFF"}, {0, 0}}},   /* ((Round 32) G5: FX LATCH, layer_foot: LATCH ON while on. Was KEYS HOLD: EFFECT,
+                                                         * OCT- ALL OFF, whose row was too wide for both words: cv_key_row dropped ALL OFF. These two fit with their words (220 px of 232); the map names the keys) */
 };
+/* (Round 32) FX + G5: FX LATCH. G5 (key 26, the top white key) is free in every map a held FX could shadow: no effect of the FX layer (its white keys past C4 are Jiant's MIDI
+ * effects' places, D4 .. F5, which do nothing; G5 is not one of them), outside the DUB page's octave C4 .. B4 (dub_keys.h DUBK_MASK: so it works on the DUB page too, where those
+ * keys stay DUB's under a held layer), and not a key of GLO (F3 .. B3, C4, F4, the black F#3 .. C#4), ARP (F3 .. F4, F#3 .. D#4), SEQ held (F3 .. F4, F#3 .. D#4) or HOME as
+ * SHIFT (no keys). SCL takes every key as ROOT; only one layer opens at a time, so FX + G5 shadows nothing of SCL's (SCL + G5 stays ROOT G) */
+#define FX_LATCH_KEY 26u
+/* main: FX LATCH on / off (perf_latch_put: off lets go of every latched effect), and the effects in set / clr latched on / off; the audio interrupt masked around it (it reads
+ * these, and its key scan toggles perf_latched). The panel's G5 and OCT- (here); the editor's 135 FX_LATCH (editor.c) does the same */
+static void fx_latch(uint32_t on, uint32_t set, uint32_t clr)
+{
+    fm1_irq_off();
+    perf_latch_put(on, set, clr);
+    fm1_irq_on();
+    ui.force = 1;                                       /* (the footer's LATCH ON / OFF) */
+}
+/* the footer's hints of layer l into h (3): the table's, with FX's LATCH as it is now; returns how many */
+static uint32_t layer_foot(uint32_t l, khint_t *h)
+{
+    memcpy(h, LAYERS[l].foot, sizeof LAYERS[l].foot);
+    if (l == LAYER_FX && perf_latch_on)
+        h[1].act = "LATCH ON";
+    return h[2].act ? 3u : 2u;
+}
 /* (Orange Cat 0.4.1) PERFORM's: oc_lists.c */
 static void ocl_mute(uint32_t k);
 static int ocl_scene_used(uint32_t s);
@@ -277,6 +301,11 @@ static void layer_key(uint32_t l, uint32_t k)
         } else if (p == 7u) {
             glo_tap();
         }
+    } else if (l == LAYER_FX) {
+        if (k == FX_LATCH_KEY) {                        /* (Round 32) FX LATCH on / off (the effects' keys are the ISR's: seq.c keyboard_block, perf_press) */
+            fx_latch(!perf_latch_on, 0u, 0u);
+            ui_message(perf_latch_on ? "FX LATCH ON" : "FX LATCH OFF");
+        }
     } else if (l == LAYER_SCL) {
         TSEL->p[P_ROOT] = (int16_t)((k + 5u) % 12u);    /* the key's note name (F3 = F) */
         scale_share(TSEL);
@@ -422,6 +451,7 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
     uint32_t dn = panel.btn[B_OCTDN], up = panel.btn[B_OCTUP], k, mine;
     static uint8_t fx_oct;                              /* (0.6.0) FX + OCT-: every effect off; its tap eaten (no octave) */
     if (layer_open() == LAYER_FX && ((pressed >> dn) & 1u)) {
+        fx_latch(0u, 0u, 0u);                           /* (Round 32) FX LATCH off too, its effects let go */
         perf_off_req = 1;
         fx_oct = 1;
         ui_message("PUNCH-IN: ALL OFF");
@@ -488,6 +518,7 @@ static uint32_t layer_leds(void)
         } else if (l == LAYER_FX) {                     /* (0.6.0) running or held lit, the others there blink */
             e = jfx_key(k);
             on = e < PF_N && (((perf_act | perf_down) >> e) & 1u || (((perf_avail() >> e) & 1u) && blink));
+            if (k == FX_LATCH_KEY) on = perf_latch_on || blink;   /* (Round 32) G5 FX LATCH: lit while on */
         } else if (l == LAYER_SCL) {                    /* the root lit, the scale's notes blink */
             e = (k + 5u + 12u - root) % 12u;
             on = e == 0u || (((mask >> e) & 1u) && blink);
@@ -615,11 +646,11 @@ static void layer_perf_keys(int32_t h)
 /* (Orange Cat 0.6.0) FX held: its keys as a list in two columns, each row the key's name and its effect; held: the
  * theme's colour, running: the accent, one the tempo or the memory does not allow now (REPEAT 1/8 under ~81 BPM; FX
  * FULL; a track not in use): dim */
-static const struct { const char *key, *name; uint8_t e; } FX_CELL[13] = {
+static const struct { const char *key, *name; uint8_t e; } FX_CELL[14] = {
     {"F3", "RPT 1/8", PF_R8}, {"G3", "RPT 1/16", PF_R16}, {"A3", "RPT 1/32", PF_R32}, {"B3", "GLITCH", PF_GLT},
     {"C4", "TAPE", PF_TAPE}, {"G#4", "FREEZE", PF_FRZ}, {"C#5", "SHUF", PF_SHUF}, {"D#5", "CRUSH", PF_SCRU},
     {"F#5", "THROW", PF_STHR}, {"F#3", "MUTE T1", PF_M1}, {"G#3", "MUTE T2", PF_M1 + 1}, {"A#3", "MUTE T3", PF_M1 + 2},
-    {"C#4", "MUTE T4", PF_M1 + 3}};
+    {"C#4", "MUTE T4", PF_M1 + 3}, {"G5", "LATCH", PF_N}};   /* ((Round 32) PF_N: FX LATCH, not an effect: lit while on) */
 #define FXL_ROWS 7
 static void layer_fx_keys(int32_t h)
 {
@@ -627,8 +658,8 @@ static void layer_fx_keys(int32_t h)
     uint32_t i, avail = perf_avail(), full = (jfx_full & JFX_FULL_SL) != 0;
     for (i = 0; i < NELEM(FX_CELL); i++) {
         int32_t x = 4 + (int32_t)(i / FXL_ROWS) * cw, y = 4 + (int32_t)(i % FXL_ROWS) * ch;
-        uint32_t e = FX_CELL[i].e, run = (perf_act >> e) & 1u, held = (perf_down >> e) & 1u;
-        int none = (e >= PF_M1 && e - PF_M1 >= trk_n()) || !((avail >> e) & 1u) || (full && ((PF_BUF >> e) & 1u));
+        uint32_t e = FX_CELL[i].e, run = e < PF_N ? (perf_act >> e) & 1u : perf_latch_on, held = e < PF_N && ((perf_down >> e) & 1u);
+        int none = e < PF_N && ((e >= PF_M1 && e - PF_M1 >= trk_n()) || !((avail >> e) & 1u) || (full && ((PF_BUF >> e) & 1u)));
         uint16_t f = run ? T_ACCENT : held ? T_THEME : T_PANEL;
         uint16_t ink = run ? T_BG : held ? T_INK : none ? T_DIM : T_TEXT;
         if (run || held) cv_rrect(x, y, cw - 4, ch - 1, 4, f, T_PANEL);
@@ -746,7 +777,7 @@ static void draw_layer(void)
     if (l == LAYER_FX) {                                /* (0.6.0) what runs, what is held, the knobs' settings */
         uint32_t g = perf_gfocus();
         sig += (perf_act * 31u) ^ (perf_down * 131u) ^ (perf_avail() * 7u) ^ (uint32_t)jfx_full * 977u ^ trk_n() * 40503u;
-        sig += (uint32_t)perf_m[3] * 65537u;
+        sig += (uint32_t)perf_m[3] * 65537u + perf_latch_on * 524287u;
         if (g < PF_N)
             for (c = 0; c < 4u; c++) sig += (uint32_t)(perf_gp[perf_gx(g)][c] + 128) << (c * 8u) ^ g * 2654435761u;
     }
@@ -756,8 +787,10 @@ static void draw_layer(void)
             pv_panel(Y_GRAPH, Y_FOOT - Y_GRAPH - 2, l == LAYER_FX ? layer_fx_keys : layer_perf_keys);
         }
         if (ui.force) {
+            khint_t fh[3];
+            uint32_t fn = layer_foot(l, fh);
             cv_begin(240, H_FOOT, T_BG);
-            cv_key_row(4, 236, (H_FOOT - KC_PH) / 2, LAYERS[l].foot, 2u, 7u, T_BG);
+            cv_key_row(4, 236, (H_FOOT - KC_PH) / 2, fh, fn, 7u, T_BG);
             cv_blit(0, Y_FOOT);
             ui.foot_sig = 0;
         }
@@ -780,8 +813,10 @@ static void draw_layer(void)
         }
     }
     if (ui.force) {                                     /* the footer: what the keys, knobs and buttons do */
+        khint_t fh[3];
+        uint32_t fn = layer_foot(l, fh);
         cv_begin(240, H_FOOT, T_BG);
-        cv_key_row(4, 236, (H_FOOT - KC_PH) / 2, LAYERS[l].foot, LAYERS[l].foot[2].act ? 3u : 2u, 7u, T_BG);
+        cv_key_row(4, 236, (H_FOOT - KC_PH) / 2, fh, fn, 7u, T_BG);
         cv_blit(0, Y_FOOT);
         ui.foot_sig = 0;
     }

@@ -599,6 +599,45 @@ static int ed_fx_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
 static int ed_fx_handle(uint32_t cmd, const uint8_t *a, uint32_t na) { (void)cmd; (void)a; (void)na; return 0; }
 #endif
 
+/* (Round 32) 135 FX_LATCH, through the extension (n 7): the FX layer's LATCH (jfx_perform.c perf_latch_on, the panel's FX + G5) and its latched effects, so a run can latch GLITCH with
+ * no hand on the unit (tools/hw/soak/qual_soak.py). The next free number past 134 FLASH_ID (web/EDITOR_PROTOCOL.md: commands past 127 go from 128 up); not a fifth FX_* command: those
+ * act on the module area by module id, this on the layer's keys. Request: none (read), or latch (0 / 1), or latch, effect, on (0 / 1): the effect latched on or off as a tap of its
+ * key with LATCH on (on 1 needs latch 1). Effects on the wire: 1 REPEAT 1/8, 2 REPEAT 1/16, 3 REPEAT 1/32, 4 GLITCH, 5 TAPE STOP, 6 SHUFFLE, 7 FREEZE, 8 CRUSH, 9 THROW,
+ * 10 .. 13 MUTE T1 .. T4. Any other length: no reply. Reply: rc (0 done; 1 a value out of range; 2 the effect's module is not registered (GLITCH, TAPE STOP, SHUFFLE, FREEZE without
+ * the FX LAYER module: its key does nothing); 3 the effect cannot run now (REPEAT 1/8 under ~81 BPM): nothing changed on 1 .. 3), latch, latched (2 x 7 bits: bit id - 1), playing (the
+ * buffer effect playing as of the last audio block, its wire id; 0 none), uses (fx3_modk_uses: 1 while a ring effect plays from the module, FX_TABLE's), kill (1 a menu, a
+ * dialog or NAME has every effect suspended). Main loop, as the panel: the writes go through perf_latch_put with the audio interrupt masked */
+enum { ED_FX_LATCH = 135 };
+static const uint8_t ED_LATCH_PF[13] = {PF_R8, PF_R16, PF_R32, PF_GLT, PF_TAPE, PF_SHUF, PF_FRZ, PF_SCRU, PF_STHR, PF_M1, PF_M1 + 1, PF_M1 + 2, PF_M1 + 3};
+static uint32_t ed_latch_wire(uint32_t pfm)                 /* PF_* bits -> the wire's (bit id - 1) */
+{
+    uint32_t i, w = 0;
+    for (i = 0; i < NELEM(ED_LATCH_PF); i++)
+        if ((pfm >> ED_LATCH_PF[i]) & 1u) w |= 1u << i;
+    return w;
+}
+static int ed_latch_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
+{
+    uint32_t rc = 0, w, src = pf.src, i;
+    if (!(cmd == ED_FX_LATCH) || (na != 0u && na != 1u && na != 3u)) return 0;
+    if (na && (a[0] > 1u || (na == 3u && (a[1] < 1u || a[1] > NELEM(ED_LATCH_PF) || a[2] > 1u || (a[2] && !a[0]))))) rc = 1;
+    else if (na == 3u && a[2] && !((perf_have() >> ED_LATCH_PF[a[1] - 1u]) & 1u)) rc = 2;
+    else if (na == 3u && a[2] && !((perf_avail() >> ED_LATCH_PF[a[1] - 1u]) & 1u)) rc = 3;
+    else if (na) {
+        uint32_t b = na == 3u ? 1u << ED_LATCH_PF[a[1] - 1u] : 0u;
+        fm1_irq_off();                                      /* (as ui_layer.c fx_latch, the panel's: not called, the editor's host tests have no ui_layer.c) */
+        perf_latch_put(a[0], na == 3u && a[2] ? b : 0u, na == 3u && !a[2] ? b : 0u);
+        fm1_irq_on();
+        ui.force = 1;                                       /* (the FX layer's footer, if it is open) */
+    }
+    w = ed_latch_wire(perf_latched);
+    ed_b(rc); ed_b(perf_latch_on); ed_b(w); ed_b(w >> 7);
+    for (i = 0; i < NELEM(ED_LATCH_PF) && ED_LATCH_PF[i] != src; i++) ;
+    ed_b(i < NELEM(ED_LATCH_PF) ? i + 1u : 0u);
+    ed_b(fx3_modk_uses()); ed_b(perf_kill ? 1u : 0u);
+    return 1;
+}
+
 static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0 and F7 */
 {
     if (n < 4u)
@@ -614,7 +653,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         if (!na) return;
         ed_begin(ED_EXT);
         ed_b(a[0]);
-        if (ed_kit_handle(128u + a[0], a + 1, na - 1u) || ed_fx_handle(128u + a[0], a + 1, na - 1u) || ed_flash_handle(128u + a[0], a + 1, na - 1u)) ed_send();
+        if (ed_kit_handle(128u + a[0], a + 1, na - 1u) || ed_fx_handle(128u + a[0], a + 1, na - 1u) || ed_flash_handle(128u + a[0], a + 1, na - 1u) ||
+            ed_latch_handle(128u + a[0], a + 1, na - 1u)) ed_send();
         return;
     }
     if (!ed_args_ok(cmd, a, na))
