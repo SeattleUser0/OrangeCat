@@ -6,7 +6,8 @@
 // tools/hw/q4_install.py drives it). What is new:
 //  - Install is pressed again, up to --retries times (3), when the page ends saying the FM-1 was not found or did not come back (its texts
 //    notfound, noloader, sNounit, noreturn: "press Install again"); Round 30 saw the headless browser miss the update-mode port twice. Every
-//    attempt is logged with its status, its dialogs and its log lines.
+//    attempt is logged with its status, its dialogs and its log lines. (Round 32) Every retry runs in a fresh Chrome (the old one closed first,
+//    a new profile and process, the page loaded and made ready again): Chrome's Web MIDI does not see a port that appears after it started.
 //  - The end of an attempt is the page's own: #release enabled again after it was disabled (lockInstaller(false)), not a text pattern (the
 //    old driver missed "Result: ..." and ended on its own timeout while the page had finished).
 //  - --stock FILE: the stock section's file input (#stock-file) given the file through DOM.setFileInputFiles, the page's check awaited
@@ -19,6 +20,7 @@
 //    chosen build's label does not contain TEXT (nothing is written then).
 //
 //   node tools/hw/cdp_install.mjs --url URL --build build-dual|build-nightly-dual [--out DIR] [--minutes 25] [--retries 3] [--expect TEXT]
+//        [--retry-wait 10] [--return-wait 20]   (seconds before a retry's fresh browser; the second after "did not come back")
 //   node tools/hw/cdp_install.mjs --url URL --stock FM-1.fwsc [--out DIR] [--minutes 25]
 // The last line printed is one JSON object: {attempts: [...], final, ok}. Close every other program on the FM-1's port first.
 import { spawn } from "child_process";
@@ -38,6 +40,8 @@ for (let i = 0; i < args.length; i++) {
   if (["decline", "ask"].includes(k)) opt[k] = true; else opt[k] = args[++i];
 }
 const url = opt.url, build = opt.build, minutes = Number(opt.minutes || 25), retries = Number(opt.retries || 3);
+// (Round 32) the waits before a retry's fresh browser: --retry-wait S (10) and, after "did not come back", --return-wait S (20)
+const retryWait = Number(opt["retry-wait"] ?? 10), returnWait = Number(opt["return-wait"] ?? 20);
 const out = resolve(opt.out || mkdtempSync(tmpdir() + "/oc-cdp-")), port = Number(opt.port || 9224);
 if (!url || (!build && !opt.stock)) { console.error("cdp_install: --url and --build (or --stock FILE) are needed"); process.exit(2); }
 if (opt.stock && !existsSync(opt.stock)) { console.error("cdp_install: no file " + opt.stock); process.exit(2); }
@@ -56,18 +60,46 @@ const ruleFor = (text) => rules.filter((r) => norm(text).startsWith(norm(r.start
 const unmatched = [];
 mkdirSync(out, { recursive: true });
 const dl = resolve(out, "downloads"); mkdirSync(dl, { recursive: true });
-const dir = mkdtempSync(tmpdir() + "/oc-chrome-");
-const chrome = spawn(process.env.CHROME || "/usr/bin/google-chrome", ["--headless=new", "--no-first-run", `--remote-debugging-port=${port}`, `--user-data-dir=${dir}`, "about:blank"], { stdio: "ignore" });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const say = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
-let targets;
-for (let i = 0; i < 50; i++) { try { targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); if (targets.length) break; } catch (_) {} await sleep(200); }
-if (!targets) { console.error("cdp_install: Chrome did not open its debugging port"); chrome.kill(); process.exit(1); }
-const ws = new WebSocket(targets.find((t) => t.type === "page").webSocketDebuggerUrl);
-await new Promise((r) => (ws.onopen = r));
-let id = 0; const pending = new Map(); let dialogs = [];
+// (Round 32) every retry in a fresh Chrome: Chrome's Web MIDI does not see a port that appears after the browser started, so the update-mode
+// port ("Orange Cat FM-1 Update") and the normal port after the firmware's restart were never found by the browser that had pressed Install
+// (Round 31, twice on the unit: "The FM-1 in update mode was not found", "FM-1 not found" on every retry, "The FM-1 did not come back"; a new
+// driver run installed at once). openBrowser: a new user-data dir, a new process, MIDI (with SysEx) granted, the downloads into OUT, the page
+// loaded; closeBrowser ends the old one first (its exit awaited: it lets go of the port). A fresh browser starts only once nothing answers on the
+// debugging port, so a browser that lingers is never the one talked to.
+let chrome = null, ws = null, id = 0, pending = new Map(), dialogs = [];
+const closeBrowser = async () => {
+  try { ws && ws.close(); } catch (_) {}
+  ws = null;
+  const c = chrome; chrome = null;
+  if (!c || c.exitCode !== null || c.signalCode !== null) return;
+  const gone = new Promise((r) => c.once("exit", r));
+  c.kill();
+  if (await Promise.race([gone.then(() => true), sleep(10000).then(() => false)])) return;
+  c.kill("SIGKILL"); await Promise.race([gone, sleep(5000)]);
+};
+const answers = async () => { try { await fetch(`http://127.0.0.1:${port}/json/version`); return true; } catch (_) { return false; } };
+const openBrowser = async () => {
+  for (let i = 0; i < 50 && (await answers()); i++) await sleep(200);
+  if (await answers()) throw new Error(`another program answers on the debugging port ${port}: not the fresh browser`);
+  const dir = mkdtempSync(tmpdir() + "/oc-chrome-");
+  chrome = spawn(process.env.CHROME || "/usr/bin/google-chrome", ["--headless=new", "--no-first-run", `--remote-debugging-port=${port}`, `--user-data-dir=${dir}`, "about:blank"], { stdio: "ignore" });
+  let targets;
+  for (let i = 0; i < 75 && !(targets && targets.length); i++) { await sleep(200); try { targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); } catch (_) {} }
+  if (!targets || !targets.length) throw new Error("Chrome did not open its debugging port");
+  ws = new WebSocket(targets.find((t) => t.type === "page").webSocketDebuggerUrl);
+  await new Promise((r, j) => { ws.onopen = r; ws.onerror = () => j(new Error("Chrome's page did not take the debugging connection")); });
+  pending = new Map();
+  ws.onmessage = onMessage;
+  await send("Browser.grantPermissions", { origin: new URL(url).origin, permissions: ["midi", "midiSysex"] });
+  await send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: dl });
+  await send("Page.enable"); await send("Runtime.enable"); await send("DOM.enable");
+  await send("Page.navigate", { url });
+  await sleep(4000);
+};
 const send = (method, params = {}) => new Promise((r) => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
-ws.onmessage = async (m) => {
+const onMessage = async (m) => {
   const d = JSON.parse(m.data);
   if (d.id && pending.has(d.id)) { pending.get(d.id)(d); pending.delete(d.id); }
   if (d.method === "Page.javascriptDialogOpening") {
@@ -103,15 +135,12 @@ const resultProblems = (s) => {
   return t.split(" | ").filter((part) => { const m = /^(Firmware|Pack|Module|ファームウェア|パック|モジュール): (.*)$/.exec(part); return m ? !okVal.test(m[2].trim()) : !okLine.test(part.trim()); });
 };
 const result = { url, build: build || null, stock: opt.stock || null, out, attempts: [] };
-try {
-  await send("Browser.grantPermissions", { origin: new URL(url).origin, permissions: ["midi", "midiSysex"] });
-  await send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: dl });
-  await send("Page.enable"); await send("Runtime.enable"); await send("DOM.enable");
-  await send("Page.navigate", { url });
-  await sleep(4000);
-  result.page = { title: await ev("document.title"), status: await txt("status"), dual: await txt("dual-version"), nightly: await txt("nightly-version"),
+// the page as loaded in a (fresh) browser, made ready to press: its versions, the stock file or the build chosen, --expect; into `rec` (the result for
+// the first browser, the attempt's own record for a retry's); the button to press
+const preparePage = async (rec) => {
+  rec.page = { title: await ev("document.title"), status: await txt("status"), dual: await txt("dual-version"), nightly: await txt("nightly-version"),
     release: await ev("(document.getElementById('release')||{}).value") };
-  say("page:", JSON.stringify(result.page));
+  say("page:", JSON.stringify(rec.page));
   let button = "go";
   if (opt.stock) {
     button = "stock-go";
@@ -120,25 +149,37 @@ try {
     if (!q.result || !q.result.nodeId) throw new Error("no #stock-file on the page");
     await send("DOM.setFileInputFiles", { nodeId: q.result.nodeId, files: [resolve(opt.stock)] });
     for (let i = 0; i < 60; i++) { if ((await ev("document.getElementById('stock-go').disabled")) === false) break; await sleep(500); }
-    result.stockCheck = await txt("status");
-    say("stock file:", result.stockCheck);
-    if (await ev("document.getElementById('stock-go').disabled")) throw new Error("the page did not accept the stock file: " + result.stockCheck);
+    rec.stockCheck = await txt("status");
+    say("stock file:", rec.stockCheck);
+    if (await ev("document.getElementById('stock-go').disabled")) throw new Error("the page did not accept the stock file: " + rec.stockCheck);
   } else {
     await ev(`(()=>{const r=document.getElementById('${build}'); if(!r) return false; r.checked=true; r.dispatchEvent(new Event('change')); return true;})()`);
     for (let i = 0; i < 90; i++) { if ((await ev("document.getElementById('go').disabled")) === false) break; await sleep(1000); }
     const label = await ev(`(()=>{const r=document.getElementById('${build}'); return r ? r.closest('label').textContent : null;})()`);
-    result.chosen = { label, status: await txt("status"), what: await txt("install-what"),
+    rec.chosen = { label, status: await txt("status"), what: await txt("install-what"),
       stages: await ev(`[...document.querySelectorAll('#stages input[type=checkbox]')].map(c => c.id + (c.checked ? ':on' : ':off') + (c.disabled ? ':disabled' : ''))`) };
-    say("chosen:", JSON.stringify(result.chosen));
+    say("chosen:", JSON.stringify(rec.chosen));
     if (opt.expect && !(label || "").includes(opt.expect)) throw new Error(`the build's label ${JSON.stringify(label)} does not contain ${JSON.stringify(opt.expect)}: Install not pressed`);
-    if (await ev("document.getElementById('go').disabled")) throw new Error("Install stayed disabled: " + result.chosen.status);
+    if (await ev("document.getElementById('go').disabled")) throw new Error("Install stayed disabled: " + rec.chosen.status);
   }
+  return button;
+};
+try {
+  await openBrowser();
+  let button = await preparePage(result);
   const end = Date.now() + minutes * 60000;
   for (let k = 1; k <= retries; k++) {
+    const a = { attempt: k };
+    if (k > 1) {                                         // (Round 32) only a retry: the old browser closed, a fresh one, the page loaded and made ready again
+      say(`attempt ${k}: fresh browser`);
+      a.freshBrowser = true;
+      await openBrowser();
+      button = await preparePage(a);
+    }
     dialogs = [];
     const logStart = (await txt("log") || "").split("\n").length;
     await ev(`document.getElementById('${button}').click()`);
-    const a = { attempt: k, started: new Date().toISOString() };
+    a.started = new Date().toISOString();
     let started = false, last = "";
     for (let i = 0; i < 30 && !started; i++) { await sleep(500); started = (await ev("document.getElementById('release').disabled")) === true; }
     while (Date.now() < end) {
@@ -161,7 +202,14 @@ try {
     say(`attempt ${k} ended: ${a.status}${a.timedOut ? " (the page was still working at the time limit)" : ""}`);
     if (unmatched.length) { a.stoppedByUnmatchedDialog = true; break; }
     if (a.timedOut || !RETRY.test(a.status)) break;
-    if (k < retries) { say(`the page says to press again (${a.status.slice(0, 80)}): attempt ${k + 1} in 10 s`); await sleep(10000); }
+    if (k < retries) {
+      // (Round 32) the old browser closed first (it lets go of the port); after "did not come back" the firmware is restarting: the fresh browser waits
+      // longer, so that the normal port is there when it starts (its Web MIDI sees only the ports present then)
+      const wait = /did not come back/i.test(a.status) ? returnWait : retryWait;
+      say(`the page says to press again (${a.status.slice(0, 80)}): the browser closed, attempt ${k + 1} in a fresh browser in ${wait} s`);
+      await closeBrowser();
+      await sleep(wait * 1000);
+    }
   }
   result.downloads = readdirSync(dl);
   result.final = result.attempts.length ? result.attempts[result.attempts.length - 1].status : null;
@@ -179,8 +227,7 @@ try {
   result.ok = false;
   say("ERROR:", result.error);
 } finally {
-  try { ws.close(); } catch (_) {}
-  chrome.kill();
+  await closeBrowser();
 }
 writeFileSync(resolve(out, "cdp-result.json"), JSON.stringify(result, null, 1));
 console.log(JSON.stringify(result));

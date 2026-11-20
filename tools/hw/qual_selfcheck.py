@@ -12,9 +12,17 @@ tables (web/app/lib/fw_tables.js, generated from tests/web_tables.c with the Nig
   6. (Round 31) the soak's load and its preflight on a fake unit (DESIGN VALID / INVALID by the worst half without DUB and DUB's state);
      hiss.py --swap-fx on a fake unit and a fake installer: the files by the unit's version, the steps in order, the FX table put back, and a
      failure at each step stopping with what is left and the way back.
+  7. (Round 32) cdp_install.mjs's retries in headless Chrome against a mock installer page whose FM-1 port, like Chrome's Web MIDI, is seen only
+     by a browser started after the port appeared: the update-mode port after Install (then "not found" on the same browser) and the normal
+     port after "did not come back"; the run must install on its second attempt in a fresh browser (CDP_MOCK_ONLY=1: only these checks)
   ~/fm1-hw/hwvenv/bin/python3 tools/hw/qual_selfcheck.py        (exit 0: every check passed)
 """
 import contextlib
+import http.server
+import socket
+import threading
+import time
+import urllib.parse
 import importlib.util
 import io
 import json
@@ -74,7 +82,112 @@ class Fake:
         raise TimeoutError(f"the fake has no command {cmd}")
 
 
+MOCK_PAGE = """<!doctype html><meta charset="utf-8"><title>mock installer</title>
+<div id="status">Looking for the FM-1</div><span id="dual-version">0.15.0</span><span id="nightly-version">0.16.0-mock</span>
+<select id="release"><option value="nightly">nightly</option></select>
+<label><input type="radio" name="b" id="build-nightly-dual"> Nightly 0.16.0-mock</label><div id="install-what"></div><div id="stages"></div>
+<progress id="bar" max="100" value="0"></progress><button id="go" disabled>Install</button><pre id="log"></pre>
+<script>
+let bid = localStorage.getItem("bid");                   // one id per browser profile: a fresh browser has none
+if (!bid) { bid = String(Math.random()).slice(2); localStorage.setItem("bid", bid); }
+fetch("/hello?bid=" + bid);
+const $ = (x) => document.getElementById(x);
+$("build-nightly-dual").addEventListener("change", () => { $("go").disabled = false; $("status").textContent = "FM-1 found"; });
+$("go").onclick = async () => {
+  $("release").disabled = true; $("go").disabled = true; $("bar").value = 10;
+  const r = await (await fetch("/install?bid=" + bid)).json();
+  await new Promise((ok) => setTimeout(ok, 1500));
+  $("log").textContent += r.log.map((l) => l + "\\n").join("");
+  $("status").textContent = r.status; $("release").disabled = false; $("go").disabled = false;
+};
+</script>"""
+
+
+class MockUnit:
+    """the FM-1 as Chrome's Web MIDI shows it: a port is seen only by a browser whose page first loaded after the port appeared (+ `settle` s)"""
+    def __init__(self, mode, settle=0.0):
+        self.mode, self.settle, self.seen, self.appeared, self.installs = mode, settle, {}, None, []
+
+    def install(self, bid):
+        t0 = self.seen.get(bid, 0.0)
+        if self.appeared is None:                        # the first Install: the unit switched (update) or restarted (noreturn); the port appears now
+            self.appeared = time.time()
+            st = ("The FM-1 in update mode was not found. Replug the USB cable and press Install again." if self.mode == "update"
+                  else "The FM-1 did not come back after the firmware's restart. Replug the USB cable and press Install again.")
+            log = ["Switching the FM-1 to update mode"] + (["write 1", "write 2", "restarting"] if self.mode == "noreturn" else [])
+        elif t0 >= self.appeared + self.settle:
+            st, log = "Result: Firmware: installed | Pack: already current, left as it is | Module: installed", ["write 1", "write 2", "write 3", "Result: done"]
+        else:
+            st, log = "FM-1 not found. Replug the USB cable and press Install again.", []
+        self.installs.append((bid, st))
+        return {"status": st, "log": log}
+
+
+def mock_site(unit):
+    class H(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            u = urllib.parse.urlparse(self.path); q = urllib.parse.parse_qs(u.query); bid = (q.get("bid") or [""])[0]
+            if u.path == "/hello":
+                unit.seen.setdefault(bid, time.time()); body, ct = b"{}", "application/json"
+            elif u.path == "/install":
+                body, ct = json.dumps(unit.install(bid)).encode(), "application/json"
+            else:
+                body, ct = MOCK_PAGE.encode(), "text/html"
+            self.send_response(200); self.send_header("Content-Type", ct); self.send_header("Content-Length", str(len(body))); self.end_headers()
+            self.wfile.write(body)
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0)); return s.getsockname()[1]
+
+
+def run_driver(driver, mode, settle=0.0, extra=()):
+    """cdp_install.mjs (`driver`) against a mock site of `mode`; (the result line, the unit's installs)"""
+    unit = MockUnit(mode, settle)
+    srv = mock_site(unit)
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            cmd = ["node", driver, "--url", f"http://127.0.0.1:{srv.server_address[1]}/", "--build", "build-nightly-dual", "--out", d,
+                   "--minutes", "2", "--retries", "3", "--port", str(free_port()), "--retry-wait", "1", *extra]
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=240, env=dict(os.environ, TMPDIR=d))
+            try:
+                res = json.loads(p.stdout.strip().splitlines()[-1])
+            except (ValueError, IndexError):
+                res = {"ok": False, "error": "no result line: " + (p.stderr or p.stdout)[-300:]}
+            res["_stdout"] = p.stdout
+            return res, unit.installs
+    finally:
+        srv.shutdown(); srv.server_close()
+
+
+def cdp_retry_checks(driver=os.path.join(HERE, "cdp_install.mjs")):
+    r, inst = run_driver(driver, "update")
+    a = r.get("attempts", [])
+    check(r.get("ok") is True and len(a) == 2 and a[1].get("freshBrowser") and "attempt 2: fresh browser" in r["_stdout"] and len({b for b, _ in inst}) == 2
+          and a[0]["status"].startswith("The FM-1 in update mode was not found") and a[1]["fwWrites"] == 3,
+          f"cdp_install.mjs: after 'update mode was not found' the retry runs in a fresh browser, which sees the port and installs: {[x.get('status') for x in a]} {r.get('error')}")
+    r, inst = run_driver(driver, "noreturn", settle=2.5, extra=("--return-wait", "3"))
+    a = r.get("attempts", [])
+    check(r.get("ok") is True and len(a) == 2 and a[1].get("freshBrowser") and "did not come back" in a[0]["status"] and "in 3 s" in r["_stdout"],
+          f"cdp_install.mjs: after 'did not come back' the fresh browser waits --return-wait and installs: {[x.get('status') for x in a]} {r.get('error')}")
+    r, inst = run_driver(driver, "noreturn", settle=30.0, extra=("--return-wait", "0"))
+    a = r.get("attempts", [])
+    check(r.get("ok") is False and len(a) == 3 and all(x.get("freshBrowser") for x in a[1:]) and len({b for b, _ in inst}) == 3 and "not found" in (r.get("final") or ""),
+          f"cdp_install.mjs: a port no fresh browser sees: three attempts, each retry a new browser, not ok: {[x.get('status') for x in a]}")
+
+
 def main():
+    if os.environ.get("CDP_MOCK_ONLY"):
+        cdp_retry_checks(os.environ.get("CDP_DRIVER") or os.path.join(HERE, "cdp_install.mjs"))
+        print(f"\n{len(FAILS)} failed" if FAILS else "\nevery check passed")
+        return 1 if FAILS else 0
     fw = fw_tables()
     tp = {d["label"]: i for i, d in reversed(list(enumerate(fw["TP"])))}
     u = Fake(fw)
@@ -158,6 +271,7 @@ def main():
               "Result: Firmware: installed | Pack: installed | Module: installed | There was not enough room, so the modules this run had added were taken out again: the unit is as it was.": 1}
     p = subprocess.run(["node", "-e", body + "\nconsole.log(JSON.stringify(" + json.dumps(list(rcases)) + ".map((x) => resultProblems(x).length)))"], capture_output=True, text=True)
     check(p.returncode == 0 and json.loads(p.stdout) == list(rcases.values()), "cdp_install.mjs: a Result with a part that did not install is not ok, the parts named " + (p.stderr or p.stdout)[-200:])
+    cdp_retry_checks()
     soak_checks()
     swap_checks()
     print(f"\n{len(FAILS)} failed" if FAILS else "\nevery check passed")
