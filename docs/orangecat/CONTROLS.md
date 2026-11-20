@@ -2,7 +2,7 @@
 
 # Orange Cat controls
 
-For the Nightly v0.16.0-6872dc and later (firmware commit 6872dc4d, November 17, 2026). Made from the firmware's tables 9f1b6842: when they change, this page is made again.
+For the Nightly v0.16.0-6872dc and later (firmware commit 6872dc4d, November 17, 2026). Made from the firmware's tables 65b24732: when they change, this page is made again.
 
 What every knob, button and key does on the unit, page by page. It describes the Nightly build: the new interface with HOME's pictures, the four knobs and the EDIT sheets, with the FX order SENDS first and the track's own effects last.
 
@@ -159,7 +159,7 @@ KNOB 1: LAUNCH LOOP, BAR, BEAT or NOW (where a scene, staged mute or hand-picked
 
 Hold FX. Keys held play an effect on the whole mix while held. They start on the next 1/16 when playing and are never recorded.
 
-The screen's footer: HOLD: EFFECT, ALL OFF.
+The screen's footer: CLEAR, LATCH OFF.
 
 | Key | Does |
 |---|---|
@@ -171,10 +171,11 @@ The screen's footer: HOLD: EFFECT, ALL OFF.
 | C#5 | SHUFFLE. |
 | D#5 | CRUSH (a sweep over two bars). |
 | F#5 | THROW: the mix into the delay and reverb. |
+| G5 | FX LATCH on or off ("FX LATCH ON", "FX LATCH OFF"; the footer says LATCH ON or LATCH OFF, G5 is lit while it is on). With LATCH on, a tap of an effect's key turns the effect on, and it plays with the keys and FX let go until its key is tapped again. Effects held when LATCH goes on stay on. LATCH OFF lets every latched effect go. LATCH is off when the FM-1 starts and is never saved. |
 
 With a GLITCH, TAPE, SHUFFLE or FREEZE key down, KNOB 1 to 4 are its settings (never saved). GLITCH: DENS, PITCH, SIZE, VARI. TAPE: SCRATCH, TIME, CURVE. SHUFFLE: AMOUNT, SIZE, SPEED, VARI. FREEZE: DENS, PITCH, SPRAY, SIZE. With none down, KNOB 4 is FILTER, a low-pass on the whole mix.
 
-- OCT-: every effect off ("PUNCH-IN: ALL OFF"). Held effects do not change the octave.
+- OCT-: every effect off, latched ones too, and LATCH off ("PUNCH-IN: ALL OFF"). Held effects do not change the octave.
 - GLITCH, TAPE STOP, SHUFFLE and FREEZE come from the FX LAYER module. Without it their cells on the map are dim, the key does nothing and the screen says MODULE MISSING. REPEAT, the mutes, CRUSH, THROW and FILTER are built in and always work.
 
 ## The pages

@@ -5596,8 +5596,8 @@ export const FW = {
    "head": "[FX] PUNCH",
    "kind": "hold",
    "foot": [
-    "HOLD: EFFECT",
-    "ALL OFF"
+    "CLEAR",
+    "LATCH OFF"
    ]
   }
  ],
@@ -5653,6 +5653,10 @@ export const FW = {
   [
    "C#4",
    "MUTE T4"
+  ],
+  [
+   "G5",
+   "LATCH"
   ]
  ],
  "launch": [

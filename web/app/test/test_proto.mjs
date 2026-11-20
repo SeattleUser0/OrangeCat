@@ -42,6 +42,7 @@ export const NOT_USED = {
   EXT: "the extension byte of 128 and up (KIT_*, FX_*)", CLOCK_STATS: "diagnostics: the hardware test and the old editor", HW_TEST: "test builds only",
   CORE1_TEST: "test builds only", SLOT_INFO: "the sample slot: the old editor", SLOT_BEGIN: "same", SLOT_WRITE: "same", SLOT_END: "same", SLOT_ERASE: "same",
   FX_INFO: "the effect modules: the installer page (fm1oc.js)", FX_BEGIN: "same", FX_REMOVE: "same", FX_TABLE: "same",
+  FX_LATCH: "(Round 32) the FX layer's LATCH for the PC's runs (tools/hw/soak/qual_soak.py); the player's is FX + G5 on the panel",
 };
 
 export async function run() {

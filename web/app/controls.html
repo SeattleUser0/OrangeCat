@@ -31,7 +31,7 @@ th{background:var(--card)}
 <main>
 <p class="top"><a href="./">App</a> · <a href="../installer/">Installer</a> · <a href="../editor/">Editor</a></p>
 <h1 id="top">Orange Cat controls</h1>
-<p>For the Nightly v0.16.0-6872dc and later (firmware commit 6872dc4d, November 17, 2026). Made from the firmware's tables 9f1b6842: when they change, this page is made again.</p>
+<p>For the Nightly v0.16.0-6872dc and later (firmware commit 6872dc4d, November 17, 2026). Made from the firmware's tables 65b24732: when they change, this page is made again.</p>
 <p>What every knob, button and key does on the unit, page by page. It describes the Nightly build: the new interface with HOME's pictures, the four knobs and the EDIT sheets, with the FX order SENDS first and the track's own effects last.</p>
 <p>Names are the ones on the screen and the panel: KNOB 1 to KNOB 4, SELECT, PRESETS, ALGORITHM, EDIT, HOME, SEQ, GLO, FX, ARP, SCL, ENV, LFO, REC, PLAY, SAVE, OCT- and OCT+. The 27 keys run from F3 to G5. Keys are named by note: F3, F#3, C4.</p>
 <p>The parameter names and ranges in the page tables come straight from the firmware's tables, so they follow it. The sentences about what a control does are written by hand and checked by a test against the same tables.</p>
@@ -79,10 +79,10 @@ th{background:var(--card)}
 <ul><li>OCT-: puts back the mutes and LAUNCH (&quot;PERFORM PUT BACK&quot;).</li></ul>
 <h3 id="fx-punch">[FX] PUNCH</h3>
 <p>Hold FX. Keys held play an effect on the whole mix while held. They start on the next 1/16 when playing and are never recorded.</p>
-<p>The screen's footer: HOLD: EFFECT, ALL OFF.</p>
-<div class="tw"><table><thead><tr><th>Key</th><th>Does</th></tr></thead><tbody><tr><td>F3 G3 A3</td><td>REPEAT 1/8, 1/16, 1/32 (1/8 needs about 81 BPM or more).</td></tr><tr><td>B3</td><td>GLITCH.</td></tr><tr><td>C4</td><td>TAPE STOP.</td></tr><tr><td>F#3 G#3 A#3 C#4</td><td>MUTE T1 to T4 while held.</td></tr><tr><td>G#4</td><td>FREEZE.</td></tr><tr><td>C#5</td><td>SHUFFLE.</td></tr><tr><td>D#5</td><td>CRUSH (a sweep over two bars).</td></tr><tr><td>F#5</td><td>THROW: the mix into the delay and reverb.</td></tr></tbody></table></div>
+<p>The screen's footer: CLEAR, LATCH OFF.</p>
+<div class="tw"><table><thead><tr><th>Key</th><th>Does</th></tr></thead><tbody><tr><td>F3 G3 A3</td><td>REPEAT 1/8, 1/16, 1/32 (1/8 needs about 81 BPM or more).</td></tr><tr><td>B3</td><td>GLITCH.</td></tr><tr><td>C4</td><td>TAPE STOP.</td></tr><tr><td>F#3 G#3 A#3 C#4</td><td>MUTE T1 to T4 while held.</td></tr><tr><td>G#4</td><td>FREEZE.</td></tr><tr><td>C#5</td><td>SHUFFLE.</td></tr><tr><td>D#5</td><td>CRUSH (a sweep over two bars).</td></tr><tr><td>F#5</td><td>THROW: the mix into the delay and reverb.</td></tr><tr><td>G5</td><td>FX LATCH on or off (&quot;FX LATCH ON&quot;, &quot;FX LATCH OFF&quot;; the footer says LATCH ON or LATCH OFF, G5 is lit while it is on). With LATCH on, a tap of an effect's key turns the effect on, and it plays with the keys and FX let go until its key is tapped again. Effects held when LATCH goes on stay on. LATCH OFF lets every latched effect go. LATCH is off when the FM-1 starts and is never saved.</td></tr></tbody></table></div>
 <p>With a GLITCH, TAPE, SHUFFLE or FREEZE key down, KNOB 1 to 4 are its settings (never saved). GLITCH: DENS, PITCH, SIZE, VARI. TAPE: SCRATCH, TIME, CURVE. SHUFFLE: AMOUNT, SIZE, SPEED, VARI. FREEZE: DENS, PITCH, SPRAY, SIZE. With none down, KNOB 4 is FILTER, a low-pass on the whole mix.</p>
-<ul><li>OCT-: every effect off (&quot;PUNCH-IN: ALL OFF&quot;). Held effects do not change the octave.</li><li>GLITCH, TAPE STOP, SHUFFLE and FREEZE come from the FX LAYER module. Without it their cells on the map are dim, the key does nothing and the screen says MODULE MISSING. REPEAT, the mutes, CRUSH, THROW and FILTER are built in and always work.</li></ul>
+<ul><li>OCT-: every effect off, latched ones too, and LATCH off (&quot;PUNCH-IN: ALL OFF&quot;). Held effects do not change the octave.</li><li>GLITCH, TAPE STOP, SHUFFLE and FREEZE come from the FX LAYER module. Without it their cells on the map are dim, the key does nothing and the screen says MODULE MISSING. REPEAT, the mutes, CRUSH, THROW and FILTER are built in and always work.</li></ul>
 <h2 id="the-pages">The pages</h2>
 <p>Where a page says &quot;Buttons as ...&quot;, the family's buttons above apply. On the SEQ pages that need no step editing the keys play the track.</p>
 <h3 id="fx-the-effects">FX: the effects</h3>
