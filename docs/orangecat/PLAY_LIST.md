@@ -6,8 +6,7 @@ Written November 19, 2026 for the owner. Install from the installer page (Nightl
 2. **Upgrading from 0.15.0 Standard works now.** The page refused it before (it planned against 0.15.0's smaller memory). It now plans for the new firmware, says first what will stop working (0.15.0's own modules; a sample too long to keep) and asks once. Tried on the test unit: 0.15.0, then this Nightly with the page's defaults: everything in place.
 3. **The release notes draft (CHANGES.md, Release 3 as 0.17.0)** now follows your Release plan 0.9 list, with your four known limits plus two. Please read it; VERSION is not set and nothing is tagged.
 4. **The qualification tools are rehearsed.** The long soak's load now keeps DUB TAPE running (measured on the unit), and the hiss check swaps the REVERB MODES module in for SPRING and SHIMMER and puts the default set back. The gate itself waits for your go.
-5. **Your checklist, one sitting (about 20 minutes, the test unit, the PC runs the tools and waits for you at each step):**
-   - [ ] **Latch GLITCH** when the soak asks: FX LATCH on, then GLITCH's key (the PC checks it took).
+5. **Your checklist, one sitting (the test unit; the PC runs the tools and waits for you at each step; Round 32: the GLITCH latch step is gone: FX LATCH was never reachable, it now has a control, FX held + G5, and the soak latches GLITCH itself over the editor):**
    - [ ] **Save the test objects** when the install test asks: a project, a user preset, a pool phrase and a scene, each with SAVE.
    - [ ] **Wipe the project slots** when it asks: SAVE (the PROJECT page), KNOB 1 to the slot, OCT+, KNOB 2 to Erase, OCT+, OCT+ again; slots A to D.
    - [ ] **Look at the main screen** (point 1) and tell me anything that looks wrong.
