@@ -678,7 +678,15 @@ export function arrangementOf(probe, ocms, opts = {}) {
   const text = a.how === "asis" ? "" : a.how === "rearrange" ? "The set fits once " + [...(drop.length ? [drop.map((d) => d.name).join(", ") + " (not of the set) " + (drop.length > 1 ? "are" : "is") + " removed"] : []),
       ...(a.remove.length ? [a.remove.map((m) => m.name).join(", ") + " are taken off the unit and installed again in order"] : [])].join(" and ") + "."
     : PLACE.whyNot(st, a.plan.mods, a.plan);
-  return { ...a, order, at, blockers, drop, text, st };
+  return { ...a, order, at, blockers, drop, text, st, mods };
+}
+// (Round 32) the plan the page writes by, as one line of its log (the qualification's driver reads it: BUILD.md 7.37 Q4): each module written at the
+// start the loader's planner gives it, each module of the set left as it is at the start it holds. "plan: SHAPES at start 1, FX LAYER at start 2 | kept: DUB TAPE at start 18"
+export function planLine(arr) {
+  const w = (arr.plan && arr.plan.steps || []).map((x) => `${x.mod.name} at start ${x.start}`);
+  const held = (m) => (arr.st && arr.st.starts || []).findIndex((x) => x && x.state === 7 && (m.engine != null ? !x.kind && x.engine === m.engine : !!x.kind && x.mid === m.mid));
+  const k = (arr.mods || []).filter((m) => m.current).map((m) => `${m.name} at start ${held(m)}`);
+  return `plan: ${w.join(", ") || "nothing to write"}${k.length ? " | kept: " + k.join(", ") : ""}`;
 }
 // (round 23) before a rearrange takes anything off the unit: every file of the set against the unit and the start the plan gives it, the way the install will check it (the
 // firmware's numbers, an image for that start, its inner header and CRC, the sector tails; an effect module's calling convention from FX_INFO), so that nothing is removed
@@ -827,6 +835,7 @@ export async function runSet(ctx) {
         const ocms = mods.map((b, i) => { const o = ocmParse(b), w = want[i]; return o.ok && w && ((w.kind || 0) !== o.kind || (o.kind && w.module_id !== o.moduleId)) ? { ok: false } : o; });   // (a file the manifest does not agree with has no part in the plan: the loop below says so)
         const arr = arrangementOf(probe, ocms, { removable: ctx.removable || [] });
         if (arr) order = arr.order;
+        if (arr && arr.plan && (arr.how === "asis" || arr.how === "rearrange")) log(planLine(arr));   // (Round 32) the plan, for the record (and the qualification's driver)
         if (arr && arr.how !== "asis" && ctx.preflight !== false) {
           log(`placement: ${arr.how}: ${arr.text}`);
           const refuse = (bad = {}) => { sum.placement = arr.text; sum.module = mods.map((_, i) => (bad[i] ? { error: bad[i] } : { error: "modNoPlace", detail: arr.text })); return sum; };

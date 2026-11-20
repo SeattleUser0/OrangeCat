@@ -388,6 +388,10 @@ def attempt(what, fn):
     check(bool(ok), what)
 
 
+PAGE_PLAN = [{"name": "MACRO models", "start": 16, "kept": False}, {"name": "WHEEL", "start": 17, "kept": False}, {"name": "SHAPES", "start": 1, "kept": True},
+             {"name": "FX LAYER", "start": 2, "kept": True}, {"name": "DUB TAPE", "start": 18, "kept": True}]
+
+
 def round32_checks():
     """(Round 32, BUILD.md 7.37) the blocking review items, on fakes: each fails on e26960bc"""
     import argparse as AP
@@ -454,7 +458,7 @@ def round32_checks():
             lambda: (lambda o: len(o) == 8 and sorted(o) == sorted("aabbccdd") and all(o[i + 1] == "d" for i, c in enumerate(o) if c == "a")
                      and all(o[i - 1] == "a" for i, c in enumerate(o) if c == "d") and o == Q4.plan_order())(Q4.plan_order()))
     with tempfile.TemporaryDirectory() as d:
-        Q4.A = AP.Namespace(out=d, label="T", case="d", expect=None, layout=getattr(Q4, "DEFAULT_LAYOUT", ""), yes=True, confirm=None, url="x", nightly_build="b")
+        Q4.A = AP.Namespace(out=d, label="T", case="d", expect=None, layout=None, yes=True, confirm=None, url="x", nightly_build="b")
         def no_expect():
             try:
                 Q4.run_case(); return False
@@ -481,8 +485,19 @@ def round32_checks():
     probe = {"mod": {"starts": [{"state": 0, "engine": 0}] + [{"state": 7, "engine": 14}] + [{"state": 0, "engine": 0}] * 3 + [{"state": 7, "engine": 7}] + [{"state": 0, "engine": 0}] * 15},
              "fx": {"effects": [{"id": 3, "state": 7, "start": 2}, {"id": 0x4D08, "state": 7, "start": 17}, {"id": 1, "state": 7, "start": 18}]}}
     attempt("Q4: every module of the layout registered at its start; one elsewhere fails",
-            lambda: Q4.judge_layout(probe, Q4.layout_of(Q4.DEFAULT_LAYOUT))[0]
-            and not Q4.judge_layout({**probe, "fx": {"effects": [{"id": 3, "state": 7, "start": 3}]}}, Q4.layout_of(Q4.DEFAULT_LAYOUT))[0])
+            lambda: Q4.judge_layout(probe, Q4.layout_of("SHAPES=1,FX LAYER=2,WHEEL=5,MACRO MODELS=17,DUB TAPE=18"))[0]
+            and not Q4.judge_layout({**probe, "fx": {"effects": [{"id": 3, "state": 7, "start": 3}]}}, Q4.layout_of("SHAPES=1,FX LAYER=2,WHEEL=5,MACRO MODELS=17,DUB TAPE=18"))[0])
+    attempt("Q4: the starts judged are the page's own plan (after the 0.15.0 upgrade: models 16, WHEEL 17), not a fixed layout",
+            lambda: (lambda lay: lay == {"SHAPES": 1, "FX LAYER": 2, "MACRO MODELS": 16, "WHEEL": 17, "DUB TAPE": 18}
+                     and Q4.judge_layout({"mod": {"starts": [{"state": 0, "engine": 0}, {"state": 7, "engine": 14}] + [{"state": 0, "engine": 0}] * 15 + [{"state": 7, "engine": 7}] + [{"state": 0, "engine": 0}] * 3},
+                                          "fx": {"effects": [{"id": 3, "state": 7, "start": 2}, {"id": 0x4D08, "state": 7, "start": 16}, {"id": 1, "state": 7, "start": 18}]}}, lay)[0]
+                     and Q4.plan_layout(None) is None)(Q4.plan_layout(PAGE_PLAN)))
+    src = open(os.path.join(HERE, "cdp_install.mjs")).read()
+    line = next((l for l in src.splitlines() if l.startswith("const planOf = ")), "")
+    p = subprocess.run(["node", "-e", line + "\nconsole.log(JSON.stringify([planOf(" + json.dumps(["write 1", "plan: MACRO models at start 16, WHEEL at start 17 | kept: SHAPES at start 1, FX LAYER at start 2, DUB TAPE at start 18", "Result: x"]) + "), planOf([\"Done\"])]))"],
+                       capture_output=True, text=True)
+    attempt("Q4: cdp_install.mjs reads the page's plan line into its JSON (written and kept modules with their starts; none: null)",
+            lambda: bool(line) and json.loads(p.stdout) == [PAGE_PLAN, None])
     attempt("Q4: a wipe's result checked empty (a start left, or an effect module, fails)",
             lambda: Q4.modules_left([{"state": 0}] * 21, {"fx": {"effects": []}}) == [] and Q4.modules_left([{"state": 0}, {"state": 7}], None)
             and Q4.modules_left(None, None))

@@ -32,8 +32,8 @@ unit's state read before and after each install. The lead's tool: it writes firm
   q4_install.py OUT LABEL identity [--against FILE] (Round 32) read only: the image the unit runs (INFO's version, MOD_INFO's image block), saved;
                                                     with --against an earlier identity file: equal or exit 1 (7.37 Q2: the candidate reinstalled)
 (Round 32, BUILD.md 7.37 Q4) Every Nightly install needs --expect VERSION (the page must offer that version, else nothing is pressed); after it
-every module of the default set is judged registered (state 7) at the start of --layout (the page's log names no starts: the layout the plan
-expects, default the default set's, 7.33); case a compares the objects saved before the Nightly byte for byte after (only those; new ones
+every module of the page's plan is judged registered (state 7) at the start the page planned (its log's plan line, recorded by
+cdp_install.mjs; --layout only overrides it); case a compares the objects saved before the Nightly byte for byte after (only those; new ones
 listed) and each saved project's read-back (loaded over the editor) with the one before, and exits 1 on a difference; the wipes check their
 result is empty; an operator prompt that reads end of input stops cleanly with the unit's state printed.
 Common: --url (default the live page), --nightly-build (default build-nightly-dual), --minutes (25 per install), --yes (no typed INSTALL
@@ -63,8 +63,8 @@ import fm1hw                                            # noqa: E402
 LIVE = "https://seattleuser0.github.io/OrangeCat/webapp/installer/"
 A = None
 PLAN_SEED = 20261117
-DEFAULT_LAYOUT = "SHAPES=1,FX LAYER=2,WHEEL=5,MACRO MODELS=17,DUB TAPE=18"   # (7.33: the order the page produced for the default set)
-ENGINE_OF = {"SHAPES": 14, "WHEEL": 7}
+DEFAULT_LAYOUT = "SHAPES=1,FX LAYER=2,WHEEL=5,MACRO MODELS=17,DUB TAPE=18"   # (7.33's order on a Nightly-to-Nightly unit: an example for --layout only)
+ENGINE_OF = {"SHAPES": 14, "WHEEL": 7, "PROPHET": 19}
 FX_ID_OF = {"DUB TAPE": 1, "REVERB MODES": 2, "FX LAYER": 3, "MACRO MODELS": 0x4D08}
 
 
@@ -102,6 +102,13 @@ def layout_of(text):
     return out
 
 
+def plan_layout(plan):
+    """(Round 32) the page's own plan (cdp_install.mjs result.plan, from its log's plan line) -> {MODULE NAME: start}; None when the page printed none"""
+    if not plan:
+        return None
+    return {x["name"].strip().upper(): int(x["start"]) for x in plan}
+
+
 def judge_layout(probe, layout):
     """(Round 32) every module of the layout registered (state 7) at its start, from the page's own probe (oc_install.mjs list): engine modules by
     MOD_INFO's starts, effect and models modules by the Effects table -> (ok, rows)"""
@@ -109,6 +116,9 @@ def judge_layout(probe, layout):
     mod = (probe or {}).get("mod") or {}
     fx = ((probe or {}).get("fx") or {}).get("effects") or []
     for name, start in layout.items():
+        if name not in ENGINE_OF and name not in FX_ID_OF:
+            rows.append({"module": name, "start": start, "got": None, "ok": False, "why": "a module this tool cannot look up"})
+            continue
         if name in ENGINE_OF:
             st = (mod.get("starts") or [])
             at = [k for k, x in enumerate(st) if x.get("engine") == ENGINE_OF[name] and x.get("state") == 7]
@@ -285,7 +295,7 @@ def page(step, build=None, stock=None, expect=None, ask=True, take_backup=True):
         res = json.loads(last)
     except ValueError:
         res = {"ok": False, "error": "no result line"}
-    short = {"page": step, "ok": res.get("ok"), "error": res.get("error"), "page_versions": res.get("page"), "chosen": res.get("chosen"),
+    short = {"page": step, "ok": res.get("ok"), "error": res.get("error"), "plan": res.get("plan"), "page_versions": res.get("page"), "chosen": res.get("chosen"),
              "stock_check": res.get("stockCheck"), "downloads": res.get("downloads"), "final": res.get("final"),
              "attempts": [{k: a.get(k) for k in ("attempt", "status", "timedOut", "dialogs", "fwWrites", "fwWriteMax", "summary")} for a in res.get("attempts", [])]}
     short["unmatched_dialogs"] = res.get("unmatched")
@@ -317,8 +327,11 @@ def nightly(step, take_backup=True):
     r = page(step, build=A.nightly_build, take_backup=take_backup, expect=A.expect)
     if r.get("ok"):
         s = state(f"{step}: the modules")
-        ok, rows = judge_layout(s.get("probe"), layout_of(A.layout))
-        log({"modules_judged": step, "ok": ok, "rows": rows})
+        lay, src = (layout_of(A.layout), "--layout (override)") if A.layout else (plan_layout(r.get("plan")), "the page's plan (its log's plan line)")
+        if not lay:
+            raise SystemExit(f"q4_install: {step}: the page printed no plan line (a unit with 18 starts, or a page before Round 32): give --layout to judge the starts")
+        ok, rows = judge_layout(s.get("probe"), lay)
+        log({"modules_judged": step, "by": src, "plan": r.get("plan"), "ok": ok, "rows": rows})
         if not ok:
             raise SystemExit(f"q4_install: {step}: a module of the layout is not registered at its start: {[x for x in rows if not x['ok']]}")
     return r
@@ -529,7 +542,7 @@ def main():
     ap.add_argument("out"); ap.add_argument("label")
     ap.add_argument("case", choices=("state", "a", "b-wipe-modules", "b-wipe-presets", "b-projects", "b", "c", "d", "plan", "identity"))
     ap.add_argument("--expect", help="the version the page must offer for the Nightly (required for every Nightly install)")
-    ap.add_argument("--layout", default=DEFAULT_LAYOUT, help=f"where each module must be registered after a Nightly install (default {DEFAULT_LAYOUT})")
+    ap.add_argument("--layout", default=None, help=f"an override of the page's plan: where each module must be registered after a Nightly install (e.g. {DEFAULT_LAYOUT})")
     ap.add_argument("--against", help="identity: an earlier identity file to compare with")
     ap.add_argument("--url", default=LIVE)
     ap.add_argument("--nightly-build", default="build-nightly-dual")
@@ -563,7 +576,8 @@ def run_case():
         return 0 if (not A.against or r["equal"]) else 1
     if A.case in ("a", "b", "c", "d") and not A.expect:
         raise SystemExit("q4_install: cases a, b, c and d install the Nightly: --expect VERSION is required (Round 32)")
-    layout_of(A.layout)
+    if A.layout:
+        layout_of(A.layout)
     if A.case == "state":
         state("state")
     elif A.case == "a":
