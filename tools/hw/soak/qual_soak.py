@@ -17,8 +17,9 @@ with the track's default FEEDBACK 55, SEND 127, FILTER 60: taps 0.5 and 1.5 beat
 WOW 0, ECHO 100 written last. (Release 2's load, two VA BASS chords and two DRUM-X chords with
 every send 64, peaks over the 2,015 us DUB's governor lets it back under: the rehearsal's DUB ended in DUB FULL.) Factor B (--fx), a state
 of the unit's modules that this script checks and does not change:
-  FX   the default set: FX LAYER (module id 3) registered, REVERB ROOM on the send; GLITCH LATCHED BY HAND before the run (FX LATCH on, FX +
-       GLITCH's key: no editor command reaches the layer's keys): the run refuses to start unless FX_TABLE shows `uses` 1 for id 3
+  FX   the default set: FX LAYER (module id 3) registered, REVERB ROOM on the send; (Round 32) GLITCH LATCHED BY THE SCRIPT after the backup and
+       before anything is saved or the preflight runs (editor 135 FX_LATCH: LATCH on, GLITCH on; let go first thing in the restore, LATCH off): the
+       run refuses to start unless the command answers rc 0 and FX_TABLE then shows `uses` 1 for id 3, and the end checks `uses` 1 again
   REV  REVERB MODES (id 2) in the FX layer's place (the page's give-way choice), TYPE SHIMR on the send: refuses unless id 2 is registered
   BASE (not a level of 7.37: for rehearsing the tool and measuring the load unattended) the default set as FX, FX LAYER registered but no
        GLITCH latch asked (`uses` 0 accepted), REVERB ROOM on the send; says "BASE: rehearsal only, not a qualification row (no FX layer
@@ -111,12 +112,49 @@ LEVELS = {"FX": {"module": 3, "rtype": "ROOM", "qualifies": True}, "REV": {"modu
           "BASE": {"module": 3, "rtype": "ROOM", "qualifies": False}}
 
 
-LATCH_STEPS = ("latch GLITCH by hand on the unit: FX LATCH on, then hold FX and press GLITCH's key (no editor command reaches the layer's keys); "
-               "FX_TABLE must then show `uses` 1 for FX LAYER (id 3)")
+LATCH_STEPS = ("the script latches GLITCH itself (editor 135 FX_LATCH, Round 32 firmware: an older one gives no reply); "
+               "FX_TABLE must then show `uses` 1 for FX LAYER (id 3). By hand on the unit: hold FX, press G5 (LATCH ON), then GLITCH's key B3")
+LATCH_GLITCH = (7, 1, 4, 1)                              # 135 FX_LATCH through the extension (n 7): latch 1, effect 4 (GLITCH), on 1 (web/EDITOR_PROTOCOL.md)
+LATCH_OFF = (7, 0)                                       # .. latch 0: LATCH off, every latched effect let go
+LATCH_RC = {1: "a value out of range", 2: "the FX LAYER module is not registered (GLITCH's key would do nothing)", 3: "the effect cannot run now"}
+
+
+def fx_latch(u, args, tries=3):
+    """135 FX_LATCH (command 0, n 7): {rc, latch, latched (wire bits), playing, uses, kill}; None when the unit never answers (a firmware before
+    Round 32). The set requests are idempotent (they set, they do not toggle), so a lost reply is asked again"""
+    for _ in range(tries):
+        try:
+            r = u.req(0, list(args), timeout=1.5)
+        except TimeoutError:
+            continue
+        if len(r) >= 8 and r[0] == 7:
+            return {"rc": r[1], "latch": r[2], "latched": r[3] | r[4] << 7, "playing": r[5], "uses": r[6], "kill": r[7]}
+    return None
+
+
+def latch_glitch(u, settle=3.0):
+    """--fx FX: LATCH on and GLITCH latched through the editor, then FX_TABLE read until `uses` is 1 for id 3 (the effect starts at the next
+    block stopped, at the next 1/16 playing); the table as last read. SystemExit when the unit refuses or does not answer"""
+    r = fx_latch(u, LATCH_GLITCH)
+    if r is None:
+        raise SystemExit("qual_soak: refusing to run: level FX: no reply to 135 FX_LATCH (a firmware before Round 32?): GLITCH cannot be latched by the script. To do: " + LATCH_STEPS)
+    if r["rc"] != 0 or not r["latch"] or not (r["latched"] >> 3) & 1:
+        raise SystemExit(f"qual_soak: refusing to run: level FX: 135 FX_LATCH refused GLITCH: rc {r['rc']} ({LATCH_RC.get(r['rc'], '?')}), {r}")
+    end, tab = time.monotonic() + settle, None
+    while True:
+        tab = UG.fx_table(u)
+        if latch_problem("FX", tab) is None or time.monotonic() > end:
+            return r, tab
+        time.sleep(0.25)
+
+
+def latch_release(u):
+    """the restore's first steps: LATCH off (GLITCH let go); None when the unit did not answer"""
+    return fx_latch(u, LATCH_OFF)
 
 
 def latch_problem(fx, tab):
-    """None when the level's latch holds: FX needs FX_TABLE `uses` 1 for id 3 (GLITCH latched by hand); else what is wrong"""
+    """None when the level's latch holds: FX needs FX_TABLE `uses` 1 for id 3 (GLITCH latched: latch_glitch); else what is wrong"""
     if fx != "FX":
         return None
     row = UG.fx_row(tab, 3)
@@ -316,6 +354,15 @@ def main():
         except TimeoutError:
             pass
     g.on_restore.append(("the soak's transport", stop_transport))
+    st["latched"] = False
+
+    def unlatch():                                       # (Round 32) the latch the script set, let go (LATCH off) before the guard puts the rest back
+        if st["latched"]:
+            r = latch_release(g.u)
+            log({"latch_released": r})
+            if r is None or r["latch"] or r["latched"]:
+                print(f"qual_soak: WARNING: FX LATCH not released ({r}): on the unit hold FX and press OCT- (every effect off, LATCH off)", flush=True)
+    g.on_restore.append(("the soak's FX latch", unlatch))
 
     def body(u):
         tracked(u, tmo)
@@ -338,6 +385,10 @@ def main():
         for mid, nm in want.items():
             if (UG.fx_row(tab, mid) or {}).get("state") != 7:
                 raise SystemExit(f"qual_soak: refusing to run: {nm} (module id {mid}) is not registered on the unit (FX_TABLE {tab}); level {A.fx} needs it")
+        if A.fx == "FX":                                  # (Round 32) GLITCH latched by the script (135 FX_LATCH), after the backup, before anything is saved or the preflight
+            st["latched"] = True                          # (set first: a reply lost after the unit latched is still let go in the restore)
+            lr, tab = latch_glitch(u)
+            log({"latch": lr, "fx_table_after_latch": tab})
         lp = latch_problem(A.fx, tab)
         if lp:
             raise SystemExit(f"qual_soak: refusing to run: level FX: the run refuses to start unless FX_TABLE shows `uses` 1 for id 3: {lp}. To do: {LATCH_STEPS}")

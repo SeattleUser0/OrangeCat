@@ -201,6 +201,46 @@ def soak_checks():
     src = open(os.path.join(HERE, "soak", "qual_soak.py")).read()
     check(src.index("lp = latch_problem(A.fx, tab)") < src.index("saved = g.save(bank=BANK)") and "not v.get(\"latch_at_end\") and" in src,
           "the soak's FX latch: refused before anything is saved or written; a latch lost by the end makes PASS_MARK false")
+
+    # (Round 32) the latch through 135 FX_LATCH: a fake unit answering it (command 0, n 7) and FX_TABLE (command 0, n 5) with GLITCH's `uses`
+    class LU:
+        def __init__(self, rc=0, answer=True, uses_after=1, kill=0):
+            self.rc, self.answer, self.uses_after, self.kill, self.sent, self.latch, self.latched = rc, answer, uses_after, kill, [], 0, 0
+
+        def req(self, cmd, args=(), timeout=3.0):
+            assert cmd == 0
+            self.sent.append(tuple(args))
+            if args[0] == 7:
+                if not self.answer:
+                    raise TimeoutError("no reply")
+                if len(args) == 2 and self.rc == 0:
+                    self.latch, self.latched = args[1], 0 if not args[1] else self.latched
+                if len(args) == 4 and self.rc == 0:
+                    self.latch, self.latched = args[1], self.latched | (1 << (args[2] - 1))
+                return [7, self.rc, self.latch, self.latched & 127, self.latched >> 7, 4 if self.latched & 8 else 0, 1 if self.latched & 8 else 0, self.kill]
+            assert list(args) == [5]
+            row = lambda mid, uses: [mid, 0, 0, 0, 0, 1, 0, 0, 3 if mid == 3 else 1, 4 if mid == 3 else 1, 7, 0, 0, 2, 0, uses]
+            return [5, 2] + row(1, 1) + row(3, self.uses_after if self.latched & 8 else 0)
+    u = LU()
+    r, tab = Q.latch_glitch(u, settle=0.5)
+    check(u.sent[0] == (7, 1, 4, 1) and r["rc"] == 0 and r["latch"] == 1 and r["latched"] == 8 and Q.latch_problem("FX", tab) is None,
+          "the soak's FX latch: 135 FX_LATCH sent as [7, 1, 4, 1] (LATCH on, GLITCH on), then FX_TABLE read: `uses` 1 for id 3")
+    rel = Q.latch_release(u)
+    check(u.sent[-1] == (7, 0) and rel["latch"] == 0 and rel["latched"] == 0, "the soak's FX latch released in the restore: [7, 0] (LATCH off, nothing latched)")
+    for unit, want, what in ((LU(answer=False), "no reply to 135", "a unit that never answers 135 (a firmware before Round 32)"),
+                             (LU(rc=2), "rc 2", "a unit that refuses GLITCH (rc 2: no FX LAYER module)")):
+        try:
+            Q.latch_glitch(unit, settle=0.2); refused = ""
+        except SystemExit as e:
+            refused = str(e)
+        check(want in refused and "refusing to run" in refused, f"the soak's FX latch refuses to run: {what}")
+    u = LU(uses_after=0)
+    r, tab = Q.latch_glitch(u, settle=0.3)
+    check(r["rc"] == 0 and Q.latch_problem("FX", tab) is not None, "the soak's FX latch: latched but `uses` 0 (GLITCH not playing from the module): the start's latch check still refuses")
+    check(src.index('st["latched"] = True') < src.index("lr, tab = latch_glitch(u)") < src.index("lp = latch_problem(A.fx, tab)") < src.index("saved = g.save(bank=BANK)")
+          and src.index("lr, tab = latch_glitch(u)") < src.index("pre = preflight(") and 'g.on_restore.append(("the soak\'s FX latch", unlatch))' in src
+          and src.index('if A.fx == "FX":                                  # (Round 32)') > src.index("def body(u):"),
+          "the soak's FX latch: after the backup (in the guarded body), before anything is saved and before the preflight; let go in the restore (on_restore)")
     p = subprocess.run([sys.executable, os.path.join(HERE, "soak", "qual_soak.py"), "--help"], capture_output=True, text=True)
     check(p.returncode == 0 and "BASE" in p.stdout, "qual_soak.py --fx takes BASE")
     check(Q.design_check({"worst_us": 1700}, {"worst_us": 2100}, {"running": True}, 1)[0] is False
