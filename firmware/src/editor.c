@@ -604,7 +604,7 @@ static int ed_fx_handle(uint32_t cmd, const uint8_t *a, uint32_t na) { (void)cmd
  * act on the module area by module id, this on the layer's keys. Request: none (read), or latch (0 / 1), or latch, effect, on (0 / 1): the effect latched on or off as a tap of its
  * key with LATCH on (on 1 needs latch 1). Effects on the wire: 1 REPEAT 1/8, 2 REPEAT 1/16, 3 REPEAT 1/32, 4 GLITCH, 5 TAPE STOP, 6 SHUFFLE, 7 FREEZE, 8 CRUSH, 9 THROW,
  * 10 .. 13 MUTE T1 .. T4. Any other length: no reply. Reply: rc (0 done; 1 a value out of range; 2 the effect's module is not registered (GLITCH, TAPE STOP, SHUFFLE, FREEZE without
- * the FX LAYER module: its key does nothing); 3 the effect cannot run now (REPEAT 1/8 under ~81 BPM): nothing changed on 1 .. 3), latch, latched (2 x 7 bits: bit id - 1), playing (the
+ * the FX LAYER module: its key does nothing); 3 the effect cannot run now (REPEAT 1/8 under ~81 BPM; MUTE of a track not in use): nothing changed on 1 .. 3), latch, latched (2 x 7 bits: bit id - 1), playing (the
  * buffer effect playing as of the last audio block, its wire id; 0 none), uses (fx3_modk_uses: 1 while a ring effect plays from the module, FX_TABLE's), kill (1 a menu, a
  * dialog or NAME has every effect suspended). Main loop, as the panel: the writes go through perf_latch_put with the audio interrupt masked */
 enum { ED_FX_LATCH = 135 };
@@ -622,7 +622,7 @@ static int ed_latch_handle(uint32_t cmd, const uint8_t *a, uint32_t na)
     if (!(cmd == ED_FX_LATCH) || (na != 0u && na != 1u && na != 3u)) return 0;
     if (na && (a[0] > 1u || (na == 3u && (a[1] < 1u || a[1] > NELEM(ED_LATCH_PF) || a[2] > 1u || (a[2] && !a[0]))))) rc = 1;
     else if (na == 3u && a[2] && !((perf_have() >> ED_LATCH_PF[a[1] - 1u]) & 1u)) rc = 2;
-    else if (na == 3u && a[2] && !((perf_avail() >> ED_LATCH_PF[a[1] - 1u]) & 1u)) rc = 3;
+    else if (na == 3u && a[2] && (!((perf_avail() >> ED_LATCH_PF[a[1] - 1u]) & 1u) || (a[1] >= 10u && a[1] - 10u >= trk_n()))) rc = 3;   /* ((Round 32 review) and a MUTE of a track not in use) */
     else if (na) {
         uint32_t b = na == 3u ? 1u << ED_LATCH_PF[a[1] - 1u] : 0u;
         fm1_irq_off();                                      /* (as ui_layer.c fx_latch, the panel's: not called, the editor's host tests have no ui_layer.c) */
