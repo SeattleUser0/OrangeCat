@@ -1545,7 +1545,8 @@ static const fx3_kcalls_t FXL_CALLS = {fxl_start, fxl_run};
 static void fxl_blocks(uint32_t n) { int32_t o[2 * CTL]; while (n--) mix_block(o, CTL); }
 static uint32_t latch_req(const uint8_t *args, uint32_t n)
 {
-    uint8_t a[4] = {7, 0, 0, 0};
+    uint8_t a[8] = {7};                                 /* (Round 32 suite) the command byte and up to 7 arguments: 4 was one short for latch, effect, on, track */
+    if (n > sizeof a - 1u) { printf("latch_req: %u arguments, at most %u\n", (unsigned)n, (unsigned)(sizeof a - 1u)); exit(1); }
     for (uint32_t i = 0; i < n; i++) a[1 + i] = args[i];
     return request(ED_EXT, a, 1u + n);
 }
