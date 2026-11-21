@@ -583,7 +583,10 @@ def round32_checks():
             lambda: S.row_ok(row)[0] and not S.row_ok({**row, "voices_after_release": {"sounding": 1, "gated": 0}})[0]
             and not S.row_ok({**row, "dub_evicted": True})[0] and S.row_ok({**row, "dub_cell": False, "dub_evicted": True})[0])
     attempt("Q2: DUB evicted read from the governor's firings and DUB FULL",
-            lambda: S.dub_evicted({"gov": 2}, [(1.0, 2, 3, 0)], None) and S.dub_evicted({"gov": 2}, [(1.0, 2, 2, 0x10)], None) and not S.dub_evicted({"gov": 2}, [(1.0, 2, 2, 0)], {"gov": 2, "full": 0}))
+            lambda: S.dub_evicted({"gov": 2}, [(1.0, 2, 3, 0)], {"gov": 3, "full": 0}) and S.dub_evicted({"gov": 2}, [(1.0, 2, 2, 0x10)], {"gov": 2, "full": 0}) and not S.dub_evicted({"gov": 2}, [(1.0, 2, 2, 0)], {"gov": 2, "full": 0}))
+    attempt("Q2 (review): an unanswered DUB state read is not judgeable, and fails a DUB cell, never 'not evicted'",
+            lambda: S.dub_evicted({"gov": 2}, [], None) is None and S.dub_evicted(None, [], {"gov": 2, "full": 0}) is None
+            and not S.row_ok({**row, "dub_evicted": None})[0])
     attempt("Q2: the per-cell total judged: 512 of 512 passes, 511 of 512 fails",
             lambda: S.cell_totals([{**row, "ok": True}, {**row, "name": "r01", "ok": True}])["heavy:1"]["total"] == "1024 of 1024"
             and not S.cell_totals([{**row, "ok": True, "matched": 511}])["heavy:1"]["ok"])

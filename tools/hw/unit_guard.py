@@ -557,6 +557,10 @@ def run_guarded(g, body):
                 for name, fn in g.always:
                     if not g.guard(name, fn):
                         ok = False
+            elif g.always and g.u is None:
+                print("unit_guard: the link was lost before the save; what was set before it may still be set on the unit "
+                      "(an FX LATCH: FX held + OCT- clears it, or switch the unit off and on)", flush=True)
+                ok = False
         finally:
             g.close()
             if ok is False:

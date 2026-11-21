@@ -563,7 +563,9 @@ def dub_read(u):
 
 def dub_evicted(d0, polls, d1):
     """(Round 32) DUB evicted during the cell: the governor's firings rose (before, every poll, after) or DUB FULL showed (bits 0xF0)"""
-    g0 = (d0 or {}).get("gov", 0)
+    if d0 is None or d1 is None:                       # (Round 32 review) a DUB state read unanswered: not judgeable, never "not evicted"
+        return None
+    g0 = d0.get("gov", 0)
     seen = [(p[2], p[3]) for p in polls] + ([(d1["gov"], d1["full"])] if d1 else [])
     return any(gv > g0 or (full >> 4) for gv, full in seen)
 
@@ -579,6 +581,7 @@ def row_ok(row):
     if row.get("voices_after_release") is None: why.append("the voices after the stop not read (no reply): the hung-note check not judgeable")
     elif hung(row.get("voices_after_release")): why.append(f"a hung note: {row['voices_after_release']} {RELEASE_S} s after the stop")
     if row.get("dub_cell") and row.get("dub_evicted"): why.append("DUB evicted in a DUB cell (the governor fired or DUB FULL)")
+    if row.get("dub_cell") and row.get("dub_evicted") is None: why.append("DUB's state was not read before or after the cell (no reply): not judgeable")
     return not why, why
 
 
