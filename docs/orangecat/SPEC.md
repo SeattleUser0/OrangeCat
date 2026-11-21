@@ -824,6 +824,14 @@ This is a separate development project sharing the instrument format and DSP cod
 | Swing and groove | Swung playback and swung record quantize land on the same timing in every track view. |
 | Clock | Both cores run at 360 MHz through an extended performance-load session without faults. |
 
+### 13.1 How tests are run (the owner's rule, November 21, 2026)
+
+1. **Every test runs unattended, by the session that runs it.** No test, rehearsal or qualification step waits for the owner: no dialog, no prompt, no `input()`, no "press Enter when done". He is not at the bench at set times.
+2. **The test unit's data may be overwritten or wiped for a test** (projects, slots, user presets, settings): a full backup first, read back and verified; at the end the unit restored from it and verified again. The backups are kept until the round's report is written.
+3. **A step that needs a device action the PC cannot do yet** gets a remote command over USB first (the editor protocol, with host tests that fail without it), and then the test uses it. A panel action is never written into a test as a manual step.
+4. **What truly needs hands** (a power cycle, a cable) never blocks a run: everything else is finished first, and the items go at the top of the round's report as one short list, each with the buttons by their printed names and what the owner should see after.
+5. **Hard limits** (unchanged): no force flash, no factory restore (restoring stock V15 counts: Q4's case c is not run unattended), no bootloader or calibration writes, and one install attempt per build (a failed install is not retried: the driver runs with `--retries 1`).
+
 Before implementation, settle:
 
 1. Reference versions: Melodee 1.4.5 as the base and Skiff 1.3.3 as the port reference, pinned to commits.
