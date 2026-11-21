@@ -2,14 +2,13 @@
 # Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """(Round 32) A fake FM-1 editor for the host checks of tools/hw/unit_objects.py and q4_install.py (tools/hw/qual_selfcheck.py): it answers the
 commands those tools send as the firmware does at v0.15.0 ("0.15.0") and at 4573e79d ("nightly"), from the C (editor.c, editor_backup.c,
-editor_library.c, editor_arrange.c, oc_project.c, oc_pj4_pool.c). What differs between the two here, as it does on the unit:
+editor_library.c, editor_arrange.c, oc_project.c). What differs between the two here, as it does on the unit:
   - INFO's version and P_COUNT (the Nightly's parameter layout has two more track parameters: a preset record is mapped by count, as upreset.c's
     up_params does; the mock maps by label);
   - TRACK_STEP's reply: the Nightly sends the v8 feel's three bytes after the chance;
-  - ARRANGE INFO's flag 4 ("a saved project names it"): ocj_refs is 0 on the Nightly (oc_pj4_pool.c: nothing is shared between slots);
-  - BACKUP_LIST 1: on 0.15.0 objects 64..67 are the slots' OCJ3 records and 68..83 the pool's chunks; on the Nightly the records are OCJ4
-    (0x8000 | slot, not backup objects): 64..83 are empty but for an old record the conversion has not reached (OLD FORMAT: `old_records`);
-  - BACKUP_PUT of 2..5 with size 0 empties the slot on both (proj_write_slot with len 0); of 64..67 with size 0 deletes the OCS_PROJECT record.
+  The project store is the same on both (4573e79d builds with OC_PJ4 0, core.h:152: oc_pj4*.c are not compiled, no conversion): BACKUP_LIST 1's
+  64..67 are the slots' OCJ3 records and 68..83 the pool's chunks on both; BACKUP_PUT of 2..5 with size 0 empties the slot (proj_write_slot len
+  0, ocj_write), of 64..67 with size 0 deletes the OCS_PROJECT record (an OLD FORMAT one too: `old_records`).
 It is a model, not the firmware: what it cannot know (the record's bytes) is a JSON image of its state, with the CRC-32 of those bytes.
 """
 import copy
@@ -75,7 +74,7 @@ class EditorMock(fm1hw.Unit):
         self.closed = 0
         self.lib = {3: ("MACRO", 8, "USER PAD", {"LEVEL": 90})}          # the unit's own preset (slot 3)
         self.projects = {}
-        self.old_records = {}                                         # (Nightly) slot -> an OCJ3 record not converted yet (OLD FORMAT)
+        self.old_records = {}                                         # slot -> a record of a format the slot list does not read (OLD FORMAT)
         self.pool = {}                                                # phrase id -> (steps, len)
         self.music = self.blank()
         self.music["tracks"][1]["banks"][3][5] = (1, 50, 0, 0, 0, 0, 0, 100, 0, 0, 0, 100)   # the unit's music: a note on track 2 bank 4
@@ -87,7 +86,7 @@ class EditorMock(fm1hw.Unit):
 
     # ---------------------------------------------------------------- the model
     def set_fw(self, fw):
-        """the firmware the unit runs (an install): the Nightly's first boot converts every OCJ3 record (oc_pj4_pool.c pjp_boot)"""
+        """the firmware the unit runs (an install): the records stay as they are (OC_PJ4 0 on both)"""
         self.fw = fw
         self._info = None
         self.tp = layout(fw)
@@ -131,7 +130,7 @@ class EditorMock(fm1hw.Unit):
         for row in self.music["pid"]:
             for v in row:
                 if v: f[v - 1] |= 2
-        if self.fw == "0.15.0":
+        if True:                                                      # (ocj_refs, oc_project.c: both firmwares)
             for rec in self.projects.values():
                 for row in rec["pid"]:
                     for v in row:
@@ -148,12 +147,9 @@ class EditorMock(fm1hw.Unit):
         for oid in list(range(6, 29)):
             o[oid] = j(sorted((k, v[0], v[2], sorted(v[3].items())) for k, v in self.lib.items() if bank_obj(k) == oid)) if oid != 8 else b""
         for s in range(4):
-            if self.fw == "0.15.0":
-                o[64 + s] = j(self.projects[s]) if s in self.projects else b""
-            else:
-                o[64 + s] = j(self.old_records[s]) if s in self.old_records else b""
+            o[64 + s] = j(self.projects[s]) if s in self.projects else j(self.old_records[s]) if s in self.old_records else b""
         for c in range(16):
-            ph = {i: self.pool[i] for i in range(4 * c, 4 * c + 4) if i in self.pool} if self.fw == "0.15.0" else {}
+            ph = {i: self.pool[i] for i in range(4 * c, 4 * c + 4) if i in self.pool}
             o[68 + c] = j(sorted(ph.items())) if ph else b""
         o[84] = bytes(self.music["lists"]) + bytes(sum(self.music["pid"], []))
         return o
@@ -268,10 +264,10 @@ class EditorMock(fm1hw.Unit):
                 if self.put != oid: return [op, oid, 5]
                 self.put = None
                 if 2 <= oid <= 5:
-                    self.projects.pop(oid - 2, None)                          # (proj_write_slot len 0: ocj_write / ocj_write_pj4 empty it)
+                    self.projects.pop(oid - 2, None)                          # (proj_write_slot len 0: ocj_write empty it)
                 else:
                     s = oid - 64
-                    if self.fw == "0.15.0": self.projects.pop(s, None)
+                    self.projects.pop(s, None)
                     self.old_records.pop(s, None)
                 named = {v - 1 for rec in list(self.projects.values()) + [m] for row in rec["pid"] for v in row if v}
                 self.pool = {i: c for i, c in self.pool.items() if i in named}

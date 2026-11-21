@@ -812,8 +812,8 @@ def _remote_unit_checks():
                     and os.path.exists(os.path.join(d, "seed-T.json")))
         attempt(f"remote ({fw}): seed writes project slot A (MACRO tracks, the phrase on track 1 bank 1, LEN 16, BPM 120), the scene, presets U71 U72, "
                 f"reads them back, with commands both firmwares have", seeded)
-        attempt(f"remote ({fw}): the seed's phrase, project record and preset bank are BACKUP_LIST objects on 0.15.0 (2, 64, 68, 18); on the Nightly 64 and 68 are empty (PJ4)",
-                lambda st=st, fw=fw: (lambda o: (o["64"][0] > 0 and o["68"][0] > 0) if fw == "0.15.0" else (o["64"] == (0, 0) and o["68"] == (0, 0)))(st["m"]["objects"]))
+        attempt(f"remote ({fw}): the seed's phrase, project record and preset bank are BACKUP_LIST objects on both firmwares (2, 64, 68, 18: 4573e79d builds with OC_PJ4 0)",
+                lambda st=st: (lambda o: all(o[k][0] > 0 for k in ("2", "64", "68", "18")))(st["m"]["objects"]))
         attempt(f"remote ({fw}): verify passes on the seed, after an install of the Nightly (another P_COUNT: the presets by label) too",
                 lambda u=u, st=st: UO.verify(u, st["m"], log=quiet)["ok"] and (u.set_fw("nightly") or True) and UO.verify(u, st["m"], log=quiet)["ok"])
 
@@ -826,14 +826,13 @@ def _remote_unit_checks():
         u2 = EM.EditorMock(fw)
         UO.seed(u2, d, "T2", log=quiet)
         u2.projects[2] = u2.projects[0]
-        if fw == "nightly":
-            u2.old_records[3] = {"OCJ3": "not converted"}
+        u2.old_records[3] = {"OCJ2": "OLD FORMAT"}
 
         def wiped(u=u2, fw=fw):
             r = UO.wipe_projects(u, log=quiet)
             objs = UO.backup_list(u)
             return (not u.projects and not u.old_records and all(objs[k] == (0, 0) for k in (2, 3, 4, 5, 64, 65, 66, 67))
-                    and not any(UO.project_used(u, s) for s in range(4)) and (fw == "0.15.0" or "67" in r["command"]))
+                    and not any(UO.project_used(u, s) for s in range(4)) and "67" in r["command"])
         attempt(f"remote ({fw}): wipe-projects empties slots A..D by BACKUP_PUT of 2..5 with size 0 (and an OLD FORMAT record by 64 + slot), read back empty", wiped)
         attempt(f"remote ({fw}): wipe-presets erases every user preset (80 op 5), read back empty",
                 lambda u=u2: UO.wipe_presets(u, log=quiet)["used_after"] == [] and not u.lib)
@@ -868,6 +867,13 @@ def _remote_unit_checks():
             finally:
                 UO.suites_running = real
         attempt(f"remote ({fw}): unit_objects.py seed without --confirm SEED refuses before a request (nothing asked); with it, it seeds", cli)
+
+
+def _expect_exit(fn):
+    try:
+        fn(); return False
+    except SystemExit as e:
+        return "NOT kept" in str(e)
 
 
 def _remote_q4_checks():
@@ -906,7 +912,7 @@ def _remote_q4_checks():
             Q4.A.confirm = ["WIPE"]
             attempt(f"remote q4 ({fw}): b-projects empties every slot over the editor, no panel step",
                     lambda u=u, d=d: (hushed(Q4.projects_wipe) or True) and not u.projects and "BACKUP_PUT (67) size 0" in open(os.path.join(d, "q4-R.log")).read())
-        # case a: 0.15.0 Standard, the seed, the Nightly over it (the mock converts: PJ4 records are no backup objects)
+        # case a: 0.15.0 Standard, the seed, the Nightly over it (the same store: OC_PJ4 0)
         d = tempfile.mkdtemp(prefix="q4a-")
         u = EM.EditorMock("0.15.0")
         Q4.A = AP.Namespace(out=d, label="A", case="a", expect="0.16.0", layout=None, yes=True, confirm=["SEED"], url="x", nightly_build="b",
@@ -926,10 +932,16 @@ def _remote_q4_checks():
                 res["exit"] = str(e)
             line = [json.loads(x) for x in open(os.path.join(d, "q4-A.log")) if '"case": "a"' in x and "seed_verified" in x][-1]
             res["line"] = line
-            return line["seed_verified"]["ok"] and line["projects_differing"] == [] and u.projects.get(0)
-        attempt("remote q4: case a writes the seed on 0.15.0 without a prompt, and after the Nightly the seed reads back (verify) and every project loads as before", case_a)
-        attempt("remote q4: case a's byte compare then names only the arrangement objects 64..83 (the Nightly's OCJ4 records are no backup objects: the gap BUILD.md 7.37 item 4 names)",
-                lambda: res.get("exit") and set(res["line"]["objects"]["differing"]) and {int(k) for k in res["line"]["objects"]["differing"]} <= set(range(64, 84)))
+            return (line["seed_verified"]["ok"] and line["projects_differing"] == [] and u.projects.get(0) and res["exit"] is None
+                    and line["objects"]["kept"] and line["ok"])
+        attempt("remote q4: case a writes the seed on 0.15.0 without a prompt; after the Nightly the seed reads back, every project loads as before, every object is kept byte for byte", case_a)
+        def changed_on_install(u):
+            u.set_fw("0.15.0")
+            Q4.nightly = lambda step, take_backup=True, u=u: (u.set_fw("nightly"), u.lib.__setitem__(3, ("MACRO", 8, "USER PAD", {"LEVEL": 91})), {"ok": True})[2]
+            return hushed(lambda: _expect_exit(Q4.case_a))
+        attempt("remote q4: case a's byte compare keeps every object present before, 64..83 too (no conversion on 4573e79d), and a changed one fails it",
+                lambda: res.get("line", {}).get("objects", {}).get("kept") and changed_on_install(u))
+
     finally:
         for k, v in saved.items():
             setattr(Q4, k, v)

@@ -20,7 +20,7 @@ THE SEED (fixed; every value below is the tool's, the rest the firmware's defaul
     step a rest (TRACK_STEP 30), bank 1 copied over banks 2..8 (PATTERN 73, op 2), level 100, not muted (TRACK_MIX 28); BPM 120 (SET 3);
     track 1 bank 1 then plays SEED_STEPS (C4 Eb4 G4 Bb4 on steps 1, 5, 9, 13, velocity 100, chance 100).
   - the pool phrase: the one the save keeps of track 1's bank 1 (ARRANGE 102 INFO: the only phrase that holds steps and is a bank of the music
-    loaded; its LEN 16). On 0.15.0 it is pool chunk object 68 + id / 4; on the Nightly a phrase of slot A's own record (PJ4: no backup object).
+    loaded; its LEN 16): pool chunk object 68 + id / 4 on both firmwares (4573e79d builds with OC_PJ4 0: the same store as 0.15.0).
   - a scene: the lists written whole (ARRANGE 102 BEGIN/DATA/COMMIT): chain 1 = [the phrase], song row 1 = [chain 1, -, -, -], scene 1 =
     track 1 at chain 1 step 1 (the other tracks left as they are), scene_used = scene 1, every other chain, row and scene empty, no groove,
     LAUNCH LOOP; then slot A saved again (the lists go with the project).
@@ -31,9 +31,9 @@ THE SEED (fixed; every value below is the tool's, the rest the firmware's defaul
 
 THE ERASE OF A PROJECT SLOT (no panel): BACKUP_PUT (67) of object 2 + slot with size 0 (begin 0, id, size 0, CRC 0; commit 2, id): the full
 backup's own restore path (web/fm1backup.js restoreBackup sends an empty object so), editor_backup.c ed_bk_commit_inner -> proj_write_slot(slot,
-raw, 0) -> ocj_write (0.15.0: ocs_delete of the slot's OCJ3 record and the phrases only it named) or ocj_write_pj4 (4573e79d: pj4_slot_clear,
-the OCJ4 record 0x8000 | slot and its chunks). Then, where BACKUP_LIST 1 lists them (0.14.2 and later), the slot's arrangement object 64 + slot
-with size 0 (ocs_delete of OCS_PROJECT slot: an OCJ3 record the Nightly has not converted yet, OLD FORMAT). Read back: PROJECT op 2 (used 0)
+raw, 0) -> ocj_write (oc_project.c, both firmwares: ocs_delete of the slot's OCJ3 record and the phrases only it named). Then, where
+BACKUP_LIST 1 lists them (0.14.2 and later), the slot's arrangement object 64 + slot with size 0 (ocs_delete of OCS_PROJECT slot: a record the
+slot list does not read, OLD FORMAT). Read back: PROJECT op 2 (used 0)
 for every slot, BACKUP_LIST objects 2..5 and 64..67 of size 0.
 """
 import argparse
