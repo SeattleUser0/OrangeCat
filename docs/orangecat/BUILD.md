@@ -5681,3 +5681,6 @@ Margins: 290 us (FX) and 400 us (REV) under the 1,850 aimed at, 455 and 565 unde
 *Image after the fixes* (`ci_step.py build`): 533,564 B, RAM .data+.bss 96,568 B, arena 76,896 B (7.52's figures were at e26960bc: 533,332 B and 76,928 B; r32-int's other merges are between, so the difference is not all this fix). Also passed: ui_test, editor_test, tests/fx_layer_module.sh.
 
 **For the lead on the unit:** FX + G5 says FX LATCH ON, the footer LATCH ON and G5 lit; a tap of B3 (GLITCH) plays it with FX let go, another tap stops it; OCT- with FX clears it; `135 [1, 4, 1]` answers rc 0 and FX_TABLE then shows `uses` 1 for id 3 (stopped: at once); `135 [0]` lets it go; a power cycle leaves LATCH off; then a short `qual_soak.py --fx FX` rehearsal.
+
+*For Session D (Round 32): the guide's new control.* FX LATCH (7.52): FX held + **G5** toggles LATCH; the FX footer reads "OCT- CLEAR, G5 LATCH OFF/ON" (the old footer was too wide: "ALL OFF" never drew); with LATCH on, a tap of an effect's key latches it until tapped again; OCT- clears the effects and the latch. The wording in controls_src.json (and the regenerated CONTROLS.md / controls.html) is Session A's: please read it. GLO's footer has the same width problem (only RESTART fits): not changed.
+

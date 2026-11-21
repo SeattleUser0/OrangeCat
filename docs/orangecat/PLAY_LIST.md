@@ -1,3 +1,15 @@
+# Orange Cat Nightly v0.16.0-4573e7 (Round 32): what changed for you since a3363d
+
+Written November 20, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. **This Nightly is on the test unit, installed from the live page; it is the Release 3 candidate the qualification runs on.**
+
+1. **FX LATCH works now** (you found it could not be turned on). Hold FX and press **G5** (the top white key): the footer says LATCH ON, G5 lights; tap an effect's key and it plays on after you let go of FX, until you tap it again. FX + OCT- clears every effect and turns LATCH off. Power-on: LATCH off. Please try it on the test unit: the footer, a latched GLITCH, OCT- clearing it.
+2. **The soak latches GLITCH itself** over the editor, so that step is off your checklist.
+3. **Your playing unit** runs the stock firmware; its flash chip could not be read without writing, so I skipped it (FLASH_CHIPS.md says what would be needed).
+4. **The test unit has objects saved today** (three that were empty last night). The install tests wipe the projects and user presets; they are backed up first, and I ask you before that step.
+5. **Tested:** full SAN=1 suite green (293 jobs); the candidate was reviewed twice.
+
+---
+
 # Orange Cat Nightly v0.16.0-a3363d (Round 31): what changed for you since 269260
 
 Written November 19, 2026 for the owner. Install from the installer page (Nightly). Standard 0.15.0 is unchanged. **This Nightly is on the test unit, installed from the live page.** Release 3 goes ahead without the new project format, as you decided (it moves to Release 4 with scenes v2, Performance Mode and project-owned phrases).
