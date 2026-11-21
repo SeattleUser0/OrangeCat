@@ -3,28 +3,33 @@
 # Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """The Release 3 qualification's install cases (BUILD.md 7.37 Q4; Round 31, 7.50): the live installer page in headless Chrome
 (tools/hw/cdp_install.mjs: Install pressed again up to 3 times when the page says the FM-1 was not found or did not come back), with the
-unit's state read before and after each install. The lead's tool: it writes firmware to the unit; nothing here runs unattended.
+unit's state read before and after each install. It writes firmware to the unit. (Round 32, the owner's rule) Every case runs unattended: no
+step waits for a hand or a typed answer; the words that stand for a typed confirmation are given on the command line (--confirm), the page's
+questions answered by rule (--answers, default tools/hw/q4_answers_example.json).
 
   q4_install.py OUT LABEL state                     read only: the version, the pack, the engine modules and the Effects table (the page's own
                                                     probeUnit through oc_install.mjs list: what ~/fm1-hw/r23/st.py printed), the saved objects
                                                     (BACKUP_LIST: id, size, CRC) and the user presets in use
   q4_install.py OUT LABEL a [--no-pause]            (a) 0.15.0 Standard from the live page (the page's build-dual radio; --standard TEXT, default
-                                                    "0.15.0", must be in its label or nothing is pressed), then a pause for the lead to save
-                                                    projects, user presets, a pool phrase and a scene on the unit, a complete backup of them, then
-                                                    the Nightly (build-nightly-dual) over it, then a backup again: every saved object compared by
-                                                    (id, size, CRC-32)
+                                                    "0.15.0", must be in its label or nothing is pressed), then (Round 32) the seed written over
+                                                    the editor (tools/hw/unit_objects.py seed: a project with a pool phrase and a scene in slot A,
+                                                    two user presets, read back; --no-seed keeps what the unit holds), a complete backup of them,
+                                                    then the Nightly (build-nightly-dual) over it, then a backup again: every saved object compared
+                                                    by (id, size, CRC-32), the seed verified (unit_objects.py verify)
   q4_install.py OUT LABEL b-wipe-modules            (b) the module area erased by its documented command: MOD_REMOVE (124) with 127, "the whole
                                                     area" (web/EDITOR_PROTOCOL.md; oc_module.c oc_mod_remove: every start, the tail region too)
   q4_install.py OUT LABEL b-wipe-presets            (b) every user preset erased one slot at a time by the editor's library command (80, op 5: the
-                                                    editor page's Erase), the list read back empty
-  q4_install.py OUT LABEL b-projects                (b) the projects: no editor command erases one; the panel's path is printed (SAVE, the slot's
-                                                    menu, Erase, OCT+ twice) and the lead's Enter awaited; BACKUP_LIST before and after logged
+                                                    editor page's Erase), the list read back empty (unit_objects.py wipe_presets)
+  q4_install.py OUT LABEL b-projects                (b) (Round 32) every project slot A..D emptied over the editor: BACKUP_PUT (67) of objects 2..5
+                                                    with size 0, the full backup's restore path, then 64..67 where listed (unit_objects.py
+                                                    wipe_projects); every slot read back empty (PROJECT op 2, BACKUP_LIST)
   q4_install.py OUT LABEL b                         (b) after the three above: the Nightly from the live page onto the wiped unit
   q4_install.py OUT LABEL c --stock FM-1.fwsc       (c) the stock section of the live page with the owner's stock V15 file (its SHA-256 checked
                                                     against web/fm1pkg.js STOCK_V15_SHA256 first), the page's own questions answered yes, its backup
                                                     download kept in OUT; then the Nightly from the live page onto the stock unit
-  Unattended: --answers FILE answers the page's questions by rule (an unmatched one cancels and stops the run, exit non-zero);
-  --confirm WIPE / --confirm STOCK / --confirm INSTALL stand for the typed word in that invocation (logged).
+  Unattended: --answers FILE answers the page's questions by rule (an unmatched one cancels and stops the run, exit non-zero; default
+  tools/hw/q4_answers_example.json); --confirm WIPE / --confirm STOCK / --confirm INSTALL / --confirm SEED stand for the typed word in that
+  invocation (logged); a word not given refuses the step (nothing is asked).
   q4_install.py OUT LABEL d                         (d) the Nightly again over (a)'s result: expected nothing written (no firmware write, every part
                                                     "already current") and no question
   q4_install.py OUT LABEL plan                      (Round 32) the order of the qualification: the units (a then d), b, c, each twice, shuffled by
@@ -35,11 +40,11 @@ unit's state read before and after each install. The lead's tool: it writes firm
 every module of the page's plan is judged registered (state 7) at the start the page planned (its log's plan line, recorded by
 cdp_install.mjs; --layout only overrides it); case a compares the objects saved before the Nightly byte for byte after (only those; new ones
 listed) and each saved project's read-back (loaded over the editor) with the one before, and exits 1 on a difference; the wipes check their
-result is empty; an operator prompt that reads end of input stops cleanly with the unit's state printed.
-Common: --url (default the live page), --nightly-build (default build-nightly-dual), --minutes (25 per install), --yes (no typed INSTALL
-confirmation; a wipe always asks for WIPE and the stock restore for STOCK). (Review fixes, Round 31) A complete backup, read back, before every
-install from the page and before every wipe (or --backup FILE for the wipes, read back); a1 and c1 put the page's own questions to the
-operator (cdp_install.mjs --ask); c stops unless the page's backup download is in OUT and reads back; a failed stock restore prints the
+result is empty.
+Common: --url (default the live page), --nightly-build (default build-nightly-dual), --minutes (25 per install), --yes (stands for INSTALL;
+a wipe always needs --confirm WIPE, the seed --confirm SEED, the stock restore --confirm STOCK). (Review fixes, Round 31) A complete backup, read
+back, before every install from the page and before every wipe or seed (or --backup FILE for the wipes, read back and equal to the unit now);
+the page's questions are answered by the --answers rules only; c stops unless the page's backup download is in OUT and reads back; a failed stock restore prints the
 recovery route (docs/RECOVERY.md, tools/fm1_recover.py). A backup taken on a Nightly does not restore onto 0.15.0 Standard. Every step is logged to
 OUT/q4-LABEL.log (one JSON line each) with the page's questions (its dialogs), the writes (the firmware's write lines, the summary per part)
 and the state after; the page's own log of each attempt is kept (OUT/<step>/page-log-attemptN.txt).
@@ -59,30 +64,15 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import fm1hw                                            # noqa: E402
+import unit_objects as UO                               # noqa: E402
 
 LIVE = "https://seattleuser0.github.io/OrangeCat/webapp/installer/"
+ANSWERS = os.path.join(HERE, "q4_answers_example.json")
 A = None
 PLAN_SEED = 20261117
 DEFAULT_LAYOUT = "SHAPES=1,FX LAYER=2,WHEEL=5,MACRO MODELS=17,DUB TAPE=18"   # (7.33's order on a Nightly-to-Nightly unit: an example for --layout only)
 ENGINE_OF = {"SHAPES": 14, "WHEEL": 7, "PROPHET": 19}
 FX_ID_OF = {"DUB TAPE": 1, "REVERB MODES": 2, "FX LAYER": 3, "MACRO MODELS": 0x4D08}
-
-
-class Stopped(SystemExit):
-    pass
-
-
-def ask(prompt):
-    """input() for the operator (a wrapper may answer it); end of input is a clean stop: the unit's state printed, exit 3, never a crash between steps"""
-    try:
-        return input(prompt)
-    except EOFError:
-        print("\nq4_install: end of input at the operator's prompt: stopping here, nothing more is done", flush=True)
-        try:
-            state("stopped at end of input")
-        except BaseException as e:
-            print(f"q4_install: the state could not be read: {e!r}", flush=True)
-        raise Stopped(3)
 
 
 def plan_order(seed=PLAN_SEED):
@@ -199,18 +189,18 @@ def log(o):
         f.write(line + "\n")
 
 
-ALWAYS_TYPED = ("WIPE", "STOCK")                         # (review, Round 31) --yes never covers an erase or the stock restore
+ALWAYS_TYPED = ("WIPE", "STOCK", "SEED")                 # (review, Round 31) --yes never covers an erase, the seed or the stock restore
 
 
 def confirm(word, what):
+    """(Round 32) nothing is asked: the word stands on the command line (--confirm WORD; --yes for INSTALL), else the step is refused"""
     if A.yes and word not in ALWAYS_TYPED:
         return
     if word in (A.confirm or []):                        # (unattended: --confirm WORD on this one invocation's command line)
         log({"confirmed": word, "by": "--confirm on the command line", "what": what})
         return
-    got = ask(f"q4_install: {what}\n  type {word} to go on (anything else stops): ").strip()
-    if got != word:
-        raise SystemExit("q4_install: stopped by the operator")
+    log({"refused": word, "what": what})
+    raise SystemExit(f"q4_install: {what}\n  refused: give --confirm {word}" + (" (or --yes)" if word not in ALWAYS_TYPED else "") + " on the command line (nothing is asked)")
 
 
 def node(*args, timeout=900):
@@ -274,9 +264,10 @@ def objects_of(path):
     return {o["id"]: (o["size"], o["crc"]) for o in json.load(open(path))["objects"]}
 
 
-def page(step, build=None, stock=None, expect=None, ask=True, take_backup=True):
+def page(step, build=None, stock=None, expect=None, take_backup=True):
     """(review, Round 31) a complete backup, read back, before every install from the page (take_backup False only where no editor answers:
-    a unit on stock V15 holds no Orange Cat data); ask: every confirm dialog of the page is put to the operator (typed answer), not answered yes"""
+    a unit on stock V15 holds no Orange Cat data); (Round 32) every confirm dialog of the page answered by the --answers rules (an unmatched
+    one cancelled: the run stops), never put to an operator"""
     if take_backup:
         backup(f"before-{step}")
     d = os.path.join(A.out, step)
@@ -285,14 +276,11 @@ def page(step, build=None, stock=None, expect=None, ask=True, take_backup=True):
     if expect:
         cmd += ["--expect", expect]
     rules = answers_for(step)
-    if rules is not None:
-        f = os.path.join(A.out, f"answers-{step}.json")
-        json.dump(rules, open(f, "w"), indent=1)
-        cmd += ["--answers", f]
-    else:
-        cmd += ["--ask"]                                 # (no --answers: every page question goes to the operator, never a blind yes)
+    f = os.path.join(A.out, f"answers-{step}.json")
+    json.dump(rules, open(f, "w"), indent=1)
+    cmd += ["--answers", f]                              # (Round 32: always; no question goes to an operator, never a blind yes)
     log({"page": step, "cmd": "node " + " ".join(cmd)})
-    p = subprocess.run(["node", *cmd], cwd=REPO, timeout=A.minutes * 60 * 3 + 300, stdout=subprocess.PIPE, text=True)   # (stdin and stderr the operator's: --ask's questions)
+    p = subprocess.run(["node", *cmd], cwd=REPO, timeout=A.minutes * 60 * 3 + 300, stdout=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True)
     sys.stdout.write(p.stdout[-6000:])
     last = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else "{}"
     try:
@@ -311,11 +299,9 @@ def page(step, build=None, stock=None, expect=None, ask=True, take_backup=True):
 
 
 def answers_for(step):
-    """--answers FILE: a list of {starts, answer} (every step), or an object of such lists by case ("a", "c", "d", "b") or by step name
-    ("a1-standard", ...), the step's own list first; None without --answers"""
-    if not A.answers:
-        return None
-    d = json.load(open(A.answers))
+    """--answers FILE (default q4_answers_example.json): a list of {starts, answer} (every step), or an object of such lists by case ("a", "c",
+    "d", "b") or by step name ("a1-standard", ...), the step's own list first"""
+    d = json.load(open(A.answers or ANSWERS))
     if isinstance(d, list):
         return d
     for k in (step, A.case):
@@ -345,12 +331,14 @@ def case_a():
     s0 = state("a: before")
     print(f"q4_install: case a. The backup taken next is the Nightly's: {RESTORE_HINT}", flush=True)
     confirm("INSTALL", f"install {A.standard} Standard (build-dual) from {A.url} onto the unit now? (a downgrade from a Nightly: the page's own warnings apply)")
-    r1 = page("a1-standard", build="build-dual", expect=A.standard, ask=True)
+    r1 = page("a1-standard", build="build-dual", expect=A.standard)
     if not r1.get("ok"):
         raise SystemExit("q4_install: the Standard install did not end clean: stop and look (nothing more is done)")
     s1 = state("a: after Standard")
-    if not A.no_pause:
-        ask("q4_install: now save on the unit: projects, user presets, a pool phrase and a scene (the plan's objects). Press Enter when done: ")
+    manifest = None
+    if not A.no_seed:                                    # (Round 32) the plan's objects written over the editor, not on the panel
+        confirm("SEED", "write the seed (project slot A with a pool phrase and a scene, user presets U71 and U72) over the editor?")
+        manifest = seed_objects()
     b1 = backup("a-saved")
     u = fm1hw.Unit()
     try:
@@ -371,14 +359,33 @@ def case_a():
     finally:
         u.close()
     pd = compare_projects(p1, p2)
-    ok = cmp["kept"] and not pd
-    log({"case": "a", "objects": cmp, "projects_after": p2, "projects_differing": pd, "kept_byte_for_byte": cmp["kept"], "ok": ok,
+    sv = None
+    if manifest:
+        u = fm1hw.Unit()
+        try:
+            sv = UO.verify(u, manifest, log=lambda line: None)
+        finally:
+            u.close()
+    ok = cmp["kept"] and not pd and (sv is None or sv["ok"])
+    log({"case": "a", "objects": cmp, "projects_after": p2, "projects_differing": pd, "kept_byte_for_byte": cmp["kept"], "seed_verified": sv, "ok": ok,
          "checked": "each saved object's bytes; each project's tracks (engine, preset, level, mute), its current pattern's steps and BPM, loaded over the editor",
          "not_checked": "that the projects sound as before (by ear), the scenes and pool phrases playing, the user presets heard: the panel's and the ear's",
          "note": "a difference is a finding unless the format revision's conversion documents it (7.37 Q4 pass mark)"})
     if not ok:
-        raise SystemExit(f"q4_install: case a: NOT kept: objects {cmp['differing'] or ''} {cmp['missing'] or ''} projects {pd[:8]}")
+        raise SystemExit(f"q4_install: case a: NOT kept: objects {cmp['differing'] or ''} {cmp['missing'] or ''} projects {pd[:8]} "
+                         f"seed {(sv or {}).get('problems', [])[:4]}")
     return r2
+
+
+def seed_objects():
+    """(Round 32) unit_objects.seed after a backup taken now and checked against the unit (unit_objects.preconditions: no suite, stopped)"""
+    path = backup("a-before-seed")
+    u, _ = UO.preconditions(fm1hw.Unit, A.out, A.label, backup=path, tool="q4_install")
+    try:
+        m = UO.seed(u, A.out, A.label, log=lambda line: log({"seed": json.loads(line)}))
+    finally:
+        u.close()
+    return m
 
 
 def checked_backup(tag, given):
@@ -413,52 +420,24 @@ def mod_remove_all():
         raise SystemExit(f"q4_install: the module area is not empty after MOD_REMOVE 127: {left}")
 
 
-def presets_wipe():
-    checked_backup("before-b-wipe-presets", A.backup)
-    confirm("WIPE", "erase EVERY user preset (the editor's library Erase, slot by slot)?")
-    u = fm1hw.Unit()
+def wipe(tag, fn, what):
+    """(Round 32) a wipe over the editor (unit_objects): the backup (given or taken now) checked against the unit, no suite, stopped"""
+    path = checked_backup(tag, A.backup)
+    confirm("WIPE", what)
+    u, _ = UO.preconditions(fm1hw.Unit, A.out, A.label, backup=path, tool="q4_install")
     try:
-        lib = fm1hw.library(u)["library"]
-        done = []
-        for x in lib["list"]:
-            k = x["slot"]
-            r = u.req(80, [5, k & 127, k >> 7], timeout=5.0)
-            done.append({"slot": k, "name": x["name"], "rc": r[3]})
-        after = fm1hw.library(u)["library"]
-        log({"b": "presets", "command": "library op 5 (editor 80) per used slot", "erased": done, "used_after": after["used"]})
-        if after["used"]:
-            raise SystemExit(f"q4_install: {after['used']} preset slots still used after the erase: {after['list'][:8]}")
+        return fn(u, log=lambda line: log({"b": json.loads(line)}))
     finally:
         u.close()
+
+
+def presets_wipe():
+    return wipe("before-b-wipe-presets", UO.wipe_presets, "erase EVERY user preset (the editor's library Erase, slot by slot)?")
 
 
 def projects_wipe():
-    checked_backup("before-b-projects", A.backup)
-    confirm("WIPE", "erase every project slot on the panel now (the steps follow)?")
-    u = fm1hw.Unit()
-    try:
-        before = fm1hw.library(u)["objects"]
-    finally:
-        u.close()
-    print("q4_install: no editor command erases a project slot (BUILD.md 7.50 case b). On the unit, stopped, for each project slot A to D\n"
-          "  (GUIDE.md, the project page): SAVE (the PROJECT page), KNOB 1 to the slot, OCT+ (its menu: Load, Save here, Rename, Boot, Erase),\n"
-          "  KNOB 2 to Erase, OCT+, and OCT+ again for the question.")
-    ask("  Press Enter when every slot is erased: ")
-    u = fm1hw.Unit()
-    try:
-        after = fm1hw.library(u)["objects"]
-    finally:
-        u.close()
-    changed = {k: {"before": before.get(k), "after": after.get(k)} for k in sorted(set(before) | set(after)) if before.get(k) != after.get(k)}
-    u = fm1hw.Unit()
-    try:
-        used = [k for k in range(4) if (lambda q: len(q) > 2 and q[2])(u.req(9, [2, k], timeout=3.0))]
-    finally:
-        u.close()
-    log({"b": "projects", "path": "the panel: SAVE > the slot > OCT+ > Erase > OCT+ > OCT+ (ui_slots.c SHEET_PROJECT, CF_ERASE_PROJ)", "objects_changed": changed,
-         "slots_used_after": [k + 1 for k in used]})
-    if used:
-        raise SystemExit(f"q4_install: project slots still used after the erase: {[k + 1 for k in used]}")
+    return wipe("before-b-projects", UO.wipe_projects,
+                "empty every project slot A..D (BACKUP_PUT of objects 2..5 with size 0: the backup restore's path; then 64..67 where listed)?")
 
 
 def modules_left(starts, probe):
@@ -495,7 +474,7 @@ def case_c():
         raise SystemExit("q4_install: the stock file's digest is not the page's STOCK_V15_SHA256: refused")
     state("c: before the stock restore")
     confirm("STOCK", "return the unit to the official V15 firmware through the page's stock section now? (the page backs the unit up first: the file is kept in OUT)")
-    r = page("c1-stock", stock=A.stock, ask=True)
+    r = page("c1-stock", stock=A.stock)
     if not r.get("ok"):
         print(f"q4_install: the stock restore did not end clean. {RECOVERY_HINT}", flush=True)
         log({"c": "stock restore not clean", "recovery": RECOVERY_HINT})
@@ -553,18 +532,15 @@ def main():
     ap.add_argument("--standard", default="0.15.0")
     ap.add_argument("--stock")
     ap.add_argument("--minutes", type=float, default=25.0)
-    ap.add_argument("--no-pause", action="store_true")
+    ap.add_argument("--no-seed", action="store_true", help="case a: no seed written: the objects the unit holds after the Standard are compared")
     ap.add_argument("--yes", action="store_true", help="no typed INSTALL confirmation (WIPE and STOCK are always typed)")
-    ap.add_argument("--answers", help="unattended: the page's questions answered by rule (tools/hw/q4_answers_example.json); an unmatched one stops the run")
-    ap.add_argument("--confirm", action="append", choices=("WIPE", "STOCK", "INSTALL"), help="the typed word given here instead, for this invocation (logged)")
+    ap.add_argument("--answers", default=ANSWERS, help="the page's questions answered by rule (default tools/hw/q4_answers_example.json); an unmatched one stops the run")
+    ap.add_argument("--confirm", action="append", choices=("WIPE", "STOCK", "INSTALL", "SEED"), help="the word that stands for a typed confirmation, for this invocation (logged)")
     ap.add_argument("--backup", help="b's wipes: a backup file already taken (it must read back); else one is taken first")
     A = ap.parse_args()
     os.makedirs(A.out, exist_ok=True)
     log({"q4": A.case, "label": A.label, "url": A.url, "at": datetime.datetime.now().isoformat(timespec="seconds")})
-    try:
-        return run_case()
-    except Stopped as e:
-        return e.code
+    return run_case()
 
 
 def run_case():

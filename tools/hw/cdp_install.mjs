@@ -13,7 +13,7 @@
 //  - --stock FILE: the stock section's file input (#stock-file) given the file through DOM.setFileInputFiles, the page's check awaited
 //    ("Official V15 verified"), then #stock-go. The page's backup download is allowed into OUT (Browser.setDownloadBehavior).
 //  - Every dialog (confirm, alert) is logged with its text and accepted: they are the page's questions. --decline makes it answer no;
-//    --ask puts every confirm dialog to the operator (its text on stderr, the typed answer: yes is OK, anything else Cancel).
+//    (Round 32, the owner's rule: nothing waits for a hand) --ask, which put a dialog to the operator, is gone: it is refused (exit 2).
 //    --answers FILE (unattended): each dialog answered by the rule whose `starts` its text begins with; an unmatched one is cancelled and
 //    stops the run with a non-zero exit (tools/hw/q4_answers_example.json).
 //  - The page's versions (#dual-version, #nightly-version, the release picked) are logged; --expect TEXT refuses to press Install when the
@@ -27,18 +27,13 @@ import { spawn } from "child_process";
 import { mkdirSync, mkdtempSync, writeFileSync, existsSync, readdirSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { resolve } from "path";
-import { createInterface } from "readline";
-// (review, Round 31) --ask: a confirm dialog is put to the operator on the terminal (stderr / stdin), the typed answer passed back
-const askOperator = (text) => new Promise((res) => {
-  const rl = createInterface({ input: process.stdin, output: process.stderr });
-  rl.question(`\nTHE PAGE ASKS:\n  ${text}\n  type yes to answer OK, anything else answers Cancel: `, (a) => { rl.close(); res(a.trim() === "yes"); });
-});
 
 const args = process.argv.slice(2), opt = {};
 for (let i = 0; i < args.length; i++) {
   const k = args[i].replace(/^--/, "");
   if (["decline", "ask"].includes(k)) opt[k] = true; else opt[k] = args[++i];
 }
+if (opt.ask) { console.error("cdp_install: --ask is gone (Round 32: no prompt; every run is unattended): give --answers FILE (tools/hw/q4_answers_example.json)"); process.exit(2); }
 const url = opt.url, build = opt.build, minutes = Number(opt.minutes || 25), retries = Number(opt.retries || 3);
 // (Round 32) the waits before a retry's fresh browser: --retry-wait S (10) and, after "did not come back", --return-wait S (20)
 const retryWait = Number(opt["retry-wait"] ?? 10), returnWait = Number(opt["return-wait"] ?? 20);
@@ -113,7 +108,6 @@ const onMessage = async (m) => {
         console.error(`\ncdp_install: A DIALOG NO RULE MATCHES (${d.params.type}), answered Cancel; the run stops when the page has finished:\n${d.params.message}\n`);
       }
     } else if (d.params.type === "alert") { accept = true; by = "driver (an alert has only OK)"; }
-    else if (opt.ask) { accept = await askOperator(d.params.message); by = "operator"; }
     else { accept = !opt.decline; by = "driver"; }
     dialogs.push({ at: new Date().toISOString(), type: d.params.type, text: d.params.message, answered: accept ? "yes" : "no", by, rule: rule && rule.starts });
     say(`DIALOG (${d.params.type}, answered ${accept ? "yes" : "no"}):`, d.params.message.slice(0, 300));

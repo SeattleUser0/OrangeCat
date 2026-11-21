@@ -184,6 +184,10 @@ def cdp_retry_checks(driver=os.path.join(HERE, "cdp_install.mjs")):
 
 
 def main():
+    if os.environ.get("REMOTE_ONLY"):                    # (Round 32) only the unattended-objects checks (no Chrome, no node page)
+        remote_checks()
+        print(f"\n{len(FAILS)} failed" if FAILS else "\nevery check passed")
+        return 1 if FAILS else 0
     if os.environ.get("CDP_MOCK_ONLY"):
         cdp_retry_checks(os.environ.get("CDP_DRIVER") or os.path.join(HERE, "cdp_install.mjs"))
         print(f"\n{len(FAILS)} failed" if FAILS else "\nevery check passed")
@@ -276,6 +280,7 @@ def main():
     swap_checks()
     round32_checks()
     gfix_checks()
+    remote_checks()
     print(f"\n{len(FAILS)} failed" if FAILS else "\nevery check passed")
     return 1 if FAILS else 0
 
@@ -629,17 +634,6 @@ def round32_checks():
         attempt("Q4: case a's objects: only those present before compared byte for byte, a new one listed, not a difference",
                 lambda: (lambda c: list(c["differing"]) == [5] and c["new"] == [8] and not c["kept"])(Q4.compare_objects(f1, f2)))
         Q4.state = lambda tag: {"tag": tag}
-        def eof():
-            import builtins
-            old = builtins.input
-            builtins.input = lambda *_: (_ for _ in ()).throw(EOFError())
-            try:
-                Q4.ask("x? "); return False
-            except SystemExit as e:
-                return e.code == 3
-            finally:
-                builtins.input = old
-        attempt("Q4: end of input at a prompt is a clean stop (exit 3, the state read), not a crash", eof)
     probe = {"mod": {"starts": [{"state": 0, "engine": 0}] + [{"state": 7, "engine": 14}] + [{"state": 0, "engine": 0}] * 3 + [{"state": 7, "engine": 7}] + [{"state": 0, "engine": 0}] * 15},
              "fx": {"effects": [{"id": 3, "state": 7, "start": 2}, {"id": 0x4D08, "state": 7, "start": 17}, {"id": 1, "state": 7, "start": 18}]}}
     attempt("Q4: every module of the layout registered at its start; one elsewhere fails",
@@ -738,6 +732,208 @@ def gfix_checks():
         except SystemExit as e:
             return "more than once" in str(e)
     attempt("gfix: a plan that names a module twice is refused (no silent winner)", twice)
+
+
+PROMPT_TOOLS = ("q4_install.py", "soak/qual_soak.py", "hiss.py", "seqtest.py", "rectest.py", "cdp_install.mjs", "unit_objects.py")
+PROMPT_PATTERNS = (r"\binput\(", r"getpass", r"sys\.stdin", r"createInterface", r"\.question\(", r'"--ask"', r"Press Enter")
+BOTH_FIRMWARES = {1, 2, 3, 5, 8, 9, 27, 28, 30, 31, 64, 65, 67, 73, 80, 102}   # the commands of v0.15.0's editor.c that 4573e79d keeps unchanged
+
+
+def mock_backup(mock, path):
+    """a backup file of the mock as oc_install.mjs backup writes one (web/fm1backup.js captureBackup: format, version 1, every object's data)"""
+    import base64
+    o = mock.objects()
+    json.dump({"format": "felucca-backup", "version": 1, "firmware": mock.info()["version"],
+               "objects": [{"id": k, "size": len(o[k]), "crc": zlib_crc(o[k]) if o[k] else 0, "data": base64.b64encode(o[k]).decode()}
+                           for k in list(range(29)) + list(range(64, 85))]}, open(path, "w"))
+    return path
+
+
+def zlib_crc(b):
+    import zlib
+    return zlib.crc32(bytes(b)) & 0xFFFFFFFF
+
+
+def remote_checks():
+    """(Round 32, the owner's rule: every test runs unattended) the saved objects of Q4 written and erased over the editor (tools/hw/unit_objects.py)
+    on a mock editor that answers as v0.15.0 and as 4573e79d (tools/hw/editor_mock.py), and no prompt left in the qualification tools; each check
+    fails on 52e16b13 (no unit_objects.py, q4_install.py's input() and cdp_install.mjs --ask)"""
+    import builtins
+    import re
+    import argparse as AP
+
+    def no_prompt():
+        bad = []
+        for f in PROMPT_TOOLS:
+            path = os.path.join(HERE, f)
+            src = open(path).read() if os.path.exists(path) else None
+            bad += [f"{f}: missing"] if src is None else [f"{f}: {pat}" for pat in PROMPT_PATTERNS if re.search(pat, src)]
+        if bad:
+            print("     prompts left:", bad)
+        return not bad
+    attempt("remote: no operator prompt in q4_install.py, qual_soak.py, hiss.py, seqtest.py, rectest.py, cdp_install.mjs, unit_objects.py", no_prompt)
+    real_input = builtins.input
+
+    def prompted(*_):
+        raise AssertionError("a tool asked the operator (input())")
+    builtins.input = prompted
+    try:
+        for fn in (_remote_unit_checks, _remote_q4_checks):
+            try:
+                fn()
+            except BaseException as e:                   # noqa: BLE001 (on 52e16b13: no unit_objects.py)
+                check(False, f"remote: {fn.__name__} raised {e!r:.160}")
+    finally:
+        builtins.input = real_input
+
+
+def hushed(fn, *a, **k):
+    """fn's own printing (a tool's log lines) kept out of the checks' output"""
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        return fn(*a, **k)
+
+
+def _remote_unit_checks():
+    import unit_objects as UO
+    import editor_mock as EM
+    quiet = lambda line: None
+    for fw in ("0.15.0", "nightly"):
+        d = tempfile.mkdtemp(prefix="uo-")
+        u = EM.EditorMock(fw)
+        st = {}
+
+        def seeded(u=u, d=d, st=st, fw=fw):
+            m = UO.seed(u, d, "T", log=quiet)
+            st["m"] = m
+            lists = m["lists_written"]
+            return (m["phrase"]["len"] == 16 and [p["slot"] for p in m["presets"]] == [70, 71] and lists["scene_used"] == [1]
+                    and lists["scene"][:2] == [1, 0] and lists["chain"][0] == m["phrase"]["number"] and m["objects"]["2"][0] > 0
+                    and m["objects"]["18"][0] > 0 and u.projects.get(0) and {c for c, _ in u.sent} <= BOTH_FIRMWARES
+                    and os.path.exists(os.path.join(d, "seed-T.json")))
+        attempt(f"remote ({fw}): seed writes project slot A (MACRO tracks, the phrase on track 1 bank 1, LEN 16, BPM 120), the scene, presets U71 U72, "
+                f"reads them back, with commands both firmwares have", seeded)
+        attempt(f"remote ({fw}): the seed's phrase, project record and preset bank are BACKUP_LIST objects on 0.15.0 (2, 64, 68, 18); on the Nightly 64 and 68 are empty (PJ4)",
+                lambda st=st, fw=fw: (lambda o: (o["64"][0] > 0 and o["68"][0] > 0) if fw == "0.15.0" else (o["64"] == (0, 0) and o["68"] == (0, 0)))(st["m"]["objects"]))
+        attempt(f"remote ({fw}): verify passes on the seed, after an install of the Nightly (another P_COUNT: the presets by label) too",
+                lambda u=u, st=st: UO.verify(u, st["m"], log=quiet)["ok"] and (u.set_fw("nightly") or True) and UO.verify(u, st["m"], log=quiet)["ok"])
+
+        def broken(u=u, st=st):
+            rec = u.projects[0]
+            rec["tracks"][0]["banks"][0][4] = EM.EMPTY
+            v = UO.verify(u, st["m"], log=quiet)
+            return not v["ok"] and any("step 5" in p for p in v["problems"])
+        attempt(f"remote ({fw}): verify fails when a seeded step is gone from the saved project", broken)
+        u2 = EM.EditorMock(fw)
+        UO.seed(u2, d, "T2", log=quiet)
+        u2.projects[2] = u2.projects[0]
+        if fw == "nightly":
+            u2.old_records[3] = {"OCJ3": "not converted"}
+
+        def wiped(u=u2, fw=fw):
+            r = UO.wipe_projects(u, log=quiet)
+            objs = UO.backup_list(u)
+            return (not u.projects and not u.old_records and all(objs[k] == (0, 0) for k in (2, 3, 4, 5, 64, 65, 66, 67))
+                    and not any(UO.project_used(u, s) for s in range(4)) and (fw == "0.15.0" or "67" in r["command"]))
+        attempt(f"remote ({fw}): wipe-projects empties slots A..D by BACKUP_PUT of 2..5 with size 0 (and an OLD FORMAT record by 64 + slot), read back empty", wiped)
+        attempt(f"remote ({fw}): wipe-presets erases every user preset (80 op 5), read back empty",
+                lambda u=u2: UO.wipe_presets(u, log=quiet)["used_after"] == [] and not u.lib)
+        # the preconditions
+        u3 = EM.EditorMock(fw)
+        b = mock_backup(u3, os.path.join(d, "b.json"))
+        real = UO.suites_running
+
+        def pre(suites, busy, stale, u=u3, b=b, d=d):
+            UO.suites_running = lambda: suites
+            u.busy = busy
+            if stale:
+                u.lib[9] = ("MACRO", 8, "NEW", {})
+            try:
+                uu, path = UO.preconditions(lambda: u, d, "T", backup=b)
+                return path == b
+            except SystemExit:
+                return False
+            finally:
+                UO.suites_running = real
+                u.busy = 0
+                u.lib.pop(9, None)
+        attempt(f"remote ({fw}): a write refuses while a host suite runs, while the transport runs, and with a backup that is not the unit now; goes on with one that is",
+                lambda: not pre([(1, "run_tests.sh")], 0, False) and not pre([], 1, False) and not pre([], 0, True) and pre([], 0, False))
+
+        def cli(u=u3, b=b, d=d):
+            UO.suites_running = lambda: []
+            try:
+                n0 = len(u.sent)
+                refused = hushed(UO.main, [d, "C", "seed", "--backup", b], open_unit=lambda: u) == 2 and len(u.sent) == n0
+                return refused and hushed(UO.main, [d, "C", "seed", "--backup", b, "--confirm", "SEED"], open_unit=lambda: u) == 0 and u.projects.get(0)
+            finally:
+                UO.suites_running = real
+        attempt(f"remote ({fw}): unit_objects.py seed without --confirm SEED refuses before a request (nothing asked); with it, it seeds", cli)
+
+
+def _remote_q4_checks():
+    import argparse as AP
+    import q4_install as Q4
+    import editor_mock as EM
+    import fm1hw as F
+    try:
+        import unit_objects as UO
+    except ImportError:                                  # (52e16b13: q4_install.py is checked on its own)
+        UO = AP.Namespace(suites_running=None)
+    saved = {k: getattr(Q4, k) for k in ("backup", "page", "nightly", "state")}
+    real_unit, real_suites = F.Unit, UO.suites_running
+    try:
+        for fw in ("0.15.0", "nightly"):
+            d = tempfile.mkdtemp(prefix="q4r-")
+            u = EM.EditorMock(fw)
+            u.projects[1] = json.loads(json.dumps(u.music))
+            Q4.A = AP.Namespace(out=d, label="R", case="b-projects", expect="0.16.0", layout=None, yes=True, confirm=None, url="x", nightly_build="b",
+                                backup=None, answers=None, minutes=1.0, standard="0.15.0", no_seed=False, no_pause=False)
+            n = {"k": 0}
+
+            def bk(tag, u=u, d=d, n=n):
+                n["k"] += 1
+                return mock_backup(u, os.path.join(d, f"backup-{tag}-{n['k']}.json"))
+            Q4.backup, Q4.state = bk, (lambda tag: {"tag": tag})
+            F.Unit = lambda u=u: u
+            UO.suites_running = lambda: []
+
+            def refused():
+                try:
+                    hushed(Q4.projects_wipe); return False
+                except SystemExit as e:
+                    return "--confirm WIPE" in str(e) and 1 in u.projects
+            attempt(f"remote q4 ({fw}): b-projects without --confirm WIPE refuses (no prompt), the slots as they were", refused)
+            Q4.A.confirm = ["WIPE"]
+            attempt(f"remote q4 ({fw}): b-projects empties every slot over the editor, no panel step",
+                    lambda u=u, d=d: (hushed(Q4.projects_wipe) or True) and not u.projects and "BACKUP_PUT (67) size 0" in open(os.path.join(d, "q4-R.log")).read())
+        # case a: 0.15.0 Standard, the seed, the Nightly over it (the mock converts: PJ4 records are no backup objects)
+        d = tempfile.mkdtemp(prefix="q4a-")
+        u = EM.EditorMock("0.15.0")
+        Q4.A = AP.Namespace(out=d, label="A", case="a", expect="0.16.0", layout=None, yes=True, confirm=["SEED"], url="x", nightly_build="b",
+                            backup=None, answers=None, minutes=1.0, standard="0.15.0", no_seed=False, no_pause=False)
+        n = {"k": 0}
+        Q4.backup = lambda tag, u=u, d=d, n=n: (n.__setitem__("k", n["k"] + 1), mock_backup(u, os.path.join(d, f"backup-{tag}-{n['k']}.json")))[1]
+        Q4.page = lambda step, **k: {"ok": True}
+        Q4.nightly = lambda step, take_backup=True, u=u: (u.set_fw("nightly"), {"ok": True})[1]
+        F.Unit = lambda u=u: u
+        res = {}
+
+        def case_a():
+            try:
+                hushed(Q4.case_a)
+                res["exit"] = None
+            except SystemExit as e:
+                res["exit"] = str(e)
+            line = [json.loads(x) for x in open(os.path.join(d, "q4-A.log")) if '"case": "a"' in x and "seed_verified" in x][-1]
+            res["line"] = line
+            return line["seed_verified"]["ok"] and line["projects_differing"] == [] and u.projects.get(0)
+        attempt("remote q4: case a writes the seed on 0.15.0 without a prompt, and after the Nightly the seed reads back (verify) and every project loads as before", case_a)
+        attempt("remote q4: case a's byte compare then names only the arrangement objects 64..83 (the Nightly's OCJ4 records are no backup objects: the gap BUILD.md 7.37 item 4 names)",
+                lambda: res.get("exit") and set(res["line"]["objects"]["differing"]) and {int(k) for k in res["line"]["objects"]["differing"]} <= set(range(64, 84)))
+    finally:
+        for k, v in saved.items():
+            setattr(Q4, k, v)
+        F.Unit, UO.suites_running = real_unit, real_suites
 
 
 if __name__ == "__main__":
