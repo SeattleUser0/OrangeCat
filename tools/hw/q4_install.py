@@ -303,7 +303,7 @@ def page(step, build=None, stock=None, expect=None, take_backup=True, ticks=None
         res = {"ok": False, "error": "no result line"}
     short = {"page": step, "ok": res.get("ok"), "error": res.get("error"), "plan": res.get("plan"), "page_versions": res.get("page"), "chosen": res.get("chosen"),
              "stock_check": res.get("stockCheck"), "downloads": res.get("downloads"), "final": res.get("final"), "ticks": res.get("ticks"),
-             "attempts": [{k: a.get(k) for k in ("attempt", "status", "timedOut", "dialogs", "fwWrites", "fwWriteMax", "summary")} for a in res.get("attempts", [])]}
+             "attempts": [{k: a.get(k) for k in ("attempt", "status", "timedOut", "dialogs", "fwWrites", "fwWriteMax", "summary", "resume")} for a in res.get("attempts", [])]}
     short["unmatched_dialogs"] = res.get("unmatched")
     log(short)
     if res.get("unmatched"):

@@ -8,6 +8,9 @@
 //    notfound, noloader, sNounit, noreturn: "press Install again"); Round 30 saw the headless browser miss the update-mode port twice. Every
 //    attempt is logged with its status, its dialogs and its log lines. (Round 32) Every retry runs in a fresh Chrome (the old one closed first,
 //    a new profile and process, the page loaded and made ready again): Chrome's Web MIDI does not see a port that appears after it started.
+//    (Round 32, one attempt per build) Within an attempt, once: when the page ends saying the FM-1 in update mode was not found or did not come
+//    back, a fresh Chrome loads the page with the same build and ticks and presses Install once more, so that the page's own resume path
+//    (web/fm1ota.js resume()) finishes the same install ("attempt N: fresh browser to resume"; the attempt's `resume`).
 //  - The end of an attempt is the page's own: #release enabled again after it was disabled (lockInstaller(false)), not a text pattern (the
 //    old driver missed "Result: ..." and ended on its own timeout while the page had finished).
 //  - --stock FILE: the stock section's file input (#stock-file) given the file through DOM.setFileInputFiles, the page's check awaited
@@ -146,6 +149,8 @@ const onMessage = async (m) => {
 const ev = async (e) => (await send("Runtime.evaluate", { expression: e, awaitPromise: true, returnByValue: true })).result?.result?.value;
 const txt = (idq) => ev(`(document.getElementById(${JSON.stringify(idq)})||{}).textContent`);
 const RETRY = /not found|did not come back/i;
+// (Round 32) the page's ends that a fresh browser resumes within the attempt: TEXT.noloader and TEXT.noreturn (en, ja); fm1ota.js's own noreturn too
+const RESUME = /The FM-1 in update mode was not found|書き込みモードの FM-1 が見つかりません|did not come back|did not return after resuming|FM-1 が戻ってきません/i;
 // (Round 31) the page's own ends of an Install: TEXT.sumTitle and the summary ("Result: ...", ja "結果: "), or TEXT.done alone ("Done", ja "完了しました"; transitDone)
 const finishedText = (s) => /^(Result: |結果: )/.test((s || "").trim()) || /^(Done|完了しました)$/.test((s || "").trim()) || /^TransitFM1 installed\.|^TransitFM1をインストールしました/.test((s || "").trim());
 // (Round 31, the review) the parts of a "Result: ..." line that are not a success: every "Firmware/Pack/Module: X" whose X is not installed, already current, not chosen or
@@ -196,7 +201,7 @@ const resolveName = (state, name) => {
   return null;
 };
 const radioFor = (state, module) => state.giveWay.find((r) => r.label === module || r.label.startsWith(module + " ("));
-const setBoxes = async (rec) => {
+const setBoxes = async (rec, resume = false) => {
   rec.ticks = { spec: opt.ticks || null, remove: opt.remove || null };
   rec.ticks.initial = await boxesNow();
   say("the boxes as the page opened:", JSON.stringify(rec.ticks.initial));
@@ -213,8 +218,10 @@ const setBoxes = async (rec) => {
     if (b in boxWant && boxWant[b] !== x.want) throw new Error(`--ticks: ${opt.ticks} wants the box ${b} both ticked and unticked: refused`);
     boxWant[b] = x.want;
   }
-  rec.ticks.unitBefore = await readUnitOnPage();                       // the meter and Install's give-way choice keyed on the unit as it stands
-  if (opt.remove && !removedOnce) {
+  // (Round 32) a fresh browser to resume: the unit waits in update mode, the page cannot read it (nor remove anything): the boxes only, judged as always
+  if (resume) rec.ticks.unitBefore = null;
+  else rec.ticks.unitBefore = await readUnitOnPage();                  // the meter and Install's give-way choice keyed on the unit as it stands
+  if (opt.remove && !removedOnce && !resume) {
     const id = FX_IDS[nkey(opt.remove)];
     rec.ticks.removal = { module: opt.remove, id: hex8(id) };
     if (!rec.ticks.unitBefore.includes(hex8(id))) {
@@ -273,7 +280,7 @@ const setBoxes = async (rec) => {
 };
 // the page as loaded in a (fresh) browser, made ready to press: its versions, the stock file or the build chosen, --expect; into `rec` (the result for
 // the first browser, the attempt's own record for a retry's); the button to press
-const preparePage = async (rec) => {
+const preparePage = async (rec, resume = false) => {
   rec.page = { title: await ev("document.title"), status: await txt("status"), dual: await txt("dual-version"), nightly: await txt("nightly-version"),
     release: await ev("(document.getElementById('release')||{}).value") };
   say("page:", JSON.stringify(rec.page));
@@ -296,15 +303,47 @@ const preparePage = async (rec) => {
       stages: await ev(`[...document.querySelectorAll('#stages input[type=checkbox]')].map(c => c.id + (c.checked ? ':on' : ':off') + (c.disabled ? ':disabled' : ''))`) };
     say("chosen:", JSON.stringify(rec.chosen));
     if (opt.expect && !(label || "").includes(opt.expect)) throw new Error(`the build's label ${JSON.stringify(label)} does not contain ${JSON.stringify(opt.expect)}: Install not pressed`);
-    if (ticks || opt.remove) await setBoxes(rec);
+    if (resume && rec.chosen.label !== result.chosen.label) throw new Error(`the fresh browser's page offers ${JSON.stringify(rec.chosen.label)} as ${build}, the install began with ${JSON.stringify(result.chosen.label)}: not pressed (another build is never started)`);
+    if (ticks || opt.remove) await setBoxes(rec, resume);
     if (await ev("document.getElementById('go').disabled")) throw new Error("Install stayed disabled: " + rec.chosen.status + (ticks ? " | the meter: " + (rec.ticks && rec.ticks.after && rec.ticks.after.room) : ""));
   }
   return button;
 };
+// one press of the page's button and its end (#release enabled again), the page's log lines of it
+const press = async (k, button) => {
+  const p = {};
+  dialogs = [];
+  const logStart = (await txt("log") || "").split("\n").length;
+  await ev(`document.getElementById('${button}').click()`);
+  p.started = new Date().toISOString();
+  let started = false, last = "";
+  for (let i = 0; i < 30 && !started; i++) { await sleep(500); started = (await ev("document.getElementById('release').disabled")) === true; }
+  while (Date.now() < end) {
+    await sleep(3000);
+    const st = await txt("status"), bar = await ev("document.getElementById('bar').value");
+    if (st !== last) { say(`attempt ${k} bar ${Math.round(bar)} | ${st}`); last = st; }
+    if ((await ev("document.getElementById('release').disabled")) === false) break;
+  }
+  p.ended = new Date().toISOString();
+  p.status = await txt("status");
+  p.timedOut = (await ev("document.getElementById('release').disabled")) === true;
+  p.dialogs = dialogs;
+  p.log = (await txt("log") || "").split("\n").slice(logStart - 1);
+  return p;
+};
+// an attempt's counts from its log lines (both presses when it resumed)
+const derive = (a) => {
+  const lines = a.log;
+  a.fwWrites = lines.filter((l) => /^write \d+/.test(l)).length;
+  a.fwWriteMax = Math.max(0, ...lines.map((l) => (/^write (\d+)/.exec(l) || [0, 0])[1]).map(Number));
+  a.summary = lines.filter((l) => /^(Firmware|Pack|Module|Effect|Models|Result)/i.test(l));
+  a.plan = planOf(lines);
+};
+let end = 0;
 try {
   await openBrowser();
   let button = await preparePage(result);
-  const end = Date.now() + minutes * 60000;
+  end = Date.now() + minutes * 60000;
   for (let k = 1; k <= retries; k++) {
     const a = { attempt: k };
     if (k > 1) {                                         // (Round 32) only a retry: the old browser closed, a fresh one, the page loaded and made ready again
@@ -313,30 +352,34 @@ try {
       await openBrowser();
       button = await preparePage(a);
     }
-    dialogs = [];
-    const logStart = (await txt("log") || "").split("\n").length;
-    await ev(`document.getElementById('${button}').click()`);
-    a.started = new Date().toISOString();
-    let started = false, last = "";
-    for (let i = 0; i < 30 && !started; i++) { await sleep(500); started = (await ev("document.getElementById('release').disabled")) === true; }
-    while (Date.now() < end) {
-      await sleep(3000);
-      const st = await txt("status"), bar = await ev("document.getElementById('bar').value");
-      if (st !== last) { say(`attempt ${k} bar ${Math.round(bar)} | ${st}`); last = st; }
-      if ((await ev("document.getElementById('release').disabled")) === false) break;
-    }
-    a.ended = new Date().toISOString();
-    a.status = await txt("status");
-    a.timedOut = (await ev("document.getElementById('release').disabled")) === true;
-    a.dialogs = dialogs;
-    const lines = (await txt("log") || "").split("\n").slice(logStart - 1);
-    a.log = lines;
-    a.fwWrites = lines.filter((l) => /^write \d+/.test(l)).length;
-    a.fwWriteMax = Math.max(0, ...lines.map((l) => (/^write (\d+)/.exec(l) || [0, 0])[1]).map(Number));
-    a.summary = lines.filter((l) => /^(Firmware|Pack|Module|Effect|Models|Result)/i.test(l));
-    a.plan = planOf(lines);
-    writeFileSync(resolve(out, `page-log-attempt${k}.txt`), lines.join("\n"));
+    const p1 = await press(k, button);
+    Object.assign(a, p1);
+    derive(a);
     result.attempts.push(a);
+    // (Round 32, the owner's limit: one install attempt per build) WITHIN the attempt, once: the page switched the FM-1 to update mode and its browser
+    // did not see that port ("The FM-1 in update mode was not found"), or the firmware restarted and the browser did not see it come back ("did not
+    // come back"): Chrome's Web MIDI sees only the ports present when it started. Chrome closed, a fresh one, the page loaded with the same build (and
+    // ticks), Install pressed once more: the page's own path finds the FM-1 already in update mode and resumes (web/fm1ota.js resume(): this package's
+    // loader only), or finds this firmware running and goes on with the rest. Any other end (a refusal, "FM-1 not found" before anything) is the end.
+    if (!unmatched.length && !p1.timedOut && RESUME.test(p1.status || "")) {
+      const wait = /did not come back|戻ってきません/.test(p1.status) ? returnWait : retryWait;
+      say(`attempt ${k}: the page says ${JSON.stringify(p1.status.slice(0, 90))}: the browser closed, a fresh browser to resume in ${wait} s`);
+      await closeBrowser();
+      await sleep(wait * 1000);
+      say(`attempt ${k}: fresh browser to resume`);
+      a.resume = { after: p1.status, freshBrowser: true, wait };
+      let p2;
+      try {
+        await openBrowser();
+        p2 = await press(k, await preparePage(a.resume, true));
+      } catch (e) { a.resume.error = String(e && e.message || e); throw e; }   // (the attempt as it ended before, the resume's error named)
+      Object.assign(a.resume, { started: p2.started, ended: p2.ended, status: p2.status, timedOut: p2.timedOut });
+      a.ended = p2.ended; a.status = p2.status; a.timedOut = p2.timedOut;
+      a.dialogs = [...p1.dialogs, ...p2.dialogs];
+      a.log = [...p1.log, `--- attempt ${k}: fresh browser to resume ---`, ...p2.log];
+      derive(a);
+    }
+    writeFileSync(resolve(out, `page-log-attempt${k}.txt`), a.log.join("\n"));
     say(`attempt ${k} ended: ${a.status}${a.timedOut ? " (the page was still working at the time limit)" : ""}`);
     if (unmatched.length) { a.stoppedByUnmatchedDialog = true; break; }
     if (a.timedOut || !RETRY.test(a.status)) break;
