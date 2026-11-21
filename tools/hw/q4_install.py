@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 """The Release 3 qualification's install cases (BUILD.md 7.37 Q4; Round 31, 7.50): the live installer page in headless Chrome
-(tools/hw/cdp_install.mjs: Install pressed again up to 3 times when the page says the FM-1 was not found or did not come back), with the
+(tools/hw/cdp_install.mjs: one install attempt per build (Round 32, SPEC.md 13.1: a failed install is reported, not retried)), with the
 unit's state read before and after each install. It writes firmware to the unit. (Round 32, the owner's rule) Every case runs unattended: no
 step waits for a hand or a typed answer; the words that stand for a typed confirmation are given on the command line (--confirm), the page's
 questions answered by rule (--answers, default tools/hw/q4_answers_example.json).
@@ -15,7 +15,8 @@ questions answered by rule (--answers, default tools/hw/q4_answers_example.json)
                                                     the editor (tools/hw/unit_objects.py seed: a project with a pool phrase and a scene in slot A,
                                                     two user presets, read back; --no-seed keeps what the unit holds), a complete backup of them,
                                                     then the Nightly (build-nightly-dual) over it, then a backup again: every saved object compared
-                                                    by (id, size, CRC-32), the seed verified (unit_objects.py verify)
+                                                    by (id, size, CRC-32), the seed verified (unit_objects.py verify); (review) at the end the
+                                                    backup taken before a1 (on the Nightly) restored and BACKUP_LIST compared with it
   q4_install.py OUT LABEL b-wipe-modules            (b) the module area erased by its documented command: MOD_REMOVE (124) with 127, "the whole
                                                     area" (web/EDITOR_PROTOCOL.md; oc_module.c oc_mod_remove: every start, the tail region too)
   q4_install.py OUT LABEL b-wipe-presets            (b) every user preset erased one slot at a time by the editor's library command (80, op 5: the
@@ -23,7 +24,8 @@ questions answered by rule (--answers, default tools/hw/q4_answers_example.json)
   q4_install.py OUT LABEL b-projects                (b) (Round 32) every project slot A..D emptied over the editor: BACKUP_PUT (67) of objects 2..5
                                                     with size 0, the full backup's restore path, then 64..67 where listed (unit_objects.py
                                                     wipe_projects); every slot read back empty (PROJECT op 2, BACKUP_LIST)
-  q4_install.py OUT LABEL b                         (b) after the three above: the Nightly from the live page onto the wiped unit
+  q4_install.py OUT LABEL b                         (b) after the three above: the Nightly from the live page onto the wiped unit, then (review)
+                                                    the first wipe's own backup (OUT/q4-wipe-backups-LABEL.json) restored and compared
   q4_install.py OUT LABEL c --stock FM-1.fwsc       (c) the stock section of the live page with the owner's stock V15 file (its SHA-256 checked
                                                     against web/fm1pkg.js STOCK_V15_SHA256 first), the page's own questions answered yes, its backup
                                                     download kept in OUT; then the Nightly from the live page onto the stock unit
@@ -271,7 +273,7 @@ def page(step, build=None, stock=None, expect=None, take_backup=True):
     if take_backup:
         backup(f"before-{step}")
     d = os.path.join(A.out, step)
-    cmd = ["tools/hw/cdp_install.mjs", "--url", A.url, "--out", d, "--minutes", str(A.minutes), "--retries", "3"]
+    cmd = ["tools/hw/cdp_install.mjs", "--url", A.url, "--out", d, "--minutes", str(A.minutes), "--retries", "1"]   # (Round 32) one install attempt per build (SPEC.md 13.1)
     cmd += ["--stock", os.path.abspath(stock)] if stock else ["--build", build]
     if expect:
         cmd += ["--expect", expect]
@@ -331,13 +333,15 @@ def case_a():
     s0 = state("a: before")
     print(f"q4_install: case a. The backup taken next is the Nightly's: {RESTORE_HINT}", flush=True)
     confirm("INSTALL", f"install {A.standard} Standard (build-dual) from {A.url} onto the unit now? (a downgrade from a Nightly: the page's own warnings apply)")
-    r1 = page("a1-standard", build="build-dual", expect=A.standard)
+    if not A.no_seed:                                    # (review) every word checked before the first write
+        confirm("SEED", "write the seed (project slot A with a pool phrase and a scene, user presets U71 and U72) over the editor?")
+    b0 = backup("before-a1-standard")                    # (review) restored at the end, on the Nightly (the seed's slots 70, 71 and slot A come back too)
+    r1 = page("a1-standard", build="build-dual", expect=A.standard, take_backup=False)
     if not r1.get("ok"):
         raise SystemExit("q4_install: the Standard install did not end clean: stop and look (nothing more is done)")
     s1 = state("a: after Standard")
     manifest = None
     if not A.no_seed:                                    # (Round 32) the plan's objects written over the editor, not on the panel
-        confirm("SEED", "write the seed (project slot A with a pool phrase and a scene, user presets U71 and U72) over the editor?")
         manifest = seed_objects()
     b1 = backup("a-saved")
     u = fm1hw.Unit()
@@ -371,10 +375,42 @@ def case_a():
          "checked": "each saved object's bytes; each project's tracks (engine, preset, level, mute), its current pattern's steps and BPM, loaded over the editor",
          "not_checked": "that the projects sound as before (by ear), the scenes and pool phrases playing, the user presets heard: the panel's and the ear's",
          "note": "a difference is a finding unless the format revision's conversion documents it (7.37 Q4 pass mark)"})
+    rs = restore_backup(b0, "a: the unit as before a1 (the Nightly's backup), on the Nightly")
     if not ok:
         raise SystemExit(f"q4_install: case a: NOT kept: objects {cmp['differing'] or ''} {cmp['missing'] or ''} projects {pd[:8]} "
                          f"seed {(sv or {}).get('problems', [])[:4]}")
+    if not rs["ok"]:
+        raise SystemExit(f"q4_install: case a: the restore of {b0} does not verify: {rs['problems'][:4]}")
     return r2
+
+
+def restore_backup(path, what):
+    """(review, Round 32) the backup written back (unit_objects.restore: web/fm1backup.js restoreBackup's order, then BACKUP_LIST 0 and 1 compared
+    with the file) -> its result; a refusal (a suite, the transport, an object the firmware refuses) is a result not ok"""
+    try:
+        if UO.suites_running():
+            raise UO.Refused("q4_install: a host suite is running: the restore is refused")
+        u = fm1hw.Unit()
+        try:
+            r = UO.restore(u, path, log=lambda line: None)
+        finally:
+            u.close()
+    except SystemExit as e:
+        r = {"restore": path, "ok": False, "problems": [str(e.code if isinstance(e.code, str) else e)]}
+    log({"restored": what, **r})
+    return r
+
+
+def wipe_backups_file():
+    return os.path.join(A.out, f"q4-wipe-backups-{A.label}.json")
+
+
+def record_wipe_backup(step, path):
+    """(review) each wipe's own backup, in order: case b restores the first (the unit before any wipe of this unit)"""
+    f = wipe_backups_file()
+    rows = json.load(open(f)) if os.path.exists(f) else []
+    rows.append({"step": step, "backup": path, "at": datetime.datetime.now().isoformat(timespec="seconds")})
+    json.dump(rows, open(f, "w"), indent=1)
 
 
 def seed_objects():
@@ -403,8 +439,8 @@ def checked_backup(tag, given):
 
 
 def mod_remove_all():
-    checked_backup("before-b-wipe-modules", A.backup)
     confirm("WIPE", "erase the WHOLE module area (MOD_REMOVE 127: every engine and effect module, the tail region too)? The page installs them again")
+    record_wipe_backup("b-wipe-modules", checked_backup("before-b-wipe-modules", A.backup))
     u = fm1hw.Unit()
     try:
         before = u.modules()
@@ -422,8 +458,9 @@ def mod_remove_all():
 
 def wipe(tag, fn, what):
     """(Round 32) a wipe over the editor (unit_objects): the backup (given or taken now) checked against the unit, no suite, stopped"""
+    confirm("WIPE", what)                                # (review) the word before the backup and before any write
     path = checked_backup(tag, A.backup)
-    confirm("WIPE", what)
+    record_wipe_backup(tag, path)
     u, _ = UO.preconditions(fm1hw.Unit, A.out, A.label, backup=path, tool="q4_install")
     try:
         return fn(u, log=lambda line: log({"b": json.loads(line)}))
@@ -575,6 +612,13 @@ def run_case():
         log({"case": "b", "ok": bool(rb.get("ok")), "error": None if rb.get("ok") else (rb.get("error") or rb.get("final"))})
         if not rb.get("ok"):
             raise SystemExit(f"q4_install: case b: the page did not install (NOT ok): {rb.get('error') or rb.get('final')}")
+        rows = json.load(open(wipe_backups_file())) if os.path.exists(wipe_backups_file()) else []
+        if not rows:
+            raise SystemExit(f"q4_install: case b: no wipe backup recorded in {wipe_backups_file()}: the unit's data cannot be put back (run the wipes with this OUT and LABEL)")
+        rs = restore_backup(rows[0]["backup"], f"b: the unit as before {rows[0]['step']}, on the Nightly")
+        os.replace(wipe_backups_file(), wipe_backups_file().replace(".json", f"-restored-{datetime.datetime.now():%Y%m%d-%H%M%S}.json"))
+        if not rs["ok"]:
+            raise SystemExit(f"q4_install: case b: the restore of {rows[0]['backup']} does not verify: {rs['problems'][:4]}")
     elif A.case == "c":
         if not A.stock:
             raise SystemExit("q4_install: case c needs --stock FM-1.fwsc")

@@ -82,6 +82,9 @@ class EditorMock(fm1hw.Unit):
         self.music["lists"][10] = 7
         self.put = None
         self.ar = None
+        self.lib_old = {}                                             # slot -> name: a preset of a format this firmware does not read (OLD)
+        self.settings = b"settings"
+        self.lossy = set()                                            # object ids whose restore the mock drops (a restore that does not verify)
         self.set_fw(fw)
 
     # ---------------------------------------------------------------- the model
@@ -140,12 +143,13 @@ class EditorMock(fm1hw.Unit):
     def objects(self):
         """the backup objects' bytes: {id: bytes}"""
         j = lambda o: json.dumps(o, sort_keys=True).encode()
-        o = {0: j(self.music), 1: b"settings"}
+        o = {0: j(self.music), 1: self.settings}
         for s in range(4):
             rec = self.projects.get(s)
             o[2 + s] = j({k: rec[k] for k in ("tracks", "bpm")}) if rec else b""
         for oid in list(range(6, 29)):
-            o[oid] = j(sorted((k, v[0], v[2], sorted(v[3].items())) for k, v in self.lib.items() if bank_obj(k) == oid)) if oid != 8 else b""
+            o[oid] = j(sorted([(k, v[0], v[1], v[2], sorted(v[3].items())) for k, v in self.lib.items() if bank_obj(k) == oid]
+                              + [(k, "OLD", 0, nm, []) for k, nm in self.lib_old.items() if bank_obj(k) == oid])) if oid != 8 else b""
         for s in range(4):
             o[64 + s] = j(self.projects[s]) if s in self.projects else j(self.old_records[s]) if s in self.old_records else b""
         for c in range(16):
@@ -174,6 +178,32 @@ class EditorMock(fm1hw.Unit):
             v = 0 if not lab else max(lo, min(hi, vals.get(lab, d)))          # (up_values: mapped, a reserved one 0, clamped)
             out += v14(v)
         return out + [0] * 32 + [0]
+
+    def apply(self, oid, b):
+        """a restored object taken into the model (the inverse of objects())"""
+        m = self.music
+        if oid == 0:
+            self.music = json.loads(b)
+        elif oid == 1:
+            self.settings = b
+        elif 2 <= oid <= 5:
+            rec = self.projects.setdefault(oid - 2, copy.deepcopy(self.blank()))
+            rec.update(json.loads(b))
+        elif 6 <= oid <= 28:
+            for k in [k for k in self.lib if bank_obj(k) == oid]: del self.lib[k]
+            for k in [k for k in self.lib_old if bank_obj(k) == oid]: del self.lib_old[k]
+            for k, name, eng, nm, items in json.loads(b):
+                if name == "OLD": self.lib_old[k] = nm
+                else: self.lib[k] = (name, eng, nm, dict(items))
+        elif 64 <= oid <= 67:
+            self.projects[oid - 64] = json.loads(b)
+        elif 68 <= oid <= 83:
+            c = oid - 68
+            for i in range(4 * c, 4 * c + 4): self.pool.pop(i, None)
+            for i, content in json.loads(b): self.pool[int(i)] = content
+        elif oid == 84:
+            m["lists"] = list(b[:LISTS])
+            m["pid"] = [list(b[LISTS + NPAT * k:LISTS + NPAT * (k + 1)]) for k in range(NTRK)]
 
     # ---------------------------------------------------------------- the wire
     def close(self):
@@ -246,7 +276,9 @@ class EditorMock(fm1hw.Unit):
             return [op, s, 1 if s in self.projects else 0]
         if cmd == 65:
             if self.busy: return [1, 3, 0]
-            o = self.objects()
+            if a != [1] or getattr(self, "snap", None) is None:
+                self.snap = self.objects()                            # (ed_bk_capture: a plain LIST begins the session GET reads)
+            o = self.snap
             ids = list(range(64, 85)) if a == [1] else list(range(29))
             out = [1, 0, len(ids)]
             for i in ids:
@@ -257,12 +289,27 @@ class EditorMock(fm1hw.Unit):
             if self.busy: return [op, oid, 3]
             if op == 0:
                 size = r5(a[2:7])
-                if size or not (2 <= oid <= 5 or 64 <= oid <= 67): return [op, oid, 1]   # (the mock restores nothing but an empty object)
-                self.put = oid
+                if not (oid <= 28 or 64 <= oid <= 84) or (oid == 8 and size) or (oid == 84 and size != LISTS + NTRK * NPAT): return [op, oid, 1]
+                self.put = {"id": oid, "size": size, "crc": r5(a[7:12]), "buf": []}
+                return [op, oid, 0]
+            if op == 3:
+                self.put = None
+                return [op, oid, 0]
+            if op == 1:
+                if not self.put or self.put["id"] != oid or r5(a[2:7]) != len(self.put["buf"]): return [op, oid, 1]
+                self.put["buf"] += unpack7(a[7:])
                 return [op, oid, 0]
             if op == 2:
-                if self.put != oid: return [op, oid, 5]
-                self.put = None
+                if not self.put or self.put["id"] != oid: return [op, oid, 5]
+                pt, self.put = self.put, None
+                if len(pt["buf"]) != pt["size"] or (crc(pt["buf"]) if pt["buf"] else 0) != pt["crc"]: return [op, oid, 2]
+                if pt["size"]:
+                    if oid not in self.lossy: self.apply(oid, bytes(pt["buf"]))
+                    return [op, oid, 0]
+                if oid in (0, 1, 84): return [op, oid, 2]
+                if 6 <= oid <= 28 or 68 <= oid <= 83:
+                    self.apply(oid, b"[]")
+                    return [op, oid, 0]
                 if 2 <= oid <= 5:
                     self.projects.pop(oid - 2, None)                          # (proj_write_slot len 0: ocj_write empty it)
                 else:
@@ -273,14 +320,19 @@ class EditorMock(fm1hw.Unit):
                 self.pool = {i: c for i, c in self.pool.items() if i in named}
                 return [op, oid, 0]
             return [op, oid, 1]
+        if cmd == 66:
+            oid, off, n = a[0], r5(a[1:6]), a[6] | a[7] << 7
+            b = (getattr(self, "snap", None) or self.objects()).get(oid)
+            if b is None or off + n > len(b): return [oid, 1, *n5(off), 0, 0]
+            return [oid, 0, *n5(off), n & 127, n >> 7, *pack7(list(b[off:off + n]))]
         if cmd == 80:
             op, k = a[0], a[1] | a[2] << 7
             if op == 0:
                 cnt = min(a[3], 384 - k)
                 out = [0, a[1], a[2], 0, cnt, 384 & 127, 384 >> 7]
                 for j in range(k, k + cnt):
-                    e = self.lib.get(j)
-                    out += [1 if e else 0, e[1] if e else 0, 0, *(e[2].encode() if e else b""), 0]
+                    e, old = self.lib.get(j), self.lib_old.get(j)
+                    out += [1 if e else 0, e[1] if e else 0, 1 if old else 0, *(e[2].encode() if e else old.encode() if old else b""), 0]
                 return out
             if op == 1:
                 return self.lib_get(k)
@@ -295,6 +347,7 @@ class EditorMock(fm1hw.Unit):
                 return [2, a[1], a[2], 0]
             if op == 5:
                 self.lib.pop(k, None)
+                self.lib_old.pop(k, None)
                 return [5, a[1], a[2], 0]
         if cmd == 102:
             op = a[0]

@@ -5,7 +5,10 @@
 panel. Only commands both firmwares of Q4 have (0.15.0 Standard and the Release 3 Nightly, 4573e79d) are sent; each is read back.
 
   unit_objects.py OUT LABEL seed --confirm SEED [--backup FILE]       the seed set below written, read back and verified; OUT/seed-LABEL.json
-  unit_objects.py OUT LABEL verify --manifest FILE                     read only: the seed set still on the unit (after an install)
+  unit_objects.py OUT LABEL verify --manifest FILE                     READ ONLY (nothing loaded): the seed's objects byte for byte (BACKUP_GET),
+                                                                       the phrase (LEN, CRC), the presets (Get); the transport must be stopped
+  unit_objects.py OUT LABEL restore --backup FILE --confirm RESTORE    the backup written back as web/editor.html's Restore backup does, then
+                                                                       BACKUP_LIST (LIST 0 and 1) compared with it (exit 1 when it differs)
   unit_objects.py OUT LABEL wipe-projects --confirm WIPE [--backup F]  every project slot A..D emptied, read back empty
   unit_objects.py OUT LABEL wipe-presets --confirm WIPE [--backup F]   every user preset erased (80, op 5), the library read back empty
 
@@ -25,7 +28,10 @@ THE SEED (fixed; every value below is the tool's, the rest the firmware's defaul
     track 1 at chain 1 step 1 (the other tracks left as they are), scene_used = scene 1, every other chain, row and scene empty, no groove,
     LAUNCH LOOP; then slot A saved again (the lists go with the project).
   - two user presets in shared library slots 70 and 71 (U71, U72; library bank 3 = backup object 18), library command 80 op 2 Put, kind 0:
-    "Q4 SEED A" = MACRO with every parameter at its default; "Q4 SEED B" = the same with LEVEL 20 lower. Read back with op 1 Get, byte for byte.
+    "Q4 SEED A" = MACRO with every parameter at its default as Put carries it (-64..127: a default outside is written clamped, and the
+    track parameters are written with their real defaults, 14 bits); "Q4 SEED B" = the same with LEVEL 20 lower. Read back with op 1 Get,
+    byte for byte. Slots 70 and 71 are written over whatever they held (named in the manifest, preset_slots_overwritten): the backup taken
+    first holds it, and q4_install.py's restore at the end of case a puts it back.
   Read back: slot A loaded again (PROJECT op 0) and every step of track 1 bank 1, the tracks, the lists' written fields and the phrase compared
   byte for byte with what was sent; the presets' Get compared with the Put; BACKUP_LIST's (id, size, CRC) of the seed's objects recorded.
 
@@ -62,7 +68,7 @@ NPAT = 8
 ST_NOTE, ST_REST = 0, 2
 NPOOL, NCHAIN, NENT, NROW, NSCENE = 64, 64, 16, 64, 8
 CMD_PROJECT, CMD_PRESET, CMD_DESC, CMD_SET, CMD_TRACK, CMD_MIX, CMD_STEP, CMD_TPARAM = 9, 8, 5, 3, 27, 28, 30, 31
-CMD_MOTION, CMD_BK_LIST, CMD_BK_PUT, CMD_PATTERN, CMD_LIBRARY, CMD_ARRANGE = 64, 65, 67, 73, 80, 102
+CMD_MOTION, CMD_BK_LIST, CMD_BK_GET, CMD_BK_PUT, CMD_PATTERN, CMD_LIBRARY, CMD_ARRANGE = 64, 65, 66, 67, 73, 80, 102
 
 
 class Refused(SystemExit):
@@ -175,7 +181,9 @@ def lib_get(u, k):
     return r[4:]
 
 
-def lib_used(u):
+def lib_used(u, old=False):
+    """the used library slots (op 0 List); with old, the slots of a format this firmware does not read too (used 0, oldFormat 1: shown OLD,
+    erased by op 5 like any other)"""
     used, slot, total = [], 0, None
     while total is None or slot < total:
         a = u.req(CMD_LIBRARY, [0, slot & 127, slot >> 7, 16], timeout=3.0)
@@ -183,7 +191,7 @@ def lib_used(u):
             raise Refused(f"unit_objects: library list rc {a[3]} at {slot}")
         cnt, total, i = a[4], a[5] | a[6] << 7, 7
         for j in range(cnt):
-            if a[i]:
+            if a[i] or (old and a[i + 2]):
                 used.append(slot + j)
             i = a.index(0, i + 3) + 1
         slot += cnt
@@ -266,8 +274,8 @@ def backup_matches(u, path):
                 return [f"{path}: object {o['id']} does not read back (size or CRC)"]
     except (OSError, ValueError, KeyError, TypeError) as e:
         return [f"{path}: does not read back ({e!r})"]
-    now = backup_list(u, arr=any(k >= 64 for k in objs))
-    diff = [f"object {k}: file {objs.get(k)}, unit {now.get(k)}" for k in sorted(set(objs) | set(now)) if objs.get(k, (0, 0)) != now.get(k, (0, 0))]
+    now = backup_list(u, arr=True)                       # (review: always the arrangement objects; one the file lacks and the unit holds is a difference)
+    diff = [f"object {k}: file {objs.get(k, 'missing')}, unit {now.get(k)}" for k in sorted(set(objs) | set(now)) if objs.get(k, (0, 0)) != now.get(k, (0, 0))]
     return diff
 
 
@@ -295,15 +303,22 @@ def preconditions(open_unit, out, label, backup=None, tool="unit_objects"):
 
 
 # ------------------------------------------------------------------------------------------------ the seed
-def preset_values(u, macro, p_count):
-    """each track parameter's descriptor default for MACRO (the selected track plays MACRO), in Put's range -64..127"""
-    vals, labels = [], []
+def descriptors(u, p_count):
+    """each track parameter's descriptor for the selected track's engine: (labels, defaults as they are, defaults in Put's range -64..127: the
+    library's wire carries no other value, editor_library.c op 2)"""
+    raw, put, labels = [], [], []
     for p in range(p_count):
         r = u.req(CMD_DESC, [0, p], timeout=2.0)
         lo, hi, d = r14(r[3:5]), r14(r[5:7]), r14(r[7:9])
-        vals.append(max(-64, min(127, max(lo, min(hi, d)))))
+        raw.append(max(lo, min(hi, d)))
+        put.append(max(-64, min(127, raw[-1])))
         labels.append(bytes(r[9:]).split(b"\0")[0].decode("latin-1"))
-    return vals, labels
+    return labels, raw, put
+
+
+def preset_values(u, macro, p_count):
+    labels, raw, put = descriptors(u, p_count)
+    return put, labels
 
 
 def lib_put_req(k, engine, name, values):
@@ -346,10 +361,11 @@ def seed(u, out, label, log=print):
     r = u.req(CMD_PRESET, [macro, 0, 0], timeout=3.0)
     if r[0] != macro or len(r) > 3:
         raise Refused(f"unit_objects: track 1 refused {SEED_ENGINE} preset 0: {r}")
-    defaults, labels = preset_values(u, macro, p_count)
+    labels, raw_defaults, defaults = descriptors(u, p_count)
     if labels.count("LEN") < 1:
         raise Refused("unit_objects: no track parameter LEN on the unit's descriptor")
     p_len = labels.index("LEN")
+    m["params"], m["params_not_default"] = [], []
     for t in range(ntrk):
         u.req(CMD_TRACK, [t], timeout=2.0)
         r = u.req(CMD_PATTERN, [t, 1, 0], timeout=2.0)
@@ -358,8 +374,20 @@ def seed(u, out, label, log=print):
         r = u.req(CMD_PRESET, [macro, 0, 0], timeout=3.0)
         if r[0] != macro or len(r) > 3:
             raise Refused(f"unit_objects: track {t + 1} refused {SEED_ENGINE} preset 0: {r}")
-        for p in range(p_count):
-            u.req(CMD_TPARAM, [t, p, *v14(SEED_LEN if p == p_len else defaults[p])], timeout=2.0)
+        got = []
+        for p in range(p_count):                         # (the defaults as they are: TRACK_PARAM carries 14 bits; review: not Put's -64..127)
+            want = SEED_LEN if p == p_len else raw_defaults[p]
+            r = u.req(CMD_TPARAM, [t, p, *v14(want)], timeout=2.0)
+            got.append(r14(r[2:4]))
+            if got[-1] != want:
+                m["params_not_default"].append({"track": t + 1, "id": p, "label": labels[p], "sent": want, "unit": got[-1]})
+        for p in range(p_count):                         # (read back: the value the set answered)
+            r = u.req(CMD_TPARAM, [t, p], timeout=2.0)
+            if r14(r[2:4]) != got[p]:
+                raise Refused(f"unit_objects: track {t + 1} parameter {p} ({labels[p]}) reads {r14(r[2:4])}, the set answered {got[p]}")
+        if got[p_len] != SEED_LEN:
+            raise Refused(f"unit_objects: track {t + 1}: LEN reads {got[p_len]}, not {SEED_LEN}")
+        m["params"].append(got)
         r = u.req(CMD_MOTION, [t, 2], timeout=2.0)
         if r[1]:
             raise Refused(f"unit_objects: track {t + 1}: MOTION clear rc {r[1]}")
@@ -395,19 +423,32 @@ def seed(u, out, label, log=print):
         j = labels.index("LEVEL")
         vals_b[j] = max(-64, defaults[j] - 20)
     m["presets"] = []
+    held_before = lib_used(u, old=True)
+    m["preset_slots_overwritten"] = [k for k in PRESET_SLOTS if k in held_before]   # (the backup taken before holds them; a restore puts them back)
     for k, name, vals in zip(PRESET_SLOTS, PRESET_NAMES, (defaults, vals_b)):
         got = put_preset(u, k, macro, name, vals)
         m["presets"].append({"slot": k, "name": name, "engine": macro, "values": got, "labels": labels, "get": lib_expect(macro, name, got)})
+    live = verify_live(u, m)
+    if live:
+        raise Refused(f"unit_objects: the seed does not read back: {live[:6]}")
+    objs = backup_list(u)
+    import base64
+    m["objects"] = {}
+    for k in sorted({2 + PROJECT_SLOT, 64 + PROJECT_SLOT, 68 + pid // 4, PRESET_BANK_OBJECT}):
+        if k in objs:
+            b = get_object(u, k, objs[k][0])
+            if (len(b), crc32(b) if b else 0) != objs[k]:
+                raise Refused(f"unit_objects: object {k} reads back {len(b)} bytes, CRC {crc32(b):08x}; BACKUP_LIST says {objs[k]}")
+            m["objects"][str(k)] = {"size": len(b), "crc": objs[k][1], "data": base64.b64encode(bytes(b)).decode()}
     check = verify(u, m, log=log)
     if not check["ok"]:
         raise Refused(f"unit_objects: the seed does not read back: {check['problems'][:6]}")
-    objs = backup_list(u)
-    m["objects"] = {str(k): objs.get(k) for k in sorted({2 + PROJECT_SLOT, 64 + PROJECT_SLOT, 68 + pid // 4, PRESET_BANK_OBJECT}) if k in objs}
     m["verified"] = check
     f = os.path.join(out, f"seed-{label}.json")
     json.dump(m, open(f, "w"), indent=1)
     m["file"] = f
-    log(json.dumps({"seed": "written and read back", "file": f, "phrase": m["phrase"], "objects": m["objects"]}))
+    log(json.dumps({"seed": "written and read back", "file": f, "phrase": m["phrase"], "objects": {k: (o["size"], o["crc"]) for k, o in m["objects"].items()},
+                    "preset_slots_overwritten": m["preset_slots_overwritten"], "params_not_default": len(m["params_not_default"])}))
     return m
 
 
@@ -435,14 +476,21 @@ def lists_put(u, b):
         raise Refused(f"unit_objects: ARRANGE COMMIT rc {r[1:3]} (2 a value, 4 a track not moved, 6 PHRASES FULL)")
 
 
-def verify(u, m, log=print):
-    """read only but for loading the seed's slot (PROJECT op 0): the seed set as the manifest says -> {ok, problems, ...}"""
+def get_object(u, oid, size):
+    """BACKUP_GET (66) of a whole object, in the session the last BACKUP_LIST began"""
+    out = []
+    while len(out) < size:
+        n = min(256, size - len(out))
+        r = u.req(CMD_BK_GET, [oid, *n5(len(out)), n & 127, n >> 7], timeout=3.0)
+        if r[0] != oid or r[1]:
+            raise Refused(f"unit_objects: BACKUP_GET of object {oid} at {len(out)}: rc {r[1]} (3 the transport runs, 5 a new session needed)")
+        out += unpack7(r[9:], n)
+    return out
+
+
+def verify_live(u, m):
+    """right after the seed's saves, the music loaded (the seed's own) read back: tracks, every step of track 1, BPM, the phrase, the lists"""
     problems = []
-    slot = m["project_slot"]
-    if not project_used(u, slot):
-        return {"ok": False, "problems": [f"project slot {slot + 1} is empty"]}
-    u.req(CMD_PROJECT, [0, slot], timeout=15.0)
-    time.sleep(1.0)
     sel, trs = u.tracks()
     for t, tr in enumerate(trs[:m["ntrk"]]):
         if (tr["engine"], tr["preset"], tr["level"], tr["mute"]) != (m["engine"], 0, SEED_LEVEL, 0):
@@ -457,13 +505,39 @@ def verify(u, m, log=print):
     if bpm != m["bpm"]:
         problems.append(f"BPM {bpm}")
     ai = arrange_info(u)
-    held = [p for p in ai["phrases"] if p["flags"] & 3 == 3]
-    pid = m["phrase"]["id"]
-    if [p["id"] for p in held] != [pid] or held[0]["len"] != m["phrase"]["len"]:
-        problems.append(f"the phrase: {held[:4]} (the seed: {m['phrase']})")
     got = written_of(lists_get(u, ai["size"]), m["ntrk"])
     if got != m["lists_written"]:
         problems.append(f"the lists (chain, song, scene, groove): fields {[k for k in got if got[k] != m['lists_written'][k]]} differ")
+    return problems
+
+
+VERIFY_READS = {1, 2, 5, 9, 27, 65, 66, 80, 102}        # (verify sends only reads: PROJECT op 2, library op 0/1, ARRANGE op 0)
+
+
+def verify(u, m, log=print):
+    """READ ONLY (review): the seed set as the manifest says, without loading anything. The transport must be stopped (BACKUP_LIST stops a running
+    one: ed_bk_capture). The slot's objects (2 + slot: the FBKK, every track's parameters, LEN and steps; 64 + slot: the record with the lists and
+    the scene), the phrase's pool chunk (68 + id / 4) and the preset bank (18) compared byte for byte with the seed's read-back (BACKUP_GET); the
+    phrase by ARRANGE INFO (holds steps, its LEN and CRC); the presets by library Get (by label when the firmware's P_COUNT differs)"""
+    import base64
+    stopped(u)
+    problems = []
+    slot = m["project_slot"]
+    if not project_used(u, slot):
+        problems.append(f"project slot {slot + 1} is empty")
+    objs = backup_list(u)
+    for k, o in sorted(m.get("objects", {}).items(), key=lambda x: int(x[0])):
+        k = int(k)
+        if objs.get(k) != (o["size"], o["crc"]):
+            problems.append(f"object {k}: {objs.get(k)}, the seed's ({o['size']}, {o['crc']})")
+            continue
+        if bytes(get_object(u, k, o["size"])) != base64.b64decode(o["data"]):
+            problems.append(f"object {k}: other bytes")
+    ai = arrange_info(u)
+    pid = m["phrase"]["id"]
+    ph = ai["phrases"][pid]
+    if not ph["flags"] & 1 or ph["len"] != m["phrase"]["len"] or ph["crc"] != m["phrase"]["crc"]:
+        problems.append(f"the phrase {pid + 1}: {ph} (the seed: {m['phrase']})")
     mapped, labels_now = [], None
     for p in m["presets"]:
         g = lib_get(u, p["slot"])
@@ -473,18 +547,99 @@ def verify(u, m, log=print):
         if g[:head] != p["get"][:head]:
             problems.append(f"preset slot {p['slot']} ({p['name']}): used, engine or name read back as {g[:head]}")
             continue
-        # another firmware's parameter layout (P_COUNT): the values compared by their labels (a label both firmwares have once)
+        # another firmware's parameter layout (P_COUNT): the values compared by their labels (a label both firmwares have once); DESC is a read
         if labels_now is None:
-            _, labels_now = preset_values(u, m["engine"], u.info()["p_count"])
+            labels_now = descriptors(u, u.info()["p_count"])[0]
         now = {lab: r14(g[head + 2 * j:head + 2 * j + 2]) for j, lab in enumerate(labels_now) if lab and labels_now.count(lab) == 1}
         was = {lab: v for lab, v in zip(p["labels"], p["values"]) if lab and p["labels"].count(lab) == 1}
         diff = sorted(k for k in set(now) & set(was) if now[k] != was[k])
         mapped.append({"slot": p["slot"], "compared_by_label": len(set(now) & set(was)), "differ": diff})
         if diff or len(labels_now) == len(p["labels"]):
             problems.append(f"preset slot {p['slot']} ({p['name']}): values differ: {diff[:8] or 'the same layout, other bytes'}")
-    out = {"ok": not problems, "problems": problems, "phrase": held[:1], "presets_by_label": mapped, "version": u.info()["version"]}
+    out = {"ok": not problems, "problems": problems, "phrase": ph, "presets_by_label": mapped, "version": u.info()["version"]}
     log(json.dumps({"verify": out}))
     return out
+
+
+# ------------------------------------------------------------------------------------------------ the restore
+IDS_V1 = list(range(29))
+IDS_ARR = list(range(29)) + list(range(64, 85))
+
+
+def read_backup(path):
+    """the file checked as web/fm1backup.js readBackup does what this tool restores: format, version 1, the ids of a complete archive (29 or 50
+    objects), each object's data, size and CRC -> [(id, bytes)]"""
+    import base64
+    try:
+        f = json.load(open(path))
+        objs = f["objects"]
+        ids = [o["id"] for o in objs]
+        if f.get("format") != "felucca-backup" or f.get("version") != 1 or ids not in (IDS_V1, IDS_ARR):
+            raise Refused(f"unit_objects: {path}: not a complete Orange Cat backup (format, version 1, ids 0..28 [+ 64..84])")
+        out = []
+        for o in objs:
+            b = base64.b64decode(o["data"]) if o["size"] else b""
+            if len(b) != o["size"] or (o["size"] and crc32(b) != o["crc"]) or (not o["size"] and o["crc"]):
+                raise Refused(f"unit_objects: {path}: object {o['id']} does not read back (size or CRC)")
+            out.append((o["id"], b))
+        if not out[0][1] or not out[1][1]:
+            raise Refused(f"unit_objects: {path}: the backup is missing the current music or settings")
+        return out
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise Refused(f"unit_objects: {path}: does not read back ({e!r})")
+
+
+def bk_put(u, args, what, timeout=5.0):
+    r = u.req(CMD_BK_PUT, args, timeout=timeout)
+    if r[2]:
+        raise Refused(f"unit_objects: BACKUP_PUT {what}: rc {r[2]} (1 an object or size this firmware refuses, 2 validation, 3 the transport runs, 4 flash, 5 stale)")
+    return r
+
+
+def restore(u, path, log=print):
+    """the backup written back as web/editor.html's Complete backup > Restore backup does (web/fm1backup.js restoreBackup): every byte checked
+    first; every non-empty object's size offered and aborted before the first write (a refused archive writes nothing); then the objects 2..83
+    in the file's order, settings (1), the music (0) and its arrangement (84) last; an empty object written empty (the slot or record it names
+    goes). Then BACKUP_LIST (LIST 0 and LIST 1) compared with the file: every object equal; one the unit holds and the file does not is a
+    difference (the editor's restore leaves it) -> {ok, problems, ...}"""
+    objs = read_backup(path)
+    stopped(u)
+    supported = backup_list(u, arr=True)
+    if any(oid not in supported and b for oid, b in objs):
+        raise Refused(f"unit_objects: {path}: this firmware does not support a non-empty object of the backup "
+                      f"({[oid for oid, b in objs if oid not in supported and b]}): a backup taken on a Nightly is refused by 0.15.0")
+    for oid, b in objs:
+        if b and oid in supported:
+            r = u.req(CMD_BK_PUT, [0, oid, *n5(len(b)), *n5(crc32(b))], timeout=5.0)
+            u.req(CMD_BK_PUT, [3, oid], timeout=5.0)
+            if r[2]:
+                raise Refused(f"unit_objects: {path}: object {oid} ({len(b)} B) refused by the unit before any write (rc {r[2]}): nothing written")
+    order = [x for x in objs[2:] if x[0] != 84] + [objs[1], objs[0]] + [x for x in objs if x[0] == 84]
+    done = []
+    for oid, b in order:
+        if oid not in supported:
+            continue
+        bk_put(u, [0, oid, *n5(len(b)), *n5(crc32(b) if b else 0)], f"begin {oid}")
+        try:
+            for off in range(0, len(b), 256):
+                bk_put(u, [1, oid, *n5(off), *pack7(list(b[off:off + 256]))], f"data {oid} at {off}")
+            bk_put(u, [2, oid], f"commit {oid}", timeout=30.0)
+        except BaseException:
+            try:
+                u.req(CMD_BK_PUT, [3, oid], timeout=5.0)
+            except BaseException:
+                pass
+            raise
+        done.append(oid)
+    time.sleep(0.5)
+    now = backup_list(u, arr=True)
+    want = {oid: (len(b), crc32(b) if b else 0) for oid, b in objs}
+    problems = [f"object {k}: unit {now.get(k)}, backup {want[k]}" for k in sorted(want) if k in supported and now.get(k) != want[k]]
+    extra = {k: v for k, v in now.items() if k not in want and v[0]}
+    problems += [f"object {k}: on the unit {v}, not in the backup (the editor's restore leaves it)" for k, v in sorted(extra.items())]
+    res = {"restore": path, "written": done, "ok": not problems, "problems": problems}
+    log(json.dumps(res))
+    return res
 
 
 # ------------------------------------------------------------------------------------------------ the erases
@@ -521,13 +676,14 @@ def wipe_projects(u, log=print):
 
 
 def wipe_presets(u, log=print):
-    used = lib_used(u)
+    """every library slot erased that is used or of a format this firmware does not read (OLD): op 5 erases either (editor_library.c up_put(k, 0))"""
+    used = lib_used(u, old=True)
     done = []
     for k in used:
         r = u.req(CMD_LIBRARY, [5, k & 127, k >> 7], timeout=5.0)
         done.append({"slot": k, "rc": r[3]})
-    after = lib_used(u)
-    res = {"wipe": "presets", "command": "library op 5 (editor 80) per used slot", "erased": done, "used_after": after}
+    after = lib_used(u, old=True)
+    res = {"wipe": "presets", "command": "library op 5 (editor 80) per used or OLD slot", "erased": done, "used_after": after}
     log(json.dumps(res))
     if after:
         raise Refused(f"unit_objects: {len(after)} preset slots still used after the erase: {after[:8]}")
@@ -538,10 +694,10 @@ def wipe_presets(u, log=print):
 def main(argv=None, open_unit=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("out"); ap.add_argument("label")
-    ap.add_argument("case", choices=("seed", "verify", "wipe-projects", "wipe-presets"))
+    ap.add_argument("case", choices=("seed", "verify", "wipe-projects", "wipe-presets", "restore"))
     ap.add_argument("--backup", help="a full backup just taken (it must be the unit as it is now); else one is taken first")
     ap.add_argument("--manifest", help="verify: the seed's manifest (OUT/seed-LABEL.json)")
-    ap.add_argument("--confirm", action="append", choices=("SEED", "WIPE"), default=[])
+    ap.add_argument("--confirm", action="append", choices=("SEED", "WIPE", "RESTORE"), default=[])
     a = ap.parse_args(argv)
     os.makedirs(a.out, exist_ok=True)
     if open_unit is None:
@@ -562,9 +718,20 @@ def main(argv=None, open_unit=None):
                 return 0 if verify(u, json.load(open(a.manifest)), log)["ok"] else 1
             finally:
                 u.close()
-        word = "SEED" if a.case == "seed" else "WIPE"
+        word = {"seed": "SEED", "restore": "RESTORE"}.get(a.case, "WIPE")
         if word not in a.confirm:
             raise Refused(f"unit_objects: {a.case} writes the unit: give --confirm {word} on the command line (nothing is asked)")
+        if a.case == "restore":
+            if not a.backup:
+                raise Refused("unit_objects: restore needs --backup FILE")
+            read_backup(a.backup)
+            if suites_running():
+                raise Refused("unit_objects: a host suite is running: refused")
+            u = open_unit()
+            try:
+                return 0 if restore(u, a.backup, log)["ok"] else 1
+            finally:
+                u.close()
         u, path = preconditions(open_unit, a.out, a.label, a.backup)
         log(json.dumps({"case": a.case, "backup": path, "restore": "web/editor.html, Complete backup > Restore backup, on the firmware it was taken on"}))
         try:

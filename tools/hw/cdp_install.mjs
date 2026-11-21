@@ -34,7 +34,7 @@ for (let i = 0; i < args.length; i++) {
   if (["decline", "ask"].includes(k)) opt[k] = true; else opt[k] = args[++i];
 }
 if (opt.ask) { console.error("cdp_install: --ask is gone (Round 32: no prompt; every run is unattended): give --answers FILE (tools/hw/q4_answers_example.json)"); process.exit(2); }
-const url = opt.url, build = opt.build, minutes = Number(opt.minutes || 25), retries = Number(opt.retries || 3);
+const url = opt.url, build = opt.build, minutes = Number(opt.minutes || 25), retries = Number(opt.retries || 1);   // (Round 32, the owner's hard limit: one install attempt per build; SPEC.md 13.1)
 // (Round 32) the waits before a retry's fresh browser: --retry-wait S (10) and, after "did not come back", --return-wait S (20)
 const retryWait = Number(opt["retry-wait"] ?? 10), returnWait = Number(opt["return-wait"] ?? 20);
 const out = resolve(opt.out || mkdtempSync(tmpdir() + "/oc-cdp-")), port = Number(opt.port || 9224);
