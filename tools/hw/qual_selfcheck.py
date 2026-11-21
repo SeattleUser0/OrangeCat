@@ -1078,18 +1078,27 @@ def remote_checks():
             lambda: '"--retries", "1"' in open(os.path.join(HERE, "q4_install.py")).read() and '"--retries", "3"' not in open(os.path.join(HERE, "q4_install.py")).read()
             and "Number(opt.retries || 1)" in open(os.path.join(HERE, "cdp_install.mjs")).read())
     real_input = builtins.input
+    try:
+        import unit_objects as _UO_pace
+    except ImportError:
+        _UO_pace = None
+    pace0 = (_UO_pace.PACE_S, _UO_pace.SETTLE_S) if hasattr(_UO_pace, "PACE_S") else None
+    if pace0:
+        _UO_pace.PACE_S = _UO_pace.SETTLE_S = 0.0           # (no real link: no pause needed)
 
     def prompted(*_):
         raise AssertionError("a tool asked the operator (input())")
     builtins.input = prompted
     try:
-        for fn in (_remote_unit_checks, _remote_q4_checks):
+        for fn in (_remote_unit_checks, _remote_q4_checks, _link_checks):
             try:
                 fn()
             except BaseException as e:                   # noqa: BLE001 (on 52e16b13: no unit_objects.py)
                 check(False, f"remote: {fn.__name__} raised {e!r:.160}")
     finally:
         builtins.input = real_input
+        if pace0:
+            _UO_pace.PACE_S, _UO_pace.SETTLE_S = pace0
 
 
 def hushed(fn, *a, **k):
@@ -1243,6 +1252,58 @@ def AP_NS(**k):
     return argparse.Namespace(**k)
 
 
+def _link_checks():
+    """(Round 32, the unit's restore that failed three times, and a backup's "Unexpected backup reply") the link's faults as the unit showed them,
+    on the mock; each fails on 1e378d73"""
+    import unit_objects as UO
+    import editor_mock as EM
+    quiet = lambda line: None
+    pace = (getattr(UO, "PACE_S", 0.0), getattr(UO, "SETTLE_S", 0.0))
+    UO.PACE_S = UO.SETTLE_S = 0.0
+    try:
+        for fw in ("0.15.0", "nightly"):
+            d = tempfile.mkdtemp(prefix="uo-")
+            for name, faults in (("a lost reply on a data chunk (object 5 at 2560)", [{"kind": "lose_reply", "op": 1, "oid": 5, "off": 2560}]),
+                                 ("a dropped frame on a data chunk (object 5 at 2560: usb.c's one frame still pending)", [{"kind": "drop_request", "op": 1, "oid": 5, "off": 2560}]),
+                                 ("a lost reply on a commit (object 8, empty: it took effect)", [{"kind": "lose_reply", "op": 2, "oid": 8}]),
+                                 ("a dropped commit frame (object 8)", [{"kind": "drop_request", "op": 2, "oid": 8}]),
+                                 ("object 1 (604 B: 256, 256, 92) with its chunk at 256 taken twice, the second answer (rc 1) coming late on the chunk at 512",
+                                  [{"kind": "dup_frame", "op": 1, "oid": 1, "off": 256}])):
+                u = EM.EditorMock(fw)
+                u.projects[3] = json.loads(json.dumps(u.music))
+                u.music["tracks"][0]["banks"][0][1] = (1, 61, 0, 0, 0, 0, 0, 90, 0, 0, 0, 100)
+                b = mock_backup(u, os.path.join(d, "b.json"))
+                UO.wipe_presets(u, log=quiet); u.projects.pop(3); u.settings = b"other settings" + bytes(590); u.music["bpm"] = 61
+                u.faults = list(faults)
+
+                def run(u=u, b=b):
+                    r = UO.restore(u, b, log=quiet)
+                    chunks = [a for c, a in u.sent if c == 67 and a[0] == 1]
+                    return r["ok"] and not UO.backup_matches(u, b) and not u.faults and 3 in u.projects
+                attempt(f"link ({fw}): the restore goes on through {name}: the object written again from its begin, never a chunk twice, the unit equals the backup", run)
+            u = EM.EditorMock(fw)
+            b = mock_backup(u, os.path.join(d, "b2.json"))
+            UO.wipe_presets(u, log=quiet)                    # (object 6, slot 3's bank, now differs from the backup)
+            u.fail_commit = {6}
+
+            def gives_up(u=u, b=b):
+                try:
+                    UO.restore(u, b, log=quiet); return False
+                except UO.RestoreFailed as e:
+                    return "object 6" in str(e) and e.done == [2, 3, 4, 5]
+            attempt(f"link ({fw}): an object the unit never takes (rc 4 every time) stops the restore after its tries, the objects written before it named", gives_up)
+    finally:
+        UO.PACE_S, UO.SETTLE_S = pace
+    p = subprocess.run(["node", os.path.join(HERE, "late_reply_check.mjs")], cwd=REPO, capture_output=True, text=True)
+    try:
+        got = json.loads(p.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        got = {}
+    attempt("link: a BACKUP_GET answered late: the page's OcLink takes it for the next request (\"Unexpected backup reply\", the unit's 50 % failure); "
+            "oc_install.mjs's matched request (tools/hw/bk_request.mjs) drops it and the backup completes",
+            lambda: got == {"oclink": "Unexpected backup reply", "matched": "ok"} and "matchedRequest" in open(os.path.join(HERE, "oc_install.mjs")).read())
+
+
 def _expect_exit(fn):
     try:
         fn(); return False
@@ -1393,14 +1454,15 @@ def _remote_q4_checks():
             UO.seed = lambda *a, **k: (_ for _ in ()).throw(UO.Refused("unit_objects: mock: the seed refused"))
             return lambda: setattr(UO, "seed", real)
 
-        def restore_breaks():
-            u.fail_commit = {18}
+        def restore_breaks():                            # (the settings changed over the install, then refused by the unit at their commit)
+            u.fail_commit = {1}
+            Q4.nightly = lambda step, take_backup=True, u=u: (u.set_fw("nightly"), setattr(u, "settings", b"changed" + bytes(597)), {"ok": True})[2]
             return lambda: None
         attempt("review q4: case a, the Nightly install failing: PENDING-RESTORE (the before-a1 backup, onto the Nightly, nothing written, the command), exit non-zero",
                 lambda: (lambda r: r is not None and r["objects_written_already"] == [])(pending(a2_fails)))
         attempt("review q4: case a, the seed refused: PENDING-RESTORE, exit non-zero", lambda: pending(seed_refused) is not None)
-        attempt("review q4: case a, the restore failing part way (object 18 refused): PENDING-RESTORE with the objects already written (2..17), exit non-zero",
-                lambda: (lambda r: r is not None and r["objects_written_already"][:3] == [2, 3, 4] and 18 not in r["objects_written_already"])(pending(restore_breaks)))
+        attempt("review q4: case a, the restore failing part way (object 1 refused at every try): PENDING-RESTORE with the objects already written (2..83), exit non-zero",
+                lambda: (lambda r: r is not None and r["objects_written_already"][:3] == [2, 3, 4] and 1 not in r["objects_written_already"])(pending(restore_breaks)))
         attempt("review q4: case a without --confirm SEED refuses before the backup and before the Standard install (every word before the first write)", no_seed_word)
 
     finally:

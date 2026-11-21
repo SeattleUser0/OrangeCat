@@ -83,7 +83,10 @@ class EditorMock(fm1hw.Unit):
         self.put = None
         self.ar = None
         self.lib_old = {}                                             # slot -> name: a preset of a format this firmware does not read (OLD)
-        self.settings = b"settings"
+        self.settings = bytes((i * 7 + 3) % 256 for i in range(604))   # (object 1 as the unit's: 604 bytes, three chunks of 256, 256, 92)
+        self.faults = []                                              # BACKUP_PUT faults, each once: {"kind", "op", "oid", "off"} (req below)
+        self.late = None                                              # a reply that arrives after the next request was sent
+        self.queued = []                                              # replies that arrived before the next send (fm1hw.Unit.req drains them)
         self.lossy = set()                                            # object ids whose restore the mock drops (a restore that does not verify)
         self.set_fw(fw)
 
@@ -210,7 +213,32 @@ class EditorMock(fm1hw.Unit):
         self.closed += 1
 
     def req(self, cmd, args=(), timeout=3.0):
+        """the link as the unit's showed it (Round 32 restore on the unit): a frame dropped (usb.c: one frame kept, a new F0 while it is pending
+        drops the new one), a reply lost, a frame taken twice whose second reply comes late (it then answers the NEXT request; the real reply of
+        that one arrives after and is drained by fm1hw.Unit.req before the following send)"""
         a = list(args)
+        self.queued = []                                              # (fm1hw.Unit.req drains what arrived before it sends)
+        f = None
+        if cmd == 67:
+            off = r5(a[2:7]) if a[0] == 1 and len(a) > 6 else None
+            f = next((x for x in self.faults if x["op"] == a[0] and x["oid"] == a[1] and x.get("off") in (None, off)), None)
+            if f:
+                self.faults.remove(f)
+        if f and f["kind"] == "drop_request":
+            self.sent.append((cmd, a))
+            raise TimeoutError(f"mock: the frame {a[:2]} was dropped")
+        r = self._req(cmd, a)
+        if f and f["kind"] == "lose_reply":
+            raise TimeoutError(f"mock: the reply to {a[:2]} was lost")
+        if f and f["kind"] == "dup_frame":
+            self.late = self._req(cmd, a)                             # (taken twice: the second answer, rc 1 for a chunk, comes late)
+        if self.late is not None and not (f and f["kind"] == "dup_frame"):
+            out, self.late = self.late, None
+            self.queued = [r]
+            return out
+        return r
+
+    def _req(self, cmd, a):
         self.sent.append((cmd, a))
         m, trs = self.music, self.music["tracks"]
         T = trs[m["sel"]]

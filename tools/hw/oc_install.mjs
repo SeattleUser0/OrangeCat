@@ -24,6 +24,7 @@ import { createInterface } from "readline";
 import { fileURLToPath } from "url";
 import { OcLink, OCM, ocReq, OC_CMD, probeUnit, installPack, installModule, installFx, parsePackInfo, parseModInfo, parseFxInfo } from "../../web/fm1oc.js";
 import { captureBackup, readBackup } from "../../web/fm1backup.js";
+import { matchedRequest } from "./bk_request.mjs";
 
 // Web MIDI's input and output, over the bridge's pipe
 function bridge() {
@@ -79,10 +80,11 @@ async function main() {
       console.log(JSON.stringify(parseModInfo(await link.ask(ocReq.modInfo(), { timeout: 1000, retries: 1 }))));
     } else if (what === "backup") {
       if (!file || existsSync(file)) throw new Error("backup wants a new file name (an existing file is never overwritten)");
-      const info = await link.ask([1, []], { timeout: 1500, retries: 1 });
+      const ask = matchedRequest(m.input, m.output);   // (Round 32) a late reply never answers the next request (tools/hw/bk_request.mjs)
+      const info = await ask([1, []], { timeout: 1500, retries: 1 });
       const version = String.fromCharCode(...info.slice(0, info.indexOf(0) < 0 ? info.length : info.indexOf(0)).filter((c) => c >= 32 && c < 127));
       let last = -1;
-      const archive = await captureBackup((r, o) => link.ask(r, o), version, (done, total) => {
+      const archive = await captureBackup(ask, version, (done, total) => {
         const p = Math.floor(done / Math.max(1, total) * 10); if (p !== last) { last = p; process.stdout.write(`backup ${p * 10}%\r`); } });
       writeFileSync(file, JSON.stringify(archive));
       const back = readBackup(JSON.parse(readFileSync(file, "utf8")));

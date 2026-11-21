@@ -596,11 +596,76 @@ def read_backup(path):
         raise Refused(f"unit_objects: {path}: does not read back ({e!r})")
 
 
-def bk_put(u, args, what, timeout=5.0):
-    r = u.req(CMD_BK_PUT, args, timeout=timeout)
-    if r[2]:
-        raise Refused(f"unit_objects: BACKUP_PUT {what}: rc {r[2]} (1 an object or size this firmware refuses, 2 validation, 3 the transport runs, 4 flash, 5 stale)")
-    return r
+PACE_S = 0.005          # (Round 32, the unit's restore) a pause after each BACKUP_PUT reply before the next frame: usb.c keeps ONE SysEx frame; a
+                        # frame whose F0 comes while the last one is not yet freed (editor.c ed_service frees a large frame after ed_handle) is dropped
+                        # whole (sx_rx_dropped): the request is never answered. The page is paced by Web MIDI's own latency; Python answers in ~2 ms
+SETTLE_S = 1.0          # after a lost reply: a late reply arrives and is drained (fm1hw.Unit.req drains before it sends) before anything is asked again
+PUT_TRIES = 4
+
+
+class Anomaly(Exception):
+    """a BACKUP_PUT exchange that cannot be trusted: no reply, a reply that is not this request's (op, id), or a data rc other than 0"""
+
+
+def req67(u, args, timeout=5.0):
+    """one BACKUP_PUT exchange: the reply must echo (op, id); never resent (fm1hw.Unit.req: 67 is not RESEND_SAFE)"""
+    try:
+        r = u.req(CMD_BK_PUT, args, timeout=timeout)
+    except TimeoutError as e:
+        raise Anomaly(f"no reply to {args[:2]}") from e
+    if len(r) < 3 or r[0] != args[0] or r[1] != args[1]:
+        raise Anomaly(f"a reply that is not this request's: {r[:3]} for {args[:2]}")
+    time.sleep(PACE_S)
+    return r[2]
+
+
+def put_object(u, oid, b, log=print, tries=PUT_TRIES):
+    """one backup object written (BACKUP_PUT begin, data in 256-byte chunks as web/fm1backup.js sends them, commit), safe against a lost frame or
+    reply: the unit takes a chunk only at its staging's offset (editor_backup.c ed_bk_write: another offset answers 1 and writes nothing), so no
+    chunk lands twice; on any anomaly the staging is aborted, late replies settle and drain, the object's (size, CRC) is read back (BACKUP_LIST:
+    a commit whose reply was lost has taken effect), and the object is written again from its begin (begin resets the staging and drops a
+    stream). -> the attempts used. Refused: the unit refuses the object itself (begin rc 1..4, commit rc 2 twice)"""
+    want = (len(b), crc32(b) if b else 0)
+    hard = 0
+    for attempt in range(1, tries + 1):
+        try:
+            rc = req67(u, [0, oid, *n5(len(b)), *n5(want[1])])
+            if rc:
+                raise Refused(f"unit_objects: BACKUP_PUT begin of object {oid} ({len(b)} B): rc {rc} (1 an object or size this firmware refuses, 3 the transport runs, 4 no room)")
+            for off in range(0, len(b), 256):
+                rc = req67(u, [1, oid, *n5(off), *pack7(list(b[off:off + 256]))])
+                if rc:
+                    raise Anomaly(f"data at {off}: rc {rc} (1: the unit's staging is not at {off}; 5 stale; 4 flash)")
+            rc = req67(u, [2, oid], timeout=30.0)
+            if rc == 2:
+                hard += 1
+                if hard > 1:
+                    raise Refused(f"unit_objects: BACKUP_PUT commit of object {oid}: rc 2 twice (the unit refuses its bytes)")
+            if rc:
+                raise Anomaly(f"commit: rc {rc}")
+            return attempt
+        except Anomaly as e:
+            log(json.dumps({"put_anomaly": oid, "attempt": attempt, "what": str(e)}))
+            try:
+                u.req(CMD_BK_PUT, [3, oid], timeout=3.0)
+            except TimeoutError:
+                pass
+            time.sleep(SETTLE_S)
+            try:
+                if backup_list(u, arr=oid >= 64).get(oid) == want:
+                    return attempt                       # (the commit took effect; its reply was what was lost)
+            except (TimeoutError, Refused):
+                time.sleep(SETTLE_S)
+    raise Refused(f"unit_objects: object {oid} not written after {tries} attempts (each anomaly logged)")
+
+
+def link_counters(u):
+    """AUDIO_STATS [0, 5] (0.15.0 and later): SysEx frames the unit dropped (one still pending), too long, replies cut -> dict or None"""
+    try:
+        r = u.req(72, [0, 5], timeout=1.5)
+    except TimeoutError:
+        return None
+    return {"dropped": r5(r[1:6]), "long": r5(r[6:11]), "cut": r5(r[11:16])} if len(r) > 16 and r[0] == 12 else None
 
 
 def restore(u, path, log=print):
@@ -615,22 +680,27 @@ def restore(u, path, log=print):
     if any(oid not in supported and b for oid, b in objs):
         raise Refused(f"unit_objects: {path}: this firmware does not support a non-empty object of the backup "
                       f"({[oid for oid, b in objs if oid not in supported and b]}): a backup taken on a Nightly is refused by 0.15.0")
+    links0 = link_counters(u)
     for oid, b in objs:
         if b and oid in supported:
-            r = u.req(CMD_BK_PUT, [0, oid, *n5(len(b)), *n5(crc32(b))], timeout=5.0)
-            u.req(CMD_BK_PUT, [3, oid], timeout=5.0)
-            if r[2]:
-                raise Refused(f"unit_objects: {path}: object {oid} ({len(b)} B) refused by the unit before any write (rc {r[2]}): nothing written")
+            for t in range(PUT_TRIES):                   # (begin and abort only: both may be sent again)
+                try:
+                    rc = req67(u, [0, oid, *n5(len(b)), *n5(crc32(b))])
+                    req67(u, [3, oid])
+                    break
+                except Anomaly:
+                    time.sleep(SETTLE_S)
+            else:
+                raise Refused(f"unit_objects: {path}: object {oid}: no clean answer to its size check: nothing written")
+            if rc:
+                raise Refused(f"unit_objects: {path}: object {oid} ({len(b)} B) refused by the unit before any write (rc {rc}): nothing written")
     order = [x for x in objs[2:] if x[0] != 84] + [objs[1], objs[0]] + [x for x in objs if x[0] == 84]
     done = []
     for oid, b in order:
         if oid not in supported:
             continue
         try:
-            bk_put(u, [0, oid, *n5(len(b)), *n5(crc32(b) if b else 0)], f"begin {oid}")
-            for off in range(0, len(b), 256):
-                bk_put(u, [1, oid, *n5(off), *pack7(list(b[off:off + 256]))], f"data {oid} at {off}")
-            bk_put(u, [2, oid], f"commit {oid}", timeout=30.0)
+            put_object(u, oid, b, log)
         except BaseException as e:
             try:
                 u.req(CMD_BK_PUT, [3, oid], timeout=5.0)
@@ -645,19 +715,14 @@ def restore(u, path, log=print):
     problems = [f"object {k}: unit {now.get(k)}, backup {want[k]}" for k in sorted(want) if k in supported and now.get(k) != want[k]]
     extra = {k: v for k, v in now.items() if k not in want and v[0]}
     problems += [f"object {k}: on the unit {v}, not in the backup (the editor's restore leaves it)" for k, v in sorted(extra.items())]
-    res = {"restore": path, "written": done, "ok": not problems, "problems": problems}
+    res = {"restore": path, "written": done, "ok": not problems, "problems": problems, "link_counters": {"before": links0, "after": link_counters(u)}}
     log(json.dumps(res))
     return res
 
 
 # ------------------------------------------------------------------------------------------------ the erases
 def bk_put_empty(u, oid):
-    r = u.req(CMD_BK_PUT, [0, oid, *n5(0), *n5(0)], timeout=5.0)
-    if r[2]:
-        raise Refused(f"unit_objects: BACKUP_PUT begin of object {oid} (size 0) rc {r[2]} (3: the transport runs)")
-    r = u.req(CMD_BK_PUT, [2, oid], timeout=20.0)
-    if r[2]:
-        raise Refused(f"unit_objects: BACKUP_PUT commit of object {oid} (size 0) rc {r[2]} (2 refused, 4 flash)")
+    put_object(u, oid, b"", log=lambda line: None)
 
 
 def wipe_projects(u, log=print):
