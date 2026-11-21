@@ -82,7 +82,8 @@ if (opt.ticks !== undefined) {
 }
 if ((ticks || opt.remove) && opt.stock) { console.error("cdp_install: --ticks and --remove are for --build (the stock section has no boxes)"); process.exit(2); }
 if (opt.remove !== undefined && !(nkey(opt.remove) in FX_IDS)) { console.error(`cdp_install: --remove ${opt.remove}: not an effect module of the page (DUB TAPE, REVERB MODES, FX LAYER)`); process.exit(2); }
-let removedOnce = false;
+let removedOnce = false, removePressed = null, removedName = null;   // (review of f7f81713) what a refusal after the Remove leaves: named in the error
+const FX_NAMES = { 1: "DUB TAPE", 2: "REVERB MODES", 3: "FX LAYER" };
 const norm = (x) => String(x).replace(/\s+/g, " ").trim();
 const ruleFor = (text) => rules.filter((r) => norm(text).startsWith(norm(r.starts))).sort((a, b) => norm(b.starts).length - norm(a.starts).length)[0] || null;
 const unmatched = [];
@@ -233,8 +234,10 @@ const setBoxes = async (rec) => {
       say(`--remove ${opt.remove}: ${sel.text} chosen in the page's Remove list, Remove pressed`);
       const d0 = dialogs.length;
       removedOnce = true;                                                 // (a removal is pressed at most once in a run: a retry's browser only reads the unit)
+      removePressed = FX_NAMES[id];
       await pageJob("document.getElementById('fx-remove').click()");
       rec.ticks.removal.dialogs = dialogs.slice(d0);
+      if (unmatched.length || !rec.ticks.removal.dialogs.length || rec.ticks.removal.dialogs.some((d) => d.answered !== "yes")) removePressed = null;   // (the page's question answered no: the page removed nothing)
       if (unmatched.length) throw new Error(`--remove ${opt.remove}: the page's question had no --answers rule (answered Cancel): nothing removed`);
       if (!rec.ticks.removal.dialogs.length || rec.ticks.removal.dialogs.some((d) => d.answered !== "yes")) throw new Error(`--remove ${opt.remove}: the page's question was not answered yes (${JSON.stringify(rec.ticks.removal.dialogs)}): nothing removed`);
       rec.ticks.removal.status = await txt("status");
@@ -242,6 +245,7 @@ const setBoxes = async (rec) => {
       say(`--remove ${opt.remove}: ${rec.ticks.removal.status} | the unit's Effects now: ${JSON.stringify(rec.ticks.removal.unitAfter)}`);
       if (rec.ticks.removal.unitAfter.includes(hex8(id))) throw new Error(`--remove ${opt.remove}: the unit still holds ${hex8(id)} after the page's Remove: ${rec.ticks.removal.status}`);
       rec.ticks.removal.done = true;
+      removedName = FX_NAMES[id];
       rec.ticks.unitBefore = rec.ticks.removal.unitAfter;
     }
   }
@@ -271,7 +275,7 @@ const setBoxes = async (rec) => {
     else if (x.on.kind === "module" && x.want && (end.installWhat.includes(x.on.module + " gives way") || (radioFor(end, x.on.module) || {}).checked)) bad.push(`${x.token}: ${x.on.module} is the module that gives way`);
   }
   rec.ticks.ok = !bad.length;
-  if (bad.length) throw new Error(`--ticks ${opt.ticks}: the page's boxes ended in another state: ${bad.join(" | ")}: Install not pressed` + (rec.ticks.removal && rec.ticks.removal.done ? ` (${rec.ticks.removal.module} WAS removed from the unit by the page's Remove)` : ""));
+  if (bad.length) throw new Error(`--ticks ${opt.ticks}: the page's boxes ended in another state: ${bad.join(" | ")}: Install not pressed`);
 };
 // the page as loaded in a (fresh) browser, made ready to press: its versions, the stock file or the build chosen, --expect; into `rec` (the result for
 // the first browser, the attempt's own record for a retry's); the button to press
@@ -370,6 +374,13 @@ try {
   say("ERROR:", result.error);
 } finally {
   await closeBrowser();
+}
+// (review of f7f81713) a run that pressed the page's Remove and did not end ok says what it left on the unit and the way back, in its error
+if (!result.ok && (removedName || removePressed)) {
+  const nm = removedName || removePressed;
+  result.removedOffUnit = nm; result.removeConfirmed = !!removedName;
+  result.error = (result.error || result.final || "not ok") + ` | ${nm} ${removedName ? "is off the unit" : "may be off the unit (Remove was pressed, its end not confirmed)"}: the page's Remove took it before this run ended. The way back: the page's Install with the default ticks (q4_install.py OUT LABEL fx-set --expect V), or restore the backup taken before this step`;
+  say("NOTE:", result.error);
 }
 writeFileSync(resolve(out, "cdp-result.json"), JSON.stringify(result, null, 1));
 console.log(JSON.stringify(result));

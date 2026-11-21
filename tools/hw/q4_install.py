@@ -286,7 +286,7 @@ def page(step, build=None, stock=None, expect=None, ask=True, take_backup=True, 
     """(review, Round 31) a complete backup, read back, before every install from the page (take_backup False only where no editor answers:
     a unit on stock V15 holds no Orange Cat data); ask: every confirm dialog of the page is put to the operator (typed answer), not answered yes"""
     if take_backup:
-        backup(f"before-{step}")
+        A_BACKUPS[step] = backup(f"before-{step}")
     d = os.path.join(A.out, step)
     cmd = ["tools/hw/cdp_install.mjs", "--url", A.url, "--out", d, "--minutes", str(A.minutes), "--retries", "3"]
     cmd += ["--stock", os.path.abspath(stock)] if stock else ["--build", build]
@@ -364,6 +364,7 @@ def nightly(step, take_backup=True, ticks=None, remove=None, fx_want=None):
 
 
 NAME_OF_FX = {v: k for k, v in FX_ID_OF.items()}
+A_BACKUPS = {}                                           # the step -> the backup page() took before it (the way back names it)
 FX_SETS = {                                              # (Round 32, 7.37 Q1) the two effect levels: the driver's boxes and the Effects table they must give
     "rev-set": {"remove": "fxlayer", "ticks": "+reverbmodes,-fxlayer", "want": {2: True, 3: False}},
     "fx-set": {"remove": None, "ticks": "-reverbmodes,+fxlayer", "want": {3: True, 2: False}},
@@ -380,10 +381,44 @@ def fx_set_rows(effects, want):
     return rows
 
 
+def version_matches(info, expect):
+    """(review of f7f81713) INFO's version ("ORANGE CAT v0.16.0-e2696") against --expect ("0.16.0-e2696a"): X.Y.Z equal, the hashes the shorter a
+    prefix of the longer, 5 digits at least (hiss.py ocm_for's rule); no hash on either side: X.Y.Z equal only when neither has one"""
+    m = re.search(r"v?(\d+\.\d+\.\d+(?:-[0-9a-f]+)?)\s*$", info or "")
+    e = re.search(r"v?(\d+\.\d+\.\d+(?:-[0-9a-f]+)?)\s*$", (expect or "").strip())
+    if not m or not e:
+        return False
+    (b1, _, h1), (b2, _, h2) = m.group(1).partition("-"), e.group(1).partition("-")
+    return b1 == b2 and ((not h1 and not h2) or (bool(h1) and bool(h2) and min(len(h1), len(h2)) >= 5 and (h1.startswith(h2) or h2.startswith(h1))))
+
+
 def case_fx_set(step):
-    """(Round 32) rev-set / fx-set: a backup (page()), the driver with the set's boxes, the plan's starts and the Effects table judged (nightly())"""
+    """(Round 32) rev-set / fx-set: (review of f7f81713) the unit checked first, read only: INFO's version is --expect's and FX_TABLE holds the other
+    level's set (rev-set: FX LAYER state 7, REVERB MODES absent; fx-set the mirror), else refused before the backup and the driver. Then a backup
+    (page()), the driver with the set's boxes, the plan's starts and the Effects table judged (nightly()); a failure prints the way back"""
     st = FX_SETS[step]
-    return nightly(step, ticks=st["ticks"], remove=st["remove"], fx_want=st["want"])
+    A_BACKUPS.pop(step, None)
+    s0 = state(f"{step}: before (the check)")
+    ver = (s0.get("describe") or {}).get("version")
+    fx = ((s0.get("probe") or {}).get("fx") or {}).get("effects")
+    before = {k: not v for k, v in st["want"].items()}
+    rows = fx_set_rows(fx, before)
+    problems = ([] if version_matches(ver, A.expect) else [f"the unit runs {ver!r}, not --expect {A.expect!r}'s build"]) + [
+        f"{x['module']}: want {x['want']}, got {x['got']}" for x in rows if not x["ok"]]
+    log({"fx_set_check": step, "version": ver, "expect": A.expect, "rows": rows, "ok": not problems})
+    if problems:
+        raise SystemExit(f"q4_install: {step}: refused before anything is written (no backup, no page): the unit is not at the level this step starts from: {problems}")
+    try:
+        return nightly(step, ticks=st["ticks"], remove=st["remove"], fx_want=st["want"])
+    except SystemExit as e:
+        if isinstance(e, Stopped) or step not in A_BACKUPS:   # (stopped before the backup: nothing was written)
+            raise
+        back = ("run fx-set (q4_install.py OUT LABEL fx-set --expect V), or the page's Install with the default ticks: it puts FX LAYER back and takes REVERB MODES off"
+                if step == "rev-set" else "the page's Install with the default ticks again (fx-set); FX LAYER and DUB TAPE are what the FX level needs")
+        msg = f"{e} | THE WAY BACK: {back}; the backup taken before this step: {A_BACKUPS.get(step) or '(none taken)'}. {RESTORE_HINT}"
+        log({"fx_set_failed": step, "error": str(e), "way_back": back, "backup": A_BACKUPS.get(step)})
+        print(f"q4_install: {msg}", flush=True)
+        raise SystemExit(msg)
 
 
 def case_a():

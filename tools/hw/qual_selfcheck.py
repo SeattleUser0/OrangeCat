@@ -358,6 +358,10 @@ def ticks_checks():
     r, u = run_ticks(DEFAULT_FX, ["--ticks", "+reverbmodes,-fxlayer", "--remove", "fxlayer"], "fx-set")
     attempt("ticks: the Remove question with no rule for it (fx-set's rules) is cancelled: nothing removed, nothing installed",
             lambda: r.get("ok") is False and "/remove" not in [c for c, _ in u.calls] and "/install" not in [c for c, _ in u.calls] and r.get("unmatched") == [tx("fxRemoveConfirm")])
+    r, u = run_ticks(DEFAULT_FX, ["--remove", "fxlayer", "--ticks", "+reverbmodes,-dubtape"], "rev-set")
+    attempt("ticks: a refusal after the page's Remove (DUB TAPE is not offered to give way) says FX LAYER is off the unit and the way back",
+            lambda: r.get("ok") is False and "does not offer it to give way" in (r.get("error") or "") and "FX LAYER is off the unit" in (r.get("error") or "")
+            and "default ticks" in (r.get("error") or "") and r.get("removedOffUnit") == "FX LAYER" and "/install" not in [c for c, _ in u.calls])
     # q4_install.py: rev-set and fx-set: --expect required, a backup first, the driver with the ticks, the FX table judged
     import argparse as AP
     import q4_install as Q4
@@ -368,27 +372,35 @@ def ticks_checks():
         plans = {"rev-set": [{"name": "REVERB MODES", "start": 2, "kept": False}, {"name": "DUB TAPE", "start": 18, "kept": True}],
                  "fx-set": [{"name": "FX LAYER", "start": 2, "kept": False}, {"name": "DUB TAPE", "start": 18, "kept": True}]}
         probe = {}
+        E = lambda *fx: {"fx": {"effects": [{"id": i, "state": st, "start": at} for i, st, at in fx]}, "mod": {"starts": []}}
+        start_of = {"rev-set": E((3, 7, 2), (1, 7, 18)), "fx-set": E((2, 7, 2), (1, 7, 18))}   # (review of f7f81713) the level each step starts from
 
         class P:
             def __init__(self, out): self.stdout, self.returncode = out, 0
 
+        drv = {"ok": True}
+
         def fake_run(cmd, **k):
             order.append(("driver", cmd))
-            return P(json.dumps({"ok": True, "plan": plans[Q4.A.case], "attempts": [], "final": "Result: x"}) + "\n")
+            return P(json.dumps({"ok": drv["ok"], "plan": plans[Q4.A.case], "attempts": [], "final": "Result: x" if drv["ok"] else "Room: it does not fit.",
+                                 "error": None if drv["ok"] else "the page ended without a result"}) + "\n")
         old = (Q4.backup, Q4.state, Q4.subprocess.run, Q4.time.sleep)
-        Q4.backup = lambda tag: order.append(("backup", tag)) or "b.json"
-        Q4.state = lambda tag: order.append(("state", tag)) or {"probe": probe.get("p")}
+        Q4.backup = lambda tag: order.append(("backup", tag)) or f"/x/backup-{tag}.json"
+        Q4.state = lambda tag: order.append(("state", tag)) or {"probe": probe["before"] if "the check" in tag else probe.get("p"),
+                                                                "describe": {"version": probe.get("ver", "ORANGE CAT v0.16.0-e2696")}}
         Q4.subprocess.run = fake_run
         Q4.time.sleep = lambda s: None
         try:
-            def go(case, expect="0.16.0", p=None):
-                order.clear(); probe["p"] = p if p is not None else good[case]
+            def go(case, expect="0.16.0-e2696a", p=None, before=None, ver=None, ok=True):
+                order.clear(); probe["p"] = p if p is not None else good[case]; probe["before"] = before if before is not None else start_of[case]
+                probe["ver"] = ver or "ORANGE CAT v0.16.0-e2696"; drv["ok"] = ok
                 Q4.A = AP.Namespace(out=d, label="T", case=case, expect=expect, layout=None, yes=True, confirm=None, url="x", nightly_build="build-nightly-dual",
                                     minutes=1.0, answers=None)
                 try:
                     return Q4.run_case()
                 except SystemExit as e:
                     return str(e)
+            kinds = lambda: [k for k, _ in order]
 
             def no_expect():
                 rv = go("rev-set", expect=None)
@@ -398,20 +410,35 @@ def ticks_checks():
             def rev():
                 rv = go("rev-set")
                 cmd = next(c for k, c in order if k == "driver")
-                return (rv == 0 and order[0] == ("backup", "before-rev-set") and [k for k, _ in order].index("backup") < [k for k, _ in order].index("driver")
-                        and cmd[cmd.index("--ticks") + 1] == "+reverbmodes,-fxlayer" and cmd[cmd.index("--remove") + 1] == "fxlayer" and cmd[cmd.index("--expect") + 1] == "0.16.0")
-            attempt("ticks: q4_install rev-set: a backup, then the driver with --remove fxlayer --ticks +reverbmodes,-fxlayer --expect; REVERB MODES 7, FX LAYER absent: ok", rev)
+                return (rv == 0 and order[0] == ("state", "rev-set: before (the check)") and order[1] == ("backup", "before-rev-set") and kinds().index("backup") < kinds().index("driver")
+                        and cmd[cmd.index("--ticks") + 1] == "+reverbmodes,-fxlayer" and cmd[cmd.index("--remove") + 1] == "fxlayer" and cmd[cmd.index("--expect") + 1] == "0.16.0-e2696a")
+            attempt("ticks: q4_install rev-set: the unit checked, a backup, then the driver with --remove fxlayer --ticks +reverbmodes,-fxlayer --expect; REVERB MODES 7, FX LAYER absent: ok", rev)
 
             def fx():
                 rv = go("fx-set")
                 cmd = next(c for k, c in order if k == "driver")
-                return rv == 0 and order[0] == ("backup", "before-fx-set") and cmd[cmd.index("--ticks") + 1] == "-reverbmodes,+fxlayer" and "--remove" not in cmd
-            attempt("ticks: q4_install fx-set: a backup, then the driver with --ticks -reverbmodes,+fxlayer; FX LAYER 7, REVERB MODES absent: ok", fx)
-            both = {"fx": {"effects": [{"id": 2, "state": 7, "start": 2}, {"id": 3, "state": 7, "start": 4}, {"id": 1, "state": 7, "start": 18}]}, "mod": {"starts": []}}
+                return rv == 0 and order[1] == ("backup", "before-fx-set") and cmd[cmd.index("--ticks") + 1] == "-reverbmodes,+fxlayer" and "--remove" not in cmd
+            attempt("ticks: q4_install fx-set: the unit checked, a backup, then the driver with --ticks -reverbmodes,+fxlayer; FX LAYER 7, REVERB MODES absent: ok", fx)
+            both = E((2, 7, 2), (3, 7, 4), (1, 7, 18))
             attempt("ticks: q4_install rev-set fails when FX LAYER is still in the table, or REVERB MODES is not registered (state 2)",
-                    lambda: "FX LAYER" in str(go("rev-set", p=both)) and "REVERB MODES" in str(go("rev-set", p={"fx": {"effects": [{"id": 2, "state": 2, "start": 2}, {"id": 1, "state": 7, "start": 18}]}, "mod": {"starts": []}})))
+                    lambda: "FX LAYER" in str(go("rev-set", p=both)) and "REVERB MODES" in str(go("rev-set", p=E((2, 2, 2), (1, 7, 18)))))
             attempt("ticks: q4_install fx-set fails when REVERB MODES is still in the table",
                     lambda: "REVERB MODES" in str(go("fx-set", p=both)))
+
+            def refused(case, **k):
+                rv = go(case, **k)
+                return isinstance(rv, str) and "refused before anything is written" in rv and kinds() == ["state"]
+            # (review of f7f81713) the unit checked read only first: refused before the backup and the driver unless it is at the other level, on --expect's build
+            attempt("ticks: q4_install rev-set refuses (no backup, no driver) unless FX LAYER is state 7 and REVERB MODES absent, on --expect's build",
+                    lambda: refused("rev-set", before=E((1, 7, 18))) and refused("rev-set", before=E((3, 7, 2), (2, 7, 4), (1, 7, 18))) and refused("rev-set", before=E((3, 2, 2), (1, 7, 18)))
+                    and refused("rev-set", ver="ORANGE CAT v0.16.0-4573e") and refused("rev-set", ver="ORANGE CAT v0.15.0-e2696") and refused("rev-set", before={"mod": {"starts": []}}))
+            attempt("ticks: q4_install fx-set refuses (no backup, no driver) unless REVERB MODES is state 7 and FX LAYER absent (the default unit: refused)",
+                    lambda: refused("fx-set", before=start_of["rev-set"]) and refused("fx-set", before=E((2, 7, 2), (3, 7, 4), (1, 7, 18))) and refused("fx-set", ver="ORANGE CAT v0.16.0-4573e"))
+
+            def way_back():
+                rv = go("rev-set", ok=False)
+                return isinstance(rv, str) and "THE WAY BACK" in rv and "fx-set" in rv and "/x/backup-before-rev-set.json" in rv and Q4.RESTORE_HINT in rv
+            attempt("ticks: q4_install rev-set that fails after its backup names the way back (fx-set, the page's default ticks) and the backup's path", way_back)
         finally:
             Q4.backup, Q4.state, Q4.subprocess.run, Q4.time.sleep = old
 
