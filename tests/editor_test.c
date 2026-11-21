@@ -1607,6 +1607,13 @@ static int fx_latch_protocol(void)
     latch_req((const uint8_t[]){1, 1, 1}, 3);
     bad += check("FX_LATCH REPEAT 1/8 at 60 BPM (too long for the loop): rc 3, nothing changed", latch_is(3, 1, 1u << 3, -1, -1));
     song.g[G_BPM] = 120;
+    song.ntrk = 2;
+    ok = (latch_req((const uint8_t[]){1, 12, 1}, 3), latch_is(3, 1, 1u << 3, -1, -1)) && (latch_req((const uint8_t[]){1, 13, 1}, 3), latch_is(3, 1, 1u << 3, -1, -1));
+    ok &= (latch_req((const uint8_t[]){1, 11, 1}, 3), latch_is(0, 1, (1u << 3) | (1u << 10), -1, -1));
+    ok &= (latch_req((const uint8_t[]){1, 11, 0}, 3), latch_is(0, 1, 1u << 3, -1, -1));
+    song.ntrk = 4;
+    ok &= (latch_req((const uint8_t[]){1, 13, 1}, 3), latch_is(0, 1, (1u << 3) | (1u << 12), -1, -1)) && (latch_req((const uint8_t[]){1, 13, 0}, 3), latch_is(0, 1, 1u << 3, -1, -1));
+    bad += check("FX_LATCH MUTE T3 / T4 with two tracks: rc 3 (no such track), MUTE T2 latched; with four, MUTE T4", ok);
     ok = latch_req((const uint8_t[]){1, 4}, 2) == 0u && latch_req((const uint8_t[]){1, 4, 1, 0}, 4) == 0u;
     bad += check("FX_LATCH with 2 or 4 bytes: no reply", ok);
     latch_req((const uint8_t[]){0}, 1);

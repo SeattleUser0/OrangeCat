@@ -129,7 +129,17 @@ static inline __attribute__((always_inline)) uint32_t perf_have(void) { return ~
  * 0 FX3M_OK: from the next block on the registered effects run the module's code. The caller masks the audio interrupt in a running session */
 #define OC_FX3_HOST 1                                   /* oc_module.c, editor.c: this build has the master host */
 typedef struct { uint8_t effect_id; const fx_caps_t *caps; const fx3_kcalls_t *calls; } fx3_reg_t;
+static int fx3_modk_set_(uint32_t module_id, uint32_t version, uint32_t n, const fx3_reg_t *e);
+/* (Round 32 review) a latched ring effect whose kernel is gone (its module removed, or a registration refused or serving fewer) is let go here, so it does not start by itself
+ * when the module comes back (hiss --swap-fx puts FX LAYER back). Under the caller's mask, as the registration. With the resident copy every key keeps its kernel: nothing changes */
+static void perf_latch_drop(void) { perf_latched &= perf_have() | ~PF_GX; }
 static int fx3_modk_set(uint32_t module_id, uint32_t version, uint32_t n, const fx3_reg_t *e)
+{
+    int rc = fx3_modk_set_(module_id, version, n, e);
+    perf_latch_drop();
+    return rc;
+}
+static int fx3_modk_set_(uint32_t module_id, uint32_t version, uint32_t n, const fx3_reg_t *e)
 {
     uint32_t i, seen = 0;
     if (module_id != FX3_MODULE_ID || !n || n > FX3_FX) return FX3M_RANGE;
@@ -157,6 +167,7 @@ static void fx3_modk_clear(void)
     memset(fx3_modk, 0, sizeof fx3_modk);
     fx3_mod_n = 0; fx3_marked = 0;
     FX3_HAS_SET();
+    perf_latch_drop();                                  /* (Round 32 review) */
 }
 static inline int fx3_modk_ok(void) { return fx3_mod_n != 0; }
 /* the crash mark, taken once a registration, in the audio interrupt just before the module's code runs for the first time. In flash and not inlined (as fx2_mark: inlined, the loader's
@@ -202,7 +213,7 @@ static void perf_press(uint32_t e, int down)
         perf_down &= ~PF_BIT(e);
     }
     if (perf_latch_on) {                  /* FX LATCH: a press turns it on or off, letting go does nothing */
-        if (down)
+        if (down && (((perf_have() | perf_latched) >> e) & 1u))   /* ((Round 32 review) a ring effect with no kernel: not latched on, MODULE MISSING; it would start by itself later) */
             perf_latched ^= PF_BIT(e);
         return;
     }

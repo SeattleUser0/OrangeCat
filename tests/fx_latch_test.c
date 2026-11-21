@@ -36,6 +36,32 @@ static int foot_fits(void)                              /* cv_key_row keeps ever
     for (i = 0; i < n; i++) w += kh_w(h[i].key, h[i].act);
     return w <= 232;
 }
+/* G5's light in both blink phases (layer_leds: blink is fm1_ms / 250 even): 3 lit in both, 1 or 2 in one, 0 dark */
+static uint32_t g5_lit(void)
+{
+    uint32_t ms = fm1_ms, n;
+    fm1_ms = 1000u; n = (layer_leds() >> FX_LATCH_KEY) & 1u;
+    fm1_ms = 1250u; n |= ((layer_leds() >> FX_LATCH_KEY) & 1u) << 1;
+    fm1_ms = ms;
+    return n;
+}
+/* (Round 32 review) a stand-in FX LAYER bank (as editor_test's): GLITCH .. FREEZE served, kernels that hold their share and do nothing else; n effects from the first */
+static void fxl_start(const fx3_ctx_t *c) { (void)c; }
+static uint32_t fxl_run(const fx3_ctx_t *c, int32_t *l, int32_t *r, uint32_t n) { (void)l; (void)r; c->st->w = c->go ? 32768 : 0; return n; }
+static const fx3_kcalls_t FXL_CALLS = {fxl_start, fxl_run};
+static int fxl_register(uint32_t n, int bad)
+{
+    static fx_caps_t c[4];
+    static fx3_reg_t r[4];
+    for (uint32_t k = 0; k < 4u; k++) {
+        memset(&c[k], 0, sizeof c[k]);
+        c[k].magic = FX_CAPS_MAGIC; c[k].size = FX_CAPS_WIRE; c[k].version = bad ? 2u : FX_CAPS_VERSION; c[k].abi = FX3_ABI_ID;
+        c[k].max_inst = 1; c[k].rates = 1; c[k].ram_work_min = c[k].ram_work_max = 8; c[k].param_bytes = 4;
+        r[k].effect_id = (uint8_t)(k + 1u); r[k].caps = &c[k]; r[k].calls = &FXL_CALLS;
+    }
+    return fx3_modk_set(FX3_MODULE_ID, 0x010000u, n, r);
+}
+#define B3 white(3)                                     /* GLITCH */
 static void start(void)
 {
     ui_power_on();
@@ -68,13 +94,39 @@ int main(void)
     start();
     btn_down(B_FX); frames(48); key_down(FX_LATCH_KEY); frames(48);
     ok = perf_latch_on == 1 && msg_is("FX LATCH ON") && foot_is("LATCH ON") && foot_fits() && perf_down == 0u && perf_latched == 0u && !gates();
-    ok &= ((layer_leds() >> FX_LATCH_KEY) & 1u) && ((layer_leds() >> FX_LATCH_KEY) & 1u);
+    ok &= g5_lit() == 3u;
     key_up(FX_LATCH_KEY); frames(48); btn_up(B_FX); frames(100);
     chk("KEY      FX + G5: LATCH ON (message, footer LATCH ON, G5 lit), no effect, no note", ok && perf_latch_on == 1);
     blocks(4);
     chk("KEY      .. and nothing plays", perf_act == 0u && perf_held == 0u);
     fx_g5();
     chk("KEY      FX + G5 again: LATCH OFF", perf_latch_on == 0 && msg_is("FX LATCH OFF") && foot_is("LATCH OFF"));
+    btn_down(B_FX); frames(600);
+    ok = ui.layer == LAYER_FX && g5_lit() != 3u && g5_lit() != 0u;
+    btn_up(B_FX); frames(100);
+    chk("KEY      LATCH off: G5 blinks (can be pressed), not lit in both phases", ok);
+
+    /* ---- MODULE (Round 32 review): a latched ring effect whose module goes is let go; nothing starts by itself when it comes back ---- */
+    start(); fx3_modk_clear(); fx_g5();
+    btn_down(B_FX); frames(48); tap(B3); btn_up(B_FX); frames(100); blocks(4);
+    ok = perf_latched == 0u;
+    ok &= fxl_register(4u, 0) == FX3M_OK; blocks(8);
+    chk("MODULE   no FX LAYER: a tap of GLITCH under LATCH latches nothing (MODULE MISSING); the module registered after: GLITCH does not start", ok && perf_latched == 0u && !((perf_act >> PF_GLT) & 1u));
+    btn_down(B_FX); frames(48); tap(B3); btn_up(B_FX); frames(100); blocks(8);
+    ok = perf_latched == PF_BIT(PF_GLT) && ((perf_act >> PF_GLT) & 1u) && fx3_modk_uses() == 1u;
+    fx3_modk_clear(); blocks(8);
+    ok &= perf_latched == 0u && !((perf_act >> PF_GLT) & 1u);
+    ok &= fxl_register(4u, 0) == FX3M_OK; blocks(8);
+    chk("MODULE   GLITCH latched and playing, FX LAYER removed: let go; registered again: GLITCH does not start by itself", ok && perf_latched == 0u && !((perf_act >> PF_GLT) & 1u));
+    btn_down(B_FX); frames(48); tap(B3); btn_up(B_FX); frames(100); blocks(4);
+    ok = perf_latched == PF_BIT(PF_GLT);
+    ok &= fxl_register(1u, 0) == FX3M_OK; blocks(8);   /* (a bank serving GLITCH alone: GLITCH stays) */
+    ok &= perf_latched == PF_BIT(PF_GLT);
+    fx3_modk_clear(); ok &= fxl_register(4u, 1) != FX3M_OK; blocks(8);
+    ok &= perf_latched == 0u;
+    ok &= fxl_register(4u, 0) == FX3M_OK; blocks(8);
+    chk("MODULE   a bank still serving GLITCH keeps it; removed, a refused registration, then a good one: nothing starts by itself", ok && perf_latched == 0u && !((perf_act >> PF_GLT) & 1u));
+    fx3_modk_clear();
 
     /* ---- TAP ---- */
     start(); fx_g5();
