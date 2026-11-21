@@ -31,6 +31,14 @@ unit's state read before and after each install. The lead's tool: it writes firm
                                                     random.Random(20261117) (d stays right after its a), printed and saved to OUT/q4-plan-LABEL.json
   q4_install.py OUT LABEL identity [--against FILE] (Round 32) read only: the image the unit runs (INFO's version, MOD_INFO's image block), saved;
                                                     with --against an earlier identity file: equal or exit 1 (7.37 Q2: the candidate reinstalled)
+  q4_install.py OUT LABEL rev-set --expect V        (Round 32, 7.37 Q1's REV level) a backup, then the live page: FX LAYER taken off by the page's
+                                                    own Remove ("Modules in the unit"), REVERB MODES ticked, FX LAYER the module that gives way
+                                                    (cdp_install.mjs --remove fxlayer --ticks +reverbmodes,-fxlayer), Install; judged: the page's
+                                                    plan line's starts, REVERB MODES registered (state 7) in FX_TABLE and FX LAYER absent
+  q4_install.py OUT LABEL fx-set --expect V         (Round 32, the FX level, back to the default ticks) a backup, then the page with REVERB MODES
+                                                    unticked and FX LAYER ticked (--ticks -reverbmodes,+fxlayer): the page asks to remove REVERB
+                                                    MODES (its dropConfirm) and installs FX LAYER; judged: the plan's starts, FX LAYER state 7,
+                                                    REVERB MODES absent
 (Round 32, BUILD.md 7.37 Q4) Every Nightly install needs --expect VERSION (the page must offer that version, else nothing is pressed); after it
 every module of the page's plan is judged registered (state 7) at the start the page planned (its log's plan line, recorded by
 cdp_install.mjs; --layout only overrides it); case a compares the objects saved before the Nightly byte for byte after (only those; new ones
@@ -274,7 +282,7 @@ def objects_of(path):
     return {o["id"]: (o["size"], o["crc"]) for o in json.load(open(path))["objects"]}
 
 
-def page(step, build=None, stock=None, expect=None, ask=True, take_backup=True):
+def page(step, build=None, stock=None, expect=None, ask=True, take_backup=True, ticks=None, remove=None):
     """(review, Round 31) a complete backup, read back, before every install from the page (take_backup False only where no editor answers:
     a unit on stock V15 holds no Orange Cat data); ask: every confirm dialog of the page is put to the operator (typed answer), not answered yes"""
     if take_backup:
@@ -284,6 +292,10 @@ def page(step, build=None, stock=None, expect=None, ask=True, take_backup=True):
     cmd += ["--stock", os.path.abspath(stock)] if stock else ["--build", build]
     if expect:
         cmd += ["--expect", expect]
+    if remove:
+        cmd += ["--remove", remove]
+    if ticks:
+        cmd += ["--ticks", ticks]
     rules = answers_for(step)
     if rules is not None:
         f = os.path.join(A.out, f"answers-{step}.json")
@@ -300,7 +312,7 @@ def page(step, build=None, stock=None, expect=None, ask=True, take_backup=True):
     except ValueError:
         res = {"ok": False, "error": "no result line"}
     short = {"page": step, "ok": res.get("ok"), "error": res.get("error"), "plan": res.get("plan"), "page_versions": res.get("page"), "chosen": res.get("chosen"),
-             "stock_check": res.get("stockCheck"), "downloads": res.get("downloads"), "final": res.get("final"),
+             "stock_check": res.get("stockCheck"), "downloads": res.get("downloads"), "final": res.get("final"), "ticks": res.get("ticks"),
              "attempts": [{k: a.get(k) for k in ("attempt", "status", "timedOut", "dialogs", "fwWrites", "fwWriteMax", "summary")} for a in res.get("attempts", [])]}
     short["unmatched_dialogs"] = res.get("unmatched")
     log(short)
@@ -324,13 +336,23 @@ def answers_for(step):
     return []                                            # (nothing for this step: any dialog stops it)
 
 
-def nightly(step, take_backup=True):
+def nightly(step, take_backup=True, ticks=None, remove=None, fx_want=None):
+    """fx_want (rev-set, fx-set): {module id: True (registered, state 7) | False (absent)} judged in the Effects table after the plan's starts"""
     if not A.expect:
         raise SystemExit("q4_install: a Nightly install needs --expect VERSION (the version the page must offer; Round 32)")
-    confirm("INSTALL", f"install the Nightly ({A.nightly_build}, expecting {A.expect}) from {A.url} onto the unit now?")
-    r = page(step, build=A.nightly_build, take_backup=take_backup, expect=A.expect)
+    confirm("INSTALL", f"install the Nightly ({A.nightly_build}, expecting {A.expect}) from {A.url} onto the unit now?"
+            + (f" (the page's boxes: {ticks}{'; first ' + remove + ' taken off by the page' + chr(39) + 's Remove' if remove else ''})" if ticks or remove else ""))
+    r = page(step, build=A.nightly_build, take_backup=take_backup, expect=A.expect, ticks=ticks, remove=remove)
+    if fx_want is not None and not r.get("ok"):
+        raise SystemExit(f"q4_install: {step}: the page did not install (NOT ok): {r.get('error') or r.get('final')}")
     if r.get("ok"):
         s = state(f"{step}: the modules")
+        if fx_want is not None:
+            fx = ((s.get("probe") or {}).get("fx") or {}).get("effects")
+            rows = fx_set_rows(fx, fx_want)
+            log({"fx_set_judged": step, "rows": rows, "ok": all(x["ok"] for x in rows)})
+            if not all(x["ok"] for x in rows):
+                raise SystemExit(f"q4_install: {step}: the Effects table is not the set's: {[x for x in rows if not x['ok']]}")
         lay, src = (layout_of(A.layout), "--layout (override)") if A.layout else (plan_layout(r.get("plan")), "the page's plan (its log's plan line)")
         if not lay:
             raise SystemExit(f"q4_install: {step}: the page printed no plan line (a unit with 18 starts, or a page before Round 32): give --layout to judge the starts")
@@ -339,6 +361,29 @@ def nightly(step, take_backup=True):
         if not ok:
             raise SystemExit(f"q4_install: {step}: a module of the layout is not registered at its start: {[x for x in rows if not x['ok']]}")
     return r
+
+
+NAME_OF_FX = {v: k for k, v in FX_ID_OF.items()}
+FX_SETS = {                                              # (Round 32, 7.37 Q1) the two effect levels: the driver's boxes and the Effects table they must give
+    "rev-set": {"remove": "fxlayer", "ticks": "+reverbmodes,-fxlayer", "want": {2: True, 3: False}},
+    "fx-set": {"remove": None, "ticks": "-reverbmodes,+fxlayer", "want": {3: True, 2: False}},
+}
+
+
+def fx_set_rows(effects, want):
+    """the Effects table (oc_install.mjs list: fx.effects) against {id: True (state 7) | False (absent)} -> rows; no table: every row fails"""
+    rows = []
+    for mid, present in want.items():
+        x = next((e for e in (effects or []) if e.get("id") == mid), None) if effects is not None else None
+        good = effects is not None and ((x is not None and x.get("state") == 7) if present else x is None)
+        rows.append({"module": NAME_OF_FX[mid], "want": "registered (state 7)" if present else "absent", "got": x if effects is not None else "no Effects table", "ok": good})
+    return rows
+
+
+def case_fx_set(step):
+    """(Round 32) rev-set / fx-set: a backup (page()), the driver with the set's boxes, the plan's starts and the Effects table judged (nightly())"""
+    st = FX_SETS[step]
+    return nightly(step, ticks=st["ticks"], remove=st["remove"], fx_want=st["want"])
 
 
 def case_a():
@@ -544,7 +589,7 @@ def main():
     global A
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("out"); ap.add_argument("label")
-    ap.add_argument("case", choices=("state", "a", "b-wipe-modules", "b-wipe-presets", "b-projects", "b", "c", "d", "plan", "identity"))
+    ap.add_argument("case", choices=("state", "a", "b-wipe-modules", "b-wipe-presets", "b-projects", "b", "c", "d", "plan", "identity", "rev-set", "fx-set"))
     ap.add_argument("--expect", help="the version the page must offer for the Nightly (required for every Nightly install)")
     ap.add_argument("--layout", default=None, help=f"an override of the page's plan: where each module must be registered after a Nightly install (e.g. {DEFAULT_LAYOUT})")
     ap.add_argument("--against", help="identity: an earlier identity file to compare with")
@@ -578,8 +623,8 @@ def run_case():
     if A.case == "identity":
         r = identity(A.against)
         return 0 if (not A.against or r["equal"]) else 1
-    if A.case in ("a", "b", "c", "d") and not A.expect:
-        raise SystemExit("q4_install: cases a, b, c and d install the Nightly: --expect VERSION is required (Round 32)")
+    if A.case in ("a", "b", "c", "d", "rev-set", "fx-set") and not A.expect:
+        raise SystemExit("q4_install: cases a, b, c, d, rev-set and fx-set install the Nightly: --expect VERSION is required (Round 32)")
     if A.layout:
         layout_of(A.layout)
     if A.case == "state":
@@ -605,6 +650,8 @@ def run_case():
         case_c()
     elif A.case == "d":
         case_d()
+    elif A.case in FX_SETS:
+        case_fx_set(A.case)
     return 0
 
 

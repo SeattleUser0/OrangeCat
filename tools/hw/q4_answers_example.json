@@ -1,5 +1,5 @@
 {
- "_about": "q4_install.py --answers: the dialogs web/index_pkg.html can raise (its English texts: headless Chrome's language is en; web/fm1ota.js raises none), each with the answer the case needs. A rule matches a dialog whose text starts with `starts` (the longest match wins); any other dialog is cancelled and stops the run. Keys: a step (a1-standard, a2-nightly, c1-stock, c2-nightly, d-repeat, b-nightly) or a case; a step's own list wins.",
+ "_about": "q4_install.py --answers: the dialogs web/index_pkg.html can raise (its English texts: headless Chrome's language is en; web/fm1ota.js raises none), each with the answer the case needs. A rule matches a dialog whose text starts with `starts` (the longest match wins); any other dialog is cancelled and stops the run. Keys: a step (a1-standard, a2-nightly, c1-stock, c2-nightly, d-repeat, b-nightly, rev-set, fx-set) or a case; a step's own list wins.",
  "a1-standard": [
   {"starts": "No other place is free, so the module that is in the unit is erased first.", "answer": true, "why": "modInPlaceConfirm: the Standard's module goes in place (the page's own path; it can be installed again)"},
   {"starts": "The set you ticked does not fit beside the modules as they sit in the FM-1 now. The page can take", "answer": true, "why": "rearrangeConfirm: the set's own modules taken off and put back in an order that fits (nothing dropped)"}
@@ -15,12 +15,20 @@
  "c2-nightly": [
   {"starts": "No other place is free, so the module that is in the unit is erased first.", "answer": true, "why": "modInPlaceConfirm (not expected on a unit coming from stock: its module area is empty or another firmware's)"}
  ],
+ "rev-set": [
+  {"starts": "This effect module is erased from the unit. Continue?", "answer": true, "why": "fxRemoveConfirm (Round 32, 7.37 Q1's REV level): the page's Remove in 'Modules in the unit' takes FX LAYER off. The page's Install never removes the FX layer (removableFx: only the optional REVERB MODES, and only while its box is unticked; a module that gives way stays in the unit), so REVERB MODES has no room beside it without this. The text names no module: cdp_install.mjs --remove fxlayer raises it only with 0x00000003 chosen in the page's Remove list (logged in ticks.removal) and checks the unit read after holds no 0x00000003. Then REVERB MODES ticked and FX LAYER the module that gives way: Install writes REVERB MODES into the free place and asks nothing"}
+ ],
+ "fx-set": [
+  {"starts": "The set you ticked does not fit beside the modules in the FM-1 now. REVERB MODES is in the FM-1 but not in the set you ticked: the page removes it to make room and does not put it back", "answer": true, "why": "dropConfirm (Round 32, back to the FX level): the default ticks on the REV unit; REVERB MODES (the optional module, its box unticked) is the only module the page may take off, and it names it; 'Nothing else is moved', then FX LAYER goes in. The rule's text names REVERB MODES: a question naming any other module, or rearrangeDropConfirm (which also takes the set's own modules off), matches nothing and stops the run"}
+ ],
  "d-repeat": [],
  "b-nightly": [],
  "_not_answered_on_purpose": [
   "rearrangeDropConfirm / dropConfirm ('... is in the FM-1 but not in the set you ticked: the page removes it ...'): a module removed for good; no rule, so the run stops and the lead decides",
   "stockConfirmNoBackup ('Return to official V15 without creating a backup?'): the tool never skips the page's backup",
-  "transitConfirm, fxRemoveConfirm: not reached by these cases",
+  "transitConfirm: not reached by these cases; fxRemoveConfirm: only in rev-set (above), where the driver itself chose FX LAYER in the Remove list",
+  "rev-set: no dropConfirm or rearrangeDropConfirm naming FX LAYER exists to answer: the page never offers to take the FX layer (or DUB TAPE) off from Install; and with FX LAYER removed first, REVERB MODES goes into the free place as the unit stands, so any question there (a rearrange) is unexpected and stops the run",
+  "fx-set: rearrangeDropConfirm naming REVERB MODES (the drop plus a rearrange of SHAPES, WHEEL, DUB TAPE ...): not expected (FX LAYER goes where REVERB MODES was); no rule, the lead decides",
   "d-repeat and b-nightly: (d) must ask nothing (7.37), so any dialog stops it; (b) installs onto an empty module area, nothing to ask",
   "fwFirstConfirm in d-repeat or b-nightly: a Nightly-to-Nightly install never asks it; there it stops the run (the unit was not on the Nightly)"
  ]

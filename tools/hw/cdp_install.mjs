@@ -19,8 +19,23 @@
 //  - The page's versions (#dual-version, #nightly-version, the release picked) are logged; --expect TEXT refuses to press Install when the
 //    chosen build's label does not contain TEXT (nothing is written then).
 //
+//  - (Round 32, 7.37 Q1's two effect levels) --ticks SPEC sets the page's boxes before Install the way the owner does, by clicking them (the page's room
+//    meter and give-way choice run as they do for a user; nothing of the page is changed): SPEC is a comma list of +NAME / -NAME, NAME a box of the
+//    page's #stages by its id with or without "stage-" (fw, pack, mod, prophet, fx, fx-opt, models) or an effect module by the name the page prints
+//    beside its box (#fx-names "(DUB TAPE, FX LAYER)", #fx-opt-names "(REVERB MODES)"; any case, spaces and dashes ignored: fxlayer, reverbmodes).
+//    +MODULE ticks its box (and it must not be the one that gives way); -MODULE unticks its box when it is alone there (REVERB MODES), and when it
+//    shares the box (FX LAYER beside DUB TAPE) it is the page's give-way choice (#give-way's radio for it: the page offers it only when the ticked set
+//    does not fit and leaving that module out makes it fit). The unit is read on the page first ("Read from the unit": the meter places the set on the
+//    unit as it stands, and Install keeps the choice only for the unit it was made for). The boxes are logged before and after; a NAME the page does
+//    not have, or a box or choice that ends in another state, refuses (Install not pressed).
+//  - (Round 32) --remove NAME (an effect module: DUB TAPE, REVERB MODES, FX LAYER), once, before the ticks: the page's "Modules in the unit" section,
+//    the module chosen in its Remove list (by its id, the list shows 0x00000003), Remove pressed; the page's question (fxRemoveConfirm, which does not
+//    name the module: this driver asks it only with that module chosen, logged) answered as every dialog is; the unit read after must not hold it.
+//    Not done when the unit does not hold it (logged). The page's Install never takes the FX layer off (removableFx: only the optional reverb modes).
+//
 //   node tools/hw/cdp_install.mjs --url URL --build build-dual|build-nightly-dual [--out DIR] [--minutes 25] [--retries 3] [--expect TEXT]
 //        [--retry-wait 10] [--return-wait 20]   (seconds before a retry's fresh browser; the second after "did not come back")
+//        [--remove fxlayer] [--ticks +reverbmodes,-fxlayer]
 //   node tools/hw/cdp_install.mjs --url URL --stock FM-1.fwsc [--out DIR] [--minutes 25]
 // The last line printed is one JSON object: {attempts: [...], final, ok}. Close every other program on the FM-1's port first.
 import { spawn } from "child_process";
@@ -55,6 +70,19 @@ if (opt.answers) {
     console.error("cdp_install: --answers must be a JSON list of {\"starts\": text, \"answer\": true|false}"); process.exit(2);
   }
 }
+// (Round 32) --ticks / --remove, checked for form here; the names against the page once it is loaded
+const nkey = (s) => String(s).toUpperCase().replace(/[\s_-]+/g, "");
+const FX_IDS = { DUBTAPE: 1, REVERBMODES: 2, FXLAYER: 3 };        // the page's effect modules by id (web/make_site.py FX_NAMES; the page's blockedOne)
+const hex8 = (v) => "0x" + (v >>> 0).toString(16).toUpperCase().padStart(8, "0");   // as the page lists them (#unit-fx, #fx-remove-id)
+let ticks = null;
+if (opt.ticks !== undefined) {
+  ticks = String(opt.ticks || "").split(",").map((x) => x.trim()).filter(Boolean).map((x) => { const m = /^([+-])\s*([A-Za-z0-9 _-]+)$/.exec(x); return m && { token: x, want: m[1] === "+", name: m[2].trim() }; });
+  if (!ticks.length || ticks.some((x) => !x)) { console.error("cdp_install: --ticks is a comma list of +NAME / -NAME (e.g. +reverbmodes,-fxlayer)"); process.exit(2); }
+  const ks = ticks.map((x) => nkey(x.name)); if (new Set(ks).size !== ks.length) { console.error("cdp_install: --ticks names a box twice: " + opt.ticks); process.exit(2); }
+}
+if ((ticks || opt.remove) && opt.stock) { console.error("cdp_install: --ticks and --remove are for --build (the stock section has no boxes)"); process.exit(2); }
+if (opt.remove !== undefined && !(nkey(opt.remove) in FX_IDS)) { console.error(`cdp_install: --remove ${opt.remove}: not an effect module of the page (DUB TAPE, REVERB MODES, FX LAYER)`); process.exit(2); }
+let removedOnce = false;
 const norm = (x) => String(x).replace(/\s+/g, " ").trim();
 const ruleFor = (text) => rules.filter((r) => norm(text).startsWith(norm(r.starts))).sort((a, b) => norm(b.starts).length - norm(a.starts).length)[0] || null;
 const unmatched = [];
@@ -137,7 +165,114 @@ const resultProblems = (s) => {
   const okLine = /^(The modules were taken off and installed again in an order that fits\.|Removed to make room, not put back|モジュールをいったん消し、入る順番で入れ直しました。|空きを作るために消しました)/;
   return t.split(" | ").filter((part) => { const m = /^(Firmware|Pack|Module|ファームウェア|パック|モジュール): (.*)$/.exec(part); return m ? !okVal.test(m[2].trim()) : !okLine.test(part.trim()); });
 };
-const result = { url, build: build || null, stock: opt.stock || null, out, attempts: [] };
+const result = { url, build: build || null, stock: opt.stock || null, out, attempts: [], ticksSpec: opt.ticks || null, removeSpec: opt.remove || null };
+// (Round 32) --ticks / --remove. The boxes as the page shows them: every #stages box "stage-*" (checked, disabled, the module names beside it), the
+// give-way radios (#give-way), what Install will write (#install-what), the meter's line (#models-room), Install enabled
+const boxesNow = () => ev(`(()=>{const q=(s)=>[...document.querySelectorAll(s)], tx=(id)=>(document.getElementById(id)||{}).textContent||"";
+  return {boxes: q('#stages input[type=checkbox][id^="stage-"]').map((c)=>{const n=c.closest('label')&&c.closest('label').querySelector('span[id$="-names"]');
+      return {id: c.id, checked: c.checked, disabled: c.disabled, modules: n ? n.textContent.replace(/^\\s*\\(|\\)\\s*$/g, "").split(",").map((x)=>x.trim()).filter(Boolean) : []};}),
+    giveWay: q('#give-way input[type=radio]').map((r)=>({id: r.id, label: ((r.closest('label')||{}).textContent||"").trim(), checked: r.checked, disabled: r.disabled})),
+    giveWayShown: !!document.getElementById('give-way') && !document.getElementById('give-way').hidden,
+    installWhat: tx('install-what'), room: tx('models-room'), goDisabled: document.getElementById('go').disabled};})()`);
+// a page job that locks the installer (Read from the unit, Remove): clicked, its lock seen (up to 10 s), its end awaited (#release enabled again, 2 min)
+const pageJob = async (clickJs) => {
+  await ev(clickJs);
+  let seen = false;
+  for (let i = 0; i < 100 && !seen; i++) { seen = (await ev("document.getElementById('release').disabled")) === true; if (!seen) await sleep(100); }
+  for (let i = 0; i < 1200; i++) { if ((await ev("document.getElementById('release').disabled")) === false) break; await sleep(100); }
+  if ((await ev("document.getElementById('release').disabled")) !== false) throw new Error("the page's unit job did not end in 2 minutes: " + (await txt("status")));
+  return seen;
+};
+const readUnitOnPage = async () => {
+  const before = await txt("unit-fx");
+  const seen = await pageJob("document.getElementById('unit-read').click()");
+  const fx = (await txt("unit-fx")) || "";
+  say("the unit as the page read it (Effects):", JSON.stringify(fx), "| status:", await txt("status"));
+  if (!fx.trim() || (!seen && fx === before)) throw new Error("the page did not read the unit (Read from the unit): " + (await txt("status")));
+  return fx;
+};
+// a NAME of --ticks against the page's boxes: {kind: "box", box} or {kind: "module", box, module, shared}; null when the page has no such box or module
+const resolveName = (state, name) => {
+  const k = nkey(name);
+  const box = state.boxes.find((b) => nkey(b.id) === k || nkey(b.id.replace(/^stage-/, "")) === k);
+  if (box) return { kind: "box", box: box.id };
+  const holder = state.boxes.find((b) => b.modules.some((m) => nkey(m) === k));
+  if (holder) return { kind: "module", box: holder.id, module: holder.modules.find((m) => nkey(m) === k), shared: holder.modules.length > 1 };
+  return null;
+};
+const radioFor = (state, module) => state.giveWay.find((r) => r.label === module || r.label.startsWith(module + " ("));
+const setBoxes = async (rec) => {
+  rec.ticks = { spec: opt.ticks || null, remove: opt.remove || null };
+  rec.ticks.initial = await boxesNow();
+  say("the boxes as the page opened:", JSON.stringify(rec.ticks.initial));
+  // every name resolved before anything is clicked or written
+  const plan = (ticks || []).map((x) => ({ ...x, on: resolveName(rec.ticks.initial, x.name) }));
+  const missing = plan.filter((x) => !x.on).map((x) => x.token);
+  if (missing.length) {
+    throw new Error(`--ticks: the page has no box or module ${missing.join(", ")} (its boxes: ${rec.ticks.initial.boxes.map((b) => b.id.replace(/^stage-/, "") + (b.modules.length ? " (" + b.modules.join(", ") + ")" : "")).join("; ")}): Install not pressed, nothing written`);
+  }
+  const boxWant = {};
+  for (const x of plan) {
+    if (x.on.kind === "module" && !x.want && x.on.shared) continue;      // the give-way choice, below
+    const b = x.on.box;
+    if (b in boxWant && boxWant[b] !== x.want) throw new Error(`--ticks: ${opt.ticks} wants the box ${b} both ticked and unticked: refused`);
+    boxWant[b] = x.want;
+  }
+  rec.ticks.unitBefore = await readUnitOnPage();                       // the meter and Install's give-way choice keyed on the unit as it stands
+  if (opt.remove && !removedOnce) {
+    const id = FX_IDS[nkey(opt.remove)];
+    rec.ticks.removal = { module: opt.remove, id: hex8(id) };
+    if (!rec.ticks.unitBefore.includes(hex8(id))) {
+      rec.ticks.removal.done = false; rec.ticks.removal.why = "the unit does not hold it (its Effects as read: nothing to remove)";
+      say(`--remove ${opt.remove}: ${rec.ticks.removal.why}`);
+    } else {
+      const sel = await ev(`(()=>{const s=document.getElementById('fx-remove-id'); if(!s) return null; const ok=[...s.options].some((o)=>o.value===${JSON.stringify(String(id))}); if(!ok) return {options:[...s.options].map((o)=>o.textContent)};
+        s.value=${JSON.stringify(String(id))}; s.dispatchEvent(new Event('change', {bubbles: true})); return {value: s.value, text: s.options[s.selectedIndex].textContent, disabled: document.getElementById('fx-remove').disabled};})()`);
+      if (!sel || sel.value !== String(id) || sel.disabled) throw new Error(`--remove ${opt.remove}: the page's Remove list does not offer ${hex8(id)} (${JSON.stringify(sel)}): nothing written`);
+      rec.ticks.removal.chosen = sel.text;
+      say(`--remove ${opt.remove}: ${sel.text} chosen in the page's Remove list, Remove pressed`);
+      const d0 = dialogs.length;
+      removedOnce = true;                                                 // (a removal is pressed at most once in a run: a retry's browser only reads the unit)
+      await pageJob("document.getElementById('fx-remove').click()");
+      rec.ticks.removal.dialogs = dialogs.slice(d0);
+      if (unmatched.length) throw new Error(`--remove ${opt.remove}: the page's question had no --answers rule (answered Cancel): nothing removed`);
+      if (!rec.ticks.removal.dialogs.length || rec.ticks.removal.dialogs.some((d) => d.answered !== "yes")) throw new Error(`--remove ${opt.remove}: the page's question was not answered yes (${JSON.stringify(rec.ticks.removal.dialogs)}): nothing removed`);
+      rec.ticks.removal.status = await txt("status");
+      rec.ticks.removal.unitAfter = (await txt("unit-fx")) || "";
+      say(`--remove ${opt.remove}: ${rec.ticks.removal.status} | the unit's Effects now: ${JSON.stringify(rec.ticks.removal.unitAfter)}`);
+      if (rec.ticks.removal.unitAfter.includes(hex8(id))) throw new Error(`--remove ${opt.remove}: the unit still holds ${hex8(id)} after the page's Remove: ${rec.ticks.removal.status}`);
+      rec.ticks.removal.done = true;
+      rec.ticks.unitBefore = rec.ticks.removal.unitAfter;
+    }
+  }
+  // the boxes, clicked as the owner clicks them (one at a time, the page's own change handlers run), then the give-way choices
+  for (const [b, want] of Object.entries(boxWant)) {
+    const r = await ev(`(()=>{const c=document.getElementById(${JSON.stringify(b)}); if(c.checked===${want}) return "as wanted"; if(c.disabled) return "disabled"; c.click(); return c.checked===${want} ? "clicked" : "did not change";})()`);
+    say(`--ticks: ${b} ${want ? "ticked" : "unticked"}: ${r}`);
+    await sleep(400);
+  }
+  for (const x of plan.filter((y) => y.on.kind === "module" && !y.want && y.on.shared)) {
+    const st = await boxesNow(), radio = radioFor(st, x.on.module);
+    if (!radio) throw new Error(`--ticks ${x.token}: ${x.on.module} shares its box (${x.on.box}) and the page does not offer it to give way (offered: ${st.giveWay.map((r) => r.label).join("; ") || "none"}; the meter: ${st.room}): Install not pressed`);
+    const r = await ev(`(()=>{const c=document.getElementById(${JSON.stringify(radio.id)}); if(c.checked) return "as wanted"; if(c.disabled) return "disabled"; c.click(); return c.checked ? "clicked" : "did not change";})()`);
+    say(`--ticks: ${x.on.module} gives way (${radio.id}): ${r}`);
+    await sleep(400);
+  }
+  // the end state, judged token by token
+  const end = rec.ticks.after = await boxesNow();
+  say("the boxes before Install:", JSON.stringify(end));
+  const bad = [];
+  for (const x of plan) {
+    const b = end.boxes.find((y) => y.id === x.on.box);
+    if (x.on.kind === "module" && !x.want && x.on.shared) {
+      const radio = radioFor(end, x.on.module);
+      if (!radio || !radio.checked || !end.installWhat.includes(x.on.module + " gives way")) bad.push(`${x.token}: ${x.on.module} is not the module that gives way (${JSON.stringify(radio || null)}; ${end.installWhat})`);
+    } else if (!b || b.checked !== x.want || (x.want && b.disabled)) bad.push(`${x.token}: ${x.on.box} is ${b ? (b.checked ? "ticked" : "unticked") + (b.disabled ? ", disabled" : "") : "gone"}`);
+    else if (x.on.kind === "module" && x.want && (end.installWhat.includes(x.on.module + " gives way") || (radioFor(end, x.on.module) || {}).checked)) bad.push(`${x.token}: ${x.on.module} is the module that gives way`);
+  }
+  rec.ticks.ok = !bad.length;
+  if (bad.length) throw new Error(`--ticks ${opt.ticks}: the page's boxes ended in another state: ${bad.join(" | ")}: Install not pressed` + (rec.ticks.removal && rec.ticks.removal.done ? ` (${rec.ticks.removal.module} WAS removed from the unit by the page's Remove)` : ""));
+};
 // the page as loaded in a (fresh) browser, made ready to press: its versions, the stock file or the build chosen, --expect; into `rec` (the result for
 // the first browser, the attempt's own record for a retry's); the button to press
 const preparePage = async (rec) => {
@@ -163,7 +298,8 @@ const preparePage = async (rec) => {
       stages: await ev(`[...document.querySelectorAll('#stages input[type=checkbox]')].map(c => c.id + (c.checked ? ':on' : ':off') + (c.disabled ? ':disabled' : ''))`) };
     say("chosen:", JSON.stringify(rec.chosen));
     if (opt.expect && !(label || "").includes(opt.expect)) throw new Error(`the build's label ${JSON.stringify(label)} does not contain ${JSON.stringify(opt.expect)}: Install not pressed`);
-    if (await ev("document.getElementById('go').disabled")) throw new Error("Install stayed disabled: " + rec.chosen.status);
+    if (ticks || opt.remove) await setBoxes(rec);
+    if (await ev("document.getElementById('go').disabled")) throw new Error("Install stayed disabled: " + rec.chosen.status + (ticks ? " | the meter: " + (rec.ticks && rec.ticks.after && rec.ticks.after.room) : ""));
   }
   return button;
 };
@@ -230,6 +366,7 @@ try {
 } catch (e) {
   result.error = String(e && e.message || e);
   result.ok = false;
+  result.unmatched = unmatched;
   say("ERROR:", result.error);
 } finally {
   await closeBrowser();

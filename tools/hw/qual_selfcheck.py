@@ -14,7 +14,10 @@ tables (web/app/lib/fw_tables.js, generated from tests/web_tables.c with the Nig
      failure at each step stopping with what is left and the way back.
   7. (Round 32) cdp_install.mjs's retries in headless Chrome against a mock installer page whose FM-1 port, like Chrome's Web MIDI, is seen only
      by a browser started after the port appeared: the update-mode port after Install (then "not found" on the same browser) and the normal
-     port after "did not come back"; the run must install on its second attempt in a fresh browser (CDP_MOCK_ONLY=1: only these checks)
+     port after "did not come back"; the run must install on its second attempt in a fresh browser (CDP_MOCK_ONLY=1: only these checks and 8's)
+  8. (Round 32, 7.37 Q1's FX and REV levels) cdp_install.mjs --ticks / --remove against a mock of the page's boxes, meter, give-way choice and
+     Remove (its texts checked against web/index_pkg.html); q4_answers_example.json's rev-set and fx-set rules against the page's own texts;
+     q4_install.py rev-set and fx-set (backup first, --expect, the driver's arguments, the Effects table judged)
   ~/fm1-hw/hwvenv/bin/python3 tools/hw/qual_selfcheck.py        (exit 0: every check passed)
 """
 import contextlib
@@ -27,6 +30,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -143,6 +147,275 @@ def mock_site(unit):
     return srv
 
 
+# (Round 32, 7.37 Q1's REV level) a mock of the installer page's boxes, room meter, give-way choice, "Modules in the unit" (Read, Remove) and the drop
+# question, by the page's rules (web/index_pkg.html: removableFx takes only the optional REVERB MODES off, never DUB TAPE or the FX layer; a module that
+# gives way stays in the unit; Install reads the unit and clears a choice made for another unit), with the page's English texts (checked against the page
+# below). The effect area holds 5 sectors: the default set (DUB TAPE 3, FX LAYER 2) fills it; REVERB MODES takes 1. The unit lives in the server.
+MOCK_TICKS_PAGE = r"""<!doctype html><meta charset="utf-8"><title>mock installer (ticks)</title>
+<div id="status">Looking for the FM-1</div><span id="dual-version">0.15.0</span><span id="nightly-version">0.16.0-mock</span>
+<select id="release"><option value="nightly">nightly</option></select>
+<label><input type="radio" name="b" id="build-nightly-dual"> Nightly 0.16.0-mock</label>
+<fieldset id="stages">
+<p><label><input type="checkbox" id="stage-fw" checked> <span>Firmware</span></label></p>
+<p><label><input type="checkbox" id="stage-pack" checked> <span>Asset pack</span></label></p>
+<p><label><input type="checkbox" id="stage-mod" checked> <span>SHAPES and WHEEL modules</span></label></p>
+<p><label><input type="checkbox" id="stage-prophet"> <span>Prophet module</span></label></p>
+<p><label><input type="checkbox" id="stage-fx" checked> <span>Effect modules</span> <span id="fx-names">(DUB TAPE, FX LAYER)</span></label></p>
+<p><label><input type="checkbox" id="stage-fx-opt"> <span>More effect modules</span> <span id="fx-opt-names">(REVERB MODES)</span></label></p>
+<p><label><input type="checkbox" id="stage-models" checked> <span>MACRO models</span> <span id="models-count">(3)</span></label></p>
+<div id="models-pick"><p id="models-list"><label><input type="checkbox" id="mdl-0" checked> VA</label></p><p id="models-room"></p></div>
+<p id="give-way" hidden></p>
+</fieldset>
+<p id="install-what"></p><progress id="bar" max="100" value="0"></progress><p><button id="go" disabled>Install</button></p>
+<details id="unit-mods"><button id="unit-read">Read from the unit</button><pre id="unit-fx"></pre>
+<select id="fx-remove-id"></select> <button id="fx-remove" disabled>Remove</button></details><pre id="log"></pre>
+<script>
+const $ = (x) => document.getElementById(x);
+const FX = [{id: 1, name: "DUB TAPE", sectors: 3, box: "stage-fx"}, {id: 3, name: "FX LAYER", sectors: 2, box: "stage-fx"}, {id: 2, name: "REVERB MODES", sectors: 1, box: "stage-fx-opt", optional: true}];
+const AREA = 5, hex8 = (v) => "0x" + (v >>> 0).toString(16).toUpperCase().padStart(8, "0");
+let unit = null, giveWay = null, sig = "", built = false, writing = false;
+const ticked = () => FX.filter((x) => $(x.box).checked);
+const key = () => JSON.stringify([ticked().map((x) => x.id), unit]);
+function room(gw) {                                     // {ok, drop}: the set (less gw) on the unit as read (or counted, unread)
+  const set = ticked().filter((x) => x.id !== gw), held = unit ? unit.map((e) => e.id) : [];
+  const need = set.filter((x) => !held.includes(x.id)).reduce((s, x) => s + x.sectors, 0);
+  const used = unit ? unit.reduce((s, e) => s + e.sectors, 0) : 0;
+  if (need <= AREA - used) return {ok: true, drop: []};
+  const drop = (unit || []).filter((e) => FX.find((x) => x.id === e.id && x.optional && !$(x.box).checked));
+  return need <= AREA - used + drop.reduce((s, e) => s + e.sectors, 0) ? {ok: true, drop} : {ok: false, drop: []};
+}
+function meter() {
+  if (giveWay != null && key() !== sig) giveWay = null;
+  let r = room(null), gwOn = false;
+  const cands = r.ok ? [] : ticked().filter((x) => room(x.id).ok);
+  if (!r.ok && cands.some((x) => x.id === giveWay)) { r = room(giveWay); gwOn = true; }
+  const gw = $("give-way");
+  gw.hidden = !cands.length;
+  gw.innerHTML = cands.length ? "The modules you ticked need more room than the FM-1 has. Choose the effect module that gives way: it is left out of this install, and the rest goes in. " +
+    cands.map((x) => `<label><input type="radio" name="give-way" id="gw-${x.id}"> ${x.name} (${x.sectors} ${x.sectors === 1 ? "sector" : "sectors"})</label>`).join(" ") : "";
+  cands.forEach((x) => { const b = $("gw-" + x.id); b.checked = gwOn && giveWay === x.id; b.addEventListener("change", () => { if (b.checked) { giveWay = x.id; sig = key(); meter(); } }); });
+  const gone = gwOn ? FX.find((x) => x.id === giveWay) : null;
+  $("models-room").textContent = (gone ? gone.name + " gives way: it is not installed this time (if it is in the FM-1, it stays there as it is). " : "") + (r.ok ? "Room: it fits." : "Room: it does not fit." + (cands.length ? " Install waits until you choose." : ""));
+  $("install-what").textContent = "Install writes: " + ["stage-fw", "stage-pack", "stage-mod", "stage-fx", "stage-fx-opt", "stage-models"].filter((b) => $(b).checked).join(", ") + (gone ? ". " + gone.name + " gives way: it is not installed this time (if it is in the FM-1, it stays there as it is)." : "");
+  $("go").disabled = writing || !built || !r.ok;
+  return {r, gwOn};
+}
+const lock = (on) => { writing = on; $("release").disabled = on; $("unit-read").disabled = on; $("fx-remove").disabled = on || !$("fx-remove-id").value; meter(); };
+function show(u) {
+  unit = u; $("unit-fx").textContent = u.length ? u.map((e) => `${hex8(e.id)}  v1.0.0  ok  start ${e.start}  ${e.sectors} sectors  module`).join("\n") : "none";
+  $("fx-remove-id").replaceChildren(...u.map((e) => { const o = document.createElement("option"); o.value = String(e.id); o.textContent = hex8(e.id); return o; }));
+}
+const pause = (ms) => new Promise((ok) => setTimeout(ok, ms));
+["stage-fw", "stage-pack", "stage-mod", "stage-prophet", "stage-fx", "stage-fx-opt", "stage-models"].forEach((b) => $(b).addEventListener("change", meter));
+$("build-nightly-dual").addEventListener("change", () => { built = true; $("status").textContent = "FM-1 found"; meter(); });
+$("unit-read").addEventListener("click", async () => { lock(true); await pause(300); show(await (await fetch("/unit")).json()); $("status").textContent = "Ready"; lock(false); });
+$("fx-remove").addEventListener("click", async () => {
+  const id = Number($("fx-remove-id").value);
+  if (writing || !(id > 0) || !confirm("This effect module is erased from the unit. Continue?")) return;
+  lock(true); await pause(300); show(await (await fetch("/remove?id=" + id)).json()); $("status").textContent = "The effect module was removed"; lock(false);
+});
+$("go").onclick = async () => {
+  lock(true); $("bar").value = 10;
+  show(await (await fetch("/unit")).json());             // Install reads the unit again: a choice made for another unit is cleared
+  const {r, gwOn} = meter();
+  if (!r.ok) { $("status").textContent = $("models-room").textContent; lock(false); return; }
+  const names = r.drop.map((e) => FX.find((x) => x.id === e.id).name).join(", ");
+  if (r.drop.length && !confirm(`The set you ticked does not fit beside the modules in the FM-1 now. ${names} is in the FM-1 but not in the set you ticked: the page removes it to make room and does not put it back (tick it and install it again if you want it back). Nothing else is moved. Remove ${names} and install the set?`)) {
+    $("status").textContent = "Result: Firmware: already current, left as it is | The module was not installed."; lock(false); return;
+  }
+  const want = ticked().filter((x) => !(gwOn && x.id === giveWay)).map((x) => x.id);
+  const res = await (await fetch("/install?want=" + want.join(".") + "&drop=" + r.drop.map((e) => e.id).join("."))).json();
+  await pause(500);
+  $("log").textContent += res.log.map((l) => l + "\n").join("");
+  show(res.unit);
+  $("status").textContent = "Result: Firmware: already current, left as it is | Pack: already current, left as it is | " + res.parts.join(" | ") + (r.drop.length ? " | Removed to make room, not put back (not in the set you ticked): " + names + "." : "");
+  lock(false);
+};
+</script>"""
+
+FX_NAME = {1: "DUB TAPE", 2: "REVERB MODES", 3: "FX LAYER"}
+FX_SECT = {1: 3, 2: 1, 3: 2}
+
+
+class TicksUnit:
+    """the unit's effect modules [{id, start, sectors}] behind MOCK_TICKS_PAGE; every request logged"""
+    def __init__(self, fx):
+        self.fx, self.calls = [dict(e) for e in fx], []
+
+    def handle(self, path, q):
+        self.calls.append((path, {k: v[0] for k, v in q.items()}))
+        if path == "/remove":
+            self.fx = [e for e in self.fx if e["id"] != int(q["id"][0])]
+            return self.fx
+        if path == "/install":
+            want = [int(x) for x in (q.get("want") or [""])[0].split(".") if x]
+            drop = [int(x) for x in (q.get("drop") or [""])[0].split(".") if x]
+            self.fx = [e for e in self.fx if e["id"] not in drop]
+            held = [e["id"] for e in self.fx]
+            new = [i for i in want if i not in held]
+            for i in new:
+                self.fx.append({"id": i, "start": 18 if i == 1 else 2, "sectors": FX_SECT[i]})
+            kept = [e for e in self.fx if e["id"] in want and e["id"] not in new]
+            plan = "plan: " + (", ".join(f"{FX_NAME[i]} at start {18 if i == 1 else 2}" for i in new) or "nothing to write") + (
+                " | kept: " + ", ".join(f"{FX_NAME[e['id']]} at start {e['start']}" for e in kept) if kept else "")
+            return {"unit": self.fx, "log": [plan, "Result: done"], "parts": ["Module: installed" if i in new else "Module: already current, left as it is" for i in want]}
+        return self.fx
+
+
+def ticks_site(unit):
+    class H(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            u = urllib.parse.urlparse(self.path)
+            if u.path in ("/unit", "/remove", "/install"):
+                body, ct = json.dumps(unit.handle(u.path, urllib.parse.parse_qs(u.query))).encode(), "application/json"
+            else:
+                body, ct = MOCK_TICKS_PAGE.encode(), "text/html"
+            self.send_response(200); self.send_header("Content-Type", ct); self.send_header("Content-Length", str(len(body))); self.end_headers()
+            self.wfile.write(body)
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+DEFAULT_FX = [{"id": 3, "start": 2, "sectors": 2}, {"id": 1, "start": 18, "sectors": 3}]
+REV_FX = [{"id": 2, "start": 2, "sectors": 1}, {"id": 1, "start": 18, "sectors": 3}]
+
+
+def run_ticks(fx, extra, answers_step=None, driver=None):
+    """cdp_install.mjs against MOCK_TICKS_PAGE with the unit's effect modules `fx`; answers_step: that step's rules from q4_answers_example.json"""
+    driver = driver or os.environ.get("CDP_DRIVER") or os.path.join(HERE, "cdp_install.mjs")
+    unit = TicksUnit(fx)
+    srv = ticks_site(unit)
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            ex = list(extra)
+            if answers_step:
+                f = os.path.join(d, "answers.json")
+                json.dump(json.load(open(os.path.join(HERE, "q4_answers_example.json")))[answers_step], open(f, "w"))
+                ex += ["--answers", f]
+            cmd = ["node", driver, "--url", f"http://127.0.0.1:{srv.server_address[1]}/", "--build", "build-nightly-dual", "--out", d,
+                   "--minutes", "1", "--retries", "1", "--port", str(free_port()), *ex]
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=180, env=dict(os.environ, TMPDIR=d))
+            try:
+                res = json.loads(p.stdout.strip().splitlines()[-1])
+            except (ValueError, IndexError):
+                res = {"ok": False, "error": "no result line: " + (p.stderr or p.stdout)[-300:]}
+            res["_stdout"], res["_rc"] = p.stdout, p.returncode
+            return res, unit
+    finally:
+        srv.shutdown(); srv.server_close()
+
+
+def ticks_checks():
+    """(Round 32, 7.37 Q1: FX and REV) cdp_install.mjs --ticks / --remove on MOCK_TICKS_PAGE, the answers file's rev-set and fx-set rules against the
+    page's own texts, q4_install.py's rev-set and fx-set: each fails on 52e16b13 (no --ticks: the driver installs the default ticks)"""
+    page = open(os.path.join(REPO, "web", "index_pkg.html"), encoding="utf-8").read()
+    en = page[page.index('fxRemoveConfirm: "This'):]
+    tx = lambda k: re.search(k + r': "([^"]*)"', en).group(1)
+    ex = json.load(open(os.path.join(HERE, "q4_answers_example.json")))
+    attempt("ticks: the mock page's texts are the page's (fxRemoveConfirm, dropConfirm, giveWayAsk, giveWayChosen) and its boxes' ids",
+            lambda: tx("fxRemoveConfirm") in MOCK_TICKS_PAGE and tx("dropConfirm").split("{drop}")[0] in MOCK_TICKS_PAGE and tx("giveWayAsk") in MOCK_TICKS_PAGE
+            and tx("giveWayChosen").replace("{name}", "") in MOCK_TICKS_PAGE
+            and all(f'id="{b}"' in page and f'id="{b}"' in MOCK_TICKS_PAGE for b in ("stage-fx", "stage-fx-opt", "fx-names", "fx-opt-names", "give-way", "unit-read", "unit-fx", "fx-remove-id", "fx-remove")))
+    page_texts = {"rev-set": [tx("fxRemoveConfirm")], "fx-set": [tx("dropConfirm").replace("{drop}", "REVERB MODES")]}
+    attempt("ticks: q4_answers_example.json: rev-set answers only fxRemoveConfirm, fx-set only the dropConfirm naming REVERB MODES, both yes, each a prefix of the page's text",
+            lambda: all(len(ex.get(s, [])) == 1 and ex[s][0]["answer"] is True and ex[s][0].get("why") and page_texts[s][0].startswith(ex[s][0]["starts"])
+                        and ("REVERB MODES is in the FM-1" in ex[s][0]["starts"] if s == "fx-set" else True) for s in page_texts)
+            and not tx("dropConfirm").replace("{drop}", "FX LAYER").startswith(ex["fx-set"][0]["starts"])
+            and not tx("rearrangeDropConfirm").replace("{drop}", "REVERB MODES").startswith(ex["fx-set"][0]["starts"]))
+    if os.environ.get("CDP_SKIP_CHROME"):
+        return
+    # REV: FX LAYER removed by the page's Remove (its question answered by rev-set's rule), REVERB MODES ticked, FX LAYER the one that gives way
+    r, u = run_ticks(DEFAULT_FX, ["--remove", "fxlayer", "--ticks", "+reverbmodes,-fxlayer", "--expect", "0.16.0"], "rev-set")
+    t = r.get("ticks") or {}
+    attempt("ticks: rev-set: the page's Remove takes FX LAYER off once (its question answered yes), REVERB MODES ticked, FX LAYER gives way; Install writes REVERB MODES alone; ok "
+            + str(r.get("error")),
+            lambda: r.get("ok") is True and [c for c, _ in u.calls].count("/remove") == 1 and u.calls[[c for c, _ in u.calls].index("/remove")][1] == {"id": "3"}
+            and sorted(e["id"] for e in u.fx) == [1, 2] and [q.get("want") for c, q in u.calls if c == "/install"] == ["1.2"]
+            and t["removal"]["done"] and [d["text"] for d in t["removal"]["dialogs"]] == [tx("fxRemoveConfirm")]
+            and {b["id"]: b["checked"] for b in t["after"]["boxes"]}["stage-fx-opt"] is True and any(g["id"] == "gw-3" and g["checked"] for g in t["after"]["giveWay"])
+            and {b["id"]: b["checked"] for b in t["initial"]["boxes"]}["stage-fx-opt"] is False
+            and r.get("plan") == [{"name": "REVERB MODES", "start": 2, "kept": False}, {"name": "DUB TAPE", "start": 18, "kept": True}]
+            and not r["attempts"][0]["dialogs"] and "the boxes before Install:" in r["_stdout"])
+    # FX: back to the default ticks on the REV unit: the page's drop question naming REVERB MODES answered by fx-set's rule, FX LAYER installed
+    r, u = run_ticks(REV_FX, ["--ticks", "-reverbmodes,+fxlayer", "--expect", "0.16.0"], "fx-set")
+    attempt("ticks: fx-set: REVERB MODES unticked, FX LAYER ticked; the page's dropConfirm naming REVERB MODES answered yes; FX LAYER installed, REVERB MODES gone; ok " + str(r.get("error")),
+            lambda: r.get("ok") is True and sorted(e["id"] for e in u.fx) == [1, 3] and "/remove" not in [c for c, _ in u.calls]
+            and (r.get("ticks") or {}).get("ok") is True and {b["id"]: b["checked"] for b in r["ticks"]["after"]["boxes"]} == {**{b["id"]: b["checked"] for b in r["ticks"]["initial"]["boxes"]}}
+            and {b["id"]: b["checked"] for b in r["ticks"]["after"]["boxes"]}["stage-fx-opt"] is False and not any(g["checked"] for g in r["ticks"]["after"]["giveWay"])
+            and [d["text"] for d in r["attempts"][0]["dialogs"]] == [tx("dropConfirm").replace("{drop}", "REVERB MODES")]
+            and r.get("plan") == [{"name": "FX LAYER", "start": 2, "kept": False}, {"name": "DUB TAPE", "start": 18, "kept": True}])
+    # refusals: a name the page does not have; FX LAYER to give way while the unit holds it (the page never offers it then); nothing written in either
+    r, u = run_ticks(DEFAULT_FX, ["--ticks", "+reverb,-fxlayer"], "rev-set")
+    attempt("ticks: a name the page has no box or module for (reverb) refuses before anything is read or written",
+            lambda: r.get("ok") is False and "no box or module +reverb" in (r.get("error") or "") and not u.calls and r["_rc"] != 0)
+    r, u = run_ticks(DEFAULT_FX, ["--ticks", "+reverbmodes,-fxlayer"], "rev-set")
+    attempt("ticks: -fxlayer with FX LAYER in the unit: the page does not offer it to give way: refused, Install not pressed",
+            lambda: r.get("ok") is False and "does not offer it to give way" in (r.get("error") or "") and [c for c, _ in u.calls] == ["/unit"] and sorted(e["id"] for e in u.fx) == [1, 3])
+    r, u = run_ticks(DEFAULT_FX, ["--ticks", "+reverbmodes,-fxlayer", "--remove", "fxlayer"], "fx-set")
+    attempt("ticks: the Remove question with no rule for it (fx-set's rules) is cancelled: nothing removed, nothing installed",
+            lambda: r.get("ok") is False and "/remove" not in [c for c, _ in u.calls] and "/install" not in [c for c, _ in u.calls] and r.get("unmatched") == [tx("fxRemoveConfirm")])
+    # q4_install.py: rev-set and fx-set: --expect required, a backup first, the driver with the ticks, the FX table judged
+    import argparse as AP
+    import q4_install as Q4
+    with tempfile.TemporaryDirectory() as d:
+        order = []
+        good = {"rev-set": {"fx": {"effects": [{"id": 2, "state": 7, "start": 2}, {"id": 1, "state": 7, "start": 18}]}, "mod": {"starts": []}},
+                "fx-set": {"fx": {"effects": [{"id": 3, "state": 7, "start": 2}, {"id": 1, "state": 7, "start": 18}]}, "mod": {"starts": []}}}
+        plans = {"rev-set": [{"name": "REVERB MODES", "start": 2, "kept": False}, {"name": "DUB TAPE", "start": 18, "kept": True}],
+                 "fx-set": [{"name": "FX LAYER", "start": 2, "kept": False}, {"name": "DUB TAPE", "start": 18, "kept": True}]}
+        probe = {}
+
+        class P:
+            def __init__(self, out): self.stdout, self.returncode = out, 0
+
+        def fake_run(cmd, **k):
+            order.append(("driver", cmd))
+            return P(json.dumps({"ok": True, "plan": plans[Q4.A.case], "attempts": [], "final": "Result: x"}) + "\n")
+        old = (Q4.backup, Q4.state, Q4.subprocess.run, Q4.time.sleep)
+        Q4.backup = lambda tag: order.append(("backup", tag)) or "b.json"
+        Q4.state = lambda tag: order.append(("state", tag)) or {"probe": probe.get("p")}
+        Q4.subprocess.run = fake_run
+        Q4.time.sleep = lambda s: None
+        try:
+            def go(case, expect="0.16.0", p=None):
+                order.clear(); probe["p"] = p if p is not None else good[case]
+                Q4.A = AP.Namespace(out=d, label="T", case=case, expect=expect, layout=None, yes=True, confirm=None, url="x", nightly_build="build-nightly-dual",
+                                    minutes=1.0, answers=None)
+                try:
+                    return Q4.run_case()
+                except SystemExit as e:
+                    return str(e)
+
+            def no_expect():
+                rv = go("rev-set", expect=None)
+                return isinstance(rv, str) and "--expect" in rv and not order
+            attempt("ticks: q4_install rev-set without --expect is refused before anything", no_expect)
+
+            def rev():
+                rv = go("rev-set")
+                cmd = next(c for k, c in order if k == "driver")
+                return (rv == 0 and order[0] == ("backup", "before-rev-set") and [k for k, _ in order].index("backup") < [k for k, _ in order].index("driver")
+                        and cmd[cmd.index("--ticks") + 1] == "+reverbmodes,-fxlayer" and cmd[cmd.index("--remove") + 1] == "fxlayer" and cmd[cmd.index("--expect") + 1] == "0.16.0")
+            attempt("ticks: q4_install rev-set: a backup, then the driver with --remove fxlayer --ticks +reverbmodes,-fxlayer --expect; REVERB MODES 7, FX LAYER absent: ok", rev)
+
+            def fx():
+                rv = go("fx-set")
+                cmd = next(c for k, c in order if k == "driver")
+                return rv == 0 and order[0] == ("backup", "before-fx-set") and cmd[cmd.index("--ticks") + 1] == "-reverbmodes,+fxlayer" and "--remove" not in cmd
+            attempt("ticks: q4_install fx-set: a backup, then the driver with --ticks -reverbmodes,+fxlayer; FX LAYER 7, REVERB MODES absent: ok", fx)
+            both = {"fx": {"effects": [{"id": 2, "state": 7, "start": 2}, {"id": 3, "state": 7, "start": 4}, {"id": 1, "state": 7, "start": 18}]}, "mod": {"starts": []}}
+            attempt("ticks: q4_install rev-set fails when FX LAYER is still in the table, or REVERB MODES is not registered (state 2)",
+                    lambda: "FX LAYER" in str(go("rev-set", p=both)) and "REVERB MODES" in str(go("rev-set", p={"fx": {"effects": [{"id": 2, "state": 2, "start": 2}, {"id": 1, "state": 7, "start": 18}]}, "mod": {"starts": []}})))
+            attempt("ticks: q4_install fx-set fails when REVERB MODES is still in the table",
+                    lambda: "REVERB MODES" in str(go("fx-set", p=both)))
+        finally:
+            Q4.backup, Q4.state, Q4.subprocess.run, Q4.time.sleep = old
+
+
 def free_port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0)); return s.getsockname()[1]
@@ -186,6 +459,7 @@ def cdp_retry_checks(driver=os.path.join(HERE, "cdp_install.mjs")):
 def main():
     if os.environ.get("CDP_MOCK_ONLY"):
         cdp_retry_checks(os.environ.get("CDP_DRIVER") or os.path.join(HERE, "cdp_install.mjs"))
+        ticks_checks()
         print(f"\n{len(FAILS)} failed" if FAILS else "\nevery check passed")
         return 1 if FAILS else 0
     fw = fw_tables()
@@ -272,6 +546,7 @@ def main():
     p = subprocess.run(["node", "-e", body + "\nconsole.log(JSON.stringify(" + json.dumps(list(rcases)) + ".map((x) => resultProblems(x).length)))"], capture_output=True, text=True)
     check(p.returncode == 0 and json.loads(p.stdout) == list(rcases.values()), "cdp_install.mjs: a Result with a part that did not install is not ok, the parts named " + (p.stderr or p.stdout)[-200:])
     cdp_retry_checks()
+    ticks_checks()
     soak_checks()
     swap_checks()
     round32_checks()
