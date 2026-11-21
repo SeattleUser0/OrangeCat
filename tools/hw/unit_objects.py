@@ -75,6 +75,13 @@ class Refused(SystemExit):
     pass
 
 
+class RestoreFailed(Refused):
+    """a restore stopped part way: `done` the objects already written (committed)"""
+    def __init__(self, msg, done):
+        super().__init__(msg)
+        self.done = list(done)
+
+
 def n5(v):
     return [(v >> (7 * j)) & 127 for j in range(5)]
 
@@ -619,17 +626,18 @@ def restore(u, path, log=print):
     for oid, b in order:
         if oid not in supported:
             continue
-        bk_put(u, [0, oid, *n5(len(b)), *n5(crc32(b) if b else 0)], f"begin {oid}")
         try:
+            bk_put(u, [0, oid, *n5(len(b)), *n5(crc32(b) if b else 0)], f"begin {oid}")
             for off in range(0, len(b), 256):
                 bk_put(u, [1, oid, *n5(off), *pack7(list(b[off:off + 256]))], f"data {oid} at {off}")
             bk_put(u, [2, oid], f"commit {oid}", timeout=30.0)
-        except BaseException:
+        except BaseException as e:
             try:
                 u.req(CMD_BK_PUT, [3, oid], timeout=5.0)
             except BaseException:
                 pass
-            raise
+            raise RestoreFailed(f"unit_objects: the restore of {path} stopped at object {oid} ({e.code if isinstance(e, SystemExit) else repr(e)}); "
+                                f"written already: {done}", done)
         done.append(oid)
     time.sleep(0.5)
     now = backup_list(u, arr=True)

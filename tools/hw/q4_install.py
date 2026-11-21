@@ -336,6 +336,21 @@ def case_a():
     if not A.no_seed:                                    # (review) every word checked before the first write
         confirm("SEED", "write the seed (project slot A with a pool phrase and a scene, user presets U71 and U72) over the editor?")
     b0 = backup("before-a1-standard")                    # (review) restored at the end, on the Nightly (the seed's slots 70, 71 and slot A come back too)
+    try:
+        r2, ok, cmp, pd, sv = case_a_run()
+    except BaseException as e:                           # (review) a failed install, a refused seed, a stop: the restore is owed
+        pending_restore(b0, f"case a stopped before its restore: {e.code if isinstance(e, SystemExit) else repr(e)}", [])
+    rs = restore_backup(b0, "a: the unit as before a1 (the Nightly's backup), on the Nightly")
+    if not rs["ok"]:
+        pending_restore(b0, f"case a: the restore does not verify: {rs['problems'][:4]}", rs.get("written", []))
+    if not ok:
+        raise SystemExit(f"q4_install: case a: NOT kept: objects {cmp['differing'] or ''} {cmp['missing'] or ''} projects {pd[:8]} "
+                         f"seed {(sv or {}).get('problems', [])[:4]}")
+    return r2
+
+
+def case_a_run():
+    """case a from the Standard install to the compare (no restore: the caller's) -> (r2, ok, cmp, pd, sv)"""
     r1 = page("a1-standard", build="build-dual", expect=A.standard, take_backup=False)
     if not r1.get("ok"):
         raise SystemExit("q4_install: the Standard install did not end clean: stop and look (nothing more is done)")
@@ -375,13 +390,7 @@ def case_a():
          "checked": "each saved object's bytes; each project's tracks (engine, preset, level, mute), its current pattern's steps and BPM, loaded over the editor",
          "not_checked": "that the projects sound as before (by ear), the scenes and pool phrases playing, the user presets heard: the panel's and the ear's",
          "note": "a difference is a finding unless the format revision's conversion documents it (7.37 Q4 pass mark)"})
-    rs = restore_backup(b0, "a: the unit as before a1 (the Nightly's backup), on the Nightly")
-    if not ok:
-        raise SystemExit(f"q4_install: case a: NOT kept: objects {cmp['differing'] or ''} {cmp['missing'] or ''} projects {pd[:8]} "
-                         f"seed {(sv or {}).get('problems', [])[:4]}")
-    if not rs["ok"]:
-        raise SystemExit(f"q4_install: case a: the restore of {b0} does not verify: {rs['problems'][:4]}")
-    return r2
+    return r2, ok, cmp, pd, sv
 
 
 def restore_backup(path, what):
@@ -392,13 +401,34 @@ def restore_backup(path, what):
             raise UO.Refused("q4_install: a host suite is running: the restore is refused")
         u = fm1hw.Unit()
         try:
+            was, now = json.load(open(path)).get("firmware"), u.info()["version"]
+            if was != now:                               # (review) restored only on the firmware it was taken on: no other firmware's re-pack compared
+                raise UO.Refused(f"q4_install: the backup was taken on {was}, the unit runs {now}: restore it on {was}")
             r = UO.restore(u, path, log=lambda line: None)
         finally:
             u.close()
     except SystemExit as e:
-        r = {"restore": path, "ok": False, "problems": [str(e.code if isinstance(e.code, str) else e)]}
+        r = {"restore": path, "ok": False, "written": getattr(e, "done", []), "problems": [str(e.code if isinstance(e.code, str) else e)]}
     log({"restored": what, **r})
     return r
+
+
+def pending_restore(path, why, done):
+    """(review) a restore owed: OUT/PENDING-RESTORE-LABEL.json and the log's last lines say which backup, onto which firmware, what was
+    written already and the command; then the run stops non-zero"""
+    try:
+        fw = json.load(open(path)).get("firmware")
+    except (OSError, ValueError, AttributeError):
+        fw = None
+    cmd = f"{sys.executable} tools/hw/unit_objects.py {A.out} {A.label}-restore restore --backup {path} --confirm RESTORE"
+    rec = {"pending_restore": path, "onto_firmware": fw, "why": why, "objects_written_already": list(done), "command": cmd,
+           "at": datetime.datetime.now().isoformat(timespec="seconds"),
+           "note": "install that firmware first if the unit runs another (a Nightly's backup is refused by 0.15.0); the restore writes every object again"}
+    f = os.path.join(A.out, f"PENDING-RESTORE-{A.label}.json")
+    json.dump(rec, open(f, "w"), indent=1)
+    log(rec)
+    print(f"q4_install: PENDING RESTORE ({f}): {path} onto {fw}. Run: {cmd}", flush=True)
+    raise SystemExit(f"q4_install: {why}; PENDING RESTORE of {path} onto {fw}: {cmd}")
 
 
 def wipe_backups_file():
@@ -610,15 +640,17 @@ def run_case():
         rb = nightly("b-nightly")
         state("b: after the Nightly")
         log({"case": "b", "ok": bool(rb.get("ok")), "error": None if rb.get("ok") else (rb.get("error") or rb.get("final"))})
-        if not rb.get("ok"):
-            raise SystemExit(f"q4_install: case b: the page did not install (NOT ok): {rb.get('error') or rb.get('final')}")
         rows = json.load(open(wipe_backups_file())) if os.path.exists(wipe_backups_file()) else []
+        if not rb.get("ok"):
+            if rows:
+                pending_restore(rows[0]["backup"], f"case b: the page did not install (NOT ok): {rb.get('error') or rb.get('final')}", [])
+            raise SystemExit(f"q4_install: case b: the page did not install (NOT ok): {rb.get('error') or rb.get('final')}")
         if not rows:
             raise SystemExit(f"q4_install: case b: no wipe backup recorded in {wipe_backups_file()}: the unit's data cannot be put back (run the wipes with this OUT and LABEL)")
         rs = restore_backup(rows[0]["backup"], f"b: the unit as before {rows[0]['step']}, on the Nightly")
-        os.replace(wipe_backups_file(), wipe_backups_file().replace(".json", f"-restored-{datetime.datetime.now():%Y%m%d-%H%M%S}.json"))
         if not rs["ok"]:
-            raise SystemExit(f"q4_install: case b: the restore of {rows[0]['backup']} does not verify: {rs['problems'][:4]}")
+            pending_restore(rows[0]["backup"], f"case b: the restore does not verify: {rs['problems'][:4]}", rs.get("written", []))
+        os.replace(wipe_backups_file(), wipe_backups_file().replace(".json", f"-restored-{datetime.datetime.now():%Y%m%d-%H%M%S}.json"))
     elif A.case == "c":
         if not A.stock:
             raise SystemExit("q4_install: case c needs --stock FM-1.fwsc")

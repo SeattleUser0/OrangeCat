@@ -302,6 +302,7 @@ class EditorMock(fm1hw.Unit):
             if op == 2:
                 if not self.put or self.put["id"] != oid: return [op, oid, 5]
                 pt, self.put = self.put, None
+                if oid in getattr(self, "fail_commit", ()): return [op, oid, 4]          # (a flash write the unit refuses: a restore stopped part way)
                 if len(pt["buf"]) != pt["size"] or (crc(pt["buf"]) if pt["buf"] else 0) != pt["crc"]: return [op, oid, 2]
                 if pt["size"]:
                     if oid not in self.lossy: self.apply(oid, bytes(pt["buf"]))

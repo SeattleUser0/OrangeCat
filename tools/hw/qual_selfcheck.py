@@ -991,17 +991,26 @@ def _remote_q4_checks():
                 hushed(Q4.presets_wipe)
                 Q4.nightly = lambda step, take_backup=True, u=u: (u.set_fw("nightly"), {"ok": True})[1]
                 Q4.A.case = "b"
-                hushed(Q4.run_case)
-                return 1 in u.projects and u.lib.get(3) and not UO.backup_matches(u, first)
-            attempt(f"review q4 ({fw}): case b, after the wipes and the Nightly, restores the first wipe's backup (projects and presets back, the unit equals it)", case_b)
+                try:
+                    hushed(Q4.run_case)
+                    ex = None
+                except SystemExit as e:
+                    ex = str(e)
+                if fw == "nightly":
+                    return ex is None and 1 in u.projects and u.lib.get(3) and not UO.backup_matches(u, first)
+                pend = json.load(open(os.path.join(d, "PENDING-RESTORE-R.json")))       # (wiped on 0.15.0, restored only on the firmware it was taken on)
+                return (ex and "PENDING RESTORE" in ex and pend["pending_restore"] == first and "0.15.0" in pend["onto_firmware"]
+                        and "--confirm RESTORE" in pend["command"] and "taken on" in pend["why"])
+            attempt(f"review q4 ({fw}): case b, after the wipes and the Nightly, restores the first wipe's backup on the firmware it was taken on "
+                    f"({'restored, the unit equals it' if fw == 'nightly' else 'taken on 0.15.0: PENDING-RESTORE, exit non-zero'})", case_b)
         # case a: 0.15.0 Standard, the seed, the Nightly over it (the same store: OC_PJ4 0)
         d = tempfile.mkdtemp(prefix="q4a-")
-        u = EM.EditorMock("0.15.0")
+        u = EM.EditorMock("nightly")                       # (the unit runs the Nightly before a1)
         Q4.A = AP.Namespace(out=d, label="A", case="a", expect="0.16.0", layout=None, yes=True, confirm=["SEED"], url="x", nightly_build="b",
                             backup=None, answers=None, minutes=1.0, standard="0.15.0", no_seed=False, no_pause=False)
         n = {"k": 0}
         Q4.backup = lambda tag, u=u, d=d, n=n: (n.__setitem__("k", n["k"] + 1), mock_backup(u, os.path.join(d, f"backup-{tag}-{n['k']}.json")))[1]
-        Q4.page = lambda step, **k: {"ok": True}
+        Q4.page = lambda step, u=u, **k: (u.set_fw("0.15.0") if step == "a1-standard" else None, {"ok": True})[1]
         Q4.nightly = lambda step, take_backup=True, u=u: (u.set_fw("nightly"), {"ok": True})[1]
         F.Unit = lambda u=u: u
         res = {}
@@ -1030,11 +1039,50 @@ def _remote_q4_checks():
             except SystemExit as e:
                 return "--confirm SEED" in str(e) and not calls
         def changed_on_install(u):
-            u.set_fw("0.15.0")
             Q4.nightly = lambda step, take_backup=True, u=u: (u.set_fw("nightly"), u.lib.__setitem__(3, ("MACRO", 8, "USER PAD", {"LEVEL": 91})), {"ok": True})[2]
             return hushed(lambda: _expect_exit(Q4.case_a))
         attempt("remote q4: case a's byte compare keeps every object present before, 64..83 too (no conversion on 4573e79d), and a changed one fails it",
                 lambda: res.get("line", {}).get("objects", {}).get("kept") and changed_on_install(u))
+
+        def pending(fault, d=d):
+            """case a stopped by `fault` (set on the mock / the module): a PENDING-RESTORE record, exit non-zero"""
+            f = os.path.join(d, "PENDING-RESTORE-A.json")
+            if os.path.exists(f): os.remove(f)
+            u.set_fw("nightly"); u.fail_commit = set()
+            undo = fault()
+            try:
+                hushed(Q4.case_a); ex = None
+            except SystemExit as e:
+                ex = str(e)
+            finally:
+                undo()
+                u.fail_commit = set()
+                Q4.nightly = lambda step, take_backup=True, u=u: (u.set_fw("nightly"), {"ok": True})[1]
+            if not (ex and "PENDING RESTORE" in ex and os.path.exists(f)):
+                return None
+            rec = json.load(open(f))
+            last = open(os.path.join(d, "q4-A.log")).read().strip().splitlines()[-1]
+            ok = ("before-a1-standard" in rec["pending_restore"] and "0.16.0" in rec["onto_firmware"] and "--confirm RESTORE" in rec["command"]
+                  and "pending_restore" in last)
+            return rec if ok else None
+
+        def a2_fails():
+            Q4.nightly = lambda step, take_backup=True: {"ok": False, "error": "mock: not found"}
+            return lambda: None
+
+        def seed_refused():
+            real = UO.seed
+            UO.seed = lambda *a, **k: (_ for _ in ()).throw(UO.Refused("unit_objects: mock: the seed refused"))
+            return lambda: setattr(UO, "seed", real)
+
+        def restore_breaks():
+            u.fail_commit = {18}
+            return lambda: None
+        attempt("review q4: case a, the Nightly install failing: PENDING-RESTORE (the before-a1 backup, onto the Nightly, nothing written, the command), exit non-zero",
+                lambda: (lambda r: r is not None and r["objects_written_already"] == [])(pending(a2_fails)))
+        attempt("review q4: case a, the seed refused: PENDING-RESTORE, exit non-zero", lambda: pending(seed_refused) is not None)
+        attempt("review q4: case a, the restore failing part way (object 18 refused): PENDING-RESTORE with the objects already written (2..17), exit non-zero",
+                lambda: (lambda r: r is not None and r["objects_written_already"][:3] == [2, 3, 4] and 18 not in r["objects_written_already"])(pending(restore_breaks)))
         attempt("review q4: case a without --confirm SEED refuses before the backup and before the Standard install (every word before the first write)", no_seed_word)
 
     finally:
