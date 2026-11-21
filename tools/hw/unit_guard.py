@@ -233,6 +233,7 @@ class Guard:
         self.backup = None
         self.bank = None
         self.on_restore = []                             # extra first steps of the restore (name, fn): a tool's own transport / clock
+        self.always = []                                 # (Round 32) steps run at the end when the restore does not run (nothing saved yet): a latch set before the save
 
     def say(self, msg):
         print(f"{self.tool}: {msg}", flush=True)
@@ -552,6 +553,10 @@ def run_guarded(g, body):
         try:
             if g.done:
                 ok = g.restore()
+            elif g.always and g.u is not None:           # (Round 32) a refusal before the save: no restore, but what was set before it is let go (never a link opened just for it)
+                for name, fn in g.always:
+                    if not g.guard(name, fn):
+                        ok = False
         finally:
             g.close()
             if ok is False:

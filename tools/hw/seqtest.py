@@ -504,7 +504,7 @@ def run(u, name, cell):
     ra = capture.Recorder(f"{OUT}/{LABEL}-{name}-a4c.wav", "audio4c").start()
     ru = capture.Recorder(f"{OUT}/{LABEL}-{name}-usb.wav", "usb").start()
     time.sleep(0.5)
-    u.stats(reset=True); m0 = memory(u); d0 = dubstate(u) if dub else None
+    u.stats(reset=True); m0 = memory(u); d0 = dub_read(u)          # (Round 32) every cell: an eviction is flagged in the cells without DUB too
     clock_gap = None
     if kind == "feel-ext":
         u.play(play_s + 0.3, bpm=BPM); polls, running = [], 0; clock_gap = round(u.clock_gap_max_ms, 1)
@@ -513,8 +513,8 @@ def run(u, name, cell):
     st = u.stats(); m1 = memory(u); v = u.voices()
     xa, rate_a = ra.stop(); xu, rate_u = ru.stop()
     time.sleep(RELEASE_S)
-    v_rel = u.voices()
-    d1 = dubstate(u) if dub else None
+    v_rel = u.voices(strict=True)                         # (Round 32) None when not answered: not judgeable, the run fails
+    d1 = dub_read(u)
     mu = xu.mean(axis=1); ons, peaks = onsets(mu, rate_u)
     ref = (0,) if kind != "slide" else (0, 4)
     t0 = grid_origin(ons, ref, PASSES)
@@ -523,7 +523,7 @@ def run(u, name, cell):
     a = capture.analyse(xa, rate_a); uu = capture.analyse(xu, rate_u)
     row = {"name": name, "cell": ":".join(cell), "passes": PASSES, "t0": t0, **res, "late": st["late"], "worst_us": st["worst_us"], "load_pct": st.get("load_pct"),
            "mem_before": m0, "mem_after": m1, "voices_end": v, "dac_silences": max(a["ch1"]["dac_silences"], a["ch2"]["dac_silences"]), "usb_holes": uu["ch1"]["dropouts"],
-           "voices_after_release": v_rel, "dub_after": d1, "dub_evicted": dub_evicted(d0, polls, d1) if dub else None, "dub_cell": bool(dub),
+           "voices_after_release": v_rel, "dub_after": d1, **dub_fields(d0, polls, d1, dub),
            "dub_before": d0, "dub_polls_changes": [p for i, p in enumerate(polls) if i == 0 or p[1:] != polls[i - 1][1:]], "still_running": running, "clock_gap_ms": clock_gap}
     if kind == "slide" and t0 is not None:
         summary, detail = slide_checks(mu, rate_u, ons, t0, rules, PASSES, unison=cell[2] == "UNISON")
@@ -544,8 +544,21 @@ def run(u, name, cell):
 
 
 def hung(v):
-    """(Round 32) a note still sounding or gated after the stop and RELEASE_S: hung"""
-    return bool(v) and (v.get("sounding", 0) > 0 or v.get("gated", 0) > 0)
+    """(Round 32) a note still sounding or gated after the stop and RELEASE_S: hung; voices not read (None: the reply lost) count as hung: not
+    judgeable, the run fails"""
+    return v is None or v.get("sounding", 0) > 0 or v.get("gated", 0) > 0
+
+
+def dub_fields(d0, polls, d1, dub):
+    """(Round 32) every cell records whether DUB was evicted (flagged in a cell without DUB, failing a DUB cell: row_ok)"""
+    return {"dub_evicted": dub_evicted(d0, polls, d1), "dub_cell": bool(dub)}
+
+
+def dub_read(u):
+    try:
+        return dubstate(u)
+    except TimeoutError:
+        return None
 
 
 def dub_evicted(d0, polls, d1):
@@ -563,7 +576,8 @@ def row_ok(row):
     if row.get("forbidden_hit"): why.append("a forbidden onset")
     if row.get("flam_bad"): why.append("flams")
     if not all(sl["cell_fail"] == 0 for sl in row.get("slide", {}).values()): why.append("slide checks")
-    if hung(row.get("voices_after_release")): why.append(f"a hung note: {row['voices_after_release']} {RELEASE_S} s after the stop")
+    if row.get("voices_after_release") is None: why.append("the voices after the stop not read (no reply): the hung-note check not judgeable")
+    elif hung(row.get("voices_after_release")): why.append(f"a hung note: {row['voices_after_release']} {RELEASE_S} s after the stop")
     if row.get("dub_cell") and row.get("dub_evicted"): why.append("DUB evicted in a DUB cell (the governor fired or DUB FULL)")
     return not why, why
 

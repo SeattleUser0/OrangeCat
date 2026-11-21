@@ -156,6 +156,38 @@ def latch_release(u):
     return fx_latch(u, LATCH_OFF)
 
 
+def release_latch(u, settle=3.0, pause=time.sleep):
+    """LATCH off (every latched effect let go), read back: latch 0, nothing latched, and FX_TABLE `uses` 0 for id 3 -> (ok, reply, table)"""
+    r = latch_release(u)
+    if r is None or r["latch"] or r["latched"]:
+        return False, r, None
+    end = time.monotonic() + settle
+    while True:
+        tab = UG.fx_table(u)
+        if (UG.fx_row(tab, 3) or {}).get("uses", 0) == 0:
+            return True, r, tab
+        if time.monotonic() > end:
+            return False, r, tab
+        pause(0.25)
+
+
+def arm_latch_release(g, st, log):
+    """(Round 32) the latch the script sets is let go on every exit after it was set: as the restore's step when the guard restores, and as a step of
+    its own when a refusal comes before anything was saved (the guard then restores nothing). Idempotent: released once, read back"""
+    def unlatch():
+        if not st.get("latched"):
+            return
+        ok, r, tab = release_latch(g.u)
+        log({"latch_released": r, "read_back_ok": ok, "fx_table": tab})
+        if not ok:
+            print(f"qual_soak: WARNING: FX LATCH not released ({r}): on the unit hold FX and press OCT- (every effect off, LATCH off)", flush=True)
+            raise RuntimeError(f"the FX latch not released: {r}")
+        st["latched"] = False
+    g.on_restore.append(("the soak's FX latch", unlatch))
+    g.always.append(("the soak's FX latch", unlatch))
+    return unlatch
+
+
 def latch_problem(fx, tab):
     """None when the level's latch holds: FX needs FX_TABLE `uses` 1 for id 3 (GLITCH latched: latch_glitch); else what is wrong"""
     if fx != "FX":
@@ -181,10 +213,23 @@ def args_problem(a):
     return None
 
 
-def start_problem(tab):
+def din_refusal(clock, port):
+    """(Round 32) --din-row found no DIN port: an external run is refused (7.37 Q1: the DIN row before each external run), an internal one logs it"""
+    if clock == "ext" and not port:
+        return "qual_soak: refusing the external run: --din-row found no MIDI output port with DIN in its name (7.37 Q1: the DIN row before each external run)"
+    return None
+
+
+def start_problem(tab, fx="FX", latch=None):
     """(Round 32, 7.37's start: the unit as the previous run's restore left it) no DUB TAPE or REVERB MODES instance left playing (`uses` 0 for ids 1
-    and 2; id 3's `uses` is the FX level's latch, checked by the level)"""
+    and 2); for BASE and REV also no FX latch (135's read before anything: latch 0, nothing latched) and FX LAYER `uses` 0 (FX sets its own latch)"""
     bad = [f"{UG.FX_NAMES.get(x['id'], x['id'])} `uses` {x['uses']}" for x in (tab or []) if x["id"] in (1, 2) and x.get("uses")]
+    if fx in ("BASE", "REV"):
+        if latch is None:
+            bad.append("135 FX_LATCH not answered (the latch cannot be read)")
+        elif latch.get("latch") or latch.get("latched"):
+            bad.append(f"the FX latch is on ({latch})")
+        bad += [f"FX LAYER `uses` {x['uses']}" for x in (tab or []) if x["id"] == 3 and x.get("uses")]
     return ("the unit is not as a restore leaves it: " + ", ".join(bad)) if bad else None
 
 
@@ -400,13 +445,7 @@ def main():
     g.on_restore.append(("the soak's transport", stop_transport))
     st["latched"] = False
 
-    def unlatch():                                       # (Round 32) the latch the script set, let go (LATCH off) before the guard puts the rest back
-        if st["latched"]:
-            r = latch_release(g.u)
-            log({"latch_released": r})
-            if r is None or r["latch"] or r["latched"]:
-                print(f"qual_soak: WARNING: FX LATCH not released ({r}): on the unit hold FX and press OCT- (every effect off, LATCH off)", flush=True)
-    g.on_restore.append(("the soak's FX latch", unlatch))
+    arm_latch_release(g, st, log)                        # (Round 32) let go on every exit after the latch, inside or outside the guard
 
     def body(u):
         tracked(u, tmo)
@@ -421,6 +460,7 @@ def main():
         vn = next(d for d in ids.tp if d["id"] == ID["VCE"])
         mono = vn["min"] + vn["names"].index("MONO")
         tab = UG.fx_table(u)
+        latch0 = fx_latch(u, (7,)) if A.fx in ("BASE", "REV") else None    # (Round 32) read only: a latch left on would play under BASE and REV
         mods = u.modules()
         if A.fx == "BASE":
             print(f"qual_soak: {BASE_NOTE}", flush=True)
@@ -441,7 +481,7 @@ def main():
         if A.fx == "REV" and (UG.fx_row(tab, 3) or {}).get("state") == 7:
             print("qual_soak: note: FX LAYER is registered too (7.37's REV level has REVERB MODES in its place): logged, not refused", flush=True)
         now = datetime.datetime.now()
-        sp = start_problem(tab)
+        sp = start_problem(tab, A.fx, latch0)
         if sp:
             raise SystemExit(f"qual_soak: refusing to run: {sp} (7.37: every run starts from the unit as the previous run's restore left it)")
         head = {"image": UG.image_identity(u), "note": BASE_NOTE if A.fx == "BASE" else None, "label": A.label, "version": info["version"], "clock": A.clock, "fx": A.fx, "block": A.block, "day": now.strftime("%Y-%m-%d %A"),
@@ -488,6 +528,8 @@ def main():
             if not port:
                 st["din"] = {"run": False, "why": "no output port with DIN in its name"}
                 log({"din_row": "no output port with DIN in its name: not run"})
+                if din_refusal(A.clock, port):
+                    raise SystemExit(din_refusal(A.clock, port))
             else:
                 u.set_global(ID["G_CLK"], 2); clockstats(u, True)
                 with mido.open_output(port) as o:

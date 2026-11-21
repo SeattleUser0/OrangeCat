@@ -275,6 +275,7 @@ def main():
     soak_checks()
     swap_checks()
     round32_checks()
+    gfix_checks()
     print(f"\n{len(FAILS)} failed" if FAILS else "\nevery check passed")
     return 1 if FAILS else 0
 
@@ -659,6 +660,81 @@ def round32_checks():
     attempt("Q4: a project's read-back compared (a step over the bytes both firmwares send)",
             lambda: Q4.compare_projects(pb, {0: {"tracks": [{"engine": 8, "preset": 1, "level": 0, "mute": 0, "steps": [[1, 2, 3, 0, 0]]}], "bpm": 120}}) == []
             and Q4.compare_projects(pb, {0: {"tracks": [{"engine": 8, "preset": 2, "level": 0, "mute": 0, "steps": [[1, 2, 3]]}], "bpm": 120}}))
+
+
+def gfix_checks():
+    """(Round 32, the review of r32-int 1f798a0d) each fails there"""
+    import argparse as AP
+    spec = importlib.util.spec_from_file_location("qual_soak_gfix", os.path.join(HERE, "soak", "qual_soak.py"))
+    Q = importlib.util.module_from_spec(spec); spec.loader.exec_module(Q)
+
+    class LU:
+        """135 FX_LATCH and FX_TABLE: the latch and GLITCH's `uses` follow the requests"""
+        def __init__(self):
+            self.latch, self.latched, self.sent = 0, 0, []
+        def info(self): return {"version": "FAKE"}
+        def close(self): pass
+        def req(self, cmd, args=(), timeout=3.0):
+            assert cmd == 0
+            a = list(args)
+            if a == [5]:
+                return [5, 1] + n5(3) + [0, 16, 0, 3, 4, 7, 0, 2, 2, 0, 1 if self.latched else 0]
+            if a[0] == 7:
+                self.sent.append(a)
+                if len(a) == 2: self.latch, self.latched = a[1], 0 if not a[1] else self.latched
+                if len(a) == 4: self.latch, self.latched = 1, (self.latched | (1 << (a[2] - 1))) if a[3] else 0
+                return [7, 0, self.latch, self.latched & 127, self.latched >> 7, 0, 1 if self.latched else 0, 0]
+            raise TimeoutError
+    for refusal in ("latch_problem", "start_problem", "an exception in image_identity"):
+        g = UG.Guard("selfcheck", tempfile.mkdtemp(), "T", backup=False)
+        u = LU()
+        g.preflight = lambda g=g, u=u: setattr(g, "u", u)
+        st, logs = {"latched": False}, []
+
+        def body(_u, st=st, u=u, refusal=refusal):
+            st["latched"] = True
+            Q.latch_glitch(u, settle=0.0)
+            raise SystemExit(f"refusing to run: {refusal}") if refusal != "an exception in image_identity" else RuntimeError(refusal)
+
+        def go(g=g, st=st, logs=logs, body=body):
+            Q.arm_latch_release(g, st, logs.append)
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    UG.run_guarded(g, body)
+            except BaseException:
+                pass
+            return u.sent[-1] == [7, 0] and u.latch == 0 and not u.latched and not st["latched"] and logs and logs[-1]["read_back_ok"] and not g.done
+        attempt(f"gfix: GLITCH latched, then a refusal before the save ({refusal}): the latch is let go and read back (latch 0, uses 0)", go)
+    attempt("gfix: BASE and REV start only with the FX latch off (135 read) and FX LAYER `uses` 0; FX sets its own",
+            lambda: Q.start_problem([], "BASE", {"latch": 1, "latched": 8}) and Q.start_problem([{"id": 3, "uses": 1}], "REV", {"latch": 0, "latched": 0})
+            and Q.start_problem([], "REV", None) and Q.start_problem([], "BASE", {"latch": 0, "latched": 0}) is None and Q.start_problem([{"id": 3, "uses": 1}], "FX", None) is None)
+    attempt("gfix: --din-row with no DIN port refuses the external run (an internal one goes on)",
+            lambda: Q.din_refusal("ext", None) and Q.din_refusal("int", None) is None and Q.din_refusal("ext", "AUDIO4c DIN") is None)
+    import fm1hw as F
+    import seqtest as S
+
+    class TU:
+        def req(self, *a, **k): raise TimeoutError("lost")
+    row = {"name": "r00", "cell": "light:0", "expected": 64, "matched": 64, "missed": [], "voices_after_release": None, "dub_cell": False, "dub_evicted": False}
+    attempt("gfix: the voices not answered are not judgeable (strict: None), and the run fails",
+            lambda: F.Unit.voices(TU(), strict=True) is None and F.Unit.voices(TU())["sounding"] == 0 and not S.row_ok(row)[0] and S.hung(None))
+    attempt("gfix: a DUB eviction is recorded in a cell without DUB (flagged, not failed)",
+            lambda: S.dub_fields({"gov": 1}, [], {"gov": 2, "full": 0}, 0) == {"dub_evicted": True, "dub_cell": False}
+            and S.row_ok({**row, "voices_after_release": {"sounding": 0, "gated": 0}, "dub_evicted": True})[0])
+    js = ("import('./web/fm1oc.js').then((m) => console.log(JSON.stringify([m.planLine({how: 'rearrange', plan: {steps: [{mod: {name: 'WHEEL'}, start: 17}]}, "
+          "mods: [{name: 'WHEEL', engine: 7, current: true}], st: {starts: [{state: 7, kind: 0, engine: 7}]}}), m.planLine({how: 'asis', plan: {steps: []}, "
+          "mods: [{name: 'WHEEL', engine: 7, current: true}], st: {starts: [{state: 7, kind: 0, engine: 7}]}})])))")
+    p = subprocess.run(["node", "-e", js], cwd=REPO, capture_output=True, text=True)
+    attempt("gfix: planLine lists kept modules only as the unit stands (asis), not in a rearrange",
+            lambda: json.loads(p.stdout) == ["plan: WHEEL at start 17", "plan: nothing to write | kept: WHEEL at start 0"])
+    import q4_install as Q4
+
+    def twice():
+        try:
+            Q4.plan_layout([{"name": "WHEEL", "start": 17, "kept": False}, {"name": "WHEEL", "start": 5, "kept": True}]); return False
+        except SystemExit as e:
+            return "more than once" in str(e)
+    attempt("gfix: a plan that names a module twice is refused (no silent winner)", twice)
 
 
 if __name__ == "__main__":

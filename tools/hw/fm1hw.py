@@ -186,12 +186,13 @@ class Unit:
         d = self.req(72, [1] if reset else [])
         return self._parse(d)
 
-    def voices(self):
-        """(0.13.8) schema 3 (flag 2): voices sounding (not fading), gated, overload sheds and voices given up since boot"""
+    def voices(self, strict=False):
+        """(0.13.8) schema 3 (flag 2): voices sounding (not fading), gated, overload sheds and voices given up since boot. No reply: zeros, or None with
+        strict (Round 32: a check that judges the voices must not read a lost reply as silence)"""
         try:
             d = self.req(72, [2], timeout=1.0)
         except TimeoutError:
-            return {"sounding": 0, "gated": 0, "sheds": 0, "kills": 0}
+            return None if strict else {"sounding": 0, "gated": 0, "sheds": 0, "kills": 0}
         f = [sum(d[1 + i * 5 + j] << (7 * j) for j in range(5)) for i in range((len(d) - 1) // 5)]
         return {"sounding": f[20], "gated": f[21], "sheds": f[24], "kills": f[25]}
 
