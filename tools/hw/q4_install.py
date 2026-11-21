@@ -280,7 +280,7 @@ def page(step, build=None, stock=None, expect=None, ask=True, take_backup=True):
     if take_backup:
         backup(f"before-{step}")
     d = os.path.join(A.out, step)
-    cmd = ["tools/hw/cdp_install.mjs", "--url", A.url, "--out", d, "--minutes", str(A.minutes), "--retries", "3"]
+    cmd = ["tools/hw/cdp_install.mjs", "--url", A.url, "--out", d, "--minutes", str(A.minutes), "--retries", "1"]   # (Round 32) one install attempt per build (SPEC.md 13.1)
     cmd += ["--stock", os.path.abspath(stock)] if stock else ["--build", build]
     if expect:
         cmd += ["--expect", expect]
