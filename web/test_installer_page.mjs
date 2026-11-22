@@ -652,14 +652,14 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
             const real = (m) => { const s = String.fromCharCode(...m.slice(0, 64)); return /wheel/.test(s) ? T.engOcm(T.WHEEL, T.AREA) : /shapes/.test(s) ? T.engOcm(T.SHAPES, [0, 6]) : /dub/.test(s) ? T.fxOcm(T.DUB, 3, T.sectsFor(3)) : /fxlayer/.test(s) ? T.fxOcm(3, 2, T.sectsFor(2).slice(0, 18), {kind: 3}) : /reverb/.test(s) ? T.fxOcm(2, 1, T.sectsFor(1).slice(0, 18), {kind: 2}) : T.modelsOcm(9, T.sectsFor(9)); };
             f.names = Array.from(ctx.files.modules, (m) => m).map((m) => String.fromCharCode(...m.slice(0, 64)).replace(/\.ocm.*$/s, "").replace(/^OCMF.*$/s, "MODELS"));
             f.sum = JSON.parse(JSON.stringify(await realRunSet({...ctx, sleep: async () => {}, files: {...ctx.files, modules: Array.from(ctx.files.modules, real)},
-              runFirmware: async (p) => { await ctx.runFirmware(p); f.fw++; f.unit = nightlyAfter(f.lowAfter); },
+              runFirmware: async (p) => { await ctx.runFirmware(p); f.fw++; f.unit = f.after ? f.after() : nightlyAfter(f.lowAfter); },
               openUnit: async () => (f.unit ? f.unit.link() : null), peekUnit: async () => null,
               confirmRearrange: async (names, drop) => { f.asked.push([names, drop]); return ctx.confirmRearrange(names, drop); }})));
             return f.sum;
           };
           return f;
         };
-        const openFlow = async ({rev = false, fw = true, slot = 1, prophet = false} = {}) => {   // slot: SLOT_INFO's state (1 claimed and empty; 0 not claimed; null no reply)
+        const openFlow = async ({rev = false, fw = true, slot = 1, prophet = false, data = null} = {}) => {   // data: the unit's replies (default: v015)   // slot: SLOT_INFO's state (1 claimed and empty; 0 not claimed; null no reply)
           const f = flowOf(), pg = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...FULL, releases: [FULL]}, {runSet: f.runSet, OC_FX_KIND});
           await answer(pg, "standard.fwsc");
           const i = pg.pending.findIndex((q) => q.url.startsWith("orangecat-plaits-")); const [q] = pg.pending.splice(i, 1); q.resolve({ok: true, arrayBuffer: async () => tm.buffer}); await pg.tick(); await pg.tick();
@@ -667,7 +667,7 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
           pg.element("stage-fx").checked = true; pg.element("stage-fx").listeners.change();
           pg.element("stage-fx-opt").checked = rev; pg.element("stage-fx-opt").listeners.change();
           pg.element("stage-fw").checked = fw; pg.element("stage-fw").listeners.change();
-          pg.unitReads.data = v015({prophet}); pg.unitReads.slot = slot;
+          pg.unitReads.data = data ? data() : v015({prophet}); pg.unitReads.slot = slot;
           return {pg, f};
         };
         const goFlow = async (pg) => {
@@ -751,6 +751,85 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
           const ok = await openFlow({slot: small}); ok.pg.unitReads.answer = false;
           await goFlow(ok.pg);
           assert.ok(!/sample slot \(/.test(ok.pg.element("models-room").textContent) && !/sample slot \(/.test(ok.pg.confirms[0] || ""), "a sample that fits is not named");
+        }
+        // 1g. (Round 32, found on the unit in the gate's Q4: ~/fm1-hw/captures/r32/gate/q4/back-to-nightly) 0.15.0 Standard installed over Nightly 4573e7 whose own module stage
+        //     did not run: MOD_INFO holds only start 1, the Nightly's SHAPES, refused by 0.15.0 (state 2, why 3: FW_MOD_BAD_IFACE); SLOT_INFO claimed. f3687c28 refused the
+        //     default set: "MACRO models needs 9 sectors in one run; the biggest run the unit's loader can use is 6". The planner takes an empty start before one with junk:
+        //     SHAPES went to start 0 (sectors 6..11) beside the junk at start 1, leaving two runs of six. In another order (the pick first) the set fits as the unit stands
+        //     (PLACE.arrange). The full flow on both readings of start 1 by the new firmware: junk (another build's) and OK (the same build's SHAPES): every ticked module ends OK.
+        {
+          const v015s = () => {
+            const mi = [3, 12, 3, 6, 112, ...n5(IF015), ...n5(33558784), ...n5(1702811984), 127, ...[[0, 0, 0, 0], [2, 3, 14, 24160], [0, 0, 0, 0]].flatMap(([s, w, e, l]) => [s, w, e, ...n3(l)]), 127];
+            const en = [20, ...Array.from({length: 20}, (_, e) => [e === 8 || e === 9 || e === 14 ? 1 : 0, e === 14 ? 7 : 0, 0, 127, 0, 0, 0, ...n3(0), e === 8 ? 4 : 0]).flat(), 3, 0, 0, 0, 2, 3, 14, 0, 0, 0];
+            const pi = [1, 0, ...n3(40232), ...n5(1702811984), ...n3(40232), ...n5(1702811984), ...n3(40960)];
+            return {pack: parsePackInfo(pi), mod: parseModInfo(mi), engines: parseEngines(en), fx: null};
+          };
+          const u = v015s();
+          assert.ok(u.mod.nstarts === 3 && u.mod.sectors === 12 && !u.mod.lowOk && u.mod.starts[1].state === 2 && u.mod.starts[1].why === 3 && u.mod.starts[1].engine === 14 && !u.mod.starts[0].state && !u.mod.starts[2].state, JSON.stringify(u.mod));
+          const st = PLACE.fromUnit(PLACE.afterFirmware(u, {iface: 1, lowOk: true}));
+          const S = {engine: 14, name: "SHAPES"}, P = {mid: 0x4D08, sectors: 9, name: "MACRO models"}, W = {engine: 7, name: "WHEEL"}, D = {mid: 1, sectors: 3, name: "DUB TAPE"}, F = {mid: 3, sectors: 2, name: "FX LAYER"};
+          assert.equal(PLACE.simulate(st, [S, P, W, D, F]).failAt, 1, "the goal's order: SHAPES takes start 0, the pick has no run (the unit's refusal)");
+          const a = PLACE.arrange(st, [W, S, D, F, P]);
+          assert.equal(a.how, "asis", "another order places the set as the unit stands");
+          assert.equal(a.plan.steps.map((x) => x.mod.name + "@" + x.start).join(" "), "MACRO models@17 SHAPES@1 WHEEL@5 DUB TAPE@18 FX LAYER@2");
+          // (the review of a98b00b0) the search is depth-first with each prefix's state carried and two bounds (the sectors, the Effects table): the same first order as the
+          // whole-order search of a98b00b0 (kept here as the reference) on the installer's units and on random ones, and a bounded cost
+          {
+            const oldOther = (s0, mods, order) => {
+              const perm = (rest, pre, out) => { if (!rest.length) { out.push(pre); return; } rest.forEach((x, k) => perm([...rest.slice(0, k), ...rest.slice(k + 1)], [...pre, x], out)); return out; };
+              for (const alt of perm(order, [], []).slice(1)) { const r = PLACE.simulate(s0, alt.map((i) => mods[i]).filter((m) => !m.current)); if (r.ok) return [alt, r.steps.map((x) => x.start)]; }
+              return null;
+            };
+            const same = (s0, mods) => {
+              const order = PLACE.goalOrder(s0, mods), a = oldOther(s0, mods, order), st0 = {plans: 0}, b = PLACE.otherOrder(s0, mods, order, st0);
+              assert.equal(JSON.stringify(b && [b.order, b.steps.map((x) => x.start)]), JSON.stringify(a), "the same first order: " + JSON.stringify(mods));
+              return st0.plans;
+            };
+            const R = {mid: 2, sectors: 1, name: "REVERB MODES"}, X = {mid: 9, sectors: 1, name: "X"};
+            const units = [st, PLACE.fromUnit(PLACE.afterFirmware(v015(), {iface: 1, lowOk: true})), PLACE.fromUnit(PLACE.afterFirmware(v015({prophet: true}), {iface: 1, lowOk: true})),
+                           PLACE.fromUnit(PLACE.afterFirmware(u, {iface: 1})), T.nightly(true), T.unitState(true), T.unitState(true, [], false)];
+            for (const s0 of units) for (const set of [[W, S, D, F, P], [W, S, D, F, R, P], [W, S, D, F, R, X, P], [S, P], [P], [W, S, D, P]]) same(s0, set);
+            let seed = 7; const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+            const POOL = [{engine: 14}, {engine: 7}, {mid: 0x4D08, sectors: 9}, {mid: 0x4D08, sectors: 5}, {mid: 1, sectors: 3}, {mid: 3, sectors: 2}, {mid: 2, sectors: 1}, {mid: 9, sectors: 1}, {mid: 10, sectors: 2}, {mid: 11, sectors: 1}];
+            let cases = 0, most = 0;
+            for (let it = 0; it < 600; it++) {
+              const s0 = PLACE.emptyState(rnd(4) > 0, 3);
+              for (let k = rnd(3); k > 0; k--) s0.starts[rnd(21)] = {state: 2, kind: 0, mid: 0, engine: [14, 7][rnd(2)], length: 4096 * (1 + rnd(6))};
+              for (let k = rnd(3); k > 0; k--) s0.starts[rnd(21)] = {state: 7, kind: 1, mid: 0x55 + k, engine: PLACE.OC_FX_ENGINE, length: 4096 * (1 + rnd(2))};
+              s0.nfxmod = s0.starts.filter((x) => x.state === 7 && x.kind).length;
+              const ids = new Set(), mods = [], want = 3 + rnd(4);
+              while (mods.length < want) { const m = POOL[rnd(POOL.length)], id = m.engine != null ? "e" + m.engine : "m" + m.mid; if (ids.has(id) || (m.mid === 0x4D08 && ids.has("p"))) continue; ids.add(id); if (m.mid === 0x4D08) ids.add("p"); mods.push({...m, current: rnd(6) === 0}); }
+              if (PLACE.simulate(s0, PLACE.goalOrder(s0, mods).map((i) => mods[i]).filter((m) => !m.current)).ok) continue;
+              cases++; most = Math.max(most, same(s0, mods));
+            }
+            assert.ok(cases > 100 && most < 400, "random units: " + cases + " compared, at most " + most + " planner calls (the whole-order search: up to 6! orders x 6)");
+            const seven = [W, S, D, F, R, X, P], t0 = performance.now();
+            for (let k = 0; k < 5; k++) assert.equal(PLACE.arrange(st, seven).how, "none", "seven modules, 22 sectors on 21: no order");
+            assert.ok((performance.now() - t0) / 5 < 20, "the seven-module no-fit under 20 ms: " + ((performance.now() - t0) / 5).toFixed(1) + " ms (the whole-order search took about 700)");
+          }
+          for (const okAt1 of [false, true]) {
+            const {pg, f} = await openFlow({data: v015s});
+            f.after = () => {                                   // the unit as the tail build's firmware reads it: start 1 junk, or the same build's SHAPES (OK)
+              const s0 = T.unitState(true, okAt1 ? [[1, {engine: 14}, 24160]] : []);
+              if (!okAt1) s0.starts[1] = {state: 2, kind: 0, mid: 0, engine: 14, length: 24160};
+              return T.placedUnit(s0, RealLink);
+            };
+            await goFlow(pg);
+            const room = pg.element("models-room").textContent;
+            assert.doesNotMatch(room, /biggest run|Install waits/, "not refused: " + room);
+            assert.match(room, /The unit's loader can place it: MACRO models 9 \(module area\), SHAPES 6 \(module area\), WHEEL 1 \(module area\), DUB TAPE 3 \(tail region\), FX LAYER 2 \(module area\)\./, room);
+            assert.match(room, /not loaded by the new firmware \(the page may write over them\): a module at start 1 it cannot read\./, room);
+            assert.equal(f.fw, 1, "the firmware, then the set"); assert.ok(f.sum, pg.element("status").textContent);
+            assert.ok(!f.asked.length && !f.unit.ops.some((o) => o.startsWith("remove")), "nothing taken off");
+            const want = ["installed", "installed", "installed", "installed", "installed"];   // (OK at start 1: the mock's SHAPES file is another size, so it is written again there)
+            assert.deepEqual(f.sum.module, want, (okAt1 ? "start 1 OK: " : "start 1 junk: ") + JSON.stringify(f.sum.module) + " " + f.unit.ops.join(" "));
+            const at = (i) => f.unit.st.starts[i];
+            for (const [i, ok] of [[1, (x) => x.engine === 14], [5, (x) => x.engine === 7], [18, (x) => x.mid === 1], [2, (x) => x.mid === 3]])
+              assert.ok(at(i).state === 7 && ok(at(i)), "start " + i + ": " + JSON.stringify(at(i)));
+            const mdl = f.unit.st.starts.findIndex((x) => x.state === 7 && x.mid === 0x4D08);
+            assert.ok(mdl >= 0, "the pick is on the unit, OK");
+            assert.equal(f.unit.st.starts.filter((x) => x.state === 7).length, 5, "every ticked module, state 7, nothing else");
+          }
         }
         // 2. the optional reverb modes ticked as well (22 sectors on 21): it does not fit even after the new firmware; the page says so on that unit and offers the give-way choice
         //    (nothing chosen for the owner, nothing written); chosen, Install goes on without it
