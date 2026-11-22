@@ -60,6 +60,7 @@ typedef struct {                           /* arc.c's screen state (op1r: file s
     int16_t level[6];
 } arc_part_t;
 #define OP1G_PART_STATE arc_part_t
+#define OP1G_LEVEL_SLOT 7                  /* (engines-b) P_E7 is its LEVL (op1_glue.h): 64 the plugin's own level */
 #include "op1r/op1_glue.h"
 #define arc_trace (OP1G_OWN(self)->trace)
 #define arc_tpos (OP1G_OWN(self)->tpos)
@@ -88,10 +89,10 @@ static const op1_engine_t ENGINE_arc_oc = { arc_note_on_oc, arc_render, arc_note
 OP1G_ENGINE_FUNCS(ENGINE_arc_oc)
 
 static const preset_t ARC_PRESETS[] = {
-    {"ARC", {47, 23, 19, 35, 0, 0, 0, 0}, {0, 80, 110, 50}, 0, 0},        /* the plugin's defaults */
-    {"REED", {80, 10, 8, 20, 0, 0, 0, 0}, {2, 72, 100, 40}, 0, 0},        /* more current: a reedy buzz, clean */
-    {"BEATING", {40, 30, 20, 30, 64, 20, 64, 0}, {4, 80, 110, 60}, 0, 0}, /* the second lamp near 1:1, weak coupling: beats */
-    {"SCREAM", {127, 90, 70, 110, 100, 127, 100, 0}, {0, 64, 127, 30}, 0, 1},   /* relaxation, strong coupling (chaos), sputter; MONO */
+    {"ARC", {47, 23, 19, 35, 0, 0, 0, 64}, {0, 80, 110, 50}, 0, 0},        /* the plugin's defaults */
+    {"REED", {80, 10, 8, 20, 0, 0, 0, 64}, {2, 72, 100, 40}, 0, 0},        /* more current: a reedy buzz, clean */
+    {"BEATING", {40, 30, 20, 30, 64, 20, 64, 64}, {4, 80, 110, 60}, 0, 0}, /* the second lamp near 1:1, weak coupling: beats */
+    {"SCREAM", {127, 90, 70, 110, 100, 127, 100, 64}, {0, 64, 127, 30}, 0, 1},   /* relaxation, strong coupling (chaos), sputter; MONO */
 };
 static const engine_t ENG_ARC = {
     .name = "ARC", .page_title = {"LAMP", "PAIR"},
@@ -103,7 +104,7 @@ static const engine_t ENG_ARC = {
         {"RATI", F_INT, 0, 127, 0, 0, 0},       /* op1r's page word 5: 0 unset (1:1) */
         {"COUP", F_PCT, 0, 127, 0, 0, 0},
         {"BRIT", F_INT, 0, 127, 0, 0, 0},       /* 0 unset (neutral, as 32) */
-        {"-", F_INT, 0, 0, 0, 0, 0},
+        {"LEVL", F_INT, 0, 127, 64, 0, 0},     /* (engines-b) the module's level: (v / 64)^3, 64 the plugin's own */
     },
     .presets = ARC_PRESETS, .npresets = NELEM(ARC_PRESETS),
     .knob = {P_E0, P_E1, P_E2, P_E3}, .poly = OP1_VOICES,

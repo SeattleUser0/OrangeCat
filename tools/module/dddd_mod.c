@@ -60,6 +60,7 @@ typedef struct {                           /* dddd.c's file-scope state in op1r,
     int32_t level;                         /* (op1r's screen's view of the wall: written, read by nothing here) */
 } dddd_part_t;
 #define OP1G_PART_STATE dddd_part_t
+#define OP1G_LEVEL_SLOT 7                  /* (engines-b) P_E7 is its LEVL (op1_glue.h): 64 the plugin's own level */
 #include "op1r/op1_glue.h"
 _Static_assert(sizeof(((dddd_part_t *)0)->last_call) == OP1_VOICES * sizeof(uint32_t), "dddd's per-voice arrays are OP1_VOICES long");
 #define dd (OP1G_OWN(self)->dd)
@@ -88,10 +89,10 @@ _Static_assert(sizeof(((dddd_part_t *)0)->last_call) == OP1_VOICES * sizeof(uint
 OP1G_ENGINE_FUNCS(ENGINE_dddd)
 
 static const preset_t DDDD_PRESETS[] = {
-    {"WALL", {0, 93, 78, 31, 0, 0, 0, 0}, {0, 64, 127, 30}, 0, 0},       /* the plugin's defaults */
-    {"CRACKLE", {43, 60, 40, 20, 20, 0, 0, 0}, {0, 64, 127, 40}, 0, 0},  /* the crackle source, a low-pass, calm hands */
-    {"SCREAM", {127, 115, 100, 60, 64, 30, 0, 0}, {0, 64, 127, 36}, 0, 0}, /* metal, feedback past 80 %, band-pass */
-    {"STUTTER", {85, 90, 70, 110, 100, 60, 40, 0}, {0, 64, 127, 30}, 0, 0}, /* the hands at the top (stutter), crushed */
+    {"WALL", {0, 93, 78, 31, 0, 0, 0, 64}, {0, 64, 127, 30}, 0, 0},       /* the plugin's defaults */
+    {"CRACKLE", {43, 60, 40, 20, 20, 0, 0, 64}, {0, 64, 127, 40}, 0, 0},  /* the crackle source, a low-pass, calm hands */
+    {"SCREAM", {127, 115, 100, 60, 64, 30, 0, 64}, {0, 64, 127, 36}, 0, 0}, /* metal, feedback past 80 %, band-pass */
+    {"STUTTER", {85, 90, 70, 110, 100, 60, 40, 64}, {0, 64, 127, 30}, 0, 0}, /* the hands at the top (stutter), crushed */
 };
 static const engine_t ENG_DDDD = {
     .name = "DDDD", .page_title = {"WALL", "PAGE 2"},
@@ -103,7 +104,7 @@ static const engine_t ENG_DDDD = {
         {"FILT", F_INT, 0, 127, 0, 0, 0},       /* LP -> BP -> HP */
         {"SPRD", F_PCT, 0, 127, 0, 0, 0},
         {"CRSH", F_PCT, 0, 127, 0, 0, 0},
-        {"-", F_INT, 0, 0, 0, 0, 0},
+        {"LEVL", F_INT, 0, 127, 64, 0, 0},     /* (engines-b) the module's level: (v / 64)^3, 64 the plugin's own */
     },
     .presets = DDDD_PRESETS, .npresets = NELEM(DDDD_PRESETS),
     .knob = {P_E0, P_E1, P_E2, P_E3}, .poly = OP1_VOICES,

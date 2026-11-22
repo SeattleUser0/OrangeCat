@@ -45,25 +45,27 @@ static inline const void *const *oc_base_hot(void) { return OC_FW()->base_hot; }
 void *memcpy(void *d, const void *s, __SIZE_TYPE__ n) { return OC_FW()->mem_copy(d, s, (uint32_t)n); }
 void *memset(void *d, int c, __SIZE_TYPE__ n) { return OC_FW()->mem_set(d, c, (uint32_t)n); }
 
+#define OP1G_LEVEL_SLOT 7                  /* (engines-b) P_E7 is its LEVL (op1_glue.h): 64 the plugin's own level */
 #include "op1r/op1_glue.h"
 #include "op1r/plugins/fmbell/fmbell.c"
 _Static_assert(sizeof(fm_voice_t) <= OP1_VOICE_SIZE, "fmbell's voice is op1r's 0x24 bytes");
 OP1G_ENGINE_FUNCS(ENGINE_fmbell)
 
 static const preset_t FMBELL_PRESETS[] = {
-    {"FM BELL", {32, 62, 31, 0, 0, 0, 0, 0}, {0, 96, 0, 84}, 0, 0},       /* the plugin's defaults */
-    {"E PIANO", {12, 40, 60, 0, 0, 0, 0, 0}, {0, 84, 36, 52}, 0, 0},      /* ratio 1, a faster index decay */
-    {"GLASS", {60, 30, 20, 10, 0, 0, 0, 0}, {0, 108, 20, 92}, 0, 0},      /* ratio 4 */
-    {"FM BASS", {0, 90, 90, 40, 0, 0, 0, 0}, {0, 72, 64, 20}, 0, 1},      /* ratio 0.5, feedback, MONO */
+    {"FM BELL", {32, 62, 31, 0, 0, 0, 0, 64}, {0, 96, 0, 84}, 0, 0},       /* the plugin's defaults */
+    {"E PIANO", {12, 40, 60, 0, 0, 0, 0, 64}, {0, 84, 36, 52}, 0, 0},      /* ratio 1, a faster index decay */
+    {"GLASS", {60, 30, 20, 10, 0, 0, 0, 64}, {0, 108, 20, 92}, 0, 0},      /* ratio 4 */
+    {"FM BASS", {0, 90, 90, 40, 0, 0, 0, 64}, {0, 72, 64, 20}, 0, 1},      /* ratio 0.5, feedback, MONO */
 };
 static const engine_t ENG_FMBELL = {
-    .name = "FMBELL", .page_title = {"FM", "-"},
+    .name = "FMBELL", .page_title = {"FM", "OUT"},
     .edit = {
         {"RAT", F_INT, 0, 127, 32, 0, 0},       /* op1r's knob 0: the ratio, 0.5 + (x >> 3) / 2 (16 steps) */
         {"INDX", F_PCT, 0, 127, 62, 0, 0},
         {"DCAY", F_PCT, 0, 127, 31, 0, 0},
         {"FDBK", F_PCT, 0, 127, 0, 0, 0},
-        {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0},
+        {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0},
+        {"LEVL", F_INT, 0, 127, 64, 0, 0},     /* (engines-b) the module's level: (v / 64)^3, 64 the plugin's own */
     },
     .presets = FMBELL_PRESETS, .npresets = NELEM(FMBELL_PRESETS),
     .knob = {P_E0, P_E1, P_E2, P_E3}, .poly = OP1_VOICES,
