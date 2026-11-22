@@ -1,6 +1,6 @@
 # WAVE: a wavetable engine of our own (design study)
 
-**Version:** 0.1, November 21, 2026 (branch wave-study, from linux-hw 52e16b13). Session B. **A study, not an engine:** no engine number, no
+**Version:** 0.2, November 21, 2026 (0.2: section 4a, a second calibration of the CPU estimate) (branch wave-study, from linux-hw 52e16b13). Session B. **A study, not an engine:** no engine number, no
 module, nothing in `tools/build.py` MODULES, nothing flashed. The owner reads it before anything is built.
 **Prototype:** `tools/candidates/wave/` (`wave_proto.c`, `wave_proto.h`, `wave_bench.c`, `run_cost.sh`): one voice of the engine as proposed
 below, written only to be measured. Run `tools/candidates/wave/run_cost.sh [OUTDIR]` from the repository root.
@@ -138,6 +138,32 @@ plays alone. CPU1 renders its share of the batch in parallel, so two cores give 
 So **by time, WAVE plays 8 voices of unison 4 on one core and about 16 on two; the shared admission budget (VBUDGET 18 units) is what limits it
 first**, as it does for every engine. Against Shrub's "8 notes": at unison 1 to 4 we meet it with a per-voice filter; at unison 8 we do not (4 to
 6 notes).
+
+### 4a. A second calibration, against engines the unit has measured (Session B's main thread, the same day): it disagrees, and it is the one to plan with
+
+The ratio above (x 14 to 17) was taken from the October harness (tests/op1r_parity's driver), not from `wave_bench`. Calibrated instead against the
+candidates' host harness (tests/module_host_cand_test.c with `CAND_BENCH=1`: the whole voice path, four voices, least of 9 runs, run side by side
+with `wave_bench` at the same load, November 21, 18:15): SEM 16.6 to 16.8 ns a voice-sample (the unit: about 105 us a voice-half), FMBELL 14.5 to
+14.7 (about 100 us), SUPERSAW 15.6 to 15.7 (about 125 us). **The unit takes about 6.3 to 8 us a voice-half for each host ns a voice-sample** of that
+harness. `wave_bench` times the kernel alone (no voice path) and gave in that same run 41 to 52 ns at unison 1 and 2 (BEND, LP), 58 at unison 4, 89
+at unison 8, SYNC 27 (unison 1) and 52 (unison 4), the ladder 39. With the second ratio:
+
+| Unison | wave_bench ns | us a voice-half (x 6.3 to 8) | MACRO units (92 us) | voices by time, one core (2,000 us) | two cores (x 1.8) |
+|---|---|---|---|---|---|
+| 1 (BEND, LP) | 41 to 52 | **260 to 415** | 3 to 4.5 | 5 to 7 | 9 to 13 |
+| 1 (SYNC) | 27 | 170 to 215 | 2 | 9 to 11 | 16 to 20 |
+| 4 | 58 | **365 to 465** | 4 to 5 | 4 to 5 | 8 to 9 |
+| 8 | 89 | 560 to 710 | 6 to 8 | 2 to 3 | 5 |
+
+So the two estimates differ by about three times. The instruction count of section 4 assumes 1.5 to 2 cycles an instruction with every load hitting
+the cache; the second one takes the chip's real behaviour from three engines it has played, but treats the kernel alone as if it were a whole voice
+(which flatters WAVE: its voice path would add a little). The unison 1 and 2 figures barely differ, which says the per-voice base (the float filter,
+the sub, the noise, the envelopes and the amplitude) dominates, not the unison copies: **the place to cut is the base, not the unison**.
+
+**What this changes in the recommendation.** Plan with the second calibration until the unit says otherwise: about **8 notes of unison 1 to 2 over
+both cores with a per-voice filter** (Shrub's bar is 8), 4 to 5 notes of unison 4 on one core. A per-voice filter is still recommended, but the case
+for a PARA mode (one filter on the voices' sum, Shrub's way) is stronger than section 8 says: it would take the float filter out of the per-voice
+base. The first build should measure on the unit before anything else is added: one voice of each configuration with `fm1hw.py measure`.
 
 ## 5. RAM
 
