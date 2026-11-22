@@ -229,7 +229,8 @@ const TEXT = {
     flashUnsupported: "FLASH NOT SUPPORTED: この FM-1 のフラッシュチップにはファームウェアが対応していません。インストールは始めず、何も書き込んでいません。",
     noreturn: "FM-1 が戻ってきません。電源を入れ直してください。",
     leftUpdate: "FM-1 が書き込みモードを抜けました。何も書き込んでいません。インストールするならもう一度インストールを押してください。",
-    resumeRestart: "書き込みが終わりました。FM-1 が再起動しています（1 分ほどかかることがあります）。",
+    firstStart: "書き込みが終わりました。FM-1 が新しいファームウェアを起動しています（0.15.0 からの最初の起動は数分かかることがあります）。接続したままにしてください。",
+    lateStart: "FM-1 が 5 分たっても応答しません。USB はつないだまま電源を入れ直してください。応答すればページはそのまま続けます。",
     mismatch: "書き込みは終わりましたが、FM-1 が別のバージョンを報告しています: ",
     badpkg: "インストールするファイルが壊れています。ページを再読み込みしてください。",
     leave: "書き込み中です。ページを閉じないでください。",
@@ -340,7 +341,8 @@ const TEXT = {
     flashUnsupported: "FLASH NOT SUPPORTED: the FM-1 says its flash chip is not one its firmware knows. The install was not started and nothing was written.",
     noreturn: "The FM-1 did not come back. Power-cycle it.",
     leftUpdate: "The FM-1 left update mode: nothing was written. Press Install again if you want to install.",
-    resumeRestart: "The write finished; the FM-1 is restarting (this can take a minute).",
+    firstStart: "The write finished; the FM-1 is starting the new firmware (its first start after 0.15.0 can take a few minutes): keep it connected.",
+    lateStart: "The FM-1 has not answered in 5 minutes. Power-cycle it, with the USB cable left in: the page goes on when it answers.",
     mismatch: "Written, but the FM-1 reports another version: ",
     badpkg: "The file to install is damaged. Reload the page.",
     leave: "Writing. Do not close the page.",
@@ -734,7 +736,8 @@ async function flashFirmware(midi, product, f, startLoader = null) {
     if (k === "verify") { sayK("verify"); f(a / total); }
     if (k === "loader") sayK("loader");
     if (k === "write") { sayK("write"); f((74 + a) / total); }
-    if (k === "reboot") sayK(startLoader ? "resumeRestart" : "reboot");   /* (Round 32) a resume's write is done: the unit restarts (resume waits 90 s) */
+    if (k === "reboot") sayK("firstStart");   /* (Round 32, BUILD.md 7.51 addendum) the write is done, resumed or not: the new firmware's first start (fm1ota.js FIRST_START_MS, 5 minutes) */
+    if (k === "late") sayK("lateStart");      /* past that bound: power-cycle it; the wait goes on (LATE_BACK_MS) and the modules follow in this press when it answers */
     if (k === "done") { f(1); sayK("done"); }
   };
   if (startLoader) {
@@ -947,6 +950,7 @@ async function leaveMelodee(target) {
     const step = (k, n) => {
       log(`${k} ${n ?? ""}`);
       if (["start","verify","loader","write","reboot","done"].includes(k)) sayK(k);
+      if (k === "late") sayK("lateStart");   /* (Round 32) fm1ota.js waitBack: past FIRST_START_MS */
       if (k === "verify") $("bar").value = Math.min(10, n / 10);
       if (k === "write") $("bar").value = Math.min(99, 10 + n / (selected.image.length / 512) * 90);
     };

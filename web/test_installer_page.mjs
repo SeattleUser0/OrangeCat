@@ -653,14 +653,14 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
             f.names = Array.from(ctx.files.modules, (m) => m).map((m) => String.fromCharCode(...m.slice(0, 64)).replace(/\.ocm.*$/s, "").replace(/^OCMF.*$/s, "MODELS"));
             f.sum = JSON.parse(JSON.stringify(await realRunSet({...ctx, sleep: async () => {}, files: {...ctx.files, modules: Array.from(ctx.files.modules, real)},
               runFirmware: async (p) => { await ctx.runFirmware(p); f.fw++; f.unit = f.after ? f.after() : nightlyAfter(f.lowAfter); },
-              openUnit: async () => (f.unit ? f.unit.link() : null), peekUnit: async () => null,
+              openUnit: async () => (f.unit ? f.unit.link() : null), peekUnit: async () => (f.peek ? f.peek() : null),
               confirmRearrange: async (names, drop) => { f.asked.push([names, drop]); return ctx.confirmRearrange(names, drop); }})));
             return f.sum;
           };
           return f;
         };
-        const openFlow = async ({rev = false, fw = true, slot = 1, prophet = false, data = null} = {}) => {   // data: the unit's replies (default: v015)   // slot: SLOT_INFO's state (1 claimed and empty; 0 not claimed; null no reply)
-          const f = flowOf(), pg = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...FULL, releases: [FULL]}, {runSet: f.runSet, OC_FX_KIND});
+        const openFlow = async ({rev = false, fw = true, slot = 1, prophet = false, data = null, extra = {}} = {}) => {   // data: the unit's replies (default: v015)   // slot: SLOT_INFO's state (1 claimed and empty; 0 not claimed; null no reply)   // extra: more stand-ins (an Updater)
+          const f = flowOf(), pg = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...FULL, releases: [FULL]}, {runSet: f.runSet, OC_FX_KIND, ...extra});
           await answer(pg, "standard.fwsc");
           const i = pg.pending.findIndex((q) => q.url.startsWith("orangecat-plaits-")); const [q] = pg.pending.splice(i, 1); q.resolve({ok: true, arrayBuffer: async () => tm.buffer}); await pg.tick(); await pg.tick();
           pg.element("stage-models").checked = true; pg.element("stage-models").listeners.change();
@@ -831,6 +831,93 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
             assert.equal(f.unit.st.starts.filter((x) => x.state === 7).length, 5, "every ticked module, state 7, nothing else");
           }
         }
+        // 1h. (Round 32, found on the unit: 0.15.0 Standard -> the Release 3 Nightly from the live page) the firmware was written, the unit restarted and the page gave up at 90 s
+        //     ("The FM-1 did not come back. Power-cycle it."): the new firmware answered 132 s after the write (its first start moves the record store out of the six low
+        //     sectors: smp_slot.c smp_claim), and DUB TAPE and the rest of the set were never installed. The real fm1ota.js Updater (its install path: this unit is running
+        //     0.15.0 at the press) on a clock of the test's own: a unit that answers 150 s after the write, and one that answers only after the bound (FIRST_START_MS): the
+        //     page waits, says the write finished and to keep it connected, never "power-cycle" before the bound, and runs the module stage in the same press: every
+        //     ticked module state 7. 57ec17a4: the page ends with noreturn after 40 s (install) / 90 s (resume), no module written.
+        {
+          const OTA = await import("./fm1ota.js"), BOUND = OTA.FIRST_START_MS || 300000;
+          const slowUnit = (backAfter, pgRef) => {
+            const c = {t: 0, phase: "running", wroteAt: null, said: [], installs: 0};
+            class Slow extends OTA.Updater {
+              now() { return c.t; }
+              async pause(ms) { c.t += ms; }
+              async find(filter) {
+                const id = c.phase === "running" ? {model: "FM-1", text: "FM-1_900"} : c.phase === "ota" ? {model: "ota-FM-1", text: MELODEE_LOADER}
+                  : c.t - c.wroteAt >= backAfter ? {model: "FM-1", text: "FM-1_900"} : null;
+                if (c.phase === "written") c.said.push([c.t - c.wroteAt, pgRef.pg.element("status").textContent]);
+                await this.pause(2000);                       // a look at the ports: the handshake's two tries
+                return id && filter(id) ? {id, link: {send: () => true, close() {}}} : null;
+              }
+              async install(...a) { c.installs++; return super.install(...a); }
+              async serve(link, image, finishAddr) { if (finishAddr === 0xE0000000) c.phase = "ota"; return {served: 1, finished: true}; }   // step 1: the loader staged
+              async write(ota, image, step) { step("write", 1); c.phase = "written"; c.wroteAt = c.t; return {served: 1167, finished: true}; }   // step 2: the whole image written
+            }
+            return {Slow, c};
+          };
+          for (const backAfter of [150000, BOUND + 90000]) {
+            const ref = {}, {Slow, c} = slowUnit(backAfter, ref);
+            const {pg, f} = await openFlow({extra: {Updater: Slow}}); ref.pg = pg;
+            await goFlow(pg);
+            const late = c.said.filter(([, x]) => /Power-cycle/i.test(x));
+            assert.equal(c.installs, 1, "the install path (the unit was running 0.15.0 at the press)");
+            assert.ok(c.said.length && c.said.filter(([dt]) => dt < BOUND).every(([, x]) => x === "The write finished; the FM-1 is starting the new firmware (its first start after 0.15.0 can take a few minutes): keep it connected."),
+              "while the new firmware starts the page says the write finished: " + JSON.stringify(c.said.slice(0, 3)));
+            assert.ok(late.every(([dt]) => dt >= BOUND), "never power-cycle before the bound: " + JSON.stringify(late[0]));
+            if (backAfter > BOUND) assert.ok(late.length && late[0][1] === "The FM-1 has not answered in 5 minutes. Power-cycle it, with the USB cable left in: the page goes on when it answers.", "after the bound: " + JSON.stringify(late[0]));
+            else assert.equal(late.length, 0);
+            assert.ok(f.sum, "the press went on to the module stage (" + backAfter / 1000 + " s): " + pg.element("status").textContent);
+            assert.equal(f.fw, 1); assert.equal(f.sum.firmware, "installed");
+            assert.deepEqual(f.sum.module, ["installed", "installed", "installed", "current", "installed"], JSON.stringify(f.sum));
+            assert.ok(f.unit.st.starts.filter((x) => x.state === 7).length === 5 && f.unit.st.starts[18].state === 7 && f.unit.st.starts[18].mid === 1, "every ticked module state 7, DUB TAPE among them: " + f.unit.ops.join(" "));
+            assert.match(pg.element("status").textContent, /^Result: Firmware: installed/, pg.element("status").textContent);
+          }
+          // the resume path's wait is the same bound: a press begun in update mode, the unit back 150 s after the write
+          {
+            const ref = {}, {Slow, c} = slowUnit(150000, ref); c.phase = "ota";
+            const {pg, f} = await openFlow({extra: {Updater: Slow}}); ref.pg = pg;
+            await goFlow(pg);
+            assert.equal(c.installs, 0, "resumed, not installed in full");
+            assert.ok(f.sum && f.sum.module.every((m) => m === "installed" || m === "current"), "the modules after a resume: " + pg.element("status").textContent);
+            assert.ok(!c.said.some(([, x]) => /Power-cycle/i.test(x)));
+          }
+          // (3) a press that ended before the module stage (an older page, a lost link): the unit runs this package's image (MOD_INFO's fw), its modules as the new firmware
+          //     left them. The next press leaves the firmware as it is, writes the missing modules and asks nothing; a press that lost the link part way through the modules,
+          //     the same: the next press writes only the modules not yet there
+          {
+            const {listUnit: realList} = await import("./fm1oc.js");
+            const FWID = {len: 530000, crc: 0x1234567, rest: 0x7654321};
+            const s = T.unitState(true, []);   // (the FX layer of 1-1g is left out: this mock reports a CRC only for an image it holds)
+            s.starts[0] = {state: 2, kind: 0, mid: 0, engine: 7, length: 2928}; s.starts[1] = {state: 2, kind: 0, mid: 0, engine: 14, length: 24160}; s.starts[17] = {state: 4, kind: 0, mid: 0, engine: 8, length: 36000};
+            const unit = T.placedUnit(s, RealLink, {crc: true, fw: FWID});
+            const again = async () => {
+              const {pg, f} = await openFlow({data: () => ({}), extra: {firmwareIdentity: () => FWID}});
+              pg.unitReads.data = await realList(unit.link());
+              assert.ok(PLACE.isTailUnit(pg.unitReads.data.mod) && pg.unitReads.data.mod.fw && pg.unitReads.data.mod.fw.len === FWID.len, "the unit reads as the Nightly: " + JSON.stringify(pg.unitReads.data.mod.fw));
+              f.unit = unit; f.peek = () => unit.link(); f.after = () => { throw new Error("the firmware is current: not written"); };
+              const from = unit.ops.length;
+              await goFlow(pg);
+              assert.equal(f.fw, 0, "the firmware not written again");
+              assert.equal(pg.confirms.length, 0, "nothing asked: " + JSON.stringify(pg.confirms)); assert.equal(f.asked.length, 0);
+              return {pg, f, ops: unit.ops.slice(from)};
+            };
+            unit.fail = (op, k) => (op === "begin" && k === 2 ? "lost" : null);   // the first press loses the link at its third module
+            const first = await again();
+            assert.ok(!first.f.sum || first.f.sum.module.some((m) => m !== "installed" && m !== "current"), "the first press did not finish: " + first.pg.element("status").textContent);
+            const had = unit.st.starts.filter((x) => x.state === 7).length;
+            assert.ok(had === 2, "two modules in before the link went: " + unit.ops.join(" "));
+            unit.fail = null;
+            const {f, ops} = await again();
+            assert.ok(f.sum, "the second press ran the set");
+            assert.equal(f.sum.firmware, "current");
+            assert.equal(f.sum.module.filter((m) => m === "current").length, 2, "the two already in are left as they are: " + JSON.stringify(f.sum.module));
+            assert.ok(f.sum.module.every((m) => m === "current" || m === "installed"), JSON.stringify(f.sum.module));
+            assert.ok(ops.length === 3 && ops.every((o) => o.startsWith("begin")), "only the three missing modules written: " + ops.join(" "));
+            assert.ok(unit.st.starts.filter((x) => x.state === 7).length === 5, "every ticked module state 7");
+          }
+        }
         // 2. the optional reverb modes ticked as well (22 sectors on 21): it does not fit even after the new firmware; the page says so on that unit and offers the give-way choice
         //    (nothing chosen for the owner, nothing written); chosen, Install goes on without it
         {
@@ -905,7 +992,7 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
   assert.equal(r.status, "The FM-1 left update mode: nothing was written. Press Install again if you want to install.");
   r = await run(false);
   assert.ok(r.log.resumes === 1 && r.log.installs === 0, "the loader still there: the write is resumed");
-  assert.equal(r.log.said, "The write finished; the FM-1 is restarting (this can take a minute).", "while the unit restarts after a resume the page says the write finished");
+  assert.equal(r.log.said, "The write finished; the FM-1 is starting the new firmware (its first start after 0.15.0 can take a few minutes): keep it connected.", "while the unit restarts after a resume the page says the write finished");
   // (the review) a press begun with another loader in update mode (the stock one): refused, nothing resumed or installed
   {
     const log = {installs: 0, resumes: 0};
@@ -921,7 +1008,9 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
     assert.match(page.element("status").textContent, /stock|M-VAVE|official/i, "the page says which loader it refused: " + page.element("status").textContent);
   }
   const ota = readFileSync(new URL("fm1ota.js", import.meta.url), "utf8");
-  assert.match(ota, /RESUME_BACK_MS = 90000/, "a resume waits 90 s for the unit to come back");
-  assert.match(ota, /id\.model === model, RESUME_BACK_MS\)/, "resume() uses that wait");
+  const {FIRST_START_MS, LATE_BACK_MS} = await import("./fm1ota.js");
+  assert.ok(FIRST_START_MS === 300000 && LATE_BACK_MS >= 10 * 60000, "(BUILD.md 7.51 addendum) the new firmware's first start: 5 minutes, then the late wait");
+  assert.match(template, /lateStart: "The FM-1 has not answered in 5 minutes\./, "the late text says the bound");
+  assert.equal((ota.match(/this\.waitBack\(/g) || []).length, 2, "install() and resume() both wait with waitBack");
 }
 console.log("installer page: Standard and the Nightly side by side, the choice kept, the boxes are what Install writes, a stock unit takes either in one run, the model picker: passed");

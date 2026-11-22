@@ -115,12 +115,29 @@ async function handshake(link, tries = 3) {
   return null;
 }
 
-// (Round 32) after a resumed write the unit took over 40 s to come back (the first boot of a new firmware): the wait is 90 s
-export const RESUME_BACK_MS = 90000;
+// (Round 32, BUILD.md 7.51 addendum) the wait for the new firmware after a finished write, both paths (install, resume). Upgrading 0.15.0 Standard to the Release 3 Nightly
+// the unit answered 132 s after the write (the page gave up at 90 s): its first start moves the record store out of the sample slot's 16 sectors and the six low ones
+// (firmware/src/smp_slot.c smp_claim, from persist_boot before usb_start, so nothing answers until it is done). At worst that start writes every part of the store once:
+// at most 56 parts (OCS_NSECT), each 1 erase + 15 page programs + its header (oc_store.c ocs_stream_put / commit), then up to 22 old copies erased, the 5 staging
+// sectors (ota.c ota_boot_cleanup) and a settings save: about 84 erases and 913 programs. At the Puya part's maxima (FLASH_CHIPS.md: tSE 12 ms, tPP 3 ms) 3.7 s; at the
+// driver's limits before it calls a part slow (erase 500 ms, program 50 ms) 42 + 46 = 88 s. The 132 s measured is mostly not flash time (the start itself and the
+// host finding the new USB device again), and a full store adds at most those 88 s: 132 + 88 = 220 s; the wait is 300 s (80 s of margin). Never "power-cycle it"
+// before it: after it the page says so (step "late") and keeps looking for LATE_BACK_MS more, so a unit that comes back then still gets its modules in the same press.
+export const FIRST_START_MS = 300000;
+export const LATE_BACK_MS = 30 * 60000;
 export class Updater {
   constructor(access, log) {
     this.access = access;
     this.log = log || (() => {});
+  }
+  now() { return Date.now(); }          // (the tests run the waits on a clock of their own)
+  pause(ms) { return sleep(ms); }
+  // after a finished write: the new firmware, FIRST_START_MS (step "reboot" said at the start), then step "late" and LATE_BACK_MS more; null if it never answers
+  async waitBack(filter, step) {
+    const back = await this.waitFor(filter, FIRST_START_MS);
+    if (back) return back;
+    step("late", Math.round(FIRST_START_MS / 60000));
+    return this.waitFor(filter, LATE_BACK_MS);
   }
 
   // every in/out pair with the same port name that answers the handshake
@@ -141,11 +158,11 @@ export class Updater {
   }
 
   async waitFor(filter, ms) {
-    const end = Date.now() + ms;
-    while (Date.now() < end) {
+    const end = this.now() + ms;
+    while (this.now() < end) {
       const dev = await this.find(filter);
       if (dev) return dev;
-      await sleep(1000);
+      await this.pause(1000);
     }
     return null;
   }
@@ -194,7 +211,7 @@ export class Updater {
     if (dev.id.model !== model) { dev.link.close(); throw fail("model", `the device is ${dev.id.text}, the package is for ${product}`); }
     step("start", dev.id.text);
     dev.link.send(UPGRADE);
-    await sleep(2000);
+    await this.pause(2000);
     const s1 = await this.serve(dev.link, image, 0xE0000000, 8000, (n) => step("verify", n));
     dev.link.close();
     if (!s1.finished) {
@@ -203,7 +220,7 @@ export class Updater {
       throw e;
     }
     step("loader");
-    await sleep(3000);
+    await this.pause(3000);
     const ota = await this.waitFor((id) => id.model === "ota-" + model, 30000);
     if (!ota) throw fail("noloader", "the update loader did not appear. Replug the USB cable and press Install again: the device stays in update mode until it is finished.");
     if (ota.id.text !== loader) {
@@ -213,8 +230,8 @@ export class Updater {
     const s2 = await this.write(ota, image, step);
     if (!s2.finished) throw fail(s2.lost ? "lost" : "stopped", `the loader ${s2.lost ? "was disconnected" : "stopped"} after ${s2.served} requests. Reconnect and press Install again. With boot-protected firmware, power on holding OCT− alone if needed; three short key-light flashes mean update mode.`);
     step("reboot");
-    await sleep(3000);
-    const back = await this.waitFor((id) => !IS_OTA(id), 40000);
+    await this.pause(3000);
+    const back = await this.waitBack((id) => !IS_OTA(id), step);
     if (!back) throw fail("noreturn", "the device did not come back: power-cycle it");
     back.link.close();
     if (back.id.text !== product) throw fail("mismatch", `installed, but the device reports ${back.id.text}`, back.id.text);
@@ -225,7 +242,7 @@ export class Updater {
   // step 2 with the loader found by find()/waitFor()
   async write(ota, image, step) {
     ota.link.send(UPGRADE);
-    await sleep(2000);
+    await this.pause(2000);
     const s2 = await this.serve(ota.link, image, 0xF0000000, 180000, (n) => step("write", n));
     ota.link.close();
     return s2;
@@ -242,8 +259,8 @@ export class Updater {
     if (!result.finished) return false;
     if (product) {
       step("reboot");
-      await sleep(3000);
-      const back = await this.waitFor((id) => id.model === model, RESUME_BACK_MS);
+      await this.pause(3000);
+      const back = await this.waitBack((id) => id.model === model, step);
       if (!back) throw fail("noreturn", "The FM-1 did not return after resuming the write.");
       back.link.close();
       if (back.id.text !== product) throw fail("mismatch", "The FM-1 reports a different firmware after resuming.", back.id.text);
