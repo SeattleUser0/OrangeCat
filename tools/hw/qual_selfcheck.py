@@ -1224,11 +1224,26 @@ def q23_checks():
         finally:
             S.program_load, S.time, S.capture, S.DUB_WAIT_S, S.PASSES = saved
     attempt("q23 Q2 carry-over: a DUB cell whose DUB is not back is refused before any capture: not judgeable, the cell fails", refused)
+    out_ = {"full": 16, "i1": {"st": 0, "rdy": 0}}; in_ = {"full": 0, "i1": {"st": 2, "rdy": 1}}
+    attempt("q23 review: a heavy DUB run whose DUB the wait brought back gets the allowance (3) even after the same cell; DUB running throughout, "
+            "a light cell or a refused wait: 0",
+            lambda: S.waited_allowance(("heavy", "1"), {"ready": True, "first": out_}) == 3 and S.waited_allowance(("heavy", "1"), {"ready": True, "first": in_}) == 0
+            and S.waited_allowance(("light", "2"), {"ready": True, "first": out_}) == 0 and S.waited_allowance(("heavy", "2"), {"ready": False, "first": out_}) == 0
+            and S.waited_allowance(("heavy", "0"), None) == 0)
+    src_ = open(os.path.join(HERE, "seqtest.py")).read()
+    attempt("q23 review: seqtest.run raises the order's allowance by waited_allowance after the wait, before the captures",
+            lambda: src_.index("wait = wait_dub_ready(u)") < src_.index("late_allow = max(late_allow, waited_allowance(cell, wait))") < src_.index('capture.Recorder(f"{OUT}/{LABEL}-{name}-a4c.wav"'))
     sys.argv = ["hiss.py"]
     import hiss as H
 
     def hr(rev, dub, vel, f): return {"rev": rev, "dub": dub, "vel": vel, "usb": {"steady": {"floor_db": f}}}
     def case(v, k): return v["cases"][k]
+    attempt("q23 review: digital zero per replicate: USB [-180, -85, -85] is not judgeable on USB (not a -116.7 floor), judged on the AUDIO4c",
+            lambda: (lambda v: "not judgeable on USB" in case(v, "room:off:30")["why"] and not v["pass"])(
+                H.hiss_verdict([hr("room", "off", 30, -180.0), hr("room", "off", 30, -85.0), hr("room", "off", 30, -85.0)]))
+            and (lambda v: case(v, "room:off:30")["source"] == "a4c" and case(v, "room:off:30")["floor_db"] == -81.0 and v["pass"])(
+                H.hiss_verdict([{"rev": "room", "dub": "off", "vel": 30, "usb": {"steady": {"floor_db": f}}, "a4c": {"steady": {"floor_db": -81.0}}} for f in (-180.0, -85.0, -85.0)]))
+            and not H.hiss_verdict([{"rev": "room", "dub": "off", "vel": 30, "usb": {"steady": {"floor_db": -180.0}}, "a4c": {"steady": {"floor_db": f}}} for f in (-180.0, -82.0, -82.0)])["pass"])
     def hb(rev, dub, vel, u, a): return {"rev": rev, "dub": dub, "vel": vel, "usb": {"steady": {"floor_db": u}}, "a4c": {"steady": {"floor_db": a}}}
     attempt("q23 Q3: Round 32's bench (USB digital zero, -180): not judgeable on USB, said so; judged on the AUDIO4c: room:off:100 -91.04 passes "
             "against S's AUDIO4c -80.15, off:spring:100 -83.09 against -79.75 (no off row needed)",

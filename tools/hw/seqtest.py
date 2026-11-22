@@ -511,6 +511,7 @@ def run(u, name, cell, late_allow=0):
         row = refused_row(name, cell, exp, wait)
         row["ok"], row["why"] = row_ok(row)
         return row
+    late_allow = max(late_allow, waited_allowance(cell, wait))   # (7.37, Nov 21 review) DUB waited back in: the window empty, "the first after the mix changed"
     ra = capture.Recorder(f"{OUT}/{LABEL}-{name}-a4c.wav", "audio4c").start()
     ru = capture.Recorder(f"{OUT}/{LABEL}-{name}-usb.wav", "usb").start()
     time.sleep(0.5)
@@ -611,6 +612,15 @@ def late_allowance(order, i):
     c = tuple(order[i][1])
     if c[0] != "heavy" or len(c) < 2 or not int(c[1]): return 0
     return LATE_LIMIT if i == 0 or tuple(order[i - 1][1]) != c else 0
+
+
+def waited_allowance(cell, wait):
+    """(7.37, Nov 21, the review of 4a404aa3) a heavy DUB cell whose DUB the carry-over wait brought back (out at the wait's first read, running
+    at its end) starts with the governor's window emptied with the load stopped: the state 7.25 calls "the first after the mix changed", even
+    when the previous run was the same cell. LATE_LIMIT then, else 0"""
+    c = tuple(cell)
+    if c[0] != "heavy" or len(c) < 2 or not int(c[1]) or not wait: return 0
+    return LATE_LIMIT if wait.get("ready") and not dub_ready(wait.get("first")) else 0
 
 
 def dub_ready(d):

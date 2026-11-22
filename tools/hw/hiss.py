@@ -325,6 +325,11 @@ def _mean(fs):
     return sum(fs) / len(fs) if fs and None not in fs else None
 
 
+def _zero(fs):
+    """(the review of 4a404aa3) any replicate at digital zero makes the source not judgeable for the case: never averaged with real floors"""
+    return any(f is not None and f <= DIGITAL_ZERO_DB for f in fs)
+
+
 def hiss_verdict(rows, a4c_spread_db=None, idle_rows=()):
     """(BUILD.md 7.37, the owner's decision of November 21: "the pass mark is the absolute floor at or below Release 1's for every case") each
     case's absolute floor (the mean of its replicates' floor_db) at or below its Release 1 figure (s_figure), no margin, on the capture 7.21
@@ -346,11 +351,12 @@ def hiss_verdict(rows, a4c_spread_db=None, idle_rows=()):
             out[k] = {"judged": False, "why": "not a Q3 case: no mark", **rec}
             continue
         src, note = "usb", None
-        if u is not None and u <= DIGITAL_ZERO_DB:
-            src, note = "a4c", f"the USB capture reads digital zero ({u:.1f} dBFS): not judgeable on USB; judged on the AUDIO4c (the lead's call)"
+        if _zero(fs["usb"]):
+            src, note = "a4c", (f"the USB capture reads digital zero in {sum(1 for f in fs['usb'] if f is not None and f <= DIGITAL_ZERO_DB)} of {len(fs['usb'])} "
+                                "replicates: not judgeable on USB; judged on the AUDIO4c (the lead's call)")
         c = u if src == "usb" else a
         fig = s_figure(rev, dub, vel, src)
-        if fig is None or c is None or c <= DIGITAL_ZERO_DB:
+        if fig is None or c is None or _zero(fs[src]):
             out[k] = {"judged": True, "ok": False, **rec, "why": (note + "; " if note else "") + "not judgeable: no Release 1 figure at this velocity, "
                       "a capture without a floor, or digital zero"}
             ok = False
