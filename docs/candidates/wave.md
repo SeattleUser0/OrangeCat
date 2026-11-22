@@ -256,8 +256,10 @@ A 256-frame Serum table thinned to 16 frames loses its in-between frames (POSITI
    as a mode, if wanted.)
 2. **256-sample frames, one blended frame cached a voice and oscillator, band-limited by halving per note; no hot set;** the refill bounded
    (1/1024 threshold, one oscillator a block).
-3. **Unison up to 4 at the full voice count, 8 allowed at 4 notes;** a units hook of 1 / 2 / 2 / 4 for unison 1 / 2 / 4 / 8 (3 while the
-   position sweeps), measured on the unit before it ships.
+3. **Unison 1 to 2 for 8 notes over both cores, unison 4 for about 4 notes** (section 4a, the calibration to plan with); a units hook from the
+   unit's numbers (section 4a's estimate: 3 to 4 units at unison 1, 4 to 5 at unison 4), measured before it ships. Cut the per-voice base first
+   (the float filter, the sub and noise) before adding anything; a PARA mode (one filter on the sum) is the fallback that reaches Shrub's 8 notes
+   at higher unison.
 4. **The minimal starter set in the module (6 sectors), user tables in a bank in the sample slot's room**, if the owner gives that room to it;
    otherwise the starter set alone and user tables later.
 5. **Build order once approved:** the kernel and control as a module with 8 starter presets and the eight values (no native patch yet: tables
