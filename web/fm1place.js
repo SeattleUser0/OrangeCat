@@ -215,6 +215,19 @@ function arrange(s, mods, opts = {}) {
   const asis = run(s, todo);
   if (asis.ok) return { how: "asis", order, plan: asis };
   if (!hasTail(s)) return { how: "none", order, plan: asis };
+  // (Round 32, found on the unit: 0.15.0 Standard -> the Nightly, the default set refused, "the biggest run ... is 6") a start that holds junk (a module the firmware refuses: 0.15.0's
+  // view of the Nightly's SHAPES at start 1, or 0.15.0's own SHAPES under the new firmware) is not taken by the planner while an empty start stands beside everything (its pass 0):
+  // SHAPES goes to start 0 (sectors 6..11), the area is two runs of six and the pick has none. In another order the set fits as the unit stands (the pick first takes sectors -6..2,
+  // start 0 is then in its way, SHAPES takes the junk start 1). So before anything is taken off: every other order of the set (the goal's order first, then the rest in
+  // lexicographic order of its positions, at most 7 modules), the first that places all of it as the unit stands. Nothing is removed or moved for it; each module still goes where
+  // the unit's own planner names (runSet installs in this order).
+  if (all.length <= 7) {
+    const perm = (rest, pre, out) => { if (!rest.length) { out.push(pre); return; } rest.forEach((x, k) => perm([...rest.slice(0, k), ...rest.slice(k + 1)], [...pre, x], out)); return out; };
+    for (const alt of perm(order, [], []).slice(1)) {
+      const r = run(s, alt.map((i) => mods[i]).filter((m) => !m.current));
+      if (r.ok) return { how: "asis", order: alt, plan: r };
+    }
+  }
   const same = (x, m) => m.engine != null ? !x.kind && x.engine === m.engine : !!x.kind && x.mid === m.mid;
   const own = (j) => usable(s, j) && all.some((m) => same(s.starts[j], m));
   const foreign = s.starts.map((_, j) => j).filter((j) => usable(s, j) && !own(j));
