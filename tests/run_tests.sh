@@ -556,6 +556,16 @@ module_host_candidates() {                        # (Orange Cat 0.14.0) the engi
             "$OUT/module_host_${e}_test" tests/golden_modules.txt
     done
 }
+module_host_candidates_b() {                      # (engines-b, Session B) op1r's second four (from op1r-candidates 0.3) and X0X's TB-303 (proposed 47): a job of their own (module_host_candidates is a long one)
+    for e in aether brassophone mixtur arc x0x303; do
+        E=$(echo $e | tr a-z A-Z); [ $E = BRASSOPHONE ] && E=BRASS   # (its engine is ENGI_BRASS, its name BRASS)
+        $CC -c -O2 $FW -DOC_CANDIDATES=1 -Itools/module/op1r -Ifirmware/src/x0x -o "$OUT/module_host_${e}_tu.o" tests/module_host_${e}_tu.c || { fail "compile tests/module_host_${e}_tu.c"; return 1; }
+        $CC -O2 $FW -DOC_CANDIDATES=1 -DCAND_ENGINE=ENGI_$E -o "$OUT/module_host_${e}_test" tests/module_host_cand_test.c "$OUT/module_host_${e}_tu.o" -lm ||
+            { fail "compile tests/module_host_cand_test.c ($e)"; return 1; }
+        step "$E (op1r's through the glue, or X0X's) as a candidate module (OC_CANDIDATES build): registration in its proposed slot, every preset, its pages and knobs, tests/golden_modules.txt" \
+            "$OUT/module_host_${e}_test" tests/golden_modules.txt
+    done
+}
 cand_slot() {                                     # (Orange Cat 0.14.2) a saved project across a measurement build: the unit's slot 1, October 2026
     build cand_slot_norm cand_slot_test -O1 $FW || return
     build cand_slot_cand cand_slot_test -O1 $FW -DOC_CANDIDATES=1 || return
@@ -920,6 +930,7 @@ if sound && [ $TABLES = 1 ]; then
     job plaits_jobs                               # (Release 3, the model picker) MACRO with the MODELS module
     job port_batch
     job module_host_candidates
+    job module_host_candidates_b                   # (engines-b)
     job mod_pages_prophet
     mkdir -p build/macro_demo
     t "MACRO (Orange Cat 0.5.0): 14 models and every preset through the voices, a model change, 4 tracks; WAVs" \

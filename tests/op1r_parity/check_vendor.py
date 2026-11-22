@@ -35,13 +35,23 @@ def check(up, mine, cut):
         sys.stdout.writelines(["  - " + ln for ln in a[op[1]:op[2]]] + ["  + " + ln for ln in b[op[3]:op[4]]])
 
 
+SCREEN_ONLY = {"brassophone": {"horn.c"}}       # a source that is the plugin's screen and nothing else: not vendored
 for p in sys.argv[3:]:
     pj = json.loads((sdk / "plugins" / p / "plugin.json").read_text())
+    seen = set()
     for s in pj["sources"]:
+        if s in SCREEN_ONLY.get(p, ()):
+            print(f"vendor: plugins/{p}/{s}: its screen (not vendored)")
+            continue
         up = (sdk / "plugins" / p / s).resolve()
         rel = up.relative_to(sdk.resolve())
         check(up, ven / rel, cut=(rel.parts[0] == "plugins"))
+        seen.add(ven / rel)
         h = up.with_suffix(".h")
         if h.exists() and (ven / rel).with_suffix(".h").exists():
             check(h, (ven / rel).with_suffix(".h"), cut=False)
+            seen.add((ven / rel).with_suffix(".h"))
+    for f in sorted((ven / "plugins" / p).iterdir()):     # every other file vendored beside them (generated tables): op1r's whole file
+        if f not in seen:
+            check(sdk / "plugins" / p / f.name, f, cut=False)
 sys.exit(1 if bad else 0)

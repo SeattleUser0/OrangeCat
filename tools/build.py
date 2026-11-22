@@ -546,6 +546,12 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts"
            "fmbell": {"src": "tools/module/fmbell_mod.c", "sectors": 4, "starts": [0, 6], "name": "FMBELL", "inc": ["tools/module/op1r"]},
            "supersaw": {"src": "tools/module/supersaw_mod.c", "sectors": 4, "starts": [0, 6], "name": "SUPERSAW", "inc": ["tools/module/op1r"]},
            "dddd": {"src": "tools/module/dddd_mod.c", "sectors": 4, "starts": [0, 6], "name": "DDDD", "inc": ["tools/module/op1r"]},
+           # (engines-b, from op1r-candidates 0.3) op1r's second four, and X0X's TB-303 (proposed 47): WHEEL's geometry
+           "aether": {"src": "tools/module/aether_mod.c", "sectors": 4, "starts": [0, 6], "name": "AETHER", "inc": ["tools/module/op1r"]},
+           "brassophone": {"src": "tools/module/brassophone_mod.c", "sectors": 4, "starts": [0, 6], "name": "BRASS", "inc": ["tools/module/op1r"]},
+           "mixtur": {"src": "tools/module/mixtur_mod.c", "sectors": 4, "starts": [0, 6], "name": "MIXTUR", "inc": ["tools/module/op1r"]},
+           "arc": {"src": "tools/module/arc_mod.c", "sectors": 4, "starts": [0, 6], "name": "ARC", "inc": ["tools/module/op1r"]},
+           "x0x303": {"src": "tools/module/x0x303_mod.c", "sectors": 4, "starts": [0, 6], "name": "X0X303", "inc": ["firmware/src/x0x"]},
            # (Release 3 step 6) DUB TAPE as an effect module (kind 1, FX_MODULES_PLAN.md 15): no geometry row; its span is ceil(length / 4096) sectors from any start of the area's grid
            "dub": {"src": "tools/module/dub_mod.c", "sectors": 3, "name": "DUB", "kind": 1},
            # (Release 3 step 8a) the reverb modes SPRING, SHIMMER and RESO as one effect module (kind 2, a bank of three; FX_MODULES_PLAN.md 16): one sector, any start of the grid

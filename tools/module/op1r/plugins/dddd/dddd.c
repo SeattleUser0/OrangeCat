@@ -1,3 +1,5 @@
+/* (Orange Cat, this copy) op1r bf808cfa's file up to its screen code (left out); its file-scope state is the part's (tools/module/dddd_mod.c
+ * dddd_part_t) and alive() a macro: the changed lines say Orange Cat. */
 /* "dddd" - harsh noise, paraphonic (docs/53). DSP in dddd/dd_core.c: one shared wall for all keys.
  *   blue  : source  noise -> crackle -> chaos -> metal         page 2: filter  LP -> BP -> HP
  *           (both in 8 steps per range: plugin.json "coarse", op1r 44 firmware; older: the stock fine steps)

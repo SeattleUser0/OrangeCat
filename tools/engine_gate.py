@@ -80,6 +80,43 @@ GATE = {
                  "source": "op1r (pcppcp) synth_sdk/plugins/supersaw/supersaw.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
     "dddd": {"engine": 26, "funcs": ["op1g_eng_render", "dd_render_voice", "dd_render"], "voice_type": None,
              "source": "op1r (pcppcp) synth_sdk/plugins/dddd/dddd.c and synth_sdk/dddd/dd_core.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
+    # (engines-b, from op1r-candidates 0.3) op1r's second four and X0X's TB-303
+    "aether": {"engine": 27, "funcs": ["op1g_eng_render", "ae_render"], "voice_type": None,
+               "controls": "op1r's four knobs on EDIT 1 (RNG TIMB VIB VOL) and the second page's DEAD FULL RATE on EDIT 2; the OP-1's accelerometer is a "
+                           "stand-in: TILT (P_E7, -64..63) is its forward tilt (Y), X and Z fixed level; lost: the volume tilt (VOL has no X axis to act on) "
+                           "and playing by moving the instrument",
+               "modulation": "pitch (m->inc) and aether's own tilt bend; the matrix's E8 on TILT is the tilt (an LFO or the mod wheel bends the note, "
+                             "per block, and moving it fast is a shake: the vibrato); velocity through op1_voice_vel_gain; ENV only through the "
+                             "glue's amplitude; no CUT or SHP",
+               "backend": "the sine (OP1_SINE: SINE through the base hot set)",
+               "source": "op1r (pcppcp) synth_sdk/plugins/aether/aether.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
+    "brassophone": {"engine": 28, "funcs": ["op1g_eng_render", "brass_render"], "voice_type": "brass_voice_t",
+                    "controls": "all four of op1r's knobs on EDIT 1 (STRT SWP VIBD VIBR); it has no second page; lost: none",
+                    "modulation": "ENV drives its timbre sweep, its pitch bend and its vibrato's fade-in (OP1_VOICE_ENV: the glue's amplitude per block); "
+                                  "velocity through op1_voice_vel_gain; pitch (m->inc); its own vibrato LFO; no CUT or SHP; E1..E4 per block",
+                    "backend": "the sine (OP1_SINE: SINE through the base hot set); its warp table is its own (a phase-distortion table: CZ-1's "
+                               "phase distortion is the same family, computed rather than tabled)",
+                    "source": "op1r (nick (nvmsocool)) synth_sdk/plugins/brassophone/brass.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
+    "mixtur": {"engine": 29, "funcs": ["op1g_eng_render", "mx_render"], "voice_type": "mx_voice_t",
+               "controls": "all seven of op1r's: the four dividers (DIVA..DIVD: off, 1..24 in 25 steps of the knob) on EDIT 1, the second page's F1 F2 RES on "
+                           "EDIT 2 (0 = op1r's unset: 392 Hz, 917 Hz, Q 3.2); fixed: none; lost: none",
+               "modulation": "pitch (m->inc: the master phase, so bends and vibrato move every undertone together); ENV and velocity through the glue's "
+                             "amplitude and op1_voice_vel_gain; no CUT or SHP (the formants are E5 and E6: the matrix reaches them per 128-sample block)",
+               "backend": "none shared: its dividers and Chamberlin SVF pair are its own; the polyBLEP-at-the-master-wrap trick would serve any divide-down "
+                          "engine (STRINGS)",
+               "source": "op1r (ultralazr, Musica Obscura #1) synth_sdk/plugins/mixtur/mixtur.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
+    "arc": {"engine": 30, "funcs": ["op1g_eng_render", "arc_render"], "voice_type": "arc_voice_t",
+            "controls": "all seven of op1r's: CURR CARB HISS STRK on EDIT 1, the second page's RATI COUP BRIT on EDIT 2 (0 = op1r's unset: 1:1, the second "
+                        "lamp off, neutral); fixed: none; lost: its screen's phase portrait (the trace is still written, into the part)",
+            "modulation": "pitch (m->inc, taken at the block's middle sample: op1r's own choice); ENV only through the glue's amplitude (arc reads no "
+                          "OP1_VOICE_ENV); velocity through op1_voice_vel_gain; its own strike envelope and sputter; no CUT or SHP; E1..E7 per block",
+            "backend": "none: the Van der Pol lamps are its own; isqrt32 and the pitch mantissa are small helpers",
+            "source": "op1r (ultralazr, Musica Obscura #1) synth_sdk/plugins/arc/arc.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
+    "x0x303": {"engine": 47, "funcs": ["bass303_render"], "voice_type": None,
+        "controls": "eight of X0X's twelve pots on EDIT 1 and 2 (CUT RES ENV DEC, ACC WAVE DRIV SLID); fixed: TUNE (A4 440), VOLUME, DRVTYP SOFT, ACCDEC; lost: none of the render's",
+        "modulation": "its own envelopes (ownenv: the filter's decay, the accent, the amp), the accent from velocity >= 120, slides from legato notes (the legato hook); voice.c's LFO on AMP and the fades; not voice.c's pitch (glide, bend, LFO pitch, microtonal scale: the 303 figures its pitch from the key) nor CUT or SHP; E1..E8 per block",
+        "backend": "none in Orange Cat's fixed-point dsp.c: X0X's float fastmath.h (Orange Cat's already, for DRUM-X's 909) and Open303's TeeBeeFilter",
+        "source": 'X0X (charlesvestal) firmware/src/dsp/bass303.c at 54194c5, GPL-3.0-only; Open303 (Robin Schmidt) MIT; schwung-303 and dm-Rat GPL-3.0'},
 }
 UNIT_CMD = ("tools/hw/oc_install.mjs module build/orangecat-{name}-<version>-<commit>.ocm, then tools/hw/fm1hw.py table --set candidates "
             "(or measure --tracks N --engine {upper} --presets P,P,P,P for N = 1..4), as hw/LOG.md's tables")

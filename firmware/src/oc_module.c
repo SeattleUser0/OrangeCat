@@ -179,6 +179,8 @@ static OC_MOD_GEO_QUAL oc_mod_geo_t oc_mod_geo[] = { { ENGI_SHAPES, 6u, 0x03u },
 #if OC_CANDIDATES
                                                      { ENGI_SEM, 4u, 0x03u }, { ENGI_HADES, 4u, 0x03u },   /* (0.14.0) the candidates of a measurement build */
                                                      { ENGI_FMBELL, 4u, 0x03u }, { ENGI_SUPERSAW, 4u, 0x03u }, { ENGI_DDDD, 4u, 0x03u },    /* (0.14.1) op1r's synths: WHEEL's geometry */
+                                                     { ENGI_AETHER, 4u, 0x03u }, { ENGI_BRASS, 4u, 0x03u }, { ENGI_MIXTUR, 4u, 0x03u }, { ENGI_ARC, 4u, 0x03u },   /* (engines-b) op1r's second four, the same */
+                                                     { ENGI_X0X303, 4u, 0x03u },   /* (engines-b) X0X's TB-303, the same */
 #endif
                                                    };
 static OC_MOD_GEO_QUAL oc_mod_geo_t *oc_mod_geo_of(uint32_t engine)

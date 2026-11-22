@@ -105,6 +105,18 @@ static inline int32_t op1_voice_vel_gain(const void *self)
                                              * it), so that the rest of the glue is proven sample for sample against op1r's render */
 extern int16_t op1g_parity_sine[8192];
 #define OP1_SINE(k) ((int32_t)op1g_parity_sine[(k)])
+#elif defined(OP1G_EXACT_SINE)                /* (0.3) the module's hot set table number OP1G_EXACT_SINE is op1r's own sine, a quarter wave (op1_sine_q.h,
+                                             * gen_op1_sine.py: OP1G_SINE_Q, 4,098 B), and the module unit defines OP1G_ENGINE (its engine number): op1r's table at
+                                             * all 8192 points, for a plugin whose sine drives a pitch (brassophone's vibrato), where SINE's 1 LSB grows into drift */
+#include "op1_sine_q.h"
+static inline int32_t op1g_sine(int32_t k)
+{
+    const int16_t *q = (const int16_t *)ENG_HOT(0, OP1G_ENGINE, OP1G_EXACT_SINE);
+    uint32_t u = (uint32_t)k & 8191u, i = u & 2047u;
+    int32_t v = (u >> 11) & 1u ? q[2048u - i] : q[i];
+    return u >> 12 ? -v : v;
+}
+#define OP1_SINE(k) op1g_sine((int32_t)(k))
 #else
 static inline int32_t op1g_sine(int32_t k) { return sine_i((uint32_t)k << 19); }
 #define OP1_SINE(k) op1g_sine((int32_t)(k))
@@ -153,6 +165,10 @@ static inline void op1g_params(op1g_part_t *P, const track_t *t)
     P->params[4] = 0;
     for (k = 0; k < 3u; k++)
         P->params[5 + k] = (int16_t)(clamp(t->p[P_E4 + k], 0, 127) * 258);
+#ifdef OP1G_PARAMS_HOOK                      /* (0.3) the module unit's: more of the part's state from the track, at each note-on and each block (aether's
+                                             * accelerometer stand-in) */
+    OP1G_PARAMS_HOOK(P, t);
+#endif
 }
 static inline __attribute__((always_inline)) void op1g_note_on(track_t *t, voice_t *v, const op1_engine_t *E)
 {
