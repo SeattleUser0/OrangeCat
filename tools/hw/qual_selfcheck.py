@@ -589,6 +589,14 @@ def cdp_retry_checks(driver=os.path.join(HERE, "cdp_install.mjs")):
     a = r.get("attempts", []); rv = (a[0].get("resume") or {}) if a else {}
     check(r.get("ok") is False and len(u.installs) == 1 and rv.get("pressed") is False and "nothing answered" in (r.get("error") or ""),
           f"cdp_install.mjs: nothing answers within --probe-wait: no Install pressed: {short(u)} {r.get('error')}")
+    # (review of c1106672) a resume read that ends with no press, then --retries 2's second attempt pressed Install in a new browser against the running
+    # unit: a second install. --retries other than 1 is refused before anything is pressed
+    for n in ("2", "3"):
+        r, u = run_driver(driver, "update-back", extra=("--retries", n))
+        check(r.get("ok") is False and len(u.installs) == 0 and "refused" in (r.get("error") or ""),
+              f"cdp_install.mjs --retries {n}: refused, nothing pressed (one install attempt per build): {short(u)} {(r.get('error') or '')[:160]}")
+    r, u = run_driver(driver, "update-back", extra=("--retries", "1"))
+    check(len(u.installs) == 1 and not r.get("ok"), f"cdp_install.mjs --retries 1: taken, one press: {short(u)}")
     for mode in ("refuse", "notfound"):
         r, u = run_driver(driver, mode)
         a = r.get("attempts", [])
@@ -1317,9 +1325,9 @@ def remote_checks():
             print("     prompts left:", bad)
         return not bad
     attempt("remote: no operator prompt in q4_install.py, qual_soak.py, hiss.py, seqtest.py, rectest.py, cdp_install.mjs, unit_objects.py", no_prompt)
-    attempt("review: one install attempt per build (SPEC.md 13.1): q4_install.py passes --retries 1, cdp_install.mjs defaults to 1",
+    attempt("review: one install attempt per build (SPEC.md 13.1): q4_install.py passes --retries 1, cdp_install.mjs refuses any other",
             lambda: '"--retries", "1"' in open(os.path.join(HERE, "q4_install.py")).read() and '"--retries", "3"' not in open(os.path.join(HERE, "q4_install.py")).read()
-            and "Number(opt.retries || 1)" in open(os.path.join(HERE, "cdp_install.mjs")).read())
+            and "--retries other than 1 is refused" in open(os.path.join(HERE, "cdp_install.mjs")).read())
     real_input = builtins.input
     try:
         import unit_objects as _UO_pace

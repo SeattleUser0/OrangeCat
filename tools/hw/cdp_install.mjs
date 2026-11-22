@@ -4,11 +4,10 @@
 // (Round 31, docs/orangecat/BUILD.md 7.50) The installer page as the owner uses it, in real Chrome (headless, MIDI with SysEx granted): from
 // ~/fm1-hw/r22/cdp-install.mjs (Round 9 .. 30), brought into the repository for the Release 3 qualification's install cases (7.37 Q4,
 // tools/hw/q4_install.py drives it). What is new:
-//  - Install is pressed again, up to --retries times (3), when the page ends saying the FM-1 was not found or did not come back (its texts
+//  - (Round 31; Round 32: gone, one install attempt per build, --retries other than 1 refused) Install was pressed again, up to --retries times, when the page ended saying the FM-1 was not found or did not come back (its texts
 //    notfound, noloader, sNounit, noreturn: "press Install again"); Round 30 saw the headless browser miss the update-mode port twice. Every
-//    attempt is logged with its status, its dialogs and its log lines. (Round 32) Every retry runs in a fresh Chrome (the old one closed first,
-//    a new profile and process, the page loaded and made ready again): Chrome's Web MIDI does not see a port that appears after it started.
-//    (Round 32, one attempt per build) Within an attempt, once: when the page ends saying the FM-1 in update mode was not found or did not come
+//    attempt is logged with its status, its dialogs and its log lines. Chrome's Web MIDI does not see a port that appears after it started.
+//    (Round 32, one attempt per build) Within the attempt, once: when the page ends saying the FM-1 in update mode was not found or did not come
 //    back, fresh Chromes first read what answers (up to --probe-wait 90 s, read only). Only when the update-mode loader of this package answers and
 //    the page's write had not finished does it load the page with the same build and ticks and press Install once more, so that the page's own
 //    resume path (web/fm1ota.js resume()) finishes the same install ("attempt N: fresh browser to resume"). A running FM-1 answering ends the
@@ -38,8 +37,8 @@
 //    name the module: this driver asks it only with that module chosen, logged) answered as every dialog is; the unit read after must not hold it.
 //    Not done when the unit does not hold it (logged). The page's Install never takes the FX layer off (removableFx: only the optional reverb modes).
 //
-//   node tools/hw/cdp_install.mjs --url URL --build build-dual|build-nightly-dual [--out DIR] [--minutes 25] [--retries 3] [--expect TEXT]
-//        [--retry-wait 10] [--return-wait 20]   (seconds before a retry's fresh browser; the second after "did not come back")
+//   node tools/hw/cdp_install.mjs --url URL --build build-dual|build-nightly-dual [--out DIR] [--minutes 25] [--retries 1] [--expect TEXT]
+//        [--retry-wait 10] [--return-wait 20] [--probe-wait 90]   (seconds before the fresh browser that reads the unit; the second after "did not come back")
 //        [--remove fxlayer] [--ticks +reverbmodes,-fxlayer]
 //   node tools/hw/cdp_install.mjs --url URL --stock FM-1.fwsc [--out DIR] [--minutes 25]
 // The last line printed is one JSON object: {attempts: [...], final, ok}. Close every other program on the FM-1's port first.
@@ -54,8 +53,10 @@ for (let i = 0; i < args.length; i++) {
   if (["decline", "ask"].includes(k)) opt[k] = true; else opt[k] = args[++i];
 }
 if (opt.ask) { console.error("cdp_install: --ask is gone (Round 32: no prompt; every run is unattended): give --answers FILE (tools/hw/q4_answers_example.json)"); process.exit(2); }
-const url = opt.url, build = opt.build, minutes = Number(opt.minutes || 25), retries = Number(opt.retries || 1);   // (Round 32, the owner's hard limit: one install attempt per build; SPEC.md 13.1)
-// (Round 32) the waits before a retry's fresh browser: --retry-wait S (10) and, after "did not come back", --return-wait S (20)
+// (Round 32, the owner's hard limit: one install attempt per build, SPEC.md 13.1) --retries other than 1 is refused: there is no second attempt
+if (opt.retries !== undefined && String(opt.retries).trim() !== "1") { console.error(`cdp_install: --retries ${opt.retries} refused: one install attempt per build (the owner's hard limit, SPEC.md 13.1); only --retries 1 is taken`); process.exit(2); }
+const url = opt.url, build = opt.build, minutes = Number(opt.minutes || 25);
+// (Round 32) the waits before the fresh browser that reads the unit: --retry-wait S (10) and, after "did not come back" / a finished write, --return-wait S (20)
 const retryWait = Number(opt["retry-wait"] ?? 10), returnWait = Number(opt["return-wait"] ?? 20);
 const probeWait = Number(opt["probe-wait"] ?? 90);   // (Round 32) how long fresh browsers look for what answers before a resume (each look a new browser)
 const out = resolve(opt.out || mkdtempSync(tmpdir() + "/oc-cdp-")), port = Number(opt.port || 9224);
@@ -92,7 +93,7 @@ mkdirSync(out, { recursive: true });
 const dl = resolve(out, "downloads"); mkdirSync(dl, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const say = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
-// (Round 32) every retry in a fresh Chrome: Chrome's Web MIDI does not see a port that appears after the browser started, so the update-mode
+// (Round 32) a fresh Chrome for the read before a resume: Chrome's Web MIDI does not see a port that appears after the browser started, so the update-mode
 // port ("Orange Cat FM-1 Update") and the normal port after the firmware's restart were never found by the browser that had pressed Install
 // (Round 31, twice on the unit: "The FM-1 in update mode was not found", "FM-1 not found" on every retry, "The FM-1 did not come back"; a new
 // driver run installed at once). openBrowser: a new user-data dir, a new process, MIDI (with SysEx) granted, the downloads into OUT, the page
@@ -382,14 +383,8 @@ try {
   await openBrowser();
   let button = await preparePage(result);
   end = Date.now() + minutes * 60000;
-  for (let k = 1; k <= retries; k++) {
-    const a = { attempt: k };
-    if (k > 1) {                                         // (Round 32) only a retry: the old browser closed, a fresh one, the page loaded and made ready again
-      say(`attempt ${k}: fresh browser`);
-      a.freshBrowser = true;
-      await openBrowser();
-      button = await preparePage(a);
-    }
+  {                                                      // (Round 32, the owner's hard limit) ONE attempt: no second press of Install outside the read-checked resume below
+    const k = 1, a = { attempt: k };
     const p1 = await press(k, button);
     Object.assign(a, p1);
     derive(a);
@@ -449,16 +444,7 @@ try {
     }
     writeFileSync(resolve(out, `page-log-attempt${k}.txt`), a.log.join("\n"));
     say(`attempt ${k} ended: ${a.status}${a.timedOut ? " (the page was still working at the time limit)" : ""}`);
-    if (unmatched.length) { a.stoppedByUnmatchedDialog = true; break; }
-    if (a.timedOut || !RETRY.test(a.status)) break;
-    if (k < retries) {
-      // (Round 32) the old browser closed first (it lets go of the port); after "did not come back" the firmware is restarting: the fresh browser waits
-      // longer, so that the normal port is there when it starts (its Web MIDI sees only the ports present then)
-      const wait = /did not come back/i.test(a.status) ? returnWait : retryWait;
-      say(`the page says to press again (${a.status.slice(0, 80)}): the browser closed, attempt ${k + 1} in a fresh browser in ${wait} s`);
-      await closeBrowser();
-      await sleep(wait * 1000);
-    }
+    if (unmatched.length) a.stoppedByUnmatchedDialog = true;
   }
   result.downloads = readdirSync(dl);
   result.final = result.attempts.length ? result.attempts[result.attempts.length - 1].status : null;
