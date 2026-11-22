@@ -156,7 +156,7 @@ class MockUnit:
     notfound. A later Install in a browser that sees the loader finishes the same install (the page's resume); in a browser that sees the unit
     RUNNING it is a new install (switched to update mode again: what the owner's one-attempt limit forbids); else the page's noloader"""
     TEXT = {"update": "The FM-1 in update mode was not found. Replug the USB cable and press Install again (it stays in update mode until it is finished).",
-            "noreturn": "The FM-1 did not come back. Power-cycle it.",
+            "noreturn": "The FM-1 did not come back after the write. When it runs again, press Install again: the firmware is written, only the modules are left.",
             "slowreturn": "The FM-1 did not return after resuming the write.",
             "refuse": "Room: 12 sectors; this pick needs 15: 3 too many. Leave a model or a wave bank out. Install waits until the models fit.",
             "notfound": "FM-1 not found. Check the USB cable (a data cable), close other apps that use MIDI, and press Install again."}

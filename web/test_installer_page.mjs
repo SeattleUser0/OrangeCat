@@ -838,17 +838,23 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
         //     page waits, says the write finished and to keep it connected, never "power-cycle" before the bound, and runs the module stage in the same press: every
         //     ticked module state 7. 57ec17a4: the page ends with noreturn after 40 s (install) / 90 s (resume), no module written.
         {
-          const OTA = await import("./fm1ota.js"), BOUND = OTA.FIRST_START_MS || 300000;
+          const OTA = await import("./fm1ota.js"), BOUND = OTA.FIRST_START_MS || 300000, LATE = OTA.LATE_BACK_MS || 0;
+          const FIRST = "The write finished; the FM-1 is starting the new firmware (its first start after 0.15.0 can take a few minutes): keep it connected.";
           const slowUnit = (backAfter, pgRef) => {
-            const c = {t: 0, phase: "running", wroteAt: null, said: [], installs: 0};
+            const c = {t: 0, phase: "running", wroteAt: null, said: [], installs: 0, backAt: null, unload: []};
             class Slow extends OTA.Updater {
               now() { return c.t; }
               async pause(ms) { c.t += ms; }
               async find(filter) {
                 const id = c.phase === "running" ? {model: "FM-1", text: "FM-1_900"} : c.phase === "ota" ? {model: "ota-FM-1", text: MELODEE_LOADER}
                   : c.t - c.wroteAt >= backAfter ? {model: "FM-1", text: "FM-1_900"} : null;
-                if (c.phase === "written") c.said.push([c.t - c.wroteAt, pgRef.pg.element("status").textContent]);
+                if (c.phase === "written") {
+                  c.said.push([c.t - c.wroteAt, pgRef.pg.element("status").textContent]);
+                  const e = {prevented: false, preventDefault() { this.prevented = true; }};   // the owner closes the tab while the page waits
+                  pgRef.unload(e); c.unload.push(e.prevented || !!e.returnValue);
+                }
                 await this.pause(2000);                       // a look at the ports: the handshake's two tries
+                if (id && c.phase === "written" && c.backAt == null) c.backAt = c.t - c.wroteAt;
                 return id && filter(id) ? {id, link: {send: () => true, close() {}}} : null;
               }
               async install(...a) { c.installs++; return super.install(...a); }
@@ -857,31 +863,48 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
             }
             return {Slow, c};
           };
-          for (const backAfter of [150000, BOUND + 90000]) {
-            const ref = {}, {Slow, c} = slowUnit(backAfter, ref);
-            const {pg, f} = await openFlow({extra: {Updater: Slow}}); ref.pg = pg;
+          const slowFlow = async (backAfter, update = false) => {
+            const ref = {}, {Slow, c} = slowUnit(backAfter, ref); if (update) c.phase = "ota";
+            const win = {addEventListener(k, fn) { if (k === "beforeunload") ref.unload = fn; }};
+            const {pg, f} = await openFlow({extra: {Updater: Slow, window: win}}); ref.pg = pg;
             await goFlow(pg);
-            const late = c.said.filter(([, x]) => /Power-cycle/i.test(x));
+            assert.ok(ref.unload, "the page has its beforeunload guard");
+            return {pg, f, c};
+          };
+          const late = (c) => c.said.filter(([, x]) => /Power-cycle/i.test(x));
+          // at once (the normal path), 150 s (the unit's 132 s and more), past the bound
+          for (const backAfter of [0, 150000, BOUND + 90000]) {
+            const {pg, f, c} = await slowFlow(backAfter);
             assert.equal(c.installs, 1, "the install path (the unit was running 0.15.0 at the press)");
-            assert.ok(c.said.length && c.said.filter(([dt]) => dt < BOUND).every(([, x]) => x === "The write finished; the FM-1 is starting the new firmware (its first start after 0.15.0 can take a few minutes): keep it connected."),
-              "while the new firmware starts the page says the write finished: " + JSON.stringify(c.said.slice(0, 3)));
-            assert.ok(late.every(([dt]) => dt >= BOUND), "never power-cycle before the bound: " + JSON.stringify(late[0]));
-            if (backAfter > BOUND) assert.ok(late.length && late[0][1] === "The FM-1 has not answered in 5 minutes. Power-cycle it, with the USB cable left in: the page goes on when it answers.", "after the bound: " + JSON.stringify(late[0]));
-            else assert.equal(late.length, 0);
+            assert.ok(c.backAt != null && c.backAt >= backAfter && c.backAt - backAfter <= 5000, "the page went on as the unit answered (" + backAfter + " ms), not after a fixed wait: " + c.backAt);
+            assert.ok(c.said.length && c.said.filter(([dt]) => dt < BOUND).every(([, x]) => x === FIRST), "while the new firmware starts the page says the write finished: " + JSON.stringify(c.said.slice(0, 3)));
+            assert.ok(late(c).every(([dt]) => dt >= BOUND), "never power-cycle before the bound: " + JSON.stringify(late(c)[0]));
+            if (backAfter > BOUND) assert.ok(late(c).length && late(c)[0][1] === `The FM-1 has not answered in ${BOUND / 60000} minutes. Power-cycle it, with the USB cable left in: the page goes on when it answers.`, "after the bound: " + JSON.stringify(late(c)[0]));
+            else assert.equal(late(c).length, 0);
+            assert.ok(c.unload.length && c.unload.every((x) => !x), "while it only waits (nothing written) the page can be closed");
             assert.ok(f.sum, "the press went on to the module stage (" + backAfter / 1000 + " s): " + pg.element("status").textContent);
             assert.equal(f.fw, 1); assert.equal(f.sum.firmware, "installed");
             assert.deepEqual(f.sum.module, ["installed", "installed", "installed", "current", "installed"], JSON.stringify(f.sum));
             assert.ok(f.unit.st.starts.filter((x) => x.state === 7).length === 5 && f.unit.st.starts[18].state === 7 && f.unit.st.starts[18].mid === 1, "every ticked module state 7, DUB TAPE among them: " + f.unit.ops.join(" "));
             assert.match(pg.element("status").textContent, /^Result: Firmware: installed/, pg.element("status").textContent);
           }
-          // the resume path's wait is the same bound: a press begun in update mode, the unit back 150 s after the write
+          // never back: the press ends after both waits (10 minutes past the bound, not 35), saying Install again finishes it; nothing written to a unit that appears later
           {
-            const ref = {}, {Slow, c} = slowUnit(150000, ref); c.phase = "ota";
-            const {pg, f} = await openFlow({extra: {Updater: Slow}}); ref.pg = pg;
-            await goFlow(pg);
+            const {pg, f, c} = await slowFlow(Infinity);
+            const last = c.said.at(-1)[0];
+            assert.equal(LATE, 10 * 60000, "the late look: 10 minutes");
+            assert.ok(last >= BOUND + LATE - 4000 && last <= BOUND + LATE, "both waits, then the end: " + last);
+            assert.ok(!f.sum && !f.unit, "no module stage, nothing written");
+            assert.equal(pg.element("status").textContent, "The FM-1 did not come back after the write. When it runs again, press Install again: the firmware is written, only the modules are left.");
+            assert.ok(!/Power-cycle/.test(pg.element("status").textContent));
+          }
+          // the resume path's wait is the same: a press begun in update mode, the unit back 150 s after the write
+          {
+            const {pg, f, c} = await slowFlow(150000, true);
             assert.equal(c.installs, 0, "resumed, not installed in full");
+            assert.ok(c.said.length && c.said.every(([, x]) => x === FIRST), "the resume says the write finished while it waits: " + JSON.stringify(c.said.slice(0, 2)));
+            assert.ok(c.backAt - 150000 <= 5000, "the resume went on as the unit answered: " + c.backAt);
             assert.ok(f.sum && f.sum.module.every((m) => m === "installed" || m === "current"), "the modules after a resume: " + pg.element("status").textContent);
-            assert.ok(!c.said.some(([, x]) => /Power-cycle/i.test(x)));
           }
           // (3) a press that ended before the module stage (an older page, a lost link): the unit runs this package's image (MOD_INFO's fw), its modules as the new firmware
           //     left them. The next press leaves the firmware as it is, writes the missing modules and asks nothing; a press that lost the link part way through the modules,
@@ -1009,8 +1032,9 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
   }
   const ota = readFileSync(new URL("fm1ota.js", import.meta.url), "utf8");
   const {FIRST_START_MS, LATE_BACK_MS} = await import("./fm1ota.js");
-  assert.ok(FIRST_START_MS === 300000 && LATE_BACK_MS >= 10 * 60000, "(BUILD.md 7.51 addendum) the new firmware's first start: 5 minutes, then the late wait");
-  assert.match(template, /lateStart: "The FM-1 has not answered in 5 minutes\./, "the late text says the bound");
+  assert.ok(FIRST_START_MS === 300000 && LATE_BACK_MS === 10 * 60000, "(BUILD.md 7.51 addendum) the new firmware's first start: 5 minutes, then 10 more");
+  assert.equal((template.match(/lateStart: "[^"]*\{n\}/g) || []).length, 2, "the late text takes the minutes from the constant (ja, en)");
+  assert.ok(!/noreturn: "[^"]*(Power-cycle|電源を入れ直)/.test(template), "noreturn does not say power-cycle again (lateStart said it)");
   assert.equal((ota.match(/this\.waitBack\(/g) || []).length, 2, "install() and resume() both wait with waitBack");
 }
 console.log("installer page: Standard and the Nightly side by side, the choice kept, the boxes are what Install writes, a stock unit takes either in one run, the model picker: passed");

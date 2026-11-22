@@ -116,15 +116,16 @@ async function handshake(link, tries = 3) {
 }
 
 // (Round 32, BUILD.md 7.51 addendum) the wait for the new firmware after a finished write, both paths (install, resume). Upgrading 0.15.0 Standard to the Release 3 Nightly
-// the unit answered 132 s after the write (the page gave up at 90 s): its first start moves the record store out of the sample slot's 16 sectors and the six low ones
-// (firmware/src/smp_slot.c smp_claim, from persist_boot before usb_start, so nothing answers until it is done). At worst that start writes every part of the store once:
-// at most 56 parts (OCS_NSECT), each 1 erase + 15 page programs + its header (oc_store.c ocs_stream_put / commit), then up to 22 old copies erased, the 5 staging
-// sectors (ota.c ota_boot_cleanup) and a settings save: about 84 erases and 913 programs. At the Puya part's maxima (FLASH_CHIPS.md: tSE 12 ms, tPP 3 ms) 3.7 s; at the
-// driver's limits before it calls a part slow (erase 500 ms, program 50 ms) 42 + 46 = 88 s. The 132 s measured is mostly not flash time (the start itself and the
-// host finding the new USB device again), and a full store adds at most those 88 s: 132 + 88 = 220 s; the wait is 300 s (80 s of margin). Never "power-cycle it"
-// before it: after it the page says so (step "late") and keeps looking for LATE_BACK_MS more, so a unit that comes back then still gets its modules in the same press.
+// the unit answered 132 s after the write (the page gave up at 90 s). Before usb_start nothing answers; persist_boot (project.c) runs first: the library group (up_lg_boot,
+// at worst the 0.9.1 migration, 66 erases and 352 programs; done long before on a 0.15.0 unit), the settings repair (one save), the record store's move out of the slot's
+// 16 sectors and the six low ones (smp_slot.c smp_claim: at worst 56 parts written once, 22 old copies erased; with ota_boot_cleanup's 5 sectors about 84 erases and 913
+// programs), up_boot (the group's table again, reads). pjp_boot is under OC_PJ4_LDR, 0 in this build: not run. In all about 151 erases and 1,282 programs: 5.7 s at the
+// Puya maxima (FLASH_CHIPS.md), 140 s at the driver's limits (500 ms, 50 ms). So flash work does not explain the 132 s (host re-enumeration is seconds): most of it is
+// firmware time nobody has measured yet. 300 s is a margin over the one measurement, not a derived bound. Before it the page never says "power-cycle"; after it the
+// page says so (step "late") and looks LATE_BACK_MS more, so a unit that comes back then still gets its modules in the same press; after that the press ends (noreturn)
+// and nothing is written to a unit that appears later until Install is pressed again.
 export const FIRST_START_MS = 300000;
-export const LATE_BACK_MS = 30 * 60000;
+export const LATE_BACK_MS = 10 * 60000;
 export class Updater {
   constructor(access, log) {
     this.access = access;
@@ -136,7 +137,7 @@ export class Updater {
   async waitBack(filter, step) {
     const back = await this.waitFor(filter, FIRST_START_MS);
     if (back) return back;
-    step("late", Math.round(FIRST_START_MS / 60000));
+    step("late", Math.round(FIRST_START_MS / 60000));   // (the minutes waited: the page's text says them)
     return this.waitFor(filter, LATE_BACK_MS);
   }
 
@@ -232,7 +233,7 @@ export class Updater {
     step("reboot");
     await this.pause(3000);
     const back = await this.waitBack((id) => !IS_OTA(id), step);
-    if (!back) throw fail("noreturn", "the device did not come back: power-cycle it");
+    if (!back) throw fail("noreturn", "the device did not come back after the write");
     back.link.close();
     if (back.id.text !== product) throw fail("mismatch", `installed, but the device reports ${back.id.text}`, back.id.text);
     step("done", back.id.text);

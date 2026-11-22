@@ -227,10 +227,11 @@ const TEXT = {
     flashWrite: "フラッシュへの書き込みが完了しませんでした（チップの応答が遅いか、故障しています）。もう一度試し、続くようならお知らせください。",
     flashPackage: "このパッケージのファームウェアは、この FM-1 のフラッシュチップを知りません。インストールは始めず、何も書き込んでいません。新しいリリースを選んでください。チップ: ",
     flashUnsupported: "FLASH NOT SUPPORTED: この FM-1 のフラッシュチップにはファームウェアが対応していません。インストールは始めず、何も書き込んでいません。",
-    noreturn: "FM-1 が戻ってきません。電源を入れ直してください。",
+    noreturn: "書き込みの後、FM-1 が戻ってきません。",
+    noreturnMods: "書き込みの後、FM-1 が戻ってきません。動くようになったら、もう一度インストールを押してください。ファームウェアは書き込み済みで、残りはモジュールだけです。",
     leftUpdate: "FM-1 が書き込みモードを抜けました。何も書き込んでいません。インストールするならもう一度インストールを押してください。",
     firstStart: "書き込みが終わりました。FM-1 が新しいファームウェアを起動しています（0.15.0 からの最初の起動は数分かかることがあります）。接続したままにしてください。",
-    lateStart: "FM-1 が 5 分たっても応答しません。USB はつないだまま電源を入れ直してください。応答すればページはそのまま続けます。",
+    lateStart: "FM-1 が {n} 分たっても応答しません。USB はつないだまま電源を入れ直してください。応答すればページはそのまま続けます。",
     mismatch: "書き込みは終わりましたが、FM-1 が別のバージョンを報告しています: ",
     badpkg: "インストールするファイルが壊れています。ページを再読み込みしてください。",
     leave: "書き込み中です。ページを閉じないでください。",
@@ -339,10 +340,11 @@ const TEXT = {
     flashWrite: "The FM-1's flash did not finish a write (the chip answered too slowly, or it is failing). Try again; if it keeps happening, report it.",
     flashPackage: "This package's firmware does not know this FM-1's flash chip, so the install was not started and nothing was written. Choose a newer release. The chip's JEDEC id: ",
     flashUnsupported: "FLASH NOT SUPPORTED: the FM-1 says its flash chip is not one its firmware knows. The install was not started and nothing was written.",
-    noreturn: "The FM-1 did not come back. Power-cycle it.",
+    noreturn: "The FM-1 did not come back after the write.",
+    noreturnMods: "The FM-1 did not come back after the write. When it runs again, press Install again: the firmware is written, only the modules are left.",
     leftUpdate: "The FM-1 left update mode: nothing was written. Press Install again if you want to install.",
     firstStart: "The write finished; the FM-1 is starting the new firmware (its first start after 0.15.0 can take a few minutes): keep it connected.",
-    lateStart: "The FM-1 has not answered in 5 minutes. Power-cycle it, with the USB cable left in: the page goes on when it answers.",
+    lateStart: "The FM-1 has not answered in {n} minutes. Power-cycle it, with the USB cable left in: the page goes on when it answers.",
     mismatch: "Written, but the FM-1 reports another version: ",
     badpkg: "The file to install is damaged. Reload the page.",
     leave: "Writing. Do not close the page.",
@@ -386,6 +388,7 @@ applyLang();
 $("stock-skip-backup").addEventListener("change", applyLang);
 $("transit-skip-backup").addEventListener("change", applyLang);
 const sayK = (k, arg = "") => { lastKey = k; lastArg = arg; $("status").textContent = t(k) + arg; };
+const sayLate = (n) => say(t("lateStart").replace("{n}", String(n)));   /* (Round 32) the minutes from fm1ota.js FIRST_START_MS */
 const say = (txt) => { lastKey = null; $("status").textContent = txt; };
 const buildIds = ["dual", "rc-dual", "nightly-dual"];
 const build = () => buildIds.find(k => $("build-" + k).checked) || "dual";
@@ -673,9 +676,9 @@ if (remembered() === "nightly-dual" && meta.nightly) { $("build-dual").checked =
 buildLabels();
 const images = {};                // a build ("dual", "nightly-dual" ..) -> its package's image, each fetched once
 
-let writing = false, stock = null, stockFileEpoch = 0, buildEpoch = 0;
+let writing = false, waitingOnly = false, stock = null, stockFileEpoch = 0, buildEpoch = 0;
 const lockInstaller = (on) => {
-  writing = on; $("release").disabled = on; $("go").disabled = on || !image || !modelsOk();
+  writing = on; waitingOnly = false; $("release").disabled = on; $("go").disabled = on || !image || !modelsOk();
   $("stage-models").disabled = on || !master;
   buildIds.forEach(k => { $("build-" + k).disabled = on; });
   $("stock-go").disabled = on || !stock;
@@ -683,7 +686,7 @@ const lockInstaller = (on) => {
   $("unit-read").disabled = on; $("fx-remove").disabled = on || !$("fx-remove-id").value;
   ["stock-file", "stock-recovery", "stock-skip-backup", "transit-go", "transit-recovery", "transit-skip-backup"].forEach(id => { $(id).disabled = on; });
 };
-window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault(); e.returnValue = t("leave"); } });
+window.addEventListener("beforeunload", (e) => { if (writing && !waitingOnly) { e.preventDefault(); e.returnValue = t("leave"); } });   /* (Round 32) not while the page only waits for the new firmware: nothing is being written */
 
 // the chosen build's package: Install stays off until it is loaded and checked
 async function choose() {
@@ -727,7 +730,7 @@ const refuseLoader = (id) => id === STOCK_LOADER ? sayK("loaderStock") : id === 
 // (Round 32, BUILD.md 7.54) startLoader: the loader identity the press found at its start (the unit in update mode), or null (the unit running). The
 // press decides once: begun in update mode it resumes, or ends with leftUpdate when the loader is gone by now (nothing written), never a full install
 // of a running unit in the same press; begun with the unit running it installs as before.
-async function flashFirmware(midi, product, f, startLoader = null) {
+async function flashFirmware(midi, product, f, startLoader = null, more = false) {   /* more: a pack or modules follow in this press (the noreturn text says only they are left) */
   const up = new Updater(midi, log);
   const total = 74 + 1167;
   const step = (k, a) => {
@@ -736,10 +739,15 @@ async function flashFirmware(midi, product, f, startLoader = null) {
     if (k === "verify") { sayK("verify"); f(a / total); }
     if (k === "loader") sayK("loader");
     if (k === "write") { sayK("write"); f((74 + a) / total); }
-    if (k === "reboot") sayK("firstStart");   /* (Round 32, BUILD.md 7.51 addendum) the write is done, resumed or not: the new firmware's first start (fm1ota.js FIRST_START_MS, 5 minutes) */
-    if (k === "late") sayK("lateStart");      /* past that bound: power-cycle it; the wait goes on (LATE_BACK_MS) and the modules follow in this press when it answers */
+    if (k === "reboot") { waitingOnly = true; sayK("firstStart"); }   /* (Round 32, BUILD.md 7.51 addendum) the write is done, resumed or not: the new firmware's first start (fm1ota.js FIRST_START_MS); only waiting now: the page may be closed */
+    if (k === "late") sayLate(a);              /* past it: power-cycle it; the wait goes on (LATE_BACK_MS) and the modules follow in this press when it answers */
+    if (k === "done") waitingOnly = false;
     if (k === "done") { f(1); sayK("done"); }
   };
+  try { await flashOnce(up, step, product, startLoader); }
+  catch (e) { if (e && e.code === "noreturn" && more) e.code = "noreturnMods"; throw e; }
+}
+async function flashOnce(up, step, product, startLoader) {
   if (startLoader) {
     if (startLoader !== MELODEE_LOADER) { const e = new Error("loader"); e.code = "wrongloader"; e.detail = startLoader; throw e; }
     const ota = await up.find((id) => id.text === MELODEE_LOADER);
@@ -880,7 +888,7 @@ $("go").addEventListener("click", async () => {
   try {
     const sum = await runSet({
       stages, files, log,
-      runFirmware: (f) => flashFirmware(midi, product, f, startLoader),
+      runFirmware: (f) => flashFirmware(midi, product, f, startLoader, stages.pack || stages.module),
       firmwareId: imageId, flashParts: imageParts, peekUnit: () => openUnit(midi, 5000),   /* (Round 26) the firmware is left as it is when the unit runs this package's image */
       openUnit: () => openUnit(midi),
       say: (k) => sayK(k),
@@ -950,7 +958,9 @@ async function leaveMelodee(target) {
     const step = (k, n) => {
       log(`${k} ${n ?? ""}`);
       if (["start","verify","loader","write","reboot","done"].includes(k)) sayK(k);
-      if (k === "late") sayK("lateStart");   /* (Round 32) fm1ota.js waitBack: past FIRST_START_MS */
+      if (k === "reboot") waitingOnly = true;
+      if (k === "late") sayLate(n);   /* (Round 32) fm1ota.js waitBack: past FIRST_START_MS */
+      if (k === "done") waitingOnly = false;
       if (k === "verify") $("bar").value = Math.min(10, n / 10);
       if (k === "write") $("bar").value = Math.min(99, 10 + n / (selected.image.length / 512) * 90);
     };
