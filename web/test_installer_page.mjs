@@ -772,6 +772,41 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
           const a = PLACE.arrange(st, [W, S, D, F, P]);
           assert.equal(a.how, "asis", "another order places the set as the unit stands");
           assert.equal(a.plan.steps.map((x) => x.mod.name + "@" + x.start).join(" "), "MACRO models@17 SHAPES@1 WHEEL@5 DUB TAPE@18 FX LAYER@2");
+          // (the review of a98b00b0) the search is depth-first with each prefix's state carried and two bounds (the sectors, the Effects table): the same first order as the
+          // whole-order search of a98b00b0 (kept here as the reference) on the installer's units and on random ones, and a bounded cost
+          {
+            const oldOther = (s0, mods, order) => {
+              const perm = (rest, pre, out) => { if (!rest.length) { out.push(pre); return; } rest.forEach((x, k) => perm([...rest.slice(0, k), ...rest.slice(k + 1)], [...pre, x], out)); return out; };
+              for (const alt of perm(order, [], []).slice(1)) { const r = PLACE.simulate(s0, alt.map((i) => mods[i]).filter((m) => !m.current)); if (r.ok) return [alt, r.steps.map((x) => x.start)]; }
+              return null;
+            };
+            const same = (s0, mods) => {
+              const order = PLACE.goalOrder(s0, mods), a = oldOther(s0, mods, order), st0 = {plans: 0}, b = PLACE.otherOrder(s0, mods, order, st0);
+              assert.equal(JSON.stringify(b && [b.order, b.steps.map((x) => x.start)]), JSON.stringify(a), "the same first order: " + JSON.stringify(mods));
+              return st0.plans;
+            };
+            const R = {mid: 2, sectors: 1, name: "REVERB MODES"}, X = {mid: 9, sectors: 1, name: "X"};
+            const units = [st, PLACE.fromUnit(PLACE.afterFirmware(v015(), {iface: 1, lowOk: true})), PLACE.fromUnit(PLACE.afterFirmware(v015({prophet: true}), {iface: 1, lowOk: true})),
+                           PLACE.fromUnit(PLACE.afterFirmware(u, {iface: 1})), T.nightly(true), T.unitState(true), T.unitState(true, [], false)];
+            for (const s0 of units) for (const set of [[W, S, D, F, P], [W, S, D, F, R, P], [W, S, D, F, R, X, P], [S, P], [P], [W, S, D, P]]) same(s0, set);
+            let seed = 7; const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+            const POOL = [{engine: 14}, {engine: 7}, {mid: 0x4D08, sectors: 9}, {mid: 0x4D08, sectors: 5}, {mid: 1, sectors: 3}, {mid: 3, sectors: 2}, {mid: 2, sectors: 1}, {mid: 9, sectors: 1}, {mid: 10, sectors: 2}, {mid: 11, sectors: 1}];
+            let cases = 0, most = 0;
+            for (let it = 0; it < 600; it++) {
+              const s0 = PLACE.emptyState(rnd(4) > 0, 3);
+              for (let k = rnd(3); k > 0; k--) s0.starts[rnd(21)] = {state: 2, kind: 0, mid: 0, engine: [14, 7][rnd(2)], length: 4096 * (1 + rnd(6))};
+              for (let k = rnd(3); k > 0; k--) s0.starts[rnd(21)] = {state: 7, kind: 1, mid: 0x55 + k, engine: PLACE.OC_FX_ENGINE, length: 4096 * (1 + rnd(2))};
+              s0.nfxmod = s0.starts.filter((x) => x.state === 7 && x.kind).length;
+              const ids = new Set(), mods = [], want = 3 + rnd(4);
+              while (mods.length < want) { const m = POOL[rnd(POOL.length)], id = m.engine != null ? "e" + m.engine : "m" + m.mid; if (ids.has(id) || (m.mid === 0x4D08 && ids.has("p"))) continue; ids.add(id); if (m.mid === 0x4D08) ids.add("p"); mods.push({...m, current: rnd(6) === 0}); }
+              if (PLACE.simulate(s0, PLACE.goalOrder(s0, mods).map((i) => mods[i]).filter((m) => !m.current)).ok) continue;
+              cases++; most = Math.max(most, same(s0, mods));
+            }
+            assert.ok(cases > 100 && most < 400, "random units: " + cases + " compared, at most " + most + " planner calls (the whole-order search: up to 6! orders x 6)");
+            const seven = [W, S, D, F, R, X, P], t0 = performance.now();
+            for (let k = 0; k < 5; k++) assert.equal(PLACE.arrange(st, seven).how, "none", "seven modules, 22 sectors on 21: no order");
+            assert.ok((performance.now() - t0) / 5 < 20, "the seven-module no-fit under 20 ms: " + ((performance.now() - t0) / 5).toFixed(1) + " ms (the whole-order search took about 700)");
+          }
           for (const okAt1 of [false, true]) {
             const {pg, f} = await openFlow({data: v015s});
             f.after = () => {                                   // the unit as the tail build's firmware reads it: start 1 junk, or the same build's SHAPES (OK)

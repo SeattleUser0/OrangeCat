@@ -209,6 +209,41 @@ const placeName = (s, c) => place(s, sec(c)) === 1 ? "tail" : "area";
 // "rearrange" answer then carries drop [{start, engine, kind, mid}] (taken off, NOT put back: the page's question names them), the fewest of them (each is put back in turn,
 // lowest start first, and stays when the set still fits), and remove may be empty (the set fits as the unit stands once they are off: nothing of the set is moved). A module
 // that is not in removable is never dropped; a module of the set is never dropped (it is in `remove` and is put back).
+// the first order of `order`'s positions (lexicographic, the goal's order itself skipped: it was tried) whose modules, less the current ones, all have a place on s in turn:
+// {order, steps, final} or null. Depth-first, as described in arrange.
+function otherOrder(s, mods, order, stats = null) {   // stats (the tests): {plans} counts the planner's calls
+  const failed = new Set(), isGoal = (pre) => pre.every((x, k) => x === order[k]);
+  const sameId = (x, m) => m.engine != null ? !x.kind && x.engine === m.engine : !!x.kind && x.mid === m.mid;
+  const cap = (s.lowOk ? OC_AREA : OC_AREA - OC_BASE) + (nst(s) > OC_STARTS ? OC_TAIL : 0);
+  // a bound that never cuts an order that fits: the modules still to place and the usable ones that stay (not of a module still to place: those are erased once it is
+  // written) are disjoint at the end (the planner stands each beside every usable module), so together they fit in the place's sectors
+  const roomy = (t, left) => {
+    const go = left.map((i) => mods[i]).filter((m) => !m.current);
+    let need = go.reduce((n, m) => n + sectorsOf(t, m), 0);
+    const held = new Set();                                                          // (only the placeable sectors a staying module holds: never counted twice)
+    for (let j = 0; j < nst(t); j++) if (usable(t, j) && !go.some((m) => sameId(t.starts[j], m)))
+      for (let q = 0; q < reach(t, j); q++) { const v = sec(j) + q; if (place(t, v) >= 0 && (!low(v) || t.lowOk)) held.add(v); }
+    // and the Effects table: the effect / models ids that stay and the ones still to place are at most OC_FX_TABLE (planFx's room)
+    const ids = new Set(go.filter((m) => m.engine == null).map((m) => m.mid));
+    for (let j = 0; j < nst(t); j++) if (usable(t, j) && t.starts[j].kind) ids.add(t.starts[j].mid);
+    return need + held.size <= cap && ids.size <= OC_FX_TABLE;
+  };
+  const go = (t, pre, left, steps, placed) => {
+    if (!left.length) return isGoal(pre) ? null : { order: pre, steps, final: t };   // (the goal's order: already refused)
+    const k0 = left.join() + "|" + placed.slice().sort().join();                    // (the unit state is the start state and what was placed where)
+    if (failed.has(k0) || !roomy(t, left)) return null;
+    for (let k = 0; k < left.length; k++) {
+      const i = left[k], m = mods[i], rest = [...left.slice(0, k), ...left.slice(k + 1)];
+      let r;
+      if (m.current) r = go(t, [...pre, i], rest, steps, placed);
+      else { const c = plan(t, m); if (stats) stats.plans++; if (c < 0) continue; r = go(apply(t, m, c), [...pre, i], rest, [...steps, { mod: m, start: c }], [...placed, i + "@" + c]); }
+      if (r) return r;
+    }
+    if (!isGoal(pre)) failed.add(k0);   // (a prefix of the goal's order holds the goal's order, which is skipped, not failed)
+    return null;
+  };
+  return go(cloneState(s), [], order.slice(), [], []);
+}
 function arrange(s, mods, opts = {}) {
   const order = goalOrder(s, mods), all = order.map((i) => mods[i]), todo = all.filter((m) => !m.current);
   const run = (t, list) => ({ ...simulate(t, list), mods: list });
@@ -221,12 +256,11 @@ function arrange(s, mods, opts = {}) {
   // start 0 is then in its way, SHAPES takes the junk start 1). So before anything is taken off: every other order of the set (the goal's order first, then the rest in
   // lexicographic order of its positions, at most 7 modules), the first that places all of it as the unit stands. Nothing is removed or moved for it; each module still goes where
   // the unit's own planner names (runSet installs in this order).
+  // (the review of a98b00b0) a depth-first search, not every order simulated whole: a branch stops at the first module that has no place, each prefix carries its unit state,
+  // and a (modules left, unit state) already found to fail is not tried again. The orders are visited in the same sequence, so the first that fits is the same one.
   if (all.length <= 7) {
-    const perm = (rest, pre, out) => { if (!rest.length) { out.push(pre); return; } rest.forEach((x, k) => perm([...rest.slice(0, k), ...rest.slice(k + 1)], [...pre, x], out)); return out; };
-    for (const alt of perm(order, [], []).slice(1)) {
-      const r = run(s, alt.map((i) => mods[i]).filter((m) => !m.current));
-      if (r.ok) return { how: "asis", order: alt, plan: r };
-    }
+    const alt = otherOrder(s, mods, order);
+    if (alt) return { how: "asis", order: alt.order, plan: { ok: true, steps: alt.steps, failAt: -1, final: alt.final, mods: alt.order.map((i) => mods[i]).filter((m) => !m.current) } };
   }
   const same = (x, m) => m.engine != null ? !x.kind && x.engine === m.engine : !!x.kind && x.mid === m.mid;
   const own = (j) => usable(s, j) && all.some((m) => same(s.starts[j], m));
@@ -262,5 +296,5 @@ function arrange(s, mods, opts = {}) {
   for (const j of foreign) { keep.add(j); if (!simulate(cleared(keep), all).ok) keep.delete(j); }
   return { how: "blocked", order, plan: asis, blockers: foreign.filter((j) => !keep.has(j)).map((j) => ({ start: j, engine: s.starts[j].engine, kind: s.starts[j].kind, mid: s.starts[j].mid })) };
 }
-return { plan, planEngine, planFx, apply, simulate, fromUnit, afterFirmware, emptyState, cloneState, biggestRun, whyNot, goalOrder, arrange, hasTail, isTailUnit, placeName, sectorsOf, OC_SECT, OC_STARTS, OC_AREA, OC_BASE, OC_TAIL, OC_TAIL_REL, OC_FX_ENGINE, ENG_GEO, ENG_GEO_TAIL };
+return { plan, planEngine, planFx, apply, simulate, fromUnit, afterFirmware, otherOrder, emptyState, cloneState, biggestRun, whyNot, goalOrder, arrange, hasTail, isTailUnit, placeName, sectorsOf, OC_SECT, OC_STARTS, OC_AREA, OC_BASE, OC_TAIL, OC_TAIL_REL, OC_FX_ENGINE, ENG_GEO, ENG_GEO_TAIL };
 })();
