@@ -1550,9 +1550,9 @@ def _link_checks():
         got = json.loads(p.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):
         got = {}
-    attempt("link: a BACKUP_GET answered late: the page's OcLink takes it for the next request (\"Unexpected backup reply\", the unit's 50 % failure); "
-            "oc_install.mjs's matched request (tools/hw/bk_request.mjs) drops it and the backup completes",
-            lambda: got == {"oclink": "Unexpected backup reply", "matched": "ok"} and "matchedRequest" in open(os.path.join(HERE, "oc_install.mjs")).read())
+    attempt("link: a BACKUP_GET answered late (the unit's 50 % failure, \"Unexpected backup reply\"): since BUILD.md 7.54 the page's OcLink drops it "
+            "too, and so does oc_install.mjs's matched request (tools/hw/bk_request.mjs): the backup completes on both",
+            lambda: got == {"oclink": "ok", "matched": "ok"} and "matchedRequest" in open(os.path.join(HERE, "oc_install.mjs")).read())
 
 
 def _expect_exit(fn):
