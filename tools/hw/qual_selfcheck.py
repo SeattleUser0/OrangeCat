@@ -19,6 +19,9 @@ tables (web/app/lib/fw_tables.js, generated from tests/web_tables.c with the Nig
   8. (Round 32, 7.37 Q1's FX and REV levels) cdp_install.mjs --ticks / --remove against a mock of the page's boxes, meter, give-way choice and
      Remove (its texts checked against web/index_pkg.html); q4_answers_example.json's rev-set and fx-set rules against the page's own texts;
      q4_install.py rev-set and fx-set (backup first, --expect, the driver's arguments, the Effects table judged)
+  9. (BUILD.md 7.37, the owner's decisions of November 21; q23_checks) seqtest: DUB evicted recorded, not a fail; late halves allowed (3) only
+     in the first run of a heavy DUB cell after the mix changed; the carry-over wait before a DUB cell (60 s, on a fake clock) and the refusal;
+     hiss: the absolute floor at or below Release 1's figure per case, no margin (Round 32's room:off:100 -91.04 and off:spring:100 -83.09 pass)
   ~/fm1-hw/hwvenv/bin/python3 tools/hw/qual_selfcheck.py        (exit 0: every check passed)
 """
 import contextlib
@@ -26,6 +29,7 @@ import http.server
 import socket
 import threading
 import time
+import types
 import urllib.parse
 import importlib.util
 import io
@@ -601,6 +605,7 @@ def main():
     swap_checks()
     round32_checks()
     gfix_checks()
+    q23_checks()
     remote_checks()
     print(f"\n{len(FAILS)} failed" if FAILS else "\nevery check passed")
     return 1 if FAILS else 0
@@ -904,10 +909,11 @@ def round32_checks():
     # ---- Q2
     import seqtest as S
     attempt("Q2: seqtest's defaults are the qualification's: SEED 20261115, REPS 2", lambda: S.SEED == 20261115 and S.REPS == 2)
-    row = {"name": "r00", "cell": "heavy:1", "expected": 512, "matched": 512, "missed": [], "voices_after_release": {"sounding": 0, "gated": 0}, "dub_cell": True, "dub_evicted": False}
-    attempt("Q2: a hung note fails a row; DUB evicted fails a DUB cell, not a cell without DUB",
+    row = {"name": "r00", "cell": "heavy:1", "expected": 512, "matched": 512, "missed": [], "voices_after_release": {"sounding": 0, "gated": 0}, "dub_cell": True, "dub_evicted": False,
+           "late": 0, "late_allowed": 0}
+    attempt("Q2: a hung note fails a row; DUB evicted fails no cell (the owner's decision of November 21: recorded)",
             lambda: S.row_ok(row)[0] and not S.row_ok({**row, "voices_after_release": {"sounding": 1, "gated": 0}})[0]
-            and not S.row_ok({**row, "dub_evicted": True})[0] and S.row_ok({**row, "dub_cell": False, "dub_evicted": True})[0])
+            and S.row_ok({**row, "dub_evicted": True})[0] and S.row_ok({**row, "dub_cell": False, "dub_evicted": True})[0])
     attempt("Q2: DUB evicted read from the governor's firings and DUB FULL",
             lambda: S.dub_evicted({"gov": 2}, [(1.0, 2, 3, 0)], {"gov": 3, "full": 0}) and S.dub_evicted({"gov": 2}, [(1.0, 2, 2, 0x10)], {"gov": 2, "full": 0}) and not S.dub_evicted({"gov": 2}, [(1.0, 2, 2, 0)], {"gov": 2, "full": 0}))
     attempt("Q2 (review): an unanswered DUB state read is not judgeable, and fails a DUB cell, never 'not evicted'",
@@ -928,14 +934,10 @@ def round32_checks():
     sys.argv = ["hiss.py"]
     import hiss as H
 
+    # (the Round 32 cost rule's checks are replaced by q23_checks: the owner's decision of November 21, the absolute floor)
     def hr(rev, dub, vel, f): return {"rev": rev, "dub": dub, "vel": vel, "usb": {"steady": {"floor_db": f}}}
-    base = [hr("off", "off", 30, -91.0), hr("off", "off", 100, -81.0)]
-    attempt("Q3: costs within S's plus the margin pass, quieter passes (one-sided), new cases against SPRING's S cost",
-            lambda: H.hiss_verdict(base + [hr("room", "off", 30, -84.6), hr("spring", "off", 30, -87.0), hr("shimr", "off", 30, -80.0), hr("off", "spring", 100, -79.0)], 0.2)["pass"])
-    attempt("Q3: ROOM 2 dB over S's cost at a 1 dB margin fails; the margin is twice the AUDIO4c spread when larger",
-            lambda: not H.hiss_verdict(base + [hr("room", "off", 30, -82.8)], 0.3)["pass"] and H.hiss_verdict(base + [hr("room", "off", 30, -82.8)], 1.5)["pass"])
-    attempt("Q3: a digital-zero USB capture, or no off:off at the velocity, is not judgeable (fails)",
-            lambda: not H.hiss_verdict([hr("off", "off", 30, -180.0), hr("room", "off", 30, -180.0)], 0.2)["pass"] and not H.hiss_verdict([hr("room", "off", 100, -82.0)], 0.2)["pass"])
+    attempt("Q3: a digital-zero USB capture in a case with a note is not judgeable (fails)",
+            lambda: not H.hiss_verdict([hr("off", "off", 30, -180.0), hr("room", "off", 30, -180.0)], 0.2)["pass"])
     # ---- Q4
     import q4_install as Q4
     attempt("Q4: the plan: (a then d), b, c each twice by random.Random(20261117), d right after its a",
@@ -1033,7 +1035,7 @@ def gfix_checks():
 
     class TU:
         def req(self, *a, **k): raise TimeoutError("lost")
-    row = {"name": "r00", "cell": "light:0", "expected": 64, "matched": 64, "missed": [], "voices_after_release": None, "dub_cell": False, "dub_evicted": False}
+    row = {"name": "r00", "cell": "light:0", "expected": 64, "matched": 64, "missed": [], "voices_after_release": None, "dub_cell": False, "dub_evicted": False, "late": 0}
     attempt("gfix: the voices not answered are not judgeable (strict: None), and the run fails",
             lambda: F.Unit.voices(TU(), strict=True) is None and F.Unit.voices(TU())["sounding"] == 0 and not S.row_ok(row)[0] and S.hung(None))
     attempt("gfix: a DUB eviction is recorded in a cell without DUB (flagged, not failed)",
@@ -1053,6 +1055,112 @@ def gfix_checks():
         except SystemExit as e:
             return "more than once" in str(e)
     attempt("gfix: a plan that names a module twice is refused (no silent winner)", twice)
+
+
+def dub_reply(st, rdy, full=0, gov=0):
+    """AUDIO_STATS [0, 7] as the firmware sends it: full, gov, then instance 1's st rdy have R hold run, 5 bytes of 7 bits each"""
+    return [0] + n5(full) + n5(gov) + n5(st) + n5(rdy) + n5(4) + n5(0) + n5(0) + n5(1 if st == 2 else 0)
+
+
+class DubUnit:
+    """answers only AUDIO_STATS [0, 7]: DUB out (st 0, DUB FULL 16) for `out_polls` reads, then running with its memory; out_polls None: never
+    back; lost: no reply at all"""
+    def __init__(self, out_polls, lost=False):
+        self.out_polls, self.lost, self.reads = out_polls, lost, 0
+    def req(self, cmd, args=(), timeout=3.0):
+        assert cmd == 72 and list(args) == [0, 7], (cmd, args)
+        self.reads += 1
+        if self.lost: raise TimeoutError("lost")
+        back = self.out_polls is not None and self.reads > self.out_polls
+        return dub_reply(2, 1) if back else dub_reply(0, 0, full=16)
+
+
+def q23_checks():
+    """(BUILD.md 7.37, the owner's decisions of November 21, branch r32-q23) each fails on r32-gtools 0c86c900"""
+    import seqtest as S
+    row = {"name": "r03", "cell": "heavy:1", "expected": 256, "matched": 256, "missed": [], "voices_after_release": {"sounding": 0, "gated": 0},
+           "dub_cell": True, "dub_evicted": False, "late": 0, "late_allowed": 0}
+    attempt("q23 Q2: DUB evicted in a DUB cell is recorded, not a fail (Round 14's written limit)",
+            lambda: S.row_ok({**row, "dub_evicted": True})[0] and S.cell_totals([{**row, "dub_evicted": True, "ok": True}])["heavy:1"]["dub_evicted_runs"] == 1)
+    order = [("warm", ("heavy", "2")), ("r00", ("heavy", "2")), ("r01", ("light", "2")), ("r02", ("heavy", "1")), ("r03", ("heavy", "1")),
+             ("r04", ("heavy", "0")), ("r05", ("heavy", "2")), ("r06", ("light", "0"))]
+    attempt("q23 Q2: late halves allowed (3) only in the first run of a heavy DUB cell after the mix changed (the warm-up counts), 0 elsewhere",
+            lambda: [S.late_allowance(order, i) for i in range(len(order))] == [3, 0, 0, 3, 0, 0, 3, 0] and S.LATE_LIMIT == 3)
+    attempt("q23 Q2: late halves judged: 3 within the allowance pass, 4 fail; 1 in a run with no allowance fails; unread late fails",
+            lambda: S.row_ok({**row, "late": 3, "late_allowed": 3})[0] and not S.row_ok({**row, "late": 4, "late_allowed": 3})[0]
+            and not S.row_ok({**row, "late": 1})[0] and not S.row_ok({**row, "cell": "light:2", "late": 1})[0] and not S.row_ok({**row, "late": None})[0])
+    attempt("q23 Q2: the onsets total and the hung note stay the mark with late halves allowed",
+            lambda: not S.row_ok({**row, "late": 2, "late_allowed": 3, "missed": [{"ps": 0}], "matched": 255})[0]
+            and not S.row_ok({**row, "late": 2, "late_allowed": 3, "voices_after_release": {"sounding": 1, "gated": 0}})[0])
+    clk = {"t": 0.0}
+
+    def fake_clock(): return clk["t"]
+    def fake_sleep(s): clk["t"] += s
+
+    def r24():
+        clk["t"] = 0.0
+        w = S.wait_dub_ready(DubUnit(out_polls=18), 60.0, 1.0, fake_clock, fake_sleep)
+        return w["ready"] and w["waited_s"] == 18.0 and w["first"]["full"] == 16 and w["first"]["i1"]["st"] == 0
+    attempt("q23 Q2 carry-over: DUB out at the cell's start (full 16, st 0, as light:2's r24), back 18 s later: the wait ends ready at 18 s", r24)
+
+    def never():
+        clk["t"] = 0.0
+        w = S.wait_dub_ready(DubUnit(out_polls=None), 60.0, 1.0, fake_clock, fake_sleep)
+        clk["t"] = 0.0
+        lost = S.wait_dub_ready(DubUnit(out_polls=0, lost=True), 60.0, 1.0, fake_clock, fake_sleep)
+        return not w["ready"] and w["waited_s"] == 60.0 and w["polls"] == 61 and not lost["ready"]
+    attempt("q23 Q2 carry-over: DUB never back (or no reply): the wait gives up at 60 s, not ready", never)
+    attempt("q23 Q2 carry-over: st 2 without rdy, or with DUB FULL, is not ready",
+            lambda: not S.dub_ready({"full": 0, "i1": {"st": 2, "rdy": 0}}) and not S.dub_ready({"full": 16, "i1": {"st": 2, "rdy": 1}})
+            and S.dub_ready({"full": 0, "i1": {"st": 2, "rdy": 1}}) and not S.dub_ready(None))
+
+    class NoCapture:
+        class Recorder:
+            def __init__(self, *a, **k): raise AssertionError("a capture started for a refused cell")
+
+    def refused():
+        saved = (S.program_load, S.time, S.capture, S.DUB_WAIT_S, S.PASSES)
+        try:
+            S.PASSES = 16
+            S.program_load = lambda u, kind, dub: ([{"req": True}] * 128, {})
+            S.time = types.SimpleNamespace(sleep=lambda s: None, monotonic=time.monotonic)
+            S.capture = NoCapture
+            S.DUB_WAIT_S = 0.0                           # (the bound reached at once: the 60 s wait is checked above on a fake clock)
+            u = DubUnit(out_polls=None)
+            r = S.run(u, "r24", ("light", "2"))
+            tot = S.cell_totals([r])["light:2"]
+            return (not r["ok"] and r.get("refused") and "not judgeable" in r["why"][0] and r["dub_wait"]["ready"] is False
+                    and not tot["ok"] and tot["total"] == "0 of 128" and u.reads >= 1)
+        finally:
+            S.program_load, S.time, S.capture, S.DUB_WAIT_S, S.PASSES = saved
+    attempt("q23 Q2 carry-over: a DUB cell whose DUB is not back is refused before any capture: not judgeable, the cell fails", refused)
+    sys.argv = ["hiss.py"]
+    import hiss as H
+
+    def hr(rev, dub, vel, f): return {"rev": rev, "dub": dub, "vel": vel, "usb": {"steady": {"floor_db": f}}}
+    def case(v, k): return v["cases"][k]
+    attempt("q23 Q3: Round 32's numbers: room:off:100 -91.04 passes against -81.9, off:spring:100 -83.09 passes against -79.7 (no off row needed)",
+            lambda: (lambda v: v["pass"] and case(v, "room:off:100")["figure_db"] == -81.9 and case(v, "off:spring:100")["figure_db"] == -79.7
+                     and case(v, "off:spring:100")["floor_db"] == -83.09 and case(v, "off:spring:100")["new"])(
+                H.hiss_verdict([hr("room", "off", 100, -91.04)] * 3 + [hr("off", "spring", 100, -83.09)] * 3)))
+    attempt("q23 Q3: absolute, no margin: room:off:30 -84.6 fails against -84.7 (-84.7 itself passes); off:off:100 -81.0 fails against -81.1",
+            lambda: not H.hiss_verdict([hr("room", "off", 30, -84.6)], 5.0)["pass"] and H.hiss_verdict([hr("room", "off", 30, -84.7)])["pass"]
+            and not H.hiss_verdict([hr("off", "off", 100, -81.0)])["pass"])
+    attempt("q23 Q3: a loud session off does not excuse a case (no cost): off:off:30 -85 and room:off:30 -84 both fail",
+            lambda: (lambda v: not v["pass"] and not case(v, "room:off:30")["ok"] and not case(v, "off:off:30")["ok"])(
+                H.hiss_verdict([hr("off", "off", 30, -85.0), hr("room", "off", 30, -84.0)])))
+    attempt("q23 Q3: SHIMMER and DUB's SPRING against the velocity's highest S case (SPRING's: -80.5 at 30, -79.7 at 100)",
+            lambda: H.hiss_verdict([hr("shimr", "off", 30, -80.5), hr("off", "spring", 30, -81.0)])["pass"] and not H.hiss_verdict([hr("shimr", "off", 30, -80.4)])["pass"]
+            and not H.hiss_verdict([hr("shimr", "off", 100, -79.6)])["pass"] and H.hiss_verdict([hr("shimr", "off", 100, -79.7)])["pass"])
+    idle = lambda f: {"usb": {"steady": {"floor_db": f}}}
+    attempt("q23 Q3: idle (the session's idle captures) against off's lowest, -90.9; a digital-zero idle passes, a digital-zero note case fails",
+            lambda: (lambda v: v["pass"] and case(v, "idle")["figure_db"] == -90.9)(H.hiss_verdict([hr("room", "off", 30, -86.0)], 0.1, [idle(-91.0)] * 3))
+            and not H.hiss_verdict([hr("room", "off", 30, -86.0)], 0.1, [idle(-90.0), idle(-91.0), idle(-91.0)])["pass"]
+            and H.hiss_verdict([hr("room", "off", 30, -86.0)], 0.1, [idle(-180.0)] * 3)["pass"]
+            and not H.hiss_verdict([hr("room", "off", 30, -180.0)], 0.1, [idle(-180.0)] * 3)["pass"])
+    attempt("q23 Q3: a velocity without S figures is not judgeable (fails); a non-Q3 case is recorded, not judged",
+            lambda: not H.hiss_verdict([hr("room", "off", 64, -95.0)])["pass"]
+            and (lambda v: not case(v, "dly:off:30")["judged"] and v["pass"])(H.hiss_verdict([hr("dly", "off", 30, -60.0), hr("room", "off", 30, -90.0)])))
 
 
 PROMPT_TOOLS = ("q4_install.py", "soak/qual_soak.py", "hiss.py", "seqtest.py", "rectest.py", "cdp_install.mjs", "unit_objects.py")
