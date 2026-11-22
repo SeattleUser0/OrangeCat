@@ -105,7 +105,7 @@ int main(void)
     oc_host_fw = &FW_API;
     em = oc_host_module_engine();
     h = OC_MODULE_HDR;
-    check("the port's header: engine 23 (ENGI_RHODES, proposed), the state of a track, the registration check", h.engine == ENGI_RHODES && h.engine == 23u &&
+    check("the port's header: engine 47 (ENGI_RHODES, proposed; engines-b: 23 went to X0X303), the state of a track, the registration check", h.engine == ENGI_RHODES && h.engine == 47u &&
           fw_module_check(&h) == FW_MOD_OK && h.state_size > 0 && em->ownenv && em->done && em->post && em->block);
     for (ty = 0; ty < 4u; ty++)
         for (k = 0; k < 3u; k++) {

@@ -9,7 +9,7 @@ export const FW = {
   "P_E0": 116,
   "NTRK": 4,
   "NSTEP": 64,
-  "NENGINES": 20,
+  "NENGINES": 30,
   "NPAGES": 66
  },
  "TP": [
@@ -1638,7 +1638,7 @@ export const FW = {
    "label": "ENG",
    "fmt": 8,
    "min": 0,
-   "max": 19,
+   "max": 29,
    "def": 0,
    "unit": "",
    "names": [
@@ -1661,7 +1661,17 @@ export const FW = {
     "-",
     "-",
     "-",
-    "PROPHET"
+    "PROPHET",
+    "-",
+    "-",
+    "-",
+    "-",
+    "-",
+    "-",
+    "-",
+    "-",
+    "-",
+    "-"
    ]
   },
   {
@@ -4837,6 +4847,806 @@ export const FW = {
     }
    ],
    "knobs": null
+  },
+  {
+   "num": 20,
+   "name": "-",
+   "inBuild": 0,
+   "edit": [
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    }
+   ],
+   "knobs": null
+  },
+  {
+   "num": 21,
+   "name": "-",
+   "inBuild": 0,
+   "edit": [
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    }
+   ],
+   "knobs": null
+  },
+  {
+   "num": 22,
+   "name": "-",
+   "inBuild": 0,
+   "edit": [
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    }
+   ],
+   "knobs": null
+  },
+  {
+   "num": 23,
+   "name": "-",
+   "inBuild": 0,
+   "edit": [
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    }
+   ],
+   "knobs": null
+  },
+  {
+   "num": 24,
+   "name": "-",
+   "inBuild": 0,
+   "edit": [
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    }
+   ],
+   "knobs": null
+  },
+  {
+   "num": 25,
+   "name": "-",
+   "inBuild": 0,
+   "edit": [
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    }
+   ],
+   "knobs": null
+  },
+  {
+   "num": 26,
+   "name": "-",
+   "inBuild": 0,
+   "edit": [
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    }
+   ],
+   "knobs": null
+  },
+  {
+   "num": 27,
+   "name": "-",
+   "inBuild": 0,
+   "edit": [
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    }
+   ],
+   "knobs": null
+  },
+  {
+   "num": 28,
+   "name": "-",
+   "inBuild": 0,
+   "edit": [
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    }
+   ],
+   "knobs": null
+  },
+  {
+   "num": 29,
+   "name": "-",
+   "inBuild": 0,
+   "edit": [
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    },
+    {
+     "label": "-",
+     "fmt": 0,
+     "min": 0,
+     "max": 0,
+     "def": 0,
+     "unit": "",
+     "names": null
+    }
+   ],
+   "knobs": null
   }
  ],
  "engineOrder": [
@@ -4844,7 +5654,11 @@ export const FW = {
   8,
   14,
   19,
-  7
+  7,
+  23,
+  25,
+  28,
+  29
  ],
  "motionParams": [
   0,
@@ -5733,6 +6547,26 @@ export const FW = {
    },
    {
     "engine": "WHEEL",
+    "sectors": 4,
+    "starts": 3
+   },
+   {
+    "engine": "X0X303",
+    "sectors": 4,
+    "starts": 3
+   },
+   {
+    "engine": "SUPERSAW",
+    "sectors": 4,
+    "starts": 3
+   },
+   {
+    "engine": "BRASS",
+    "sectors": 4,
+    "starts": 3
+   },
+   {
+    "engine": "MIXTUR",
     "sectors": 4,
     "starts": 3
    }
@@ -12145,7 +12979,7 @@ export const FW = {
   {
    "fmt": 8,
    "min": 0,
-   "max": 19,
+   "max": 29,
    "text": [
     "-",
     "-",
@@ -12166,7 +13000,17 @@ export const FW = {
     "-",
     "-",
     "-",
-    "PROPH"
+    "PROPH",
+    "-",
+    "-",
+    "-",
+    "-",
+    "-",
+    "-",
+    "-",
+    "-",
+    "-",
+    "-"
    ]
   },
   {

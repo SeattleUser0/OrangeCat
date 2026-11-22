@@ -17,6 +17,7 @@
 #undef main
 
 static int bad;
+#define EMODS_N (4u * (OC_ENGINE_MODS && !OC_CANDIDATES))   /* (engines-b) ENGINE_ORDER ends with the four of OC_ENGINE_MODS after SHAPES and WHEEL */
 static void check(const char *what, int ok)
 {
     printf("engine table: %-100s %s\n", what, ok ? "ok" : "FAIL");
@@ -38,12 +39,12 @@ int main(void)
     fake_engine.name = "SHAPES";
     h = hdr(ENGI_SHAPES);
 
-    check("the engine table is 20 pointers in RAM (80 B on the target), and the module table beside it is the same size",
-          sizeof ENGINES == NENGINES * sizeof(void *) && sizeof eng_mod == NENGINES * sizeof(void *) && NENGINES == 20u);
+    check("the engine table is 20 pointers in RAM (80 B on the target; engines-b: 30 with OC_ENGINE_MODS), and the module table beside it is the same size",
+          sizeof ENGINES == NENGINES * sizeof(void *) && sizeof eng_mod == NENGINES * sizeof(void *) && NENGINES == (OC_CANDIDATES ? 48u : OC_ENGINE_MODS ? 30u : 20u));
     ENGINES[0] = ENGINES[0];                         /* (writable: this compiles and runs) */
     check("nothing is registered at the start", ({ int z = 1; for (k = 0; k < NENGINES; k++) z &= eng_mod[k] == 0; z; }));
     check("NENG_SHOWN counts SHAPES' slot (a module may supply it) and ENGINE_ORDER ends with it, then WHEEL's (0.14.0: only a module supplies it)",
-          eng_vis(NENG_SHOWN - 2u) == ENGI_SHAPES && eng_vis(NENG_SHOWN - 1u) == ENGI_WHEEL && eng_module_slot(ENGI_WHEEL) && !eng_ok(ENGI_WHEEL));
+          eng_vis(NENG_SHOWN - 2u - EMODS_N) == ENGI_SHAPES && eng_vis(NENG_SHOWN - 1u - EMODS_N) == ENGI_WHEEL && eng_module_slot(ENGI_WHEEL) && !eng_ok(ENGI_WHEEL));
 
     /* refusals that hold in every build */
     check("no header or no engine is refused", eng_register(0, &fake_engine) == EM_BAD && eng_register(&h, 0) == EM_BAD);

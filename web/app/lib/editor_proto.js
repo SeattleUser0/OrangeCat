@@ -1805,7 +1805,7 @@ function makeMockDevice(opt = {}) {
     E("MIDI", ["USB", "TRS"], 0), E("DRUM", ["OFF", ...Array.from({ length: 16 }, (_, i) => String(i + 1))], 10), E("ROUT", ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16"], 0), D("CPU", F.INT, 0, 0, 0),
     D("SLOT", F.INT, 1, 5, 1), E("BOOT", ["OFF", "A", "B", "C", "D"], 0), E("LOAD", NGO, 0), E("SAVE", NGO, 0),
     E("ENG", ["-", "-", "-", "SID", "-", "-", "-", "-",
-      "MACRO", "DRUM-X", "DRUM", "-", "FM6", "-", "SHAPES", "CZ-1", "-", "-", "-", "PROPHET"], 0), D("A4", F.INT, 400, 480, 440, null, "Hz"),
+      "MACRO", "DRUM-X", "DRUM", "-", "FM6", "-", "SHAPES", "CZ-1", "-", "-", "-", "PROPHET", ...Array(10).fill("-")], 0), D("A4", F.INT, 400, 480, 440, null, "Hz"),
     E("CLRSQ", NGO, 0), E("INIT", NGO, 0),
     ...Array.from({length:3},()=>D("",F.INT,0,127,0)),
   ];
@@ -1878,7 +1878,11 @@ function makeMockDevice(opt = {}) {
         P("CHIP ARP", [22, 36, 100, 64, 0, 0, 50, 0], [0, 100, 100, 20], 1), P("CHIP LEAD", [22, 0, 20, 90, 100, 0, 60, 0], [0, 70, 110, 30], 1),
         P("WAVETABLE PAD", [23, 20, 50, 70, 0, 0, 100, 20], [60, 90, 110, 90], 0), P("WAVETABLE KEYS", [23, 64, 30, 40, 0, 80, 50, 40], [0, 70, 60, 50], 0),
         P("WAVETABLE 8BIT", [23, 110, 64, 64, 127, 0, 60, 0], [0, 70, 110, 40], 1), P("VOWEL", [24, 10, 64, 64, 0, 0, 70, 0], [10, 80, 110, 60], 1),
-        P("SAM VOICE", [24, 30, 64, 40, 0, 0, 70, 0], [10, 80, 110, 60], 1), P("LPC WORDS", [24, 70, 64, 30, 0, 0, 70, 0], [0, 127, 127, 60], 1)] },
+        P("SAM VOICE", [24, 30, 64, 40, 0, 0, 70, 0], [10, 80, 110, 60], 1), P("LPC WORDS", [24, 70, 64, 30, 0, 0, 70, 0], [0, 127, 127, 60], 1),
+        /* (engines-b, the owner's picks of November 21) the FM keys */
+        P("FM EPIANO", [2, 24, 40, 40, 0, 0, 60, 20], [0, 60, 25, 40], 0), P("FM EPIANO 2", [2, 24, 30, 50, 0, 0, 70, 10], [0, 62, 30, 40], 0),
+        P("FM KEYS A", [2, 90, 60, 30, 0, 0, 80, 30], [0, 64, 30, 40], 0), P("FM KEYS B", [2, 90, 60, 30, 0, 0, 80, 30], [0, 58, 20, 30], 0),
+        P("FM KEYS C", [2, 30, 70, 50, 0, 50, 45, 40], [0, 60, 30, 40], 0)] },
     { name: "DRUM-X", titles: ["KIT", "KIT 2"], edit: [D("MRPH", F.PCT, 0, 127, 64), D("TUNE", F.PCT, 0, 127, 64),
         D("TONE", F.PCT, 0, 127, 64), D("DECY", F.PCT, 0, 127, 64), D("NOIS", F.PCT, 0, 127, 64), D("FM", F.PCT, 0, 127, 0),
         D("FOLD", F.PCT, 0, 127, 0), D("DRV", F.PCT, 0, 127, 0)],   /* 9: (Orange Cat 0.9.0) DRUM-X, in retired PHYS's slot: Jiant FM's drum engine, a kit a preset */
@@ -1948,6 +1952,8 @@ function makeMockDevice(opt = {}) {
   ENG.push(...Array.from({length:3},()=>({name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]})),
     {name:"PROPHET",titles:["FILTER/TUNE","PW/MIX"],edit:[D("CUT",F.INT,-63,63,0),D("RES",F.INT,-63,63,0),D("TUNA",F.SEMI,-24,24,0),D("TUNB",F.SEMI,-24,24,0),D("PWA",F.INT,-63,63,0),D("PWB",F.INT,-63,63,0),D("MIXA",F.INT,-63,63,0),D("MIXB",F.INT,-63,63,0)],presets:[P("INIT PROPHET",Array(8).fill(0),[0,0,127,0],0),   // + Sequential's 200 v1.03 programs
       ...P5_FACTORY.map((b)=>P(P5.name(b),Array(8).fill(0),[0,0,127,0],0))]});
+  /* (engines-b) 20..29: the Nightly's OC_ENGINE_MODS table (X0X303 23, SUPERSAW 25, BRASS 28, MIXTUR 29 are module slots, "-" without their module, as WHEEL's 7) */
+  ENG.push(...Array.from({length:10},()=>({name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]})));
   const FM6_E = ENG.findIndex((e) => e.name === "FM6"), FM6_BANK = 0;
   /* the mock's demo sequences (the device powers on empty; it has no pattern library): absolute notes, 0 rest;
      flags 1 accent, 2 slide, 4 tie (holds the previous note). ACID, BEAT */
@@ -2734,7 +2740,7 @@ function aliasOf(names, i) { const k = names ? names.indexOf(names[i]) : -1; ret
 /* the order the device shows its engines in (src/engines.c ENGINE_ORDER): the lists here follow it, the protocol keeps
    the engine numbers. engineOrder(names): the indices of names in that order, "-" (a reserved number) left out; a name
    the list does not know (another firmware) follows in index order */
-const ENGINE_ORDER = ["DRUM-X", "MACRO", "SHAPES", "PROPHET", "WHEEL",   /* the Nightly's (engines.c ENGINE_ORDER as built: DRUM-X 9, MACRO 8, SHAPES 14, PROPHET 19, WHEEL 7) */
+const ENGINE_ORDER = ["DRUM-X", "MACRO", "SHAPES", "PROPHET", "WHEEL", "X0X303", "SUPERSAW", "BRASS", "MIXTUR",   /* the Nightly's (engines.c ENGINE_ORDER as built: DRUM-X 9, MACRO 8, SHAPES 14, PROPHET 19, WHEEL 7; engines-b: the modules X0X303 23, SUPERSAW 25, BRASS 28, MIXTUR 29) */
   "ANALOG", "FM6", "DIGITAL", "PHASE", "CZ-1", "SID", "VOICE", "NOISE", "DRUM"];   /* then the engines a Nightly does not carry (any order; test_web.mjs checks the first five) */
 function engineOrder(names) {
   const rank = (n) => { const k = ENGINE_ORDER.indexOf(n); return k < 0 ? ENGINE_ORDER.length : k; };
@@ -3026,7 +3032,7 @@ function modSummary(info) {                           /* the state line's key fo
  * start (0, 1 or null), state (a key: ok, empty, refused, noslot, badhdr, badcrc, badtail, crashed), reason (a text key or ""), tracks (how many hold it), actions (a list of
  * "install", "replace", "remove")}. Plus a row per start that holds something no engine number can show (torn, or a header that names no engine of the list): {num: null, start,
  * state, actions: ["removeAll"]}. MODULE_SLOTS mirrors engines.c eng_module_slot. */
-const MODULE_SLOTS = [7, 14, 19];                        /* (0.12.0) 19: the Prophet, the second engine a module may supply */
+const MODULE_SLOTS = [7, 14, 19, 23, 25, 28, 29];   /* (engines-b) 23, 25, 28, 29: the four of OC_ENGINE_MODS (X0X303, SUPERSAW, BRASS, MIXTUR) */                        /* (0.12.0) 19: the Prophet, the second engine a module may supply */
 function ocmReason(state, why) {                       /* the text key for why a module found was not used ("" none) */
   const st = OCM_STATE[state];
   if (st === "refused") return why === 3 ? "reasonOtherFw" : why === 4 ? "reasonTooNew" : why === 5 ? "reasonAddr" : "reasonRefused";

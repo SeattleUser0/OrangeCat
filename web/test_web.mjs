@@ -582,7 +582,7 @@ async function editorMock() {
   inp.onmidimessage = (e) => link.receive(e.data);
   const rq = async (r, o) => link.request(r, o);
   const info = E.parse[E.CMD.INFO](await rq(E.req.info()));
-  ok(info.nengines === 20 && info.engines[14] === "SHAPES" && info.engines[1] === "-" && info.engines[12] === "FM6" && info.engines[13] === "-"
+  ok(info.nengines === 30 && info.engines.length === 30 && info.engines[23] === "-" && info.engines[14] === "SHAPES" && info.engines[1] === "-" && info.engines[12] === "FM6" && info.engines[13] === "-"
  && info.engines[2] === "-" && info.engines[5] === "-" && info.engines[6] === "-" && info.engines[7] === "-" && info.engines[8] === "MACRO" && info.engines[9] === "DRUM-X" && info.engines[10] === "DRUM" && info.engines[11] === "-" && info.pcount === 124 && info.pe0 === 116 && info.engines[4] === "-",
     "editor: INFO");
   let descs = 0;
@@ -1069,7 +1069,7 @@ async function editorLibrarian() {
   const ctx = { keys, engines: info.engines, firmware: info.version, pe0: info.pe0 };
   const pts = [cap, { ...bass, engineName: info.engines[bass.engine], tags: ["bass", "device"] }];
   const file = JSON.parse(JSON.stringify(E.libraryFile("library", pts, ctx)));
-  ok(file.format === "felucca-library" && file.version === 1 && file.pCount === info.pcount && file.paramLabels.length === info.pcount && file.paramLabels[81] === "CHRD" && file.paramLabels[82] === "VOIC" && file.paramLabels[83] === "DEG" && file.paramLabels.slice(92, 96).join() === "SYNC,TRIG,POL,SPRD" && file.engines.length === 20,
+  ok(file.format === "felucca-library" && file.version === 1 && file.pCount === info.pcount && file.paramLabels.length === info.pcount && file.paramLabels[81] === "CHRD" && file.paramLabels[82] === "VOIC" && file.paramLabels[83] === "DEG" && file.paramLabels.slice(92, 96).join() === "SYNC,TRIG,POL,SPRD" && file.engines.length === 30,   /* (engines-b) the Nightly's table: OC_ENGINE_MODS */
     "library file: versioned, with P_COUNT, labels and engines");
   const back = E.readLibraryFile(file, ctx);
   const oldKeys = keys.slice(); oldKeys[8] = "FX";
@@ -2194,10 +2194,10 @@ mockTables();
 async function engineOrderNightly() {
   const { FW } = await import("./app/lib/fw_tables.js");
   const num = FW.engineOrder || [9, 8, 14, 19, 7];
-  const MODULES = { 7: "WHEEL", 14: "SHAPES", 19: "PROPHET" };   /* modules: the generated table names them "-" (not in the image) */
+  const MODULES = { 7: "WHEEL", 14: "SHAPES", 19: "PROPHET", 23: "X0X303", 25: "SUPERSAW", 28: "BRASS", 29: "MIXTUR" };   /* (engines-b) the four of OC_ENGINE_MODS */   /* modules: the generated table names them "-" (not in the image) */
   const name = (n) => { const w = (FW.engines.find((e) => e.num === n) || {}).name; return w && w !== "-" ? w : MODULES[n]; };
   const want = num.map(name);
-  const names = Array.from({ length: 20 }, (_, i) => ({ 3: "SID", 10: "DRUM", 12: "FM6", 15: "CZ-1" })[i] || (num.includes(i) ? name(i) : "-"));
+  const names = Array.from({ length: FW.engines.length }, (_, i) => ({ 3: "SID", 10: "DRUM", 12: "FM6", 15: "CZ-1" })[i] || (num.includes(i) ? name(i) : "-"));
   const got = E.engineOrder(names).map((i) => names[i]);
   ok(want.every((n) => n) && JSON.stringify(got.slice(0, want.length)) === JSON.stringify(want),
      `editor: engine lists in the Nightly's order (${want.join(" ")}), first; got ${got.join(" ")}`);
