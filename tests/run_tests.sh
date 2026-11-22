@@ -590,6 +590,15 @@ module_host_candidates_b() {                      # (engines-b, Session B) op1r'
     step "the candidates' page descriptors as the device's linker laid them (build/module/<name>.0.img): fw_pages_check_ex and fw_ui_check on the bytes" \
         "$OUT/cand_image_pages_test" build/module supersaw mixtur brassophone x0x303 wave
 }
+wave_bank() {                                     # (wave-bank) WAVE's user tables: the page packs a bank, the slot takes it, WAVE plays it (in this order: each writes what the next reads)
+    step "WAVE's user tables on the page (web/fm1wave.js, fm1oc.js writeBank): WAVs read, band-limited, the bank as wv_bank.h, the writer's requests" node web/test_wave_bank.mjs
+    $CC -O1 $FW -Itests -o "$OUT/wave_bank_slot_test" tests/wave_bank_slot_test.c || { fail "compile tests/wave_bank_slot_test.c"; return 1; }
+    step "a WAVE bank in the sample slot (smp_slot.c, wv_bank.h): written with the slot's calls, state 3, every broken field refused, a sample still goes in" \
+        "$OUT/wave_bank_slot_test" build/host
+    $CC -c -O2 $FW -Itools/module -o "$OUT/wave_bank_tu.o" tests/module_host_wave_tu.c || { fail "compile tests/module_host_wave_tu.c (wave bank)"; return 1; }
+    $CC -O2 $FW -Itests -o "$OUT/wave_bank_render_test" tests/wave_bank_render_test.c "$OUT/wave_bank_tu.o" -lm || { fail "compile tests/wave_bank_render_test.c"; return 1; }
+    step "WAVE plays the bank (USER TABLE A, B), a broken one as none, the factory presets unchanged" "$OUT/wave_bank_render_test" build/host
+}
 cand_slot() {                                     # (Orange Cat 0.14.2) a saved project across a measurement build: the unit's slot 1, October 2026
     build cand_slot_norm cand_slot_test -O1 $FW || return
     build cand_slot_cand cand_slot_test -O1 $FW -DOC_CANDIDATES=1 || return
@@ -957,6 +966,7 @@ if sound && [ $TABLES = 1 ]; then
     job port_batch
     job module_host_candidates
     job module_host_candidates_b                   # (engines-b)
+    job wave_bank                                  # (wave-bank)
     job mod_pages_prophet
     mkdir -p build/macro_demo
     t "MACRO (Orange Cat 0.5.0): 14 models and every preset through the voices, a model change, 4 tracks; WAVs" \

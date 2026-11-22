@@ -1460,7 +1460,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     }
     case ED_SMP_BEGIN: case ED_SMP_WRITE: case ED_SMP_END: case ED_SMP_ERASE:
         return;                                           /* retired: never write pattern storage */
-    case ED_SLOT_INFO: {                                   /* -> state (0 none, 1 empty, 2 a sample), length (3 x 7 bits),
+    case ED_SLOT_INFO: {                                   /* -> state (0 none, 1 empty, 2 a sample, (wave-bank) 3 a WAVE bank), length (3 x 7 bits),
                                                             * zones, capacity (3 x 7 bits), name */
         char nm[9];
         uint32_t len, nz, st = smp_slot_info(nm, &len, &nz);

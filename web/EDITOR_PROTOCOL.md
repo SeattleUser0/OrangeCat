@@ -430,7 +430,7 @@ first (100 ms, else rc 2), as user-preset writes do.
 | Command | Request | Reply |
 |---|---|---|
 | 103 CLOCK_STATS | flags (optional; 1: reset after reading) | (Orange Cat 0.14.2) pulses taken from the selected clock source (5 x 7 bits), stops on a lost clock, resyncs, the longest gap between two pulses in ms, the pulses the last resync found missed (3 x 7 bits each). See "MIDI clock" |
-| 110 SLOT_INFO | — | state (0 no slot yet, 1 empty, 2 a sample), data length (3 × 7 bits, low first), zones, capacity (3 × 7 bits: 60,896), name (string) |
+| 110 SLOT_INFO | — | state (0 no slot yet, 1 empty, 2 a sample, (wave-bank) 3 a WAVE bank), data length (3 × 7 bits, low first), zones (a bank: its tables), capacity (3 × 7 bits: 60,896), name (string) |
 | 111 SLOT_BEGIN | data length (3 × 7 bits), 1..60,896 | rc, bytes written (3 × 7 bits). The sample there is gone from now on |
 | 112 SLOT_WRITE | offset (3 × 7 bits), pack7 data (≤ 256 bytes) | rc, bytes written. The offset must be where the last write ended; nothing past the length |
 | 113 SLOT_END | pack7 header (512 bytes) | rc, bytes written. The header's length and CRC must be the data's; then it is programmed (the commit) |
@@ -438,6 +438,10 @@ first (100 ms, else rc 2), as user-preset writes do.
 
 rc: 0 done, 1 refused (no slot, a bad length or offset, a header that does not match), 2 the flash failed or the
 transport did not stop. A write torn anywhere (power, a refusal) leaves the slot empty, never part of a sample.
+
+(wave-bank) The slot holds a sample or a WAVE wavetable bank, one at a time: the same commands write either; the header's magic says which (a bank's:
+"WVBK", its layout in firmware/src/wv_bank.h; the installer page packs one with web/fm1wave.js and writes it with fm1oc.js writeBank). SLOT_END commits a
+bank only when its header passes the bank's checks (tables, frame counts and ranges, names) and its CRC is the data's.
 `tools/fm1_sample_upload.py` builds a slot from WAV files and uploads it with these commands. Nothing in 0.6.0 plays
 the slot yet (a sample engine is phase 9's).
 

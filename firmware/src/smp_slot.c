@@ -159,11 +159,16 @@ static uint64_t smp_resv_mask(void) { return (((1ull << SMP_SLOT_NSECT) - 1ull) 
  * 0 when the first boot found no room to move a record part out of them (they stay the store's; oc_module.c refuses installs into them until a later boot finds room) */
 static int smp_modules_low(void) { return (ocs_resv & SMP_LEGACY_MASK) == SMP_LEGACY_MASK; }
 
-/* the header: Felucca's, its zones and length within the slot */
+/* (wave-bank) a WAVE wavetable bank may be the slot's content instead of a sample: wv_bank.h, its header the sample header's prefix */
+#include "wv_bank.h"
+_Static_assert(WVB_SLOT_BASE == SMP_SLOT_BASE && WVB_SLOT_SPAN == SMP_SLOT_SPAN && WVB_HDR_OFF == SMP_SLOT_MARK && WVB_DATA_OFF == SMP_SLOT_DATA &&
+               WVB_DATA_MAX == SMP_SLOT_MAX && WVB_SLOT_NSECT == SMP_SLOT_NSECT, "wv_bank.h's view of the slot is the slot's");
+/* the header: Felucca's, its zones and length within the slot; (wave-bank) or a WAVE bank's */
+static int smp_is_bank(const smp_hdr_t *h) { return wvb_hdr_check((const uint8_t *)h) == 0; }
 static int smp_hdr_ok(const smp_hdr_t *h)
 {
-    return h->magic == SMP_FSMP_MAGIC && h->version == 1u && h->nz >= 1u && h->nz <= 16u && h->data_len >= 1u &&
-           h->data_len <= SMP_SLOT_MAX;
+    return (h->magic == SMP_FSMP_MAGIC && h->version == 1u && h->nz >= 1u && h->nz <= 16u && h->data_len >= 1u &&
+            h->data_len <= SMP_SLOT_MAX) || smp_is_bank(h);
 }
 /* the data's CRC-32 as it is in flash */
 static uint32_t smp_data_crc(uint32_t len)
@@ -305,6 +310,11 @@ static void smp_slot_boot(void)
 static uint32_t smp_slot_info(char *name, uint32_t *len, uint32_t *nz)
 {
     if (name) { memset(name, 0, 9); if (smp.state == SMP_FULL) memcpy(name, smp.hdr.name, 8); }
+    if (smp.state == SMP_FULL && smp_is_bank(&smp.hdr)) {   /* (wave-bank) 3: a WAVE bank (its tables count in place of zones) */
+        if (len) *len = smp.hdr.data_len;
+        if (nz) *nz = smp.hdr.nz;
+        return 3u;
+    }
     if (len) *len = smp.state == SMP_FULL ? smp.hdr.data_len : 0u;
     if (nz) *nz = smp.state == SMP_FULL ? smp.hdr.nz : 0u;
     return smp.state;

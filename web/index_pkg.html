@@ -103,6 +103,15 @@
     <pre id="unit-fx"></pre>
     <p><label><span data-t="fxRemoveTitle"></span><br><select id="fx-remove-id"></select></label> <button id="fx-remove" disabled data-t="fxRemove"></button></p>
   </details>
+  <details id="wave-tables" style="margin-top:16px">
+    <summary data-t="waveTitle"></summary>
+    <p class="small" data-t="waveWhy"></p>
+    <p><label><span data-t="waveFiles"></span> <input type="file" id="wave-files" accept=".wav,audio/wav" multiple></label>
+       <label><span data-t="waveFrames"></span> <select id="wave-nframes"><option value="8">8</option><option value="16" selected>16</option></select></label></p>
+    <pre id="wave-list"></pre>
+    <p class="small" id="wave-room"></p>
+    <p><button id="wave-write" disabled data-t="waveWrite"></button></p>
+  </details>
   <section style="margin-top:24px" aria-labelledby="transit-title">
     <h2 id="transit-title" data-t="transitTitle"></h2>
     <p data-t="transitWhy"></p>
@@ -172,6 +181,7 @@ const TEXT = {
     modNoPlace: "FM-1のローダーに入れる場所がありません。何も書き込んでいません。", unitUnread: "FM-1をまだ読んでいません。インストールは先にFM-1を読み、ローダーと同じ方法で場所を決めます。", rolledBack: "場所が足りなかったので、今回新しく入れたモジュールを元に戻しました。",
     unitModsTitle: "ユニットに入っているモジュール", unitRead: "ユニットから読む", unitEngines: "エンジン", unitFx: "エフェクト",
     unitNone: "なし", fxNoTable: "このファームウェアにはエフェクトモジュールがありません", fxRemoveTitle: "エフェクトモジュールを消す", fxRemove: "消す",
+    waveTitle: "WAVEのユーザーウェーブテーブル", waveWhy: "WAVファイル（単一サイクルのフレームを並べたウェーブテーブル。Serumの形式も可）を読み込み、FM-1のサンプルスロットに書き込みます。スロットにあるサンプルや以前のテーブルは消えます。WAVEのプリセットUSER TABLE AとBで鳴らせます。", waveFiles: "WAVファイル:", waveFrames: "1テーブルのフレーム数:", waveWrite: "FM-1に書き込む", waveRoom: "{n} / {max} フレーム（{t} テーブル）", waveTooMany: "多すぎます: スロットは{max}フレームまでです", waveWritten: "テーブルを書き込みました", waveBad: "読めません",
     fxRemoveConfirm: "このエフェクトモジュールをユニットから消します。続けますか？", fxRemoved: "エフェクトモジュールを消しました",
     fxOldFw: "このファームウェアにはエフェクトモジュールのコマンドがありません。", modManifest: "このモジュールのファイルは、リリースの一覧が言う種類・IDと違います。",
     rcTitle: "リリース候補", "rc-dual": "RC",
@@ -280,7 +290,8 @@ const TEXT = {
     modelsLoading: "The list of models is loading; Install waits for it.",
     modNoPlace: "The unit's loader has no place for it. Nothing was written; the unit is as it was.", unitUnread: "The unit has not been read yet. Install reads it first and places the modules the way the unit's loader does.", rolledBack: "There was not enough room, so the modules this run had added were taken out again: the unit is as it was.",
     unitModsTitle: "Modules in the unit", unitRead: "Read from the unit", unitEngines: "Engines", unitFx: "Effects",
-    unitNone: "none", fxNoTable: "this firmware has no effect modules", fxRemoveTitle: "Remove an effect module", fxRemove: "Remove",
+    unitNone: "none", fxNoTable: "this firmware has no effect modules", fxRemoveTitle: "Remove an effect module",
+    waveTitle: "WAVE: your own wavetables", waveWhy: "Load WAV files (wavetables: single-cycle frames one after another; Serum's files work) and write them to the FM-1's sample slot. Whatever the slot holds (a sample, older tables) is replaced. WAVE's presets USER TABLE A and B play them.", waveFiles: "WAV files:", waveFrames: "Frames a table:", waveWrite: "Write to the FM-1", waveRoom: "{n} of {max} frames ({t} tables)", waveTooMany: "Too many: the slot holds {max} frames", waveWritten: "The tables were written", waveBad: "cannot read", fxRemove: "Remove",
     fxRemoveConfirm: "This effect module is erased from the unit. Continue?", fxRemoved: "The effect module was removed",
     fxOldFw: "This firmware has no effect module commands.", modManifest: "This module file is not the kind or the module id the release list names.",
     rcTitle: "Release candidate", "rc-dual": "Release candidate",
@@ -701,6 +712,7 @@ const lockInstaller = (on) => {
   ["stage-fw", "stage-pack", "stage-mod", "stage-prophet", "stage-fx", "stage-fx-opt"].forEach(id => { $(id).disabled = on || (id === "stage-pack" && !offered().pak) || (id === "stage-mod" && !ocmOf("shapes").length) || (id === "stage-prophet" && !ocmOf("prophet").length) || (id === "stage-fx" && !fxMain().length) || (id === "stage-fx-opt" && !fxOpt().length); });
   engOpt().forEach((x) => { const b = $("eng-opt-" + x.engine); if (b) b.disabled = on; });   /* (engines-b) the optional engines' boxes */
   $("unit-read").disabled = on; $("fx-remove").disabled = on || !$("fx-remove-id").value;
+  $("wave-write").disabled = on || !waveBank; $("wave-files").disabled = on;   /* (wave-bank) */
   ["stock-file", "stock-recovery", "stock-skip-backup", "transit-go", "transit-recovery", "transit-skip-backup"].forEach(id => { $(id).disabled = on; });
 };
 window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault(); e.returnValue = t("leave"); } });
@@ -837,6 +849,29 @@ $("fx-remove").addEventListener("click", () => {
   withUnit(async (link) => { await removeFx(link, id); showUnit(await listUnit(link)); sayK("fxRemoved"); });
 });
 
+/* (wave-bank) WAVE's user tables: the WAVs read and packed here (web/fm1wave.js), written to the sample slot with the slot's own commands (fm1oc.js writeBank) */
+let waveBank = null, waveTabs = [];
+async function waveMake() {
+  const files = [...($("wave-files").files || [])].slice(0, WVB.NTAB), n = Number($("wave-nframes").value) || 16, rows = [];
+  waveTabs = [];
+  for (const f of files) {
+    try { const tb = wavTable(wavRead(new Uint8Array(await f.arrayBuffer())), n, f.name.replace(/\.wav$/i, "")); waveTabs.push(tb); rows.push(`${tb.name.padEnd(8)}  ${tb.frames.length} frames`); }
+    catch (e) { rows.push(`${f.name}: ${t("waveBad")} (${e.message})`); }
+  }
+  const frames = waveTabs.reduce((a, x) => a + x.frames.length, 0);
+  waveBank = null;
+  try { if (waveTabs.length) waveBank = bankPack(waveTabs); } catch (_) { waveBank = null; }
+  $("wave-list").textContent = rows.join("\n");
+  $("wave-room").textContent = !waveTabs.length ? "" : waveBank ? t("waveRoom").replace("{n}", String(frames)).replace("{max}", String(WVB.MAX_FRAMES)).replace("{t}", String(waveTabs.length))
+    : t("waveTooMany").replace("{max}", String(WVB.MAX_FRAMES));
+  $("wave-write").disabled = writing || !waveBank;
+}
+$("wave-files").addEventListener("change", () => { waveMake(); });
+$("wave-nframes").addEventListener("change", () => { waveMake(); });
+$("wave-write").addEventListener("click", () => {
+  if (writing || !waveBank) return;
+  withUnit(async (link) => { await writeBank(link, waveBank, (x) => { $("bar").value = x * 100; }); sayK("waveWritten"); });
+});
 $("go").addEventListener("click", async () => {
   if (writing || !image) return;
   const ch = selection().channel, product = ch.product, o = offered();

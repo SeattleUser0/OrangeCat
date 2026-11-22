@@ -540,6 +540,30 @@ async function writeChunk(link, request, off, n) {
 const modWriteChunk = (link, off, bytes) => writeChunk(link, ocReq.modWrite(off, bytes), off, bytes.length);
 const packWriteChunk = (link, off, bytes) => writeChunk(link, ocReq.packWrite(off, bytes), off, bytes.length);
 
+// (wave-bank) a WAVE bank (web/fm1wave.js bankPack: {data, header}) into the sample slot's room with the slot's own commands (editor.c ED_SLOT_BEGIN 111, WRITE 112,
+// END 113; firmware/src/wv_bank.h): the data in 256 byte pieces, then the header, which the unit commits only when the data it reads back has the header's CRC.
+// Whatever the slot held (a sample, an older bank) is gone from BEGIN on. -> resolves when the unit has taken it; throws OcError("slotFail"/"slotStop"/"ocLost")
+export const OC_SLOT = { INFO: 110, BEGIN: 111, WRITE: 112, END: 113, ERASE: 114 };
+const slotCode = (rc) => (rc === 2 ? "slotStop" : "slotFail");
+export async function writeBank(link, bank, progress = () => {}) {
+  const n = bank.data.length, b3 = (v) => [v & 0x7F, (v >> 7) & 0x7F, (v >> 14) & 0x7F];
+  let a = await link.ask([OC_SLOT.BEGIN, b3(n)], { timeout: 3000 });
+  if (!a) throw new OcError("ocLost");
+  let r = parseWrite(a);
+  if (r.rc) throw new OcError(slotCode(r.rc));
+  for (let off = 0; off < n; off += 256) {
+    const piece = bank.data.subarray(off, Math.min(off + 256, n));
+    r = await writeChunk(link, [OC_SLOT.WRITE, [...b3(off), ...bkPack(piece)]], off, piece.length);
+    if (r.rc) throw new OcError(slotCode(r.rc));
+    progress(off / n);
+  }
+  a = await link.ask([OC_SLOT.END, bkPack(bank.header)], { timeout: 5000 });
+  if (!a) throw new OcError("ocLost");
+  r = parseWrite(a);
+  if (r.rc) throw new OcError(slotCode(r.rc));
+  progress(1);
+}
+
 // install an .ocm (parsed) for the start the unit names; confirmInPlace() is asked when no other start is free (the old module goes first)
 export async function installModule(link, ocm, progress = () => {}, { waitMs = 90000, sleep = ocSleep, confirmInPlace = () => true } = {}) {
   const ia = await link.ask(ocReq.modInfo(ocm.engine), { timeout: 600, retries: 1 });

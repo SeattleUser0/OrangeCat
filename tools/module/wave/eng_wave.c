@@ -20,6 +20,10 @@
  * No hot set. Float for the filter (the FPU), fixed point for the oscillators.
  */
 #include "wave_tables.h"
+#include "wv_bank.h"                         /* (wave-bank) user tables in the sample slot's room */
+#ifndef WVB_PTR                              /* a flash offset as the module reads it in place: the plaintext XIP window (hal/fm1_xip.h's FM1_XIP); a host test maps it */
+#define WVB_PTR(off) ((const uint8_t *)(uintptr_t)(0x02000000u + (uint32_t)(off) - 0x4000u))
+#endif
 #define WV_LEN WV_FLEN                       /* 256 */
 #define WV_UNI 8u                            /* unison copies an oscillator */
 #define WV_NV 8u                             /* voices a track */
@@ -43,6 +47,7 @@ typedef struct {
     uint32_t ph[2][WV_UNI], inc[2][WV_UNI];
     int16_t frame[2][WV_LEN];
     uint32_t cached[2];                      /* pos16 | level << 24 of the frame in the cache; ~0: none */
+    uint8_t ctab[2];                         /* (wave-bank) the table the cache was filled from */
     uint8_t len_sh[2];                       /* 32 - log2 of the cached frame's length */
     uint8_t gate, est, uni[2];
     int32_t warp[2], amp[2], sub, noise;     /* this block's: warp amount (Q15), the levels (Q15) */
@@ -77,16 +82,45 @@ static inline float wv_exp2(float x)
     return p;
 }
 
-/* the frame cache (CPU0, block rate): frames f0 and f0 + 1 of the table at pos16, blended, halved `level` times (a 7-tap half-band each, circular: one
- * cycle), into the voice's own RAM; the stored frames are read in order, whole cache lines (the friendly case for the D-cache) */
-static void wv_cache(wv_voice_t *V, uint32_t o, const int16_t *table, uint32_t nframes, uint32_t pos16, uint32_t level)
+/* (wave-bank) where an oscillator's frames come from: a built-in table (rom), or table t - WV_NTAB of the bank in the sample slot's room (wv_bank.h), read in
+ * place; a bank that is absent, being rewritten or does not hold that table: the built-in BASIC */
+typedef struct { const int16_t *rom; uint32_t f0, nf; } wv_src_t;
+static void wv_source(uint32_t tab, wv_src_t *s)
 {
-    int16_t tmp[WV_LEN / 2];
-    uint32_t span = pos16 * (nframes - 1u), f0 = span >> 16, frac = (span & 0xFFFFu) >> 1, i, n = WV_LEN, k;
-    const int16_t *a = table + f0 * WV_LEN, *b = table + (f0 + 1u < nframes ? f0 + 1u : f0) * WV_LEN;
+    s->rom = WV_TABLES[0]; s->f0 = 0; s->nf = WV_NFRAME;
+    if (tab < WV_NTAB) { s->rom = WV_TABLES[tab]; return; }
+    {
+        const uint8_t *h = WVB_PTR(wvb_flash(WVB_HDR_OFF)), *e;
+        uint32_t k = tab - WV_NTAB, len, f0, nf;
+        if (wvb_rd32(h) != WVB_MAGIC || (h[4] | h[5] << 8) != 1u || k >= h[6] || k >= WVB_NTAB) return;
+        e = h + 32 + 28 * k;
+        len = wvb_rd32(h + 16); f0 = e[8] | e[9] << 8; nf = e[10];
+        if (nf < 2u || nf > 64u || (f0 + nf) * WVB_FBYTES > len || len > WVB_DATA_MAX) return;
+        s->rom = 0; s->f0 = f0; s->nf = nf;
+    }
+}
+/* frame f of the source into dst (WV_LEN samples): a bank frame may cross a sector's tail, so it is copied in up to two pieces */
+static void wv_frame(const wv_src_t *s, uint32_t f, int16_t *dst)
+{
+    uint32_t room, first;
+    if (s->rom) { memcpy(dst, s->rom + f * WV_LEN, WV_LEN * sizeof(int16_t)); return; }
+    room = WVB_DATA_OFF + (s->f0 + f) * WVB_FBYTES;
+    first = WVB_SLOT_SPAN - room % WVB_SLOT_SPAN;
+    if (first > WVB_FBYTES) first = WVB_FBYTES;
+    memcpy(dst, WVB_PTR(wvb_flash(room)), first);
+    if (first < WVB_FBYTES) memcpy((uint8_t *)dst + first, WVB_PTR(wvb_flash(room + first)), WVB_FBYTES - first);
+}
+/* the frame cache (CPU0, block rate): frames f0 and f0 + 1 of the source at pos16, blended, halved `level` times (a 7-tap half-band each, circular: one
+ * cycle), into the voice's own RAM; a stored frame is read in order, whole cache lines (the friendly case for the D-cache) */
+static void wv_cache(wv_voice_t *V, uint32_t o, const wv_src_t *src, uint32_t pos16, uint32_t level)
+{
+    int16_t tmp[WV_LEN];
+    uint32_t nframes = src->nf, span = pos16 * (nframes - 1u), f0 = span >> 16, frac = (span & 0xFFFFu) >> 1, i, n = WV_LEN, k;
     int16_t *d = V->frame[o];
+    wv_frame(src, f0, d);
+    wv_frame(src, f0 + 1u < nframes ? f0 + 1u : f0, tmp);
     for (i = 0; i < WV_LEN; i++)
-        d[i] = (int16_t)wv_lerp(a[i], b[i], frac);
+        d[i] = (int16_t)wv_lerp(d[i], tmp[i], frac);
     for (k = 0; k < level && n > 16u; k++) {
         uint32_t m = n / 2u;
         for (i = 0; i < m; i++) {
@@ -308,7 +342,7 @@ static void wave_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     for (o = 0; o < 2u; o++) {
         uint32_t c;
         float f;
-        ti[o] = P->tab[o] < WV_NTAB ? P->tab[o] : 0u;
+        ti[o] = P->tab[o] < WV_NTAB + WVB_NTAB ? P->tab[o] : 0u;   /* (wave-bank) WV_NTAB.. name the bank's tables */
         r[o] = wv_exp2(((float)P->oct[o] * 12.0f + (float)P->semi[o]) * (1.0f / 12.0f) + (float)dst[WD_PITCH] * (1.0f / (12.0f * 256.0f)));
         f = hz * r[o] * 128.0f;                          /* the top harmonic of the stored frame */
         pos[o] = clamp(p[P_E0 + o] * 256 + (m->shape - (64 << 8)) + dst[WD_POSA + o], 0, 127 << 8);
@@ -316,12 +350,17 @@ static void wave_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
         lev[o] = 0;
         while (f > 18000.0f && lev[o] < 4u) { f *= 0.5f; lev[o]++; }
         c = V->cached[o] & 0xFFFFFFu;
-        need[o] = V->cached[o] == ~0u || (V->cached[o] >> 24) != lev[o] || (c > pos16[o] ? c - pos16[o] : pos16[o] - c) >= 64u;   /* 1/1024 of the table */
+        need[o] = V->cached[o] == ~0u || (V->cached[o] >> 24) != lev[o] || V->ctab[o] != ti[o] || (c > pos16[o] ? c - pos16[o] : pos16[o] - c) >= 64u;   /* 1/1024 of the table */
     }
     if (need[0] && need[1] && V->cached[0] != ~0u && V->cached[1] != ~0u)
         need[(V->blk & 1u) ^ 1u] = 0;                    /* both moved: one a block (A on even blocks, B on odd) */
     for (o = 0; o < 2u; o++)
-        if (need[o]) wv_cache(V, o, WV_TABLES[ti[o]], WV_NFRAME, pos16[o], lev[o]);
+        if (need[o]) {
+            wv_src_t src;
+            wv_source(ti[o], &src);
+            wv_cache(V, o, &src, pos16[o], lev[o]);
+            V->ctab[o] = (uint8_t)ti[o];
+        }
     for (o = 0; o < 2u; o++) {
         V->uni[o] = P->uni[o] < 1u ? 1u : P->uni[o] > WV_UNI ? (uint8_t)WV_UNI : P->uni[o];
         {   /* the copies' increments: DTUN spreads them over up to +-50 cents, evenly */

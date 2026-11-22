@@ -15,9 +15,9 @@ const OC_SECT = [0, 6, 4, 1, 2, 3, 5, 7, 8, 9, 10, 11, -1, -2, -3, -4, -5, -6, .
 const OC_STARTS = 18, OC_AREA = 18, OC_BASE = 6, OC_FX_TABLE = 8, OC_FX_MAX = 8;
 const OC_FX_ENGINE = 0xFFFF;
 const ENG_GEO = { 14: { sectors: 6, starts: 0x03 }, 19: { sectors: 8, starts: 0x05 }, 7: { sectors: 4, starts: 0x03 },   // SHAPES, the Prophet, WHEEL (oc_mod_geo)
-  23: { sectors: 4, starts: 0x03 }, 25: { sectors: 4, starts: 0x03 }, 28: { sectors: 4, starts: 0x03 }, 29: { sectors: 4, starts: 0x03 }, 32: { sectors: 6, starts: 0x03 } };   // (wave-engine) WAVE   // (engines-b, OC_ENGINE_MODS) X0X303, SUPERSAW, BRASS, MIXTUR
+  23: { sectors: 4, starts: 0x03 }, 25: { sectors: 4, starts: 0x03 }, 28: { sectors: 4, starts: 0x03 }, 29: { sectors: 4, starts: 0x03 }, 32: { sectors: 7, starts: 0x05 } };   // (wave-engine) WAVE   // (engines-b, OC_ENGINE_MODS) X0X303, SUPERSAW, BRASS, MIXTUR
 const ENG_GEO_TAIL = { ...ENG_GEO, 7: { sectors: 1, starts: 0x3FFFF },     // (option A) a unit with the tail region: WHEEL re-cut to one sector, any start of the area
-  23: { sectors: 3, starts: 0x3FFFF }, 25: { sectors: 1, starts: 0x3FFFF }, 28: { sectors: 4, starts: 0x3FFFF }, 29: { sectors: 2, starts: 0x3FFFF }, 32: { sectors: 6, starts: 0x3FFFF } };   // (engines-b) the four re-cut as WHEEL is
+  23: { sectors: 3, starts: 0x3FFFF }, 25: { sectors: 1, starts: 0x3FFFF }, 28: { sectors: 4, starts: 0x3FFFF }, 29: { sectors: 2, starts: 0x3FFFF }, 32: { sectors: 7, starts: 0x3FFFF } };   // (engines-b) the four re-cut as WHEEL is
 const geoOf = (s, engine) => (s.starts.length > OC_STARTS ? ENG_GEO_TAIL : ENG_GEO)[engine];
 const MD = { EMPTY: 0, CRASHED: 5, NOSLOT: 6, OK: 7 };
 const sec = (i) => OC_SECT[i] + OC_BASE;

@@ -196,9 +196,9 @@ static OC_MOD_GEO_QUAL oc_mod_geo_t oc_mod_geo[] = { { ENGI_SHAPES, 6u, 0x03u },
 #endif
 #if OC_WAVE                                                  /* (wave-engine) WAVE: its code and starter tables (tools/build.py "wave") */
 #if OC_MOD_TAIL
-                                                     { ENGI_WAVE, 6u, 0x3FFFFu },
+                                                     { ENGI_WAVE, 7u, 0x3FFFFu },   /* (wave-bank) 7 sectors: 24,572 B at 6 left no room */
 #else
-                                                     { ENGI_WAVE, 6u, 0x03u },
+                                                     { ENGI_WAVE, 7u, 0x05u },      /* (starts 0 and 2: sectors 0 and 4, as the Prophet) */
 #endif
 #endif
                                                    };

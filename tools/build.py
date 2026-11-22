@@ -554,7 +554,7 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts"
            "arc": {"src": "tools/module/arc_mod.c", "sectors": 4, "starts": [0, 6], "name": "ARC", "inc": ["tools/module/op1r"]},
            "x0x303": {"src": "tools/module/x0x303_mod.c", "sectors": 4, "starts": [0, 6], "name": "X0X303", "inc": ["firmware/src/x0x"], "tail": {"sectors": 3, "starts": list(range(-6, 10))}},
            # (wave-engine) WAVE, Orange Cat's own wavetable engine (engine 32; OC_WAVE): its code and starter tables; any start of the area in a tail build
-           "wave": {"src": "tools/module/wave_mod.c", "sectors": 6, "starts": [0, 6], "name": "WAVE", "inc": ["tools/module"], "tail": {"sectors": 6, "starts": list(range(-6, 7))}},
+           "wave": {"src": "tools/module/wave_mod.c", "sectors": 7, "starts": [0, 4], "name": "WAVE", "inc": ["tools/module"], "tail": {"sectors": 7, "starts": list(range(-6, 6))}},   # (wave-bank) 7: the stereo kernel and the bank reader took 6 to 24,572 of 24,576 B
            # (Release 3 step 6) DUB TAPE as an effect module (kind 1, FX_MODULES_PLAN.md 15): no geometry row; its span is ceil(length / 4096) sectors from any start of the area's grid
            "dub": {"src": "tools/module/dub_mod.c", "sectors": 3, "name": "DUB", "kind": 1},
            # (Release 3 step 8a) the reverb modes SPRING, SHIMMER and RESO as one effect module (kind 2, a bank of three; FX_MODULES_PLAN.md 16): one sector, any start of the grid

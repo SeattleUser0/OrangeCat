@@ -60,6 +60,9 @@ static const preset_t WAVE_PRESETS[] = {
     {"PWM STRINGS", {30, 50, 0, 0, 90, 10, 40, 0}, {50, 80, 110, 80}, 0, 0},
     {"WAVE PLUCK", {40, 30, 0, 0, 60, 45, 20, 0}, {0, 66, 0, 50}, 0, 0},
     {"VOX MORPH", {64, 64, 30, 60, 70, 70, 40, 0}, {40, 90, 110, 90}, 0, 0},
+    /* (wave-bank) the user tables of the installer page (the sample slot's room): POS A and POS B sweep them; without a bank they play BASIC */
+    {"USER TABLE A", {0, 0, 0, 0, 100, 10, 20, 0}, {0, 64, 110, 40}, 0, 0},
+    {"USER TABLE B", {0, 64, 0, 0, 100, 10, 30, 0}, {10, 70, 110, 60}, 0, 0},
 };
 #define S(src, dst, amt) {WS_##src, WD_##dst, amt, 0}
 #define S0 {0, 0, 0, 0}
@@ -81,6 +84,11 @@ static const wv_patch_t WV_PATCH[] = {
      {S(ENV2, CUT, 60), S(ENV2, POSA, 40), S0, S0}, 60, 94},
     {{2, 3}, {WARP_BEND, WARP_MIRROR}, {3, 1}, {0, 0}, {0, 0}, {110, 70}, 10, WF_BP, 40, {40, 90, 110, 90}, {40, 15}, {3, 0},
      {S(LFO1, POSA, 60), S(LFO2, WARPB, 40), S0, S0}, 100, 70},
+    /* (wave-bank) USER TABLE A: bank table 0 on both oscillators (B an octave up, quieter); B: bank tables 0 and 1 */
+    {{WV_NTAB + 0, WV_NTAB + 0}, {WARP_BEND, WARP_BEND}, {2, 1}, {0, 1}, {0, 0}, {120, 40}, 0, WF_LP, 60, {0, 70, 100, 40}, {60, 60}, {0, 0},
+     {S(VEL, CUT, 20), S0, S0, S0}, 60, 64},
+    {{WV_NTAB + 0, WV_NTAB + 1}, {WARP_BEND, WARP_BEND}, {2, 2}, {0, 0}, {0, 0}, {110, 90}, 0, WF_LP, 40, {0, 70, 100, 50}, {30, 20}, {0, 0},
+     {S(LFO1, POSA, 30), S(LFO2, POSB, 30), S0, S0}, 90, 64},
 };
 #undef S
 #undef S0
