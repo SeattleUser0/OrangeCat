@@ -80,6 +80,7 @@
     <p><label><input type="checkbox" id="stage-pack" checked> <span data-t="stagePack"></span></label><br><span class="small" data-t="packWhy"></span></p>
     <p><label><input type="checkbox" id="stage-mod" checked> <span data-t="stageMod"></span></label><br><span class="small" data-t="modWhy"></span></p>
     <p><label><input type="checkbox" id="stage-prophet"> <span data-t="stageProphet"></span></label><br><span class="small" data-t="prophetWhy"></span></p>
+    <p id="eng-opt-p"><span data-t="stageEngOpt"></span> <span id="eng-opt-list"></span><br><span class="small" data-t="engOptWhy"></span></p>
     <p><label><input type="checkbox" id="stage-fx" checked> <span data-t="stageFx"></span> <span id="fx-names"></span></label><br><span class="small" data-t="fxWhy"></span></p>
     <p><label><input type="checkbox" id="stage-fx-opt"> <span data-t="stageFxOpt"></span> <span id="fx-opt-names"></span></label><br><span class="small" data-t="fxOptWhy"></span></p>
     <p><label><input type="checkbox" id="stage-models" checked> <span data-t="stageModels"></span> <span id="models-count"></span></label><br><span class="small" data-t="modelsWhy"></span></p>
@@ -153,7 +154,7 @@ const TEXT = {
     installWhat: "インストールボタンは、選んだビルドについて上でチェックした内容を書き込みます：",
     installNone: "何もチェックされていません：何も書き込みません",
     installFw: "ファームウェア", installPack: "アセットパック", installMod: "SHAPESとWHEELのモジュール", installProphet: "Prophetモジュール", installFx: "エフェクトモジュール",
-    stageFxOpt: "追加のエフェクトモジュール", fxOptWhy: "このビルドにある、チェックしたときだけ入るエフェクトモジュール。リバーブのSPRING、SHIMMER、RESOはこのモジュールからだけ鳴ります。ファームウェアにはもう入っていないので、モジュールがないとこれらを使うプロジェクトのリバーブは鳴りません（REVERBページにMODULE MISSINGと出ます）。", installFxOpt: "追加のエフェクトモジュール",
+    stageFxOpt: "追加のエフェクトモジュール", fxOptWhy: "このビルドにある、チェックしたときだけ入るエフェクトモジュール。リバーブのSPRING、SHIMMER、RESOはこのモジュールからだけ鳴ります。ファームウェアにはもう入っていないので、モジュールがないとこれらを使うプロジェクトのリバーブは鳴りません（REVERBページにMODULE MISSINGと出ます）。", installEngOpt: "エンジン {names}", installFxOpt: "追加のエフェクトモジュール",
     stageFx: "エフェクトモジュール", fxWhy: "このビルドのエフェクトモジュール（インサート、センド、マスター）。モジュールIDで入ります。エンジンのモジュールとは別に、空いている場所に入ります。",
     stageModels: "MACROのモデル", installModels: "MACROのモデル",
     modelsWhy: "VAはファームウェアに内蔵です。MACROのほかのモデルは、ここで選んで1つのモジュールにします（今日の15モデルにチェック済み）。ほかのモジュールと並べて入れる空きが必要で、リストの下の行がその空きを示します。入らないモデルを外すまでインストールは始まりません。",
@@ -231,7 +232,7 @@ const TEXT = {
     mismatch: "書き込みは終わりましたが、FM-1 が別のバージョンを報告しています: ",
     badpkg: "インストールするファイルが壊れています。ページを再読み込みしてください。",
     leave: "書き込み中です。ページを閉じないでください。",
-    stagesTitle: "インストールボタンが書き込む内容（チェックしたものすべて）", stageFw: "ファームウェア", stagePack: "アセットパック", stageMod: "SHAPESとWHEELのモジュール", stageProphet: "Prophetモジュール",
+    stagesTitle: "インストールボタンが書き込む内容（チェックしたものすべて）", stageFw: "ファームウェア", stagePack: "アセットパック", stageMod: "SHAPESとWHEELのモジュール", stageProphet: "Prophetモジュール", stageEngOpt: "追加のエンジン（チェックしたものだけ）:", engOptWhy: "X0X303、SUPERSAW、BRASS、MIXTURはそれぞれ1つのモジュールです。初期状態ではチェックされていません。チェックしたものは他のモジュールの隣に場所が必要です。足りないときは、下の行がどれを外すかを尋ねます。",
     packWhy: "パックが無いとMACROとSHAPESは鳴りません。", modWhy: "SHAPES（マクロ・オシレーター）: 新しいビルドではファームウェアに内蔵されず、このモジュールとして入ります（チェック済み）。入れないとSHAPESを使うトラックは無音になり MODULE MISSING と表示されますが、曲と設定は残ります。以前のSHAPES内蔵ビルドのユニットも、このモジュールを入れればSHAPESが戻ります。",
     prophetWhy: "Prophetモジュール(32 KB)はSHAPESモジュールと一緒には入りません。どちらか一方を選んでください。もう一方が入っているときは、先に消してください。",
     downgradeWhy: "このファームウェアより古いファームウェアは、モジュール領域の新しい部分に入れたモジュールを認識しません。古いファームウェアに戻す場合は、それらのモジュールを入れ直してください。",
@@ -262,7 +263,7 @@ const TEXT = {
     installWhat: "The Install button writes what is ticked above, for the build you chose: ",
     installNone: "nothing is ticked: nothing will be written",
     installFw: "the firmware", installPack: "the asset pack", installMod: "the SHAPES and WHEEL modules", installProphet: "the Prophet module", installFx: "the effect modules",
-    stageFxOpt: "More effect modules", fxOptWhy: "Effect modules of this build that go in only when you tick this box. The reverb modes SPRING, SHIMMER and RESO play only from this module: the firmware no longer carries them, so without it a project on one of them plays its reverb dry (the REVERB page says MODULE MISSING).", installFxOpt: "the optional effect modules",
+    stageFxOpt: "More effect modules", fxOptWhy: "Effect modules of this build that go in only when you tick this box. The reverb modes SPRING, SHIMMER and RESO play only from this module: the firmware no longer carries them, so without it a project on one of them plays its reverb dry (the REVERB page says MODULE MISSING).", installFxOpt: "the optional effect modules", installEngOpt: "the engines {names}",
     stageFx: "Effect modules", fxWhy: "The build's effect modules (insert, send, master). They go in by their module id, into a free place beside the engine modules.",
     stageModels: "MACRO models", installModels: "the MACRO models",
     modelsWhy: "VA is built into the firmware. The other models of MACRO come as one module you put together here: tick the models to install (today's fifteen are ticked). The module needs room beside the other modules; the line under the list says how much. Install does not start until the models fit.",
@@ -340,7 +341,7 @@ const TEXT = {
     mismatch: "Written, but the FM-1 reports another version: ",
     badpkg: "The file to install is damaged. Reload the page.",
     leave: "Writing. Do not close the page.",
-    stagesTitle: "What the Install button installs (everything ticked)", stageFw: "Firmware", stagePack: "Asset pack", stageMod: "SHAPES and WHEEL modules", stageProphet: "Prophet module",
+    stagesTitle: "What the Install button installs (everything ticked)", stageFw: "Firmware", stagePack: "Asset pack", stageMod: "SHAPES and WHEEL modules", stageProphet: "Prophet module", stageEngOpt: "More engines (only the ones you tick):", engOptWhy: "X0X303, SUPERSAW, BRASS and MIXTUR are a module each, unticked to start with. A ticked one needs room beside the other modules; when there is not enough, the line under the models asks which module gives way.",
     packWhy: "Without the pack, MACRO and SHAPES stay silent.", modWhy: "SHAPES: the macro oscillator engine. New builds have no SHAPES inside the firmware; it comes as this module (ticked). Without it, tracks that use SHAPES are silent and flagged MODULE MISSING; their music and settings are kept. A unit that had SHAPES built in gets it back by installing this module.",
     prophetWhy: "Prophet: a polysynth engine in the same place as SHAPES. The Prophet module (32 KB) does not fit in the unit together with the SHAPES module: choose one. If the other is already in the unit, remove it first.",
     downgradeWhy: "A firmware older than this one does not see modules installed in the new part of the module area; going back means installing those modules again.",
@@ -403,7 +404,14 @@ const fxTicked = (locked = false) => { const on = (id) => $(id).checked && (lock
  * DUB TAPE, the FX layer, the reverb modes; they are all effect modules on this page). giveWay: the chosen module id; giveWayOn: the meter found the ticked set does not fit and
  * the choice is one that makes it fit. fxPick (what the meter counts and Install writes) leaves the chosen module out only then. */
 let giveWay = null, giveWayOn = false, giveWaySig = "";   /* giveWaySig (review of 5e7f2a40): what was ticked, and the unit as read, when the choice was made: any change clears it */
-const fxPick = (locked = false) => fxTicked(locked).filter((x) => !(giveWayOn && x.module_id === giveWay));
+/* (engines-b, the owner's choice of November 21) the engine modules the release list marks {kind: 0, engine, optional: true} (make_site.py ENGINE_OPTIONAL: X0X303, SUPERSAW, BRASS, MIXTUR):
+ * one box each, UNTICKED by default; a ticked one counts in the room meter, the placement and Install, and may be the module that gives way. gwKey: the give-way choice's key, an
+ * effect module's id or 0x10000 | an engine's number (never sent to the unit) */
+const engOpt = () => offered().ocm.filter((u) => u && typeof u === "object" && typeof u.url === "string" && u.kind === 0 && u.engine > 0 && u.optional === true);
+const engTicked = (locked = false) => engOpt().filter((x) => { const b = $("eng-opt-" + x.engine); return !!b && b.checked && (locked ? true : !b.disabled); });
+const gwKey = (x) => x.kind === 0 ? 0x10000 | x.engine : x.module_id;
+const engPick = (locked = false) => engTicked(locked).filter((x) => !(giveWayOn && gwKey(x) === giveWay));
+const fxPick = (locked = false) => fxTicked(locked).filter((x) => !(giveWayOn && gwKey(x) === giveWay));
 const ocmOf = (kind) => offered().ocm.filter(u => typeof u === "string" && ocmKind(u) === kind).sort((a, b) => /orangecat-wheel-/.test(b) - /orangecat-wheel-/.test(a));   /* (round 14) WHEEL first: it takes the unit's first start, SHAPES the next */
 /* (Release 3, the model picker: docs/candidates/model_picker.md) MACRO's models: the master package of the chosen build (the release list's "ocp"), the pick (ticked
  * models; VA is built into the firmware and shown locked; MACRO's own fifteen are the default), the room meter against the module area (18 sectors: what the ticked module
@@ -438,7 +446,7 @@ function unitView() {
   return PLACE.afterFirmware(unitState, {tail: true, iface: master.manifest.hdr ? master.manifest.hdr.iface : null, lowOk: !!(unitState.slot && unitState.slot.state >= 1)});
 }
 /* (the review: never erase without naming it) the modules of the unit that the new firmware will not load (another interface), and the starts it cannot read: by name */
-const ENG_NAMES = {14: "SHAPES", 19: "PROPHET", 7: "WHEEL", 8: "MACRO MODELS"}, FX_NAMES = {1: "DUB TAPE", 2: "REVERB MODES", 3: "FX LAYER", 0x4D08: "MACRO MODELS"};
+const ENG_NAMES = {14: "SHAPES", 19: "PROPHET", 7: "WHEEL", 8: "MACRO MODELS", 23: "X0X303", 25: "SUPERSAW", 28: "BRASS", 29: "MIXTUR"}, FX_NAMES = {1: "DUB TAPE", 2: "REVERB MODES", 3: "FX LAYER", 0x4D08: "MACRO MODELS"};
 const junkNames = (p) => [...p.junk.map((j) => j.kind ? FX_NAMES[j.mid] || "EFFECT 0x" + (j.mid >>> 0).toString(16).toUpperCase() : ENG_NAMES[j.engine] || "ENGINE #" + j.engine),
   ...p.unread.map((x) => t("unreadAt").replace("{n}", String(x.start)))];
 /* (the re-review) a sample in 0.15.0's slot longer than the new firmware's slot keeps (smp_slot.c SMP_SLOT_MAX 60,896 B): the new firmware reads the slot EMPTY and its tail lies in
@@ -456,7 +464,8 @@ function modelsOthers() {                             /* the modules beside the 
   const on = (id) => $(id).checked && (writing || !$(id).disabled);   /* (Round 31) while Install runs the boxes are locked: the engine stage still counts (it read "WHEEL 4" from the unit instead) */
   const eng = on("stage-prophet") ? ocmOf("prophet") : on("stage-mod") ? ocmOf("shapes") : [];
   const fx = fxPick(writing).filter((x) => x.kind !== 4).map((x) => ({name: x.name || "0x" + x.module_id.toString(16), sectors: x.sectors || 1}));   /* (round 25) while Install runs the boxes are locked, not "not offered" */   /* (step 8a) the ticked boxes' effect modules: an optional one counts only when its box is ticked */
-  return PICK.others([...eng.map(geo), ...fx], unitView());
+  const eo = engPick(writing).map((x) => ({name: x.name || ENG_NAMES[x.engine] || "ENGINE #" + x.engine, sectors: tailBuild ? x.sectors || 1 : 4, only: "area"}));   /* (engines-b) the ticked optional engines: their re-cut sectors in a tail build, else 4 (oc_mod_geo) */
+  return PICK.others([...eng.map(geo), ...eo, ...fx], unitView());
 }
 /* the places the modules may go: the module area, and the tail region of FLASH_MAP_R3.md option A (the unit says how many sectors it has: MOD_INFO's `tail`; a page that has not
  * read the unit counts the master's own, which a Release 3 firmware has; a unit without one, or a master without one, has the area alone) */
@@ -474,7 +483,8 @@ function placeMods(pickSectors, locked = false) {   /* locked (round 23, the uni
   const on = (id) => $(id).checked && (locked && writing ? true : !$(id).disabled);
   const eng = on("stage-prophet") ? ocmOf("prophet") : on("stage-mod") ? ocmOf("shapes") : [];
   const fx = fxPick(locked && writing).filter((x) => x.kind !== 4);
-  const out = [...eng.map((u) => ({engine: engNum(u), name: {7: "WHEEL", 19: "PROPHET", 14: "SHAPES"}[engNum(u)]})), ...fx.map((x) => ({mid: x.module_id, sectors: x.sectors || 1, name: x.name || "0x" + x.module_id.toString(16)}))];
+  const eo = engPick(locked && writing).map((x) => ({engine: x.engine, name: x.name || ENG_NAMES[x.engine]}));   /* (engines-b) the ticked optional engines, after the stage's */
+  const out = [...eng.map((u) => ({engine: engNum(u), name: {7: "WHEEL", 19: "PROPHET", 14: "SHAPES"}[engNum(u)]})), ...eo, ...fx.map((x) => ({mid: x.module_id, sectors: x.sectors || 1, name: x.name || "0x" + x.module_id.toString(16)}))];
   if (pickSectors > 0) out.push({mid: 0x4D00 | (master.manifest.engine & 0xFF), sectors: pickSectors, name: "MACRO models"});
   return out;
 }
@@ -503,7 +513,7 @@ const modelsOk = () => modelsLoading ? !$("stage-models").checked : !$("stage-mo
 /* (review of 5e7f2a40) only the build's OPTIONAL effect modules (the reverb modes) and only while their box is NOT ticked: a ticked module, the one that gives way among them (it
  * stays in the unit untouched, it is only not written this time), and DUB TAPE and the FX layer (an unticked box means "leave it alone") are never taken off; they are named */
 const removableFx = () => { const ticked = new Set(fxTicked(true).map((x) => x.module_id)); return fxOpt().filter((x) => !ticked.has(x.module_id)).map((x) => ({mid: x.module_id})); };
-const giveWayKey = () => JSON.stringify([fxTicked(true).map((x) => x.module_id), pickedItems(), ["stage-mod", "stage-prophet", "stage-models"].map((id) => $(id).checked),
+const giveWayKey = () => JSON.stringify([fxTicked(true).map((x) => x.module_id), engTicked(true).map((x) => x.engine), pickedItems(), ["stage-mod", "stage-prophet", "stage-models"].map((id) => $(id).checked),
   /* (re-review) the unit by what makes its modules different (start, engine, sectors; an effect's start, kind, id, sectors, version), not by state, why or uses, which change between reads */
   unitState && unitState.mod ? [unitState.mod.starts.map((x, i) => x.state ? [i, x.engine, Math.ceil((x.length || 0) / 4096)] : null),
     unitState.fx ? unitState.fx.effects.map((e) => [e.start, e.kind, e.id, e.sectors, e.version]) : null] : null]);
@@ -559,18 +569,18 @@ function modelsMeter() {                              /* the line under the list
     /* (round 25, decision A) the ticked set does not fit: the ticked effect modules whose absence lets the rest fit are offered; the owner picks the one that gives way, and the
      * meter then shows that set (Install enables when it fits). Nothing is chosen for the owner. */
     const keep = giveWay;
-    cands = fxTicked(writing).filter((x) => { giveWay = x.module_id; giveWayOn = true; const ok = meterFor(items, bad).room.ok; giveWayOn = false; return ok; });
+    cands = [...engTicked(writing), ...fxTicked(writing)].filter((x) => { giveWay = gwKey(x); giveWayOn = true; const ok = meterFor(items, bad).room.ok; giveWayOn = false; return ok; });
     giveWay = keep;
-    const chosen = cands.find((x) => x.module_id === giveWay);
-    if (chosen) { giveWayOn = true; m = meterFor(items, bad); lead = t("giveWayChosen").replace("{name}", chosen.name || "0x" + chosen.module_id.toString(16)) + " "; }
+    const chosen = cands.find((x) => gwKey(x) === giveWay);
+    if (chosen) { giveWayOn = true; m = meterFor(items, bad); lead = t("giveWayChosen").replace("{name}", chosen.name || ENG_NAMES[chosen.engine] || "0x" + gwKey(chosen).toString(16)) + " "; }
   }
   if (cands.length) {
     gw.hidden = false;
-    gw.innerHTML = t("giveWayAsk") + " " + cands.map((x) => `<label style="display:inline-block;min-width:11em"><input type="radio" name="give-way" id="gw-${x.module_id}"> ${x.name || "0x" + x.module_id.toString(16)} (${x.sectors || 1} ${t((x.sectors || 1) === 1 ? "sectorWord" : "sectorsWord")})</label>`).join(" ");
+    gw.innerHTML = t("giveWayAsk") + " " + cands.map((x) => `<label style="display:inline-block;min-width:11em"><input type="radio" name="give-way" id="gw-${gwKey(x)}"> ${x.name || ENG_NAMES[x.engine] || "0x" + gwKey(x).toString(16)} (${x.sectors || 1} ${t((x.sectors || 1) === 1 ? "sectorWord" : "sectorsWord")})</label>`).join(" ");
     cands.forEach((x) => {
-      const box = $("gw-" + x.module_id);
-      box.checked = giveWayOn && giveWay === x.module_id; box.disabled = writing;
-      box.addEventListener("change", () => { if (box.checked) { giveWay = x.module_id; giveWaySig = giveWayKey(); installWhat(); } });
+      const box = $("gw-" + gwKey(x));
+      box.checked = giveWayOn && giveWay === gwKey(x); box.disabled = writing;
+      box.addEventListener("change", () => { if (box.checked) { giveWay = gwKey(x); giveWaySig = giveWayKey(); installWhat(); } });
     });
   } else { gw.hidden = true; gw.innerHTML = ""; }
   modelsRoom = m.room;
@@ -609,6 +619,18 @@ function modStages() {
 }
 $("stage-mod").addEventListener("change", () => { if ($("stage-mod").checked) { modChoice = "shapes"; $("stage-prophet").checked = false; } });
 $("stage-prophet").addEventListener("change", () => { if ($("stage-prophet").checked) { modChoice = "prophet"; $("stage-mod").checked = false; } });
+/* (engines-b) one box a ticked-only engine of the chosen build, made again when the build's list changes (a box keeps its tick while the list is the same) */
+let engOptSig = "";
+function engOptBoxes() {
+  const list = engOpt(), sig = JSON.stringify(list.map((x) => x.engine));
+  $("eng-opt-p").hidden = !list.length;
+  if (sig !== engOptSig) {
+    engOptSig = sig;
+    $("eng-opt-list").innerHTML = list.map((x) => `<label style="display:inline-block;min-width:11em"><input type="checkbox" id="eng-opt-${x.engine}"> ${x.name || ENG_NAMES[x.engine]} (${x.sectors || 1} ${t((x.sectors || 1) === 1 ? "sectorWord" : "sectorsWord")})</label>`).join(" ");
+    list.forEach((x) => { const b = $("eng-opt-" + x.engine); b.checked = false; b.addEventListener("change", () => installWhat()); });   /* (the state set on the element, as the models' boxes: the page's test) */
+  }
+  list.forEach((x) => { const b = $("eng-opt-" + x.engine); if (b) b.disabled = writing; });
+}
 function stageNote() {
   const o = offered(), notes = [];
   if (!o.pak) notes.push(t("noPackFile"));
@@ -620,6 +642,7 @@ function stageNote() {
   $("stage-fx").disabled = writing || !fxMain().length;
   $("stage-fx-opt").disabled = writing || !fxOpt().length;
   $("fx-opt-names").textContent = fxOpt().length ? "(" + fxOpt().map(x => x.name || "0x" + x.module_id.toString(16)).join(", ") + ")" : "";   /* (step 8a) the optional ones by name, e.g. (REVERB MODES) */
+  engOptBoxes();
   $("fx-names").textContent = fxMain().length ? "(" + fxMain().map(x => x.name || "0x" + x.module_id.toString(16)).join(", ") + ")" : "";   /* (Release 3 step 6) the effects of the list by name: the release list's {url, kind, module_id, name}, e.g. (DUB TAPE) */
   modStages();
 }
@@ -656,9 +679,11 @@ function installWhat() {
   modelsMeter();
   const parts = [["stage-fw", "installFw"], ["stage-pack", "installPack"], ["stage-mod", "installMod"], ["stage-prophet", "installProphet"], ["stage-fx", "installFx"], ["stage-fx-opt", "installFxOpt"], ["stage-models", "installModels"]]
     .filter(([id]) => $(id).checked && (writing || !$(id).disabled)).map(([, k]) => t(k));
+  const eo = engTicked(writing);   /* (engines-b) the ticked optional engines, by name */
+  if (eo.length) parts.push(t("installEngOpt").replace("{names}", eo.map((x) => x.name || ENG_NAMES[x.engine]).join(", ")));
   const ch = selection().channel || {};
-  const gone = giveWayOn ? fxTicked(writing).find((x) => x.module_id === giveWay) : null;   /* (round 25) the module that gives way is named */
-  $("install-what").textContent = t("installWhat") + (parts.length ? parts.join(", ") + (ch.version ? " (" + ch.version + ")" : "") : t("installNone")) + (gone ? ". " + t("giveWayChosen").replace("{name}", gone.name || "0x" + gone.module_id.toString(16)) : "");
+  const gone = giveWayOn ? [...eo, ...fxTicked(writing)].find((x) => gwKey(x) === giveWay) : null;   /* (round 25) the module that gives way is named; (engines-b) an engine too */
+  $("install-what").textContent = t("installWhat") + (parts.length ? parts.join(", ") + (ch.version ? " (" + ch.version + ")" : "") : t("installNone")) + (gone ? ". " + t("giveWayChosen").replace("{name}", gone.name || ENG_NAMES[gone.engine] || "0x" + gwKey(gone).toString(16)) : "");
 }
 ["stage-fw", "stage-pack", "stage-mod", "stage-prophet", "stage-fx", "stage-fx-opt"].forEach((id) => $(id).addEventListener("change", () => installWhat()));
 const remembered = () => { try { return localStorage.getItem("oc-build"); } catch (_) { return null; } };
@@ -674,6 +699,7 @@ const lockInstaller = (on) => {
   buildIds.forEach(k => { $("build-" + k).disabled = on; });
   $("stock-go").disabled = on || !stock;
   ["stage-fw", "stage-pack", "stage-mod", "stage-prophet", "stage-fx", "stage-fx-opt"].forEach(id => { $(id).disabled = on || (id === "stage-pack" && !offered().pak) || (id === "stage-mod" && !ocmOf("shapes").length) || (id === "stage-prophet" && !ocmOf("prophet").length) || (id === "stage-fx" && !fxMain().length) || (id === "stage-fx-opt" && !fxOpt().length); });
+  engOpt().forEach((x) => { const b = $("eng-opt-" + x.engine); if (b) b.disabled = on; });   /* (engines-b) the optional engines' boxes */
   $("unit-read").disabled = on; $("fx-remove").disabled = on || !$("fx-remove-id").value;
   ["stock-file", "stock-recovery", "stock-skip-backup", "transit-go", "transit-recovery", "transit-skip-backup"].forEach(id => { $(id).disabled = on; });
 };
@@ -814,7 +840,7 @@ $("fx-remove").addEventListener("click", () => {
 $("go").addEventListener("click", async () => {
   if (writing || !image) return;
   const ch = selection().channel, product = ch.product, o = offered();
-  const engMods = $("stage-prophet").checked ? ocmOf("prophet") : $("stage-mod").checked ? ocmOf("shapes") : [];   /* (0.12.1) one module stage at a time */
+  const engOptN = engPick().length, engMods = [...($("stage-prophet").checked ? ocmOf("prophet") : $("stage-mod").checked ? ocmOf("shapes") : []), ...engPick().map((x) => x.url)];   /* (0.12.1) one module stage at a time; (engines-b) the ticked optional engines after it (the meter's give-way choice applied) */
   let fxMods = fxPick();   /* (Release 3 step 4) the effect modules after it; (step 8a) those of the ticked boxes: the optional ones (the reverb modes) only when their box is ticked; (round 25) less the one that gives way */
   let modules = [...engMods, ...fxMods.map((x) => x.url)], want = [...engMods.map(() => null), ...fxMods.map((x) => ({kind: x.kind, module_id: x.module_id}))];
   const modelsOn = $("stage-models").checked && !$("stage-models").disabled && !!master;   /* (the model picker) the pick, packed below, goes in after the others */
@@ -845,6 +871,7 @@ $("go").addEventListener("click", async () => {
     }
     /* (round 25) the meter ran again on the unit as read: the effect modules are what it placed now (the one that gives way, if the choice still stands, left out) */
     fxMods = fxPick(true);
+    engMods.splice(engMods.length - engOptN, engOptN, ...engPick(true).map((x) => x.url));   /* (the boxes are locked now: engPick(true) reads them as ticked) */   /* (engines-b) the optional engines as the meter placed them on the unit as read */
     modules = [...engMods, ...fxMods.map((x) => x.url)]; want = [...engMods.map(() => null), ...fxMods.map((x) => ({kind: x.kind, module_id: x.module_id}))];
   }
   const files = {pack: null, modules: [], ...(fxMods.length || modelsOn ? {want} : {})};

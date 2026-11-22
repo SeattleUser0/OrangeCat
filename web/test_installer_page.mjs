@@ -230,6 +230,35 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
   assert.equal(none.element("stage-fx-opt").disabled, true, "a release with no optional effect module: the optional box is off");
   assert.equal(none.element("fx-opt-names").textContent, "", "... and names nothing");
 }
+// d2b. (engines-b, the owner's choice of November 21) the engine modules the release list marks {kind: 0, engine, optional: true} (web/make_site.py ENGINE_OPTIONAL: X0X303, SUPERSAW,
+//      BRASS, MIXTUR) have a box each, UNTICKED by default; Install sends one only when its box is ticked, after the stage's engine module, as an engine module (want null)
+{
+  for (const k of ["stageEngOpt", "engOptWhy", "installEngOpt"])
+    assert.equal((template.match(new RegExp("\\b" + k + ":", "g")) || []).length, 2, k + " in ja and en");
+  const E = (e, n, sec) => ({url: `orangecat-${n.toLowerCase()}-0.15.0.ocm`, kind: 0, engine: e, name: n, sectors: sec, optional: true});
+  const X = E(23, "X0X303", 3), S = E(25, "SUPERSAW", 1), B = E(28, "BRASS", 4), M = E(29, "MIXTUR", 2);
+  const ENG = {...STANDARD, ocm: [...STANDARD.ocm, X, S, B, M]};
+  const page = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...ENG, releases: [ENG]});
+  await answer(page, "standard.fwsc");
+  for (const x of [X, S, B, M]) assert.equal(page.element("eng-opt-" + x.engine).checked, false, x.name + ": its box starts unticked");
+  assert.match(page.element("eng-opt-list").innerHTML, /X0X303 \(3 sectors\).*SUPERSAW \(1 sector\).*BRASS \(4 sectors\).*MIXTUR \(2 sectors\)/, "the boxes name the four and their sectors");
+  assert.doesNotMatch(page.element("install-what").textContent, /engines/, "unticked: Install does not name them");
+  let click = page.element("go").listeners.click();
+  await page.tick();
+  await answer(page, ENG.pak); await answer(page, ENG.ocm[0]);
+  await click;
+  assert.equal(JSON.stringify(page.runs[0].modules), JSON.stringify([ENG.ocm[0]]), "unticked: the stage's engine module alone");
+  const two = boot(store(), {model: "FM-1", text: "FM-1_710010300"}, {...ENG, releases: [ENG]});
+  await answer(two, "standard.fwsc");
+  for (const x of [S, M]) { two.element("eng-opt-" + x.engine).checked = true; two.element("eng-opt-" + x.engine).listeners.change(); }
+  assert.match(two.element("install-what").textContent, /the engines SUPERSAW, MIXTUR/, "ticked: Install names them");
+  click = two.element("go").listeners.click();
+  await two.tick();
+  await answer(two, ENG.pak); await answer(two, ENG.ocm[0]); await answer(two, S.url); await answer(two, M.url);
+  await click;
+  assert.equal(JSON.stringify(two.runs[0].modules), JSON.stringify([ENG.ocm[0], S.url, M.url]), "ticked: SUPERSAW and MIXTUR after the stage's module, the others not");
+  assert.equal(JSON.stringify(two.runs[0].want || [null, null, null]), JSON.stringify([null, null, null]), "... as engine modules (no kind or module id to check)");
+}
 // d3. (Release 3 step 8b, the owner's decision) the FX layer module (kind 3, module id 3: GLITCH, TAPE STOP, SHUFFLE, FREEZE; two sectors) is NOT optional: it is listed under effects
 //     in DUB TAPE's box, which the template ticks; the reverb module stays in the optional box, unticked. Install sends DUB TAPE, then the FX layer, as what the list says they are
 {

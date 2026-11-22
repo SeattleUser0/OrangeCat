@@ -151,6 +151,19 @@ def fx_info(path):
 FX_OPTIONAL = {2}
 
 
+# (engines-b, the owner's choice after the audition of November 21) the engine modules a release offers UNTICKED: X0X303, SUPERSAW, BRASS and MIXTUR (core.h OC_ENGINE_MODS). The installer
+# page gives each a box of its own that starts unticked, counts it in the room meter only when ticked, and may name it as the module that gives way
+ENGINE_OPTIONAL = {23: "X0X303", 25: "SUPERSAW", 28: "BRASS", 29: "MIXTUR"}
+
+
+def engine_of(path):
+    """an engine module package's engine number (the header's engine word, kind 0), or None"""
+    import struct
+    b = Path(path).read_bytes()
+    magic, ver, n, iface, api_addr, engine = struct.unpack_from("<IHHIII", b, 0)
+    return engine & 0xFF if magic == 0x464D434F and not engine >> 8 else None
+
+
 def ocm_sectors(path):
     """(the model picker) a format 2 package's sector count (its header word 13: what the unit's planner is asked for; the installer page's room meter)"""
     import struct
@@ -185,6 +198,9 @@ def ocm_entry(path, url, strict=True):
             raise
         return url                                              # (an older release's file the site already carries: listed as a name, as before)
     if info is None:
+        e = engine_of(path)
+        if e in ENGINE_OPTIONAL:                                # (engines-b) offered, not ticked: its own box on the installer page
+            return {"url": url, "kind": 0, "engine": e, "name": ENGINE_OPTIONAL[e], "sectors": ocm_sectors(path), "optional": True}
         return url
     kind, mid = info
     e = {"url": url, "kind": kind, "module_id": mid, "sectors": ocm_sectors(path)}   # (the model picker) sectors: the installer page's room meter counts the modules it installs
