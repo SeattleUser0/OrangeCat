@@ -129,6 +129,30 @@ async function lateReplies() {
        `proto (Round 32): MOD_WRITE sent again: the first send's late reply does not answer the next write (done ${r1.done}, then rc ${r2.rc} done ${r2.done}; ${stale.length} discarded)`);
     await wait(300); x.close();
   }
+  /* (Round 32, the review) a no-echo command (MOD_INFO) whose first reply is lost: the next three, no retry, get their own replies (no cascade) */
+  {
+    stale.length = 0;
+    const u = unit((cmd, a) => (cmd === E.CMD.MOD_INFO && a.length <= 1 ? [18, a[0] ?? 127] : null), (cmd, a, k) => (k === 0 ? 100000 : 5));
+    const x = open(u), opt = { timeout: 150, retries: 0, quiet: true }, got = [];
+    let first = "answered"; try { await x.rq(E.req.modInfo(), opt); } catch (e) { first = e.message; }
+    for (const e of [1, 2, 3]) got.push((await x.rq(E.req.modInfo(e), opt).catch(() => null))?.[1]);
+    let bad = "answered"; try { await x.rq([E.CMD.MOD_INFO, [1, 2]], opt); } catch (e) { bad = e.message; }
+    const after = (await x.rq(E.req.modInfo(4), opt).catch(() => null))?.[1];
+    ok(/timeout/.test(first) && got.join() === "1,2,3" && /timeout/.test(bad) && after === 4 && !stale.length,
+       `proto (Round 32 review): MOD_INFO's lost reply and a send the unit ignores cost only their own request (${got}, then ${after})`);
+    x.close();
+  }
+  /* PAGES echoes the engine, PANEL the engine and the first parameter (editor.c ED_PAGES, ED_PANEL) */
+  ok(E.replyMatches(E.CMD.PAGES, [5], [5, 2]) && !E.replyMatches(E.CMD.PAGES, [5], [6, 2]) && E.replyMatches(E.CMD.PANEL, [5], [5, 0, 3]) &&
+     E.replyMatches(E.CMD.PANEL, [5, 10, 0], [5, 10, 3]) && !E.replyMatches(E.CMD.PANEL, [5, 10, 0], [5, 0, 3]) && !E.replyMatches(E.CMD.PANEL, [5], [4, 0, 3]),
+     "proto (Round 32): PAGES matched by its engine, PANEL by engine and first");
+  /* the owed commands are exactly the ones replyMatches compares (and the two WRITEs) */
+  {
+    const html = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "editor.html"), "utf8");
+    const body = html.slice(html.indexOf("function replyMatches"), html.indexOf("default: return true;", html.indexOf("function replyMatches")));
+    const cases = new Set([...body.matchAll(/case CMD\.([A-Z0-9_]+)/g)].map((m) => E.CMD[m[1]])); cases.add(E.CMD.PACK_WRITE); cases.add(E.CMD.MOD_WRITE);
+    ok(cases.size === E.REPLY_ECHOES.size && [...cases].every((c) => E.REPLY_ECHOES.has(c)), `proto (Round 32 review): REPLY_ECHOES is replyMatches's commands and the WRITEs (${cases.size})`);
+  }
   /* BACKUP GET (id and offset echoed): object 0's piece at 256 answered 1.3 s late (timeout 1000, one retry), the others in 60 ms: readObject completes */
   {
     stale.length = 0;

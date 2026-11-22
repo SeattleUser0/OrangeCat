@@ -211,10 +211,10 @@ export async function restoreBackup(request, file, onProgress = () => {}) {
 // (Round 32) replies matched to their request (BUILD.md 7.54). A reply can come after its request timed out: the unit was slow, the page sent the
 // request again (retries) or went on to the next one. Before this round the page took any reply of the command it waited for, so the late reply of
 // the FIRST send of a BACKUP GET answered the NEXT GET (another offset: "Unexpected backup reply" at 50 %). Now every send that got no reply of its own
-// is owed for a while (3 x its timeout, at least 3 s), and a reply that comes is matched:
+// of a command whose reply echoes something (BK_ECHOES) is owed for a while (3 x its timeout, at least 3 s), and a reply that comes is matched:
 //   1. it echoes the arguments of an owed send of another request (echo(cmd, args, a), the arguments the firmware puts back: editor.c,
-//      editor_backup.c): that send's late reply, discarded and logged; for a command whose reply echoes nothing, any reply of the command while one of
-//      another identity (other arguments) is owed is taken as that one's (the request waiting then times out and is sent again: never a wrong answer);
+//      editor_backup.c): that send's late reply, discarded and logged (a WRITE's refusal echoes nothing: while a WRITE of another offset is owed it is
+//      taken as that one's, and the write waiting is sent again; a reply so discarded for a request is not owed again when it times out);
 //   2. it is the waiting request's when the command is the same and echo() agrees; an owed send of the identical request (cmd and arguments: its reply
 //      says the same) is taken as the one that answered;
 //   3. anything else is not this page's (a push frame, another tool's reply): ignored, as before.
@@ -233,13 +233,19 @@ export function bkEcho(cmd, args, a, owed = false) {
 }
 const bkPackedLen = (L) => Math.floor(L / 8) * 7 + (L % 8 ? L % 8 - 1 : 0);   // the bytes bkPack made L wire bytes of
 const bkSame = (x, y) => x.cmd === y.cmd && x.args.length === y.args.length && x.args.every((v, i) => v === y.args[i]);
+// (Round 32, the review) the commands whose reply echoes something of the request (bkEcho compares it): only their sends are owed. A no-echo command's
+// timed-out send is not (its late reply could not be told from the next one's: guarding it cascaded, every request of the command then lost its reply
+// to the one before; and a send the firmware ignores on purpose, a bad length or an unknown command, would be owed for nothing)
+export const BK_ECHOES = new Set([66, 67, 11, 12, 13, 14, 0, 117, 122]);
 export class ReplyGate {
-  constructor(echo, log = (m) => console.warn(m)) { this.echo = echo; this.log = log; this.owed = []; this.stale = 0; }
+  constructor(echo, log = (m) => console.warn(m), echoes = BK_ECHOES) { this.echo = echo; this.log = log; this.echoes = echoes; this.owed = []; this.stale = 0; }
   // c ({cmd, args}) was sent (again)
   sent(c, timeout) { c.sends = (c.sends || 0) + 1; c.until = Date.now() + Math.max(3000, 3 * timeout); }
-  // c is done: answered (true) or timed out; its sends without a reply are owed
+  // c is done: answered (true) or timed out; its sends without a reply are owed (an echoing command's only), less the replies that came for c and
+  // were discarded as an owed send's (c.lost: a reply that could be either; c's own then came, and it is not owed again)
   finish(c, answered) {
-    for (let n = (c.sends || 0) - (answered && !c.borrowed ? 1 : 0); n > 0; n--) this.owed.push({ cmd: c.cmd, args: c.args, until: c.until });
+    if (!this.echoes.has(c.cmd)) return;
+    for (let n = (c.sends || 0) - (answered && !c.borrowed ? 1 : 0) - (c.lost || 0); n > 0; n--) this.owed.push({ cmd: c.cmd, args: c.args, until: c.until });
   }
   // a reply (cmd, data a) while c waits (or null) -> true: it is c's; false: discarded
   take(cmd, a, c) {
@@ -247,6 +253,7 @@ export class ReplyGate {
     const i = this.owed.findIndex((o) => o.cmd === cmd && !(c && bkSame(o, c)) && this.echo(cmd, o.args, a, true));
     if (i >= 0) {
       this.owed.splice(i, 1); this.stale++;
+      if (c && c.cmd === cmd && this.echo(cmd, c.args, a)) c.lost = (c.lost || 0) + 1;
       this.log(`late reply of command ${cmd} discarded (its request had timed out): [${a.slice(0, 9).join(" ")}]`); return false;
     }
     if (!c || c.cmd !== cmd || !this.echo(cmd, c.args, a)) return false;                           // not a reply of this page's (a push, another tool's)

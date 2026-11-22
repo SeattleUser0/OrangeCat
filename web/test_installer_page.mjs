@@ -827,6 +827,20 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
   r = await run(false);
   assert.ok(r.log.resumes === 1 && r.log.installs === 0, "the loader still there: the write is resumed");
   assert.equal(r.log.said, "The write finished; the FM-1 is restarting (this can take a minute).", "while the unit restarts after a resume the page says the write finished");
+  // (the review) a press begun with another loader in update mode (the stock one): refused, nothing resumed or installed
+  {
+    const log = {installs: 0, resumes: 0};
+    const Updater = class {
+      async find(filter) { const id = {model: "ota-FM-1", text: STOCK_LOADER}; return filter(id) ? {id, link: {close() {}}} : null; }
+      async install() { log.installs++; } async resume() { log.resumes++; return true; }
+    };
+    const page = boot(store(), {model: "FM-1", text: "FM-1_900"}, META, {Updater});
+    await answer(page, "standard.fwsc");
+    page.element("stage-pack").checked = false; page.element("stage-mod").checked = false; page.element("stage-fx").checked = false; page.element("stage-fw").listeners.change();
+    await page.element("go").listeners.click();
+    assert.ok(log.installs === 0 && log.resumes === 0, "another loader at the start of the press: nothing written");
+    assert.match(page.element("status").textContent, /stock|M-VAVE|official/i, "the page says which loader it refused: " + page.element("status").textContent);
+  }
   const ota = readFileSync(new URL("fm1ota.js", import.meta.url), "utf8");
   assert.match(ota, /RESUME_BACK_MS = 90000/, "a resume waits 90 s for the unit to come back");
   assert.match(ota, /id\.model === model, RESUME_BACK_MS\)/, "resume() uses that wait");

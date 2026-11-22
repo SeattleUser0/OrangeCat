@@ -221,5 +221,31 @@ ok(sharedTarget.objs.get(28).every((v,i)=>v===sharedData[i]),"backup: final comp
     await new Promise((r) => setTimeout(r, 1400));             // (no reply left in flight for the next case)
   }
 }
+// (Round 32, the review) no cascade: a no-echo command's timed-out send is not owed, so the next request of the command takes its own reply. OcLink:
+// MOD_INFO() whose reply is lost, then MOD_INFO(1), (2), (3) with no retry each get their reply; a send the firmware ignores (MOD_INFO with a length it
+// refuses, an unknown command) costs only its own timeout; and an echoing command's request whose reply was discarded as an owed send's is not owed again
+{
+  const input = { state: "connected", onmidimessage: null }; let n = 0;
+  const output = { state: "connected", send(m) {
+    const cmd = m[4], args = Array.from(m.slice(5, -1)), k = n++;
+    if (cmd === 120 && args.length <= 1 && k !== 0) setTimeout(() => input.onmidimessage({ data: Uint8Array.from([240, 125, 70, 76, 120, 18, args[0] ?? 127, 247]) }), 5);
+  } };
+  const logged = [], l = new OcLink(input, output, { log: (m) => logged.push(m) });
+  const a0 = await l.ask([120, []], { timeout: 150 }), got = [];
+  for (const e of [1, 2, 3]) got.push(await l.ask([120, [e]], { timeout: 150 }));
+  ok(a0 === null && got.every((a, i) => a && a[1] === i + 1) && !logged.length, `backup (Round 32 review): MOD_INFO's lost reply costs that request only: (1) (2) (3) answered (${got.map((a) => a && a[1])})`);
+  const bad = await l.ask([120, [1, 2]], { timeout: 150 }), unk = await l.ask([99, [1]], { timeout: 150 }), after = await l.ask([120, [4]], { timeout: 150 });
+  ok(bad === null && unk === null && after && after[1] === 4, "backup (Round 32 review): a send the firmware ignores (a bad length, an unknown command) is not owed: the next request is answered");
+  l.close();
+}
+{
+  const { ReplyGate, bkEcho } = await import("./fm1backup.js");
+  const g = new ReplyGate(bkEcho, () => {});
+  const A = { cmd: 122, args: [0, 2, 0, ...bkPack(new Uint8Array(256))] }, B = { cmd: 122, args: [0, 4, 0, ...bkPack(new Uint8Array(256))] };
+  g.sent(A, 1000); g.finish(A, false);                         // write 256 timed out: owed
+  g.sent(B, 1000); const took = g.take(122, [1, 0, 6, 0], B);  // a refusal while B waits: taken as A's
+  g.finish(B, false);                                          // B times out; the discarded reply could have been B's: not owed again
+  ok(!took && g.owed.length === 0, `backup (Round 32 review): a request whose reply was discarded as an owed one's is not owed again (${g.owed.length} owed)`);
+}
 console.log(fails ? `BACKUP WEB TESTS FAILED (${fails})` : "backup web tests passed");
 process.exit(fails ? 1 : 0);

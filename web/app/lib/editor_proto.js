@@ -627,17 +627,25 @@ function owedMatches(cmd, args, a) {
   return replyMatches(cmd, args, a);
 }
 const sameReq = (x, y) => x.cmd === y.cmd && x.args.length === y.args.length && x.args.every((v, i) => v === y.args[i]);
+/* (Round 32, the review) only the sends of a command whose reply echoes something (replyMatches compares it; a WRITE's done) are owed: a no-echo command's
+   late reply cannot be told from the next one's (guarding it cascaded), and a send the firmware ignores on purpose would be owed for nothing */
+const REPLY_ECHOES = new Set([CMD.MOTION, CMD.BACKUP_GET, CMD.BACKUP_PUT, CMD.UI_SET, CMD.FAV_GET, CMD.FAV_SET, CMD.GET, CMD.SET, CMD.DESC, CMD.STEP_GET,
+  CMD.STEP_SET, CMD.NAMES, CMD.SMP_BEGIN, CMD.SMP_END, CMD.SMP_ERASE, CMD.SMP_WRITE, CMD.BANK_SONG, CMD.SONG, CMD.PATTERN, CMD.PROPHET, CMD.LIBRARY, CMD.NATIVE,
+  CMD.CZ_BANK, CMD.CZ_GET, CMD.CZ_PUT, CMD.FM6_GET, CMD.FM6_PUT, CMD.FM6_ERASE, CMD.PROJECT, CMD.UP_LIST, CMD.UP_GET, CMD.UP_PUT, CMD.UP_STORE, CMD.UP_LOAD,
+  CMD.UP_ERASE, CMD.TRACK_MIX, CMD.TRACK_DUMP, CMD.WATCH, CMD.TRACK_STEP, CMD.TRACK_PARAM, CMD.KIT_GET, CMD.KIT_PUT, CMD.PAGES, CMD.PANEL,
+  CMD.PACK_WRITE, CMD.MOD_WRITE]);
 class ReplyBook {
   constructor() { this.owed = []; this.stale = 0; }
   sent(c) { c.sends = (c.sends || 0) + 1; c.until = Date.now() + Math.max(3000, 3 * c.timeout); }
-  finish(c, answered) {
-    for (let n = (c.sends || 0) - (answered && !c.borrowed ? 1 : 0); n > 0; n--) this.owed.push({ cmd: c.cmd, args: c.args, until: c.until });
+  finish(c, answered) {   /* (a reply discarded as an owed send's that could be c's: c.lost, not owed again) */
+    if (!REPLY_ECHOES.has(c.cmd)) return;
+    for (let n = (c.sends || 0) - (answered && !c.borrowed ? 1 : 0) - (c.lost || 0); n > 0; n--) this.owed.push({ cmd: c.cmd, args: c.args, until: c.until });
   }
   /* -> "stale" (an owed send's late reply), "mine" (the request c's), or "unknown" */
   take(f, c) {
     const now = Date.now(); this.owed = this.owed.filter((o) => o.until > now);
     const i = this.owed.findIndex((o) => o.cmd === f.cmd && !(c && sameReq(o, c)) && owedMatches(f.cmd, o.args, f.a));
-    if (i >= 0) { this.owed.splice(i, 1); this.stale++; return "stale"; }
+    if (i >= 0) { this.owed.splice(i, 1); this.stale++; if (c && f.cmd === c.cmd && replyMatches(c.cmd, c.args, f.a)) c.lost = (c.lost || 0) + 1; return "stale"; }
     if (!c || f.cmd !== c.cmd || !replyMatches(c.cmd, c.args, f.a)) return "unknown";
     const j = this.owed.findIndex((o) => sameReq(o, c));
     if (j >= 0) { this.owed.splice(j, 1); c.borrowed = true; }
@@ -3204,4 +3212,4 @@ async function replaceOcm(send, probe, row, ocm, ask, progress) {
 const DEV_SAVED_G = new Set([4, 5, 6, 7, 8, 9, 13, 17, 21, 41]), DEV_REST_MS = 1000;
 /*PROTO-END*/
 
-export { CMD, CRC_TABLE, CZ, DEV_SAVED_G, DUBFW, ENGINE_ORDER, F, FADE, FLASH_OPT, FM4, FM6, HDR, IMA_IDX, IMA_STEP, KIT_LANE, KIT_RANGE, KIT_SIGNED, LANES, LANE_ALIAS, LANE_NOTE, LANE_OF, LIB, Link, MODULE_SLOTS, NOTE_NAMES, OCM_FX_SECTORS, OCM_GEO, OCM_LINK0, OCM_MAGIC, OCM_MODELS_ID, OCM_RELOCATABLE, OCM_SECTOR, OC_BEGIN_MS, P5, P5_FACTORY, PUSH, P_CHORD, P_MPCDEG, Reader, ReplyBook, SCALE_INFO, SMP, TRACK_OWN, UP, aliasOf, assignEngine, auditionPatch, autoTrim, bank, buildSlot, capturePatch, chkError, cleanPatch, crc16x, crc32, czBankDecode, czBankEncode, czBankRead, czBankUpload, czBkNumber, czBkPack, czBkU32, czBkUnpack, czLegacyTone, czLibraryPatch, devicePresetRows, drumLane, drumWireValid, dubField, dubPack, dubSyncNow, dxkCrc, dxkitFromRecord, dxkitRecord, dxkitValid, engineLabel, engineOrder, enginesRows, fetchModPages, fmtValue, frame, fromDigital, fxCheck, globalReserved, gridFromSteps, hitsEnc, hitsText, imaEncode, kitBody, kitFromBody, libraryFile, macroId, makeMockDevice, mayWrite, mixer, modCode, modSummary, nativeBank, nativeImportTargets, normalize, noteName, ocmCheck, ocmFxCaps, ocmFxDesc, ocmFxRead, ocmImage, ocmModelsDesc, ocmParse, ocmReason, ocmRelocate, ocmSwapPlan, ocmTails, ocmWrite, owedMatches, p5LibraryPatch, pack7, packProblem, paramKeys, paramReserved, parse, parseHits, parseNote, parseNotes, parseWav, patNorm, patternFromSteps, patternUsed, pyRound, readDevicePreferences, readHits, readLibraryFile, readSysexLibrary, remapParams, replaceOcm, replyMatches, req, resample, reservedFm4, rootFromName, sameKeys, sameReq, scaleRows, sharedBank, startWatch, stepAccents, stepLanes, stepsFromPattern, strEnc, tailParams, takeSample, trackOwn, unframe, unpack7, upName, v14dec, v14enc, writeRange, zoomView };
+export { CMD, CRC_TABLE, CZ, DEV_SAVED_G, DUBFW, ENGINE_ORDER, F, FADE, FLASH_OPT, FM4, FM6, HDR, IMA_IDX, IMA_STEP, KIT_LANE, KIT_RANGE, KIT_SIGNED, LANES, LANE_ALIAS, LANE_NOTE, LANE_OF, LIB, Link, MODULE_SLOTS, NOTE_NAMES, OCM_FX_SECTORS, OCM_GEO, OCM_LINK0, OCM_MAGIC, OCM_MODELS_ID, OCM_RELOCATABLE, OCM_SECTOR, OC_BEGIN_MS, P5, P5_FACTORY, PUSH, P_CHORD, P_MPCDEG, REPLY_ECHOES, Reader, ReplyBook, SCALE_INFO, SMP, TRACK_OWN, UP, aliasOf, assignEngine, auditionPatch, autoTrim, bank, buildSlot, capturePatch, chkError, cleanPatch, crc16x, crc32, czBankDecode, czBankEncode, czBankRead, czBankUpload, czBkNumber, czBkPack, czBkU32, czBkUnpack, czLegacyTone, czLibraryPatch, devicePresetRows, drumLane, drumWireValid, dubField, dubPack, dubSyncNow, dxkCrc, dxkitFromRecord, dxkitRecord, dxkitValid, engineLabel, engineOrder, enginesRows, fetchModPages, fmtValue, frame, fromDigital, fxCheck, globalReserved, gridFromSteps, hitsEnc, hitsText, imaEncode, kitBody, kitFromBody, libraryFile, macroId, makeMockDevice, mayWrite, mixer, modCode, modSummary, nativeBank, nativeImportTargets, normalize, noteName, ocmCheck, ocmFxCaps, ocmFxDesc, ocmFxRead, ocmImage, ocmModelsDesc, ocmParse, ocmReason, ocmRelocate, ocmSwapPlan, ocmTails, ocmWrite, owedMatches, p5LibraryPatch, pack7, packProblem, paramKeys, paramReserved, parse, parseHits, parseNote, parseNotes, parseWav, patNorm, patternFromSteps, patternUsed, pyRound, readDevicePreferences, readHits, readLibraryFile, readSysexLibrary, remapParams, replaceOcm, replyMatches, req, resample, reservedFm4, rootFromName, sameKeys, sameReq, scaleRows, sharedBank, startWatch, stepAccents, stepLanes, stepsFromPattern, strEnc, tailParams, takeSample, trackOwn, unframe, unpack7, upName, v14dec, v14enc, writeRange, zoomView };
