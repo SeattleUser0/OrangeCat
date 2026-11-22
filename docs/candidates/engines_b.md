@@ -162,3 +162,24 @@ for the owner to decide (a name change is a preset change).
 - **Decisions in this round one might decide otherwise:** the TB-303 kept the hub's 47 (NENGINES 48 in a candidates build) instead of a number in
   23..31; LEVL took P_E7, the slot no op1r plugin reads; the 303's level is a constant, its eight slots all X0X's pots; the descriptors' rows are data the
   unit does not show (EDIT 1 and 2 show the same controls); no pictures yet.
+
+## 8. For Session A: the branches, and the four modules as installer choices (the orchestrator's request, November 21)
+
+**Branches** (on origin once the full SAN=1 suite of engines-b has passed):
+- `engines-b` (from linux-hw 52e16b13): the five candidates brought up, the descriptors and four knobs of the top four, their tail re-cut, the tests.
+- `engines-b-presets` (on engines-b, a fast-forward): LEVL and the 303's gain, the presets, this page. The MACRO and WHEEL proposals of section 6 are
+  **not** in it: they wait for the owner's picks from the auditions.
+- `wave-study` (separate, from linux-hw 52e16b13): docs/candidates/wave.md and its measurement prototype; no engine. Its section 9 holds six questions
+  for the owner.
+
+**The four modules as installer choices, unticked by default: X0X303, SUPERSAW, MIXTUR, BRASS.** What that takes, none of it on these branches (the
+page, the workflow and the engine table are Session A's to decide):
+1. **A firmware that registers them.** Their numbers (25, 28, 29, 47) are proposals behind `OC_CANDIDATES`; a shipping build (NENGINES 20) refuses
+   them, and refuses a project that stored one. Offering them on the page means committing their numbers (NENGINES 48 with 30..46 retired slots, or
+   renumbering the four into 20..23 before any is committed: 20 is a preset namespace, so 21..24 with SEM/HADES/RHODES' proposals moved) and accepting
+   that engines past 15 hold no user preset or favorite (upreset.c, favorites.c), as ENGINE_CANDIDATES.md "Engine numbers" says.
+2. **The site carrying their .ocm**: workflow rev 22 leaves op1r's .ocm out of the Nightly and the site; the four would be put back in.
+3. **An "optional" flag for engine modules**: web/make_site.py has one for effect modules only (`FX_OPTIONAL`, `e["optional"]`, the reverb modes'
+   box); engine module entries are bare URLs. The same flag on these four entries, and the page's room meter counting them only when ticked.
+Room, once ticked (section 4): all four 10 sectors; the default set already fills 21 of 21, so the page will say what to leave out (SHAPES' 6 sectors
+hold SUPERSAW 1 + MIXTUR 2 + X0X303 3).
