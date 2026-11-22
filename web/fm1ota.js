@@ -115,6 +115,8 @@ async function handshake(link, tries = 3) {
   return null;
 }
 
+// (Round 32) after a resumed write the unit took over 40 s to come back (the first boot of a new firmware): the wait is 90 s
+export const RESUME_BACK_MS = 90000;
 export class Updater {
   constructor(access, log) {
     this.access = access;
@@ -241,7 +243,7 @@ export class Updater {
     if (product) {
       step("reboot");
       await sleep(3000);
-      const back = await this.waitFor((id) => id.model === model, 40000);
+      const back = await this.waitFor((id) => id.model === model, RESUME_BACK_MS);
       if (!back) throw fail("noreturn", "The FM-1 did not return after resuming the write.");
       back.link.close();
       if (back.id.text !== product) throw fail("mismatch", "The FM-1 reports a different firmware after resuming.", back.id.text);
