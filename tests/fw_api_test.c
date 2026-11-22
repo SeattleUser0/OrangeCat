@@ -24,11 +24,11 @@ int main(void)
     uint8_t x[16], y[16];
     uint32_t i;
     void *p1, *p2;
-    check("the table starts with the magic, its own size, version 6 (0.14.3: batch_push takes AP_SHAPES, AP_WHEEL) and the interface identifier", a->magic == FW_API_MAGIC && a->size == sizeof(fw_api_t) && a->version == 6u && a->iface == FW_API_IFACE);
+    check("the table starts with the magic, its own size, version 6 (0.14.3: batch_push takes AP_SHAPES, AP_WHEEL; wave-engine: 7 with AP_WAVE, 8 with the stereo lane) and the interface identifier", a->magic == FW_API_MAGIC && a->size == sizeof(fw_api_t) && a->version == (OC_STEREO ? 8u : OC_WAVE ? 7u : 6u) && a->iface == FW_API_IFACE);
     check("(0.14.3) a module that needs nothing 6 added declares FW_API_VERSION_BASE, 5: a 0.14.2 firmware still loads it", FW_API_VERSION_BASE == 5u && FW_API_VERSION_BASE < FW_API_VERSION);
     check("every service is there", a->mem_copy && a->mem_set && a->resource_get && a->tuning_log && a->trk && a->pack_ready);
     /* 0.10.0 (step 1) the arena id a module's part state starts at, and the engine count, come from the table */
-    check("res_engine0 is the arena id of the first engine state and nengines the table's length", a->res_engine0 == RES_ENGINE0 && a->nengines == NENGINES && NENGINES == 20u);
+    check("res_engine0 is the arena id of the first engine state and nengines the table's length", a->res_engine0 == RES_ENGINE0 && a->nengines == NENGINES && NENGINES == (OC_CANDIDATES ? 48u : OC_WAVE ? 33u : OC_ENGINE_MODS ? 30u : 20u));   /* (engines-b) 30 with OC_ENGINE_MODS: the four modules at 23, 25, 28, 29 */
     check("rng_cell is the generator word SHAPES starts with (0x21), shared by the parts", a->rng_cell && *a->rng_cell == 0x21u);
     check("a module's part p gets the block the built-in engine gets (res_engine0 + p)", (memset(resource, 0, sizeof resource), a->resource_get(a->res_engine0 + 1u, 64u) == resource_get(RES_ENGINE0 + 1u, 64u)));
     for (i = 0; i < 16; i++) x[i] = (uint8_t)(i * 13u + 1u);

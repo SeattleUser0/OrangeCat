@@ -7,7 +7,7 @@
 //   module; the page does not ask FX_TABLE yet).
 import { FW } from "./fw_tables.js";
 
-export const MODULE_ENGINES = { 7: "WHEEL", 14: "SHAPES", 19: "PROPHET" };
+export const MODULE_ENGINES = { 7: "WHEEL", 14: "SHAPES", 19: "PROPHET", 23: "X0X303", 25: "SUPERSAW", 28: "BRASS", 29: "MIXTUR", 32: "WAVE" };   // (engines-b) the four of OC_ENGINE_MODS
 const PACK_ENGINES = new Set(FW.engines.filter((e) => e.inBuild && e.name === "MACRO").map((e) => e.num).concat(14));   /* MACRO, SHAPES (engines.c; ui.c pack_notice) */
 /* tracks that play nothing: [{track, engine, name, why: "module" | "pack"}]. tracks: TRACK's rows ({engine}); engines: ENGINES' parse ({engines: [{num, src}]}) or null;
    pack: PACK_INFO's parse ({state}) or null (no pack command: the pack is not asked about) */

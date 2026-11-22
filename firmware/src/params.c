@@ -74,7 +74,19 @@ static const char *const N_MSRC[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", 
 static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "", "", "", "", "RATE",
                                      "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "DEPTH"};
 static const char *const N_ENGNAME[] = {"-", "-", MELODEE_LEGACY_EXTRAS ? "PHASE" : "-", MELODEE_SID ? "SID" : "-", "-", MELODEE_LEGACY_EXTRAS ? "VOICE" : "-", MELODEE_LEGACY_EXTRAS ? "TRIO" : "-", MELODEE_LEGACY_EXTRAS ? "WHEEL" : "-", MELODEE_MACRO ? "MACRO" : "-", MELODEE_DRUMX ? "DRUM-X" : MELODEE_LEGACY_EXTRAS ? "PHYS" : "-",
-                                             MELODEE_DRUM ? "DRUM" : "-", MELODEE_LEGACY_EXTRAS ? "NOISE" : "-", MELODEE_FM6 ? "FM6" : "-", MELODEE_SLICE ? "SLICE" : "-", MELODEE_SHAPES ? "SHAPES" : "-", "CZ-1", "-", "-", "-", "PROPHET"};
+                                             MELODEE_DRUM ? "DRUM" : "-", MELODEE_LEGACY_EXTRAS ? "NOISE" : "-", MELODEE_FM6 ? "FM6" : "-", MELODEE_SLICE ? "SLICE" : "-", MELODEE_SHAPES ? "SHAPES" : "-", "CZ-1", "-", "-", "-", "PROPHET"
+#define ENGN_D10 "-", "-", "-", "-", "-", "-", "-", "-", "-", "-"
+#if NENGINES > 20                                  /* (engines-b) the slots past 19 (OC_ENGINE_MODS: 30; OC_CANDIDATES: 48): "-" as a module's slot without its module (WHEEL's 7), */
+    , ENGN_D10                                     /* so a track on 23..29 no longer reads as the last name (PROPHET: the value was clamped to 19) */
+#endif
+#if OC_CANDIDATES
+    , ENGN_D10, "-", "-", "-", "-", "-", "-", "-", "-"
+#elif OC_WAVE
+    , "-", "-", "-"                                /* (wave-engine) 30, 31; 32 WAVE, a module's slot */
+#endif
+#undef ENGN_D10
+};
+_Static_assert(sizeof N_ENGNAME / sizeof N_ENGNAME[0] == NENGINES, "an engine name for every slot (G_ENGSEL's range is the table's)");
 
 #define PD(l, f, mn, mx, df) {l, f, mn, mx, df, 0, 0}
 #define PE(l, n, df) {l, F_ENUM, 0, (int16_t)(sizeof(n) / sizeof(n[0]) - 1), df, n, 0}
