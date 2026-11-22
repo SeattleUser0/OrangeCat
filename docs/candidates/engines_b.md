@@ -172,8 +172,8 @@ for the owner to decide (a name change is a preset change).
 - `wave-study` (separate, from linux-hw 52e16b13): docs/candidates/wave.md and its measurement prototype; no engine. Its section 9 holds six questions
   for the owner.
 
-**The four modules as installer choices, unticked by default: X0X303, SUPERSAW, MIXTUR, BRASS.** What that takes, none of it on these branches (the
-page, the workflow and the engine table are Session A's to decide):
+**The four modules as installer choices, unticked by default: X0X303, SUPERSAW, MIXTUR, BRASS.** (Written before the owner asked for it; **built since on
+engines-b-presets: section 10**, which answers the three points below.) What that takes:
 1. **A firmware that registers them.** Their numbers (25, 28, 29, 47) are proposals behind `OC_CANDIDATES`; a shipping build (NENGINES 20) refuses
    them, and refuses a project that stored one. Offering them on the page means committing their numbers (NENGINES 48 with 30..46 retired slots, or
    renumbering the four into 20..23 before any is committed: 20 is a preset namespace, so 21..24 with SEM/HADES/RHODES' proposals moved) and accepting
