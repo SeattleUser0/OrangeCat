@@ -9,8 +9,10 @@
 //    attempt is logged with its status, its dialogs and its log lines. (Round 32) Every retry runs in a fresh Chrome (the old one closed first,
 //    a new profile and process, the page loaded and made ready again): Chrome's Web MIDI does not see a port that appears after it started.
 //    (Round 32, one attempt per build) Within an attempt, once: when the page ends saying the FM-1 in update mode was not found or did not come
-//    back, a fresh Chrome loads the page with the same build and ticks and presses Install once more, so that the page's own resume path
-//    (web/fm1ota.js resume()) finishes the same install ("attempt N: fresh browser to resume"; the attempt's `resume`).
+//    back, fresh Chromes first read what answers (up to --probe-wait 90 s, read only). Only when the update-mode loader of this package answers and
+//    the page's write had not finished does it load the page with the same build and ticks and press Install once more, so that the page's own
+//    resume path (web/fm1ota.js resume()) finishes the same install ("attempt N: fresh browser to resume"). A running FM-1 answering ends the
+//    attempt, judged by its version (never a press: that would be a new install); a finished write is never followed by a press.
 //  - The end of an attempt is the page's own: #release enabled again after it was disabled (lockInstaller(false)), not a text pattern (the
 //    old driver missed "Result: ..." and ended on its own timeout while the page had finished).
 //  - --stock FILE: the stock section's file input (#stock-file) given the file through DOM.setFileInputFiles, the page's check awaited
@@ -55,6 +57,7 @@ if (opt.ask) { console.error("cdp_install: --ask is gone (Round 32: no prompt; e
 const url = opt.url, build = opt.build, minutes = Number(opt.minutes || 25), retries = Number(opt.retries || 1);   // (Round 32, the owner's hard limit: one install attempt per build; SPEC.md 13.1)
 // (Round 32) the waits before a retry's fresh browser: --retry-wait S (10) and, after "did not come back", --return-wait S (20)
 const retryWait = Number(opt["retry-wait"] ?? 10), returnWait = Number(opt["return-wait"] ?? 20);
+const probeWait = Number(opt["probe-wait"] ?? 90);   // (Round 32) how long fresh browsers look for what answers before a resume (each look a new browser)
 const out = resolve(opt.out || mkdtempSync(tmpdir() + "/oc-cdp-")), port = Number(opt.port || 9224);
 if (!url || (!build && !opt.stock)) { console.error("cdp_install: --url and --build (or --stock FILE) are needed"); process.exit(2); }
 if (opt.stock && !existsSync(opt.stock)) { console.error("cdp_install: no file " + opt.stock); process.exit(2); }
@@ -151,6 +154,41 @@ const txt = (idq) => ev(`(document.getElementById(${JSON.stringify(idq)})||{}).t
 const RETRY = /not found|did not come back/i;
 // (Round 32) the page's ends that a fresh browser resumes within the attempt: TEXT.noloader and TEXT.noreturn (en, ja); fm1ota.js's own noreturn too
 const RESUME = /The FM-1 in update mode was not found|書き込みモードの FM-1 が見つかりません|did not come back|did not return after resuming|FM-1 が戻ってきません/i;
+// (Round 32) the update loader this run's package goes to (web/fm1ota.js MELODEE_LOADER, STOCK_LOADER)
+const ownLoader = opt.stock ? "ota-FM-1_015" : "ota-FM-1_900";
+// (Round 32) what answers in this browser, read only, as the page's Updater.find asks (the update handshake, its identity) and, for a running FM-1, the
+// editor's INFO (its version string): {ports: [{port, identity, model, version}]}; the ports the page would probe only
+const probeUnit = () => ev(`(async () => {
+  const unpack7 = (s) => { const o = []; let acc = 0, nb = 0; for (const b of s) { acc |= (b & 0x7F) << nb; nb += 7; while (nb >= 8) { o.push(acc & 0xFF); acc >>>= 8; nb -= 8; } } return o; };
+  const ident = (p) => { const d = unpack7(p.slice(1, -1)); if (d.length !== 34 || d[0] !== 0 || d[1] !== 0x59 || d[2] !== 0x11) return null;
+    const t = String.fromCharCode(...d.slice(6, 33)).replace(/\\0+$/, ""), m = /^([^_]+)_(\\d+)$/.exec(t); return m ? { text: t, model: m[1] } : null; };
+  const info = (p) => p.length > 6 && p[1] === 125 && p[2] === 70 && p[3] === 76 && p[4] === 1 ? String.fromCharCode(...p.slice(5, -1).slice(0, Math.max(0, p.slice(5, -1).indexOf(0)))) || null : null;
+  let acc; try { acc = await navigator.requestMIDIAccess({ sysex: true }); } catch (e) { return { error: "no MIDI: " + e.message, ports: [] }; }
+  const outs = [...acc.outputs.values()], ports = [];
+  for (const input of acc.inputs.values()) {
+    if (input.state === "disconnected" || !/fm-1|orange cat|melodee|felucca|ota|composite|sinco|usb-midi/i.test(input.name || "")) continue;
+    const output = outs.find((o) => o.name === input.name && o.state !== "disconnected"); if (!output) continue;
+    const q = []; let w = null;
+    input.onmidimessage = (e) => { if (e.data[0] !== 0xF0) return; q.push(Array.from(e.data)); if (w) { const f = w; w = null; f(); } };
+    const read = async (ms) => { if (!q.length) { let tm; await Promise.race([new Promise((r) => { w = r; }), new Promise((r) => { tm = setTimeout(r, ms); })]); clearTimeout(tm); w = null; } return q.shift() || null; };
+    const ask = async (bytes, parse) => { q.length = 0; for (let t = 0; t < 3; t++) { try { output.send(bytes); } catch (_) { return null; }
+      const end = Date.now() + 1000; while (Date.now() < end) { const p = await read(end - Date.now()); if (!p) break; const v = parse(p); if (v) return v; } } return null; };
+    const id = await ask([0xF0, 0x00, 0x32, 0x45, 0x00, 0x00, 0x00, 0x40, 0x7F, 0xF7], ident);
+    const version = id && id.model === "FM-1" ? await ask([240, 125, 70, 76, 1, 247], info) : null;
+    input.onmidimessage = null;
+    ports.push({ port: input.name, identity: id ? id.text : null, model: id ? id.model : null, version });
+  }
+  return { ports };
+})()`);
+// a running FM-1 against the build: its INFO version's X.Y.Z(-hash) and the build's (--expect, else the label the page offered), the hashes the shorter a
+// prefix of the longer, 5 digits at least; no hash on either side (q4_install.py version_matches)
+const verOf = (x) => { const m = /(\d+\.\d+\.\d+)(?:-([0-9a-f]+))?/i.exec(x || ""); return m ? { xyz: m[1], hash: (m[2] || "").toLowerCase() } : null; };
+const judgeUnit = (unit) => {
+  const want = verOf(opt.expect) || verOf(result.chosen && result.chosen.label), got = verOf(unit.version);
+  const h1 = got && got.hash, h2 = want && want.hash;
+  const same = !!(want && got && want.xyz === got.xyz && ((!h1 && !h2) || (h1 && h2 && Math.min(h1.length, h2.length) >= 5 && (h1.startsWith(h2) || h2.startsWith(h1)))));
+  return `the FM-1 answers running (${unit.identity}, INFO ${JSON.stringify(unit.version)}): ${!got ? "its version unknown" : !want ? "the build's version unknown" : same ? "the build's version (" + (opt.expect || result.chosen.label) + ")" : "NOT the build's version (" + (opt.expect || result.chosen.label) + ")"}; the rest of the set was not installed by this attempt; Install not pressed`;
+};
 // (Round 31) the page's own ends of an Install: TEXT.sumTitle and the summary ("Result: ...", ja "結果: "), or TEXT.done alone ("Done", ja "完了しました"; transitDone)
 const finishedText = (s) => /^(Result: |結果: )/.test((s || "").trim()) || /^(Done|完了しました)$/.test((s || "").trim()) || /^TransitFM1 installed\.|^TransitFM1をインストールしました/.test((s || "").trim());
 // (Round 31, the review) the parts of a "Result: ..." line that are not a success: every "Firmware/Pack/Module: X" whose X is not installed, already current, not chosen or
@@ -362,21 +400,51 @@ try {
     // ticks), Install pressed once more: the page's own path finds the FM-1 already in update mode and resumes (web/fm1ota.js resume(): this package's
     // loader only), or finds this firmware running and goes on with the rest. Any other end (a refusal, "FM-1 not found" before anything) is the end.
     if (!unmatched.length && !p1.timedOut && RESUME.test(p1.status || "")) {
-      const wait = /did not come back|戻ってきません/.test(p1.status) ? returnWait : retryWait;
-      say(`attempt ${k}: the page says ${JSON.stringify(p1.status.slice(0, 90))}: the browser closed, a fresh browser to resume in ${wait} s`);
+      // (Round 32, after the unit: 0c86c900 pressed Install in a fresh browser after "did not return after resuming": the page found the FM-1 running and
+      // switched it to update mode again, a second install) FIRST the fresh browser reads what answers, up to --probe-wait (90 s; each look a new
+      // browser, since a browser sees only the ports present when it started), read only (the update handshake's identity, the editor's INFO).
+      // Install is pressed only when the update-mode loader of this package answers and the page's write did not finish (no "reboot" in its log).
+      // A normal FM-1 answering ends the attempt: judged by its version against the build's. A finished write is never followed by a press.
+      const wrote = p1.log.some((l) => /^reboot\b/.test(l));
+      const wait = wrote || /did not come back|did not return|戻ってきません/.test(p1.status) ? returnWait : retryWait;
+      say(`attempt ${k}: the page says ${JSON.stringify(p1.status.slice(0, 90))}${wrote ? " after a finished write" : ""}: the browser closed, a fresh browser reads the unit in ${wait} s`);
+      a.resume = { after: p1.status, wroteAll: wrote, freshBrowser: true, wait, looks: [] };
       await closeBrowser();
       await sleep(wait * 1000);
-      say(`attempt ${k}: fresh browser to resume`);
-      a.resume = { after: p1.status, freshBrowser: true, wait };
-      let p2;
+      let unit = null;
       try {
-        await openBrowser();
-        p2 = await press(k, await preparePage(a.resume, true));
-      } catch (e) { a.resume.error = String(e && e.message || e); throw e; }   // (the attempt as it ended before, the resume's error named)
-      Object.assign(a.resume, { started: p2.started, ended: p2.ended, status: p2.status, timedOut: p2.timedOut });
-      a.ended = p2.ended; a.status = p2.status; a.timedOut = p2.timedOut;
-      a.dialogs = [...p1.dialogs, ...p2.dialogs];
-      a.log = [...p1.log, `--- attempt ${k}: fresh browser to resume ---`, ...p2.log];
+        const until = Date.now() + probeWait * 1000;
+        for (;;) {
+          await openBrowser();
+          const look = await probeUnit();
+          a.resume.looks.push({ at: new Date().toISOString(), ...look });
+          say(`attempt ${k}: fresh browser reads the unit: ${JSON.stringify(look)}`);
+          unit = (look.ports || []).find((x) => x.identity) || null;
+          if (unit || Date.now() >= until) break;
+          await closeBrowser();
+          await sleep(5000);
+        }
+      } catch (e) { a.resume.error = String(e && e.message || e); throw e; }
+      a.resume.unit = unit;
+      const isLoader = unit && /^ota-/i.test(unit.model || "");
+      if (!wrote && isLoader && unit.identity === ownLoader) {
+        say(`attempt ${k}: fresh browser to resume (${unit.identity} answers: the page's resume path)`);
+        a.resume.pressed = true;
+        let p2;
+        try { p2 = await press(k, await preparePage(a.resume, true)); }
+        catch (e) { a.resume.error = String(e && e.message || e); throw e; }   // (the attempt as it ended before, the resume's error named)
+        Object.assign(a.resume, { started: p2.started, ended: p2.ended, status: p2.status, timedOut: p2.timedOut });
+        a.ended = p2.ended; a.status = p2.status; a.timedOut = p2.timedOut;
+        a.dialogs = [...p1.dialogs, ...p2.dialogs];
+        a.log = [...p1.log, `--- attempt ${k}: fresh browser to resume ---`, ...p2.log];
+      } else {
+        a.resume.pressed = false;
+        a.resume.verdict = !unit ? `nothing answered in ${probeWait} s: Install not pressed`
+          : isLoader ? `${unit.identity} answers (${wrote ? "after a finished write" : unit.identity === ownLoader ? "" : "not this package's loader " + ownLoader}): Install not pressed`
+          : judgeUnit(unit);
+        say(`attempt ${k}: the attempt is over, no Install pressed: ${a.resume.verdict}`);
+        a.log = [...p1.log, `--- attempt ${k}: fresh browser read the unit, no Install pressed: ${a.resume.verdict} ---`];
+      }
       derive(a);
     }
     writeFileSync(resolve(out, `page-log-attempt${k}.txt`), a.log.join("\n"));
@@ -403,6 +471,8 @@ try {
   result.problems = result.finished && /^(Result: |結果: )/.test((result.final || "").trim()) ? resultProblems(result.final) : [];   // (the review) a part that failed is not ok either
   result.ok = !unmatched.length && !!result.attempts.length && !result.attempts[result.attempts.length - 1].timedOut && result.finished && !result.problems.length && !RETRY.test(result.final || "") && !/error|stopped|refus|could not|failed/i.test(result.final || "");
   if (!result.ok && result.attempts.length && !result.finished && !result.attempts[result.attempts.length - 1].timedOut) result.error = "the page ended without a result (nothing it reports as done): " + (result.final || "(no status)");
+  const rv = result.attempts.length && result.attempts[result.attempts.length - 1].resume;
+  if (rv && rv.verdict) { result.unitAfter = rv.unit; result.error = (result.error || "not ok") + " | the fresh browser read the unit: " + rv.verdict; }
   else if (!result.ok && result.problems.length) result.error = "the page's result has parts that did not install: " + result.problems.join(" | ");
 } catch (e) {
   result.error = String(e && e.message || e);
