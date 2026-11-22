@@ -21,6 +21,15 @@ extern const engine_t *oc_host_module_engine(void);
 #error "build with -DOC_CANDIDATES=1"
 #endif
 
+#include "fw_pages_wire.h"
+#include "oc_modui.c"                          /* (engines-b; oc_module.c includes it on the unit: this host build registers modules by hand) */
+#define CW_BASE 0x020C4000u                    /* (engines-b) a module's link address at start 0: where the wire image of its descriptor is laid */
+static int cw_rd(void *ctx, uint32_t addr, void *buf, uint32_t n)
+{
+    if (addr < CW_BASE || addr - CW_BASE + n > 16384u) return 1;
+    memcpy(buf, (const uint8_t *)ctx + (addr - CW_BASE), n);
+    return 0;
+}
 static int bad;
 static void check(const char *what, int ok)
 {
@@ -54,6 +63,33 @@ int main(int argc, char **argv)
     check("the slot is retired and not offered without the module", ENGINES[CAND_ENGINE] == &ENG_RETIRED && !eng_ok(CAND_ENGINE) &&
           eng_sound_idx(CAND_ENGINE) == CAND_ENGINE && !eng_ok(20u));
     check("the registration takes it (a candidate's slot in this build)", eng_register(&h, em) == EM_OK && ENGINES[CAND_ENGINE] == em);
+    if (em->pages) {                           /* (engines-b) the page descriptor: what the device's loader and its knob registry do with it, on the device's layout */
+        static uint8_t wimg[16384];
+        const fw_pages_t *pg = em->pages;
+        fw_ui_info_t info;
+        uint32_t da = 0, ui = 0, wn = fwp_wire(pg, wimg, sizeof wimg, CW_BASE, &da), k, t, want = 0, got = 0, inrange = 1;
+        int rc = wn ? fw_pages_check_ex(cw_rd, wimg, da, CW_BASE + 0x100u, CW_BASE + wn, SC_MOD, P_COUNT, G_COUNT, &ui) : -1;
+        check("its descriptor (fw_pages_t version 3), in the device's layout, passes the loader's check; the panel is its edit[], the pid table P_E0..",
+              rc == FWP_OK && ui && pg->panel == em->edit && pg->npanel >= 1u && pg->npanel <= 8u && pg->pid && pg->pid[0].legacy == P_E0);
+        int uc = wn ? fw_ui_check(cw_rd, wimg, ui, CW_BASE + 0x100u, CW_BASE + wn, modui_scene_ok, &info) : -1;
+        if (uc) printf("module host:   fw_ui_check says %d\n", uc);
+        check("its knob table passes fw_ui_check: four knobs, no picture", uc == FWU_OK && info.nk == 4u && info.scene_len == 0u);
+        uint32_t pc = modui_publish(CAND_ENGINE, cw_rd, wimg, da, CW_BASE + 0x100u, CW_BASE + wn, wimg, CW_BASE);
+        const knob_def_t *kd = kdef_of(CAND_ENGINE);
+        for (k = 0; k < 4u; k++)
+            for (t = 0; t < 4u; t++) {
+                const fw_kdef_t *d = &pg->ui->kdef[k];
+                want += d->t[t].pid != FW_PID_NONE;
+                if (kd && kd[k].t[t].id != KD_NOT) {
+                    got++;
+                    inrange &= kd[k].t[t].id >= P_E0 && kd[k].t[t].id < P_E0 + pg->npanel && kd[k].t[t].id == P_E0 + d->t[t].pid - 1u;
+                }
+            }
+        printf("module host:   knobs %s %s %s %s: %u targets declared, %u resolved\n", kd ? kd[0].label : "-", kd ? kd[1].label : "-", kd ? kd[2].label : "-",
+               kd ? kd[3].label : "-", want, got);
+        check("registered, its four knobs are HOME's (the registry): four macros, every target resolved to its own P_E slot", pc == 0u && kd &&
+              kd[0].kind == KD_MACRO && kd[1].kind == KD_MACRO && kd[2].kind == KD_MACRO && kd[3].kind == KD_MACRO && want == got && want >= 4u && inrange);
+    }
     for (n = 0; n < NENG_SHOWN; n++) offered += eng_vis(n) == CAND_ENGINE;
     check("registered, it is offered (eng_ok, once in ENGINE_ORDER)", eng_ok(CAND_ENGINE) && offered == 1u);
     nj = 0;
@@ -124,6 +160,43 @@ int main(int argc, char **argv)
               snd[1][1] == 4u && snd[1][2] == 8u && snd[1][3] == 12u && snd[1][4] == 16u && kill[1][4] == 0u &&
               busy[1][1] == 4u && busy[1][2] == 8u && busy[1][3] == 12u && busy[1][4] == 16u);
         h.cost = 0;
+    }
+    if (getenv("CAND_BENCH")) {                /* (engines-b) the host's render cost, for information (never a check): each preset on one track, a four-note chord
+                                                * held (sustain 127) or what the preset's voice mode keeps of it; 2 s of the whole mix after 0.5 s, thread CPU time,
+                                                * the least of 9 runs (the PC is shared: the minimum is the run least disturbed), the idle mix's least subtracted;
+                                                * ns a voice-sample over the voices sounding */
+        static const uint8_t CH[4] = {48, 52, 55, 59};
+        int32_t out[2 * CTL];
+        uint32_t nb = (uint32_t)(2 * FS / CTL), w = (uint32_t)(FS / 2 / CTL), b, k, r;
+        double idle = 0;
+        for (i = 0; i <= np; i++) {            /* i == 0: the idle mix first (preset 0 loaded, no key); then preset i - 1 */
+            double best = 1e30, v = 0;
+            uint32_t vmax = 0;
+            for (r = 0; r < 9u; r++) {
+                struct timespec t0, t1;
+                uint32_t vs = 0, cnt = 0;
+                memset(trk, 0, sizeof trk);
+                memset(&song, 0, sizeof song);
+                host_tracks_init();
+                host_preset(&trk[0], CAND_ENGINE, i ? i - 1u : 0u);
+                trk[0].p[P_SUS] = 127;
+                trk[0].p[P_AMODE] = 0;
+                if (i)
+                    for (k = 0; k < 4u; k++) input_on(&trk[0], CH[k], 100);
+                for (b = 0; b < w; b++) mix_block(out, CTL);
+                clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t0);
+                for (b = 0; b < nb; b++) mix_block(out, CTL);
+                clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t1);
+                for (k = 0; k < NVOICE; k++) vs += trk[0].v[k].active != 0;
+                cnt = vs;
+                double ns = ((t1.tv_sec - t0.tv_sec) * 1e9 + (t1.tv_nsec - t0.tv_nsec)) / ((double)nb * CTL);
+                if (ns < best) best = ns;
+                v = cnt; vmax = cnt > vmax ? cnt : vmax;
+            }
+            if (!i) { idle = best; printf("bench %s idle %.1f ns a sample\n", em->name, best); continue; }
+            printf("bench %s %02u %-12s voices %.0f: %.1f ns a sample over idle, %.1f ns a voice-sample\n", em->name, i - 1u,
+                   eng_preset(em, i - 1u)->name, v, best - idle, v > 0 ? (best - idle) / v : 0.0);
+        }
     }
     eng_unregister(CAND_ENGINE);
     check("unregistered, the slot is retired again", ENGINES[CAND_ENGINE] == &ENG_RETIRED && !eng_ok(CAND_ENGINE));

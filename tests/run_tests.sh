@@ -565,6 +565,9 @@ module_host_candidates_b() {                      # (engines-b, Session B) op1r'
         step "$E (op1r's through the glue, or X0X's) as a candidate module (OC_CANDIDATES build): registration in its proposed slot, every preset, its pages and knobs, tests/golden_modules.txt" \
             "$OUT/module_host_${e}_test" tests/golden_modules.txt
     done
+    $CC -O1 $FW -DOC_CANDIDATES=1 -o "$OUT/cand_image_pages_test" tests/cand_image_pages_test.c || { fail "compile tests/cand_image_pages_test.c"; return 1; }
+    step "the candidates' page descriptors as the device's linker laid them (build/module/<name>.0.img): fw_pages_check_ex and fw_ui_check on the bytes" \
+        "$OUT/cand_image_pages_test" build/module supersaw mixtur brassophone x0x303
 }
 cand_slot() {                                     # (Orange Cat 0.14.2) a saved project across a measurement build: the unit's slot 1, October 2026
     build cand_slot_norm cand_slot_test -O1 $FW || return

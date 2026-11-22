@@ -69,6 +69,19 @@ static const preset_t MIXTUR_PRESETS[] = {
     {"VOWEL O", {8, 18, 0, 0, 12, 18, 90, 0}, {0, 64, 90, 50}, 0, 0},     /* 1 3, low F1 and F2: an "o" */
     {"BIRDS", {8, 48, 63, 98, 70, 90, 110, 0}, {0, 60, 0, 40}, 0, 1},     /* 1 9 12 19, bright and resonant, MONO (Hitchcock's Birds) */
 };
+/* (engines-b) the page descriptor (fw_pages_t version 3): the rows, the pid table, HOME's four macro knobs (tools/module/cand_pages.h) */
+#include "cand_pages.h"
+static const engine_t ENG_MIXTUR;
+static const page_t MIXTUR_ROWS[] = {CAND_ROW("DIV", 0, 1, 2, 3), CAND_ROW("FORM", 4, 5, 6, 0xFF)};
+/* (engines-b) HOME's four knobs, on the formants only (the dividers pick the undertones: what the sound is, EDIT's): VOWEL moves F1 and F2 apart
+ * (o to i), BRITE lifts F2 (F1 a little), RES the formants' Q, SIZE moves both together (a larger or smaller body) */
+static const fw_kdef_t MIXTUR_KDEF[4] = {
+    CAND_MACRO("VOWEL", CAND_T(4, CAND_LIN, -90), CAND_T(5, CAND_LIN, 110), CAND_T0, CAND_T0),
+    CAND_MACRO("BRITE", CAND_T(5, CAND_LIN, 127), CAND_T(4, CAND_LIN, 40), CAND_T0, CAND_T0),
+    CAND_MACRO("RES", CAND_T(6, CAND_LIN, 127), CAND_T0, CAND_T0, CAND_T0),
+    CAND_MACRO("SIZE", CAND_T(4, CAND_LIN, 100), CAND_T(5, CAND_LIN, 100), CAND_T0, CAND_T0),
+};
+CAND_PAGES(MIXTUR, ENG_MIXTUR, MIXTUR_ROWS, 7, MIXTUR_KDEF)
 static const engine_t ENG_MIXTUR = {
     .name = "MIXTUR", .page_title = {"DIV", "FORM"},
     .edit = {
@@ -81,6 +94,7 @@ static const engine_t ENG_MIXTUR = {
         {"RES", F_INT, 0, 127, 0, 0, 0},
         {"-", F_INT, 0, 0, 0, 0, 0},
     },
+    .pages = &MIXTUR_PAGES,
     .presets = MIXTUR_PRESETS, .npresets = NELEM(MIXTUR_PRESETS),
     .knob = {P_E0, P_E1, P_E2, P_E3}, .poly = OP1_VOICES,
     .note_on = op1g_eng_note_on, .render = op1g_eng_render, .keep = 0,

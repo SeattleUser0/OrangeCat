@@ -58,6 +58,18 @@ static const preset_t SUPERSAW_PRESETS[] = {
     {"SQR LEAD", {20, 127, 60, 60, 0, 0, 0, 0}, {0, 60, 100, 30}, 0, 1},  /* the morph at pulse, MONO */
     {"DRIVE BAS", {10, 40, 110, 127, 0, 0, 0, 0}, {0, 70, 90, 24}, 0, 1}, /* the sub up, the drive full, MONO */
 };
+/* (engines-b) the page descriptor (fw_pages_t version 3): the rows, the pid table, HOME's four macro knobs (tools/module/cand_pages.h) */
+#include "cand_pages.h"
+static const engine_t ENG_SUPERSAW;
+static const page_t SUPERSAW_ROWS[] = {CAND_ROW("SAW", 0, 1, 2, 3)};
+/* (engines-b) HOME's four knobs: WIDTH the detune, MRPH the saw-to-pulse morph, SUB the sine an octave down, DRIVE the clip (and a little sub with it) */
+static const fw_kdef_t SUPERSAW_KDEF[4] = {
+    CAND_MACRO("WIDTH", CAND_T(0, CAND_LIN, 127), CAND_T0, CAND_T0, CAND_T0),
+    CAND_MACRO("MRPH", CAND_T(1, CAND_LIN, 127), CAND_T0, CAND_T0, CAND_T0),
+    CAND_MACRO("SUB", CAND_T(2, CAND_LIN, 127), CAND_T0, CAND_T0, CAND_T0),
+    CAND_MACRO("DRIVE", CAND_T(3, CAND_LIN, 127), CAND_T(2, CAND_UP, 30), CAND_T0, CAND_T0),
+};
+CAND_PAGES(SUPERSAW, ENG_SUPERSAW, SUPERSAW_ROWS, 4, SUPERSAW_KDEF)
 static const engine_t ENG_SUPERSAW = {
     .name = "SUPERSAW", .page_title = {"SAW", "-"},
     .edit = {
@@ -67,6 +79,7 @@ static const engine_t ENG_SUPERSAW = {
         {"DRIV", F_PCT, 0, 127, 23, 0, 0},
         {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0},
     },
+    .pages = &SUPERSAW_PAGES,
     .presets = SUPERSAW_PRESETS, .npresets = NELEM(SUPERSAW_PRESETS),
     .knob = {P_E0, P_E1, P_E2, P_E3}, .poly = OP1_VOICES,
     .note_on = op1g_eng_note_on, .render = op1g_eng_render, .keep = 0,

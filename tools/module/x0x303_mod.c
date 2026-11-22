@@ -91,6 +91,19 @@ static const preset_t X0X303_PRESETS[] = {
     {"SQR ACID", {50, 90, 70, 70, 80, 1, 20, 30}, {0, 64, 127, 10}, 0, 1},
     {"RAT 303", {30, 110, 90, 40, 120, 0, 90, 21}, {0, 64, 127, 10}, 0, 1},
 };
+/* (engines-b) the page descriptor (fw_pages_t version 3): the rows, the pid table, HOME's four macro knobs (tools/module/cand_pages.h) */
+#include "cand_pages.h"
+static const engine_t ENG_X0X303;
+static const page_t X0X303_ROWS[] = {CAND_ROW("VCF", 0, 1, 2, 3), CAND_ROW("303", 4, 5, 6, 7)};
+/* (engines-b) HOME's four knobs: CUT, RES, ENV (the envelope's depth and its decay with it), ACID (drive and accent: the squelch). WAVE is EDIT's (a
+ * knob never switches what the sound is) */
+static const fw_kdef_t X0X303_KDEF[4] = {
+    CAND_MACRO("CUT", CAND_T(0, CAND_LIN, 127), CAND_T0, CAND_T0, CAND_T0),
+    CAND_MACRO("RES", CAND_T(1, CAND_LIN, 127), CAND_T0, CAND_T0, CAND_T0),
+    CAND_MACRO("ENV", CAND_T(2, CAND_LIN, 127), CAND_T(3, CAND_LIN, 60), CAND_T0, CAND_T0),
+    CAND_MACRO("ACID", CAND_T(6, CAND_LIN, 127), CAND_T(4, CAND_LIN, 70), CAND_T(1, CAND_UP, 30), CAND_T0),
+};
+CAND_PAGES(X0X303, ENG_X0X303, X0X303_ROWS, 8, X0X303_KDEF)
 static const engine_t ENG_X0X303 = {
     .name = "X0X303", .page_title = {"VCF", "303"},
     .edit = {
@@ -103,6 +116,7 @@ static const engine_t ENG_X0X303 = {
         {"DRIV", F_PCT, 0, 127, 0, 0, 0},
         {"SLID", F_PCT, 0, 127, 21, 0, 0},
     },
+    .pages = &X0X303_PAGES,
     .presets = X0X303_PRESETS, .npresets = NELEM(X0X303_PRESETS),
     .knob = {P_E0, P_E1, P_E2, P_E3}, .poly = 1, .ownenv = 1,
     .note_on = x0x303_note_on, .render = x0x303_render, .legato = x0x303_legato, .done = x0x303_done,

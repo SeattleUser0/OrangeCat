@@ -77,6 +77,19 @@ static const preset_t BRASS_PRESETS[] = {
     {"BLARE", {20, 120, 30, 40, 0, 0, 0, 0}, {2, 60, 110, 30}, 0, 0},     /* the whole sweep: bright at the peak */
     {"HORN LD", {60, 90, 60, 45, 0, 0, 0, 0}, {14, 90, 120, 50}, 0, 1},   /* a slow attack, deep vibrato; MONO */
 };
+/* (engines-b) the page descriptor (fw_pages_t version 3): the rows, the pid table, HOME's four macro knobs (tools/module/cand_pages.h) */
+#include "cand_pages.h"
+static const engine_t ENG_BRASS;
+static const page_t BRASS_ROWS[] = {CAND_ROW("HORN", 0, 1, 2, 3)};
+/* (engines-b) HOME's four knobs: BRITE the warp's start (STRT up is the sine: right is brighter, so the depth is negative), SWEEP how far the envelope
+ * opens it, VIB the vibrato's depth (and its rate a little on the right), BLARE both at once (a harder blow) */
+static const fw_kdef_t BRASS_KDEF[4] = {
+    CAND_MACRO("BRITE", CAND_T(0, CAND_LIN, -127), CAND_T0, CAND_T0, CAND_T0),
+    CAND_MACRO("SWEEP", CAND_T(1, CAND_LIN, 127), CAND_T0, CAND_T0, CAND_T0),
+    CAND_MACRO("VIB", CAND_T(2, CAND_LIN, 127), CAND_T(3, CAND_UP, 40), CAND_T0, CAND_T0),
+    CAND_MACRO("BLARE", CAND_T(0, CAND_LIN, -70), CAND_T(1, CAND_LIN, 90), CAND_T0, CAND_T0),
+};
+CAND_PAGES(BRASS, ENG_BRASS, BRASS_ROWS, 4, BRASS_KDEF)
 static const engine_t ENG_BRASS = {
     .name = "BRASS", .page_title = {"HORN", "-"},
     .edit = {
@@ -86,6 +99,7 @@ static const engine_t ENG_BRASS = {
         {"VIBR", F_PCT, 0, 127, 29, 0, 0},
         {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0},
     },
+    .pages = &BRASS_PAGES,
     .presets = BRASS_PRESETS, .npresets = NELEM(BRASS_PRESETS),
     .knob = {P_E0, P_E1, P_E2, P_E3}, .poly = OP1_VOICES,
     .note_on = op1g_eng_note_on, .render = op1g_eng_render, .keep = 0,
