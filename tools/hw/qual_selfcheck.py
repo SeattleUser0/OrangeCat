@@ -13,8 +13,9 @@ tables (web/app/lib/fw_tables.js, generated from tests/web_tables.c with the Nig
      hiss.py --swap-fx on a fake unit and a fake installer: the files by the unit's version, the steps in order, the FX table put back, and a
      failure at each step stopping with what is left and the way back.
   7. (Round 32) cdp_install.mjs in headless Chrome against a mock installer page whose FM-1 port, like Chrome's Web MIDI, is seen only by a
-     browser started after the port appeared: the update-mode port after Install and the normal port after "did not come back"; within the one
-     attempt a fresh browser presses the same build once and the install finishes; a refusal or "FM-1 not found" ends the attempt
+     browser started after the port appeared, and whose SysEx answers come from the mock unit: after noloader / noreturn fresh browsers read
+     what answers; only this package's update loader after an unfinished write gets one more press of the same build; a running FM-1 (also after
+     the slow return of a finished resume write) is judged, never pressed; a refusal or "FM-1 not found" ends the attempt
      (CDP_MOCK_ONLY=1: only these checks and 8's)
   8. (Round 32, 7.37 Q1's FX and REV levels) cdp_install.mjs --ticks / --remove against a mock of the page's boxes, meter, give-way choice and
      Remove (its texts checked against web/index_pkg.html); q4_answers_example.json's rev-set and fx-set rules against the page's own texts;
@@ -87,16 +88,29 @@ class Fake:
         raise TimeoutError(f"the fake has no command {cmd}")
 
 
-MOCK_PAGE = """<!doctype html><meta charset="utf-8"><title>mock installer</title>
-<div id="status">Looking for the FM-1</div><span id="dual-version">0.15.0</span><span id="nightly-version">0.16.0-mock</span>
+MOCK_PAGE = r"""<!doctype html><meta charset="utf-8"><title>mock installer</title>
+<div id="status">Looking for the FM-1</div><span id="dual-version">0.15.0</span><span id="nightly-version">0.16.0-abcde12</span>
 <select id="release"><option value="nightly">nightly</option></select>
 <label><input type="radio" name="b" id="build-dual"> Standard 0.15.0</label>
-<label><input type="radio" name="b" id="build-nightly-dual"> Nightly 0.16.0-mock</label><div id="install-what"></div><div id="stages"></div>
+<label><input type="radio" name="b" id="build-nightly-dual"> Nightly 0.16.0-abcde12</label><div id="install-what"></div><div id="stages"></div>
 <progress id="bar" max="100" value="0"></progress><button id="go" disabled>Install</button><pre id="log"></pre>
 <script>
 let bid = localStorage.getItem("bid");                   // one id per browser profile: a fresh browser has none
 if (!bid) { bid = String(Math.random()).slice(2); localStorage.setItem("bid", bid); }
-fetch("/hello?bid=" + bid);
+const hello = fetch("/hello?bid=" + bid);
+// Web MIDI as Chrome gives it: the ports present when this browser started (the server answers by the unit at this browser's first load); the
+// unit's SysEx replies come from the server (the update handshake's identity, the editor's INFO)
+navigator.requestMIDIAccess = async () => {
+  await hello;
+  const names = await (await fetch("/ports?bid=" + bid)).json(), ins = new Map(), outs = new Map();
+  for (const name of names) {
+    const inp = { name, state: "connected", onmidimessage: null };
+    const out = { name, state: "connected", send: (bytes) => { fetch("/midi?bid=" + bid + "&name=" + encodeURIComponent(name) + "&b=" + Array.from(bytes).join(","))
+      .then((r) => r.json()).then((rs) => rs.forEach((d) => inp.onmidimessage && inp.onmidimessage({ data: new Uint8Array(d) }))); } };
+    ins.set(name, inp); outs.set(name, out);
+  }
+  return { inputs: ins, outputs: outs };
+};
 const $ = (x) => document.getElementById(x);
 for (const b of ["build-dual", "build-nightly-dual"]) $(b).addEventListener("change", () => { $("go").disabled = false; $("status").textContent = "FM-1 found"; });
 $("go").onclick = async () => {
@@ -104,39 +118,94 @@ $("go").onclick = async () => {
   const b = [...document.querySelectorAll("input[name=b]")].find((x) => x.checked);
   const r = await (await fetch("/install?bid=" + bid + "&build=" + (b ? b.id : ""))).json();
   await new Promise((ok) => setTimeout(ok, 1500));
-  $("log").textContent += r.log.map((l) => l + "\\n").join("");
+  $("log").textContent += r.log.map((l) => l + "\n").join("");
   $("status").textContent = r.status; $("release").disabled = false; $("go").disabled = false;
 };
 </script>"""
 
+HS_QUERY = [0xF0, 0x00, 0x32, 0x45, 0x00, 0x00, 0x00, 0x40, 0x7F, 0xF7]
+
+
+def pack7(data):
+    out, acc, nb = [], 0, 0
+    for b in data:
+        acc |= b << nb; nb += 8
+        while nb >= 7:
+            out.append(acc & 0x7F); acc >>= 7; nb -= 7
+    if nb:
+        out.append(acc & 0x7F)
+    return out
+
+
+def identity_reply(text):
+    """the update handshake's identity (web/fm1ota.js parseIdentity): 34 bytes, 00 59 11, the text at 6..32"""
+    d = [0, 0x59, 0x11, 0, 0, 0] + list(text.encode().ljust(27, b"\0")) + [0]
+    return [0xF0, *pack7(d), 0xF7]
+
 
 class MockUnit:
-    """the FM-1 as Chrome's Web MIDI shows it: a port is seen only by a browser whose page first loaded after the port appeared (+ `settle` s).
-    The first Install: update (switched to update mode, its port not seen: the page's noloader), noreturn (written, restarted, not seen: noreturn),
-    refuse (the room meter's refusal, nothing switched), notfound (the FM-1 not found, nothing switched). An Install after it in a browser that sees
-    the port finishes the same install (the page's resume); in one that does not, the page's noloader again"""
+    """the FM-1 as Chrome's Web MIDI shows it: a browser sees the port of the unit's state when its page first loaded (normal, ota: the update
+    loader, gone), `settle` s after a change. The first Install: update (switched to update mode, the loader's port not seen: the page's noloader),
+    update-back (the same, then the unit back running before a fresh browser looks), noreturn and slowreturn (the whole image written, rebooted,
+    the unit running again `settle` s later: the page's noreturn / fm1ota's "did not return after resuming"), refuse (the room meter's refusal),
+    notfound. A later Install in a browser that sees the loader finishes the same install (the page's resume); in a browser that sees the unit
+    RUNNING it is a new install (switched to update mode again: what the owner's one-attempt limit forbids); else the page's noloader"""
     TEXT = {"update": "The FM-1 in update mode was not found. Replug the USB cable and press Install again (it stays in update mode until it is finished).",
             "noreturn": "The FM-1 did not come back. Power-cycle it.",
+            "slowreturn": "The FM-1 did not return after resuming the write.",
             "refuse": "Room: 12 sectors; this pick needs 15: 3 too many. Leave a model or a wave bank out. Install waits until the models fit.",
             "notfound": "FM-1 not found. Check the USB cable (a data cable), close other apps that use MIDI, and press Install again."}
+    PORT = {"normal": "Orange Cat FM-1", "ota": "Orange Cat FM-1 Update"}
 
-    def __init__(self, mode, settle=0.0):
-        self.mode, self.settle, self.seen, self.appeared, self.installs = mode, settle, {}, None, []
+    def __init__(self, mode, settle=0.0, version="ORANGE CAT v0.16.0-abcde"):
+        self.mode, self.settle, self.version, self.seen, self.installs, self.pressed = mode, settle, version, {}, [], 0
+        self.timeline = [(0.0, "normal")]
+
+    def state_at(self, t):
+        return [st for t0, st in self.timeline if t0 <= t][-1]
+
+    def seen_state(self, bid):
+        return self.state_at(self.seen.get(bid, 0.0))
+
+    def ports(self, bid):
+        st = self.seen_state(bid)
+        return [self.PORT[st]] if st in self.PORT else []
+
+    def midi(self, bid, name, b):
+        st = self.seen_state(bid)
+        if self.PORT.get(st) != name or self.state_at(time.time()) != st:      # (that port is gone now: nothing answers)
+            return []
+        if b == HS_QUERY:
+            return [identity_reply("FM-1_900" if st == "normal" else "ota-FM-1_900")]
+        if b == [240, 125, 70, 76, 1, 247] and st == "normal":
+            return [[240, 125, 70, 76, 1, *self.version.encode(), 0, 0, 247]]
+        return []
 
     def install(self, bid, build):
-        t0 = self.seen.get(bid, 0.0)
-        if self.appeared is None:                        # the first Install
-            self.appeared = time.time() if self.mode in ("update", "noreturn") else None
-            st = self.TEXT[self.mode]
-            log = {"update": ["loader"], "noreturn": ["loader", "write 1", "write 2", "reboot"]}.get(self.mode, [])
-            if self.appeared is None:
-                self.appeared = float("inf")             # (nothing switched: no port appears for anybody)
-        elif t0 >= self.appeared + self.settle:
-            st, log = "Result: Firmware: installed | Pack: already current, left as it is | Module: installed", ["write 1", "write 2", "write 3", "Result: done"]
+        now, st = time.time(), self.seen_state(bid)
+        self.pressed += 1
+        if self.pressed == 1:
+            m = self.mode
+            if m in ("update", "update-back"):
+                self.timeline.append((now, "ota"))
+                if m == "update-back":
+                    self.timeline.append((now + 0.5, "normal"))
+                out, log = self.TEXT["update"], ["start FM-1_900", "verify 1", "loader"]
+            elif m in ("noreturn", "slowreturn"):
+                self.timeline += [(now, "gone"), (now + self.settle, "normal")]
+                out, log = self.TEXT[m], [f"write {i}" for i in range(1, 6)] + ["reboot "]
+            else:
+                out, log = self.TEXT[m], []
+        elif st == "ota" and self.state_at(now) == "ota":
+            self.timeline.append((now + 1.0, "normal"))
+            out, log = "Result: Firmware: installed | Pack: already current, left as it is | Module: installed", ["write 1", "write 2", "write 3", "reboot ", "Result: done"]
+        elif st == "normal":
+            self.timeline.append((now, "ota"))
+            out, log = self.TEXT["update"], ["start FM-1_900", "verify 1", "loader"]
         else:
-            st, log = self.TEXT["update"], []
-        self.installs.append((bid, build, st))
-        return {"status": st, "log": log}
+            out, log = self.TEXT["update"], []
+        self.installs.append((bid, build, st, out))
+        return {"status": out, "log": log}
 
 
 def mock_site(unit):
@@ -148,6 +217,11 @@ def mock_site(unit):
             u = urllib.parse.urlparse(self.path); q = urllib.parse.parse_qs(u.query); bid = (q.get("bid") or [""])[0]
             if u.path == "/hello":
                 unit.seen.setdefault(bid, time.time()); body, ct = b"{}", "application/json"
+            elif u.path == "/ports":
+                body, ct = json.dumps(unit.ports(bid)).encode(), "application/json"
+            elif u.path == "/midi":
+                b = [int(x) for x in (q.get("b") or [""])[0].split(",") if x]
+                body, ct = json.dumps(unit.midi(bid, (q.get("name") or [""])[0], b)).encode(), "application/json"
             elif u.path == "/install":
                 body, ct = json.dumps(unit.install(bid, (q.get("build") or [""])[0])).encode(), "application/json"
             else:
@@ -460,46 +534,61 @@ def free_port():
         s.bind(("127.0.0.1", 0)); return s.getsockname()[1]
 
 
-def run_driver(driver, mode, settle=0.0, extra=()):
-    """cdp_install.mjs (`driver`) against a mock site of `mode`, one attempt (its default); (the result line, the unit's installs)"""
-    unit = MockUnit(mode, settle)
+def run_driver(driver, mode, settle=0.0, extra=(), **kw):
+    """cdp_install.mjs (`driver`) against a mock site of `mode`, one attempt (its default); (the result line, the unit)"""
+    unit = MockUnit(mode, settle, **kw)
     srv = mock_site(unit)
     try:
         with tempfile.TemporaryDirectory() as d:
             cmd = ["node", driver, "--url", f"http://127.0.0.1:{srv.server_address[1]}/", "--build", "build-nightly-dual", "--out", d,
-                   "--minutes", "2", "--port", str(free_port()), "--retry-wait", "1", *extra]
-            p = subprocess.run(cmd, capture_output=True, text=True, timeout=240, env=dict(os.environ, TMPDIR=d))
+                   "--minutes", "2", "--port", str(free_port()), "--retry-wait", "1", "--return-wait", "1", "--probe-wait", "30", *extra]
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=dict(os.environ, TMPDIR=d))
             try:
                 res = json.loads(p.stdout.strip().splitlines()[-1])
             except (ValueError, IndexError):
                 res = {"ok": False, "error": "no result line: " + (p.stderr or p.stdout)[-300:]}
             res["_stdout"] = p.stdout
-            return res, unit.installs
+            return res, unit
     finally:
         srv.shutdown(); srv.server_close()
 
 
 def cdp_retry_checks(driver=os.path.join(HERE, "cdp_install.mjs")):
-    """(Round 32, one install attempt per build) the fresh browser to resume, within the one attempt"""
-    r, inst = run_driver(driver, "update")
-    a = r.get("attempts", [])
-    check(r.get("ok") is True and len(a) == 1 and (a[0].get("resume") or {}).get("freshBrowser") and "attempt 1: fresh browser to resume" in r["_stdout"]
-          and len(inst) == 2 and len({x[0] for x in inst}) == 2 and all(x[1] == "build-nightly-dual" for x in inst)
-          and a[0]["resume"]["after"].startswith("The FM-1 in update mode was not found") and a[0]["fwWrites"] == 3,
-          f"cdp_install.mjs: 'update mode was not found': within the one attempt a fresh browser presses the same build once and the install finishes: {inst} {r.get('error')}")
-    r, inst = run_driver(driver, "noreturn", settle=2.5, extra=("--return-wait", "3"))
-    a = r.get("attempts", [])
-    check(r.get("ok") is True and len(a) == 1 and len(inst) == 2 and "did not come back" in (a[0].get("resume") or {}).get("after", "") and "resume in 3 s" in r["_stdout"],
-          f"cdp_install.mjs: 'did not come back': the fresh browser waits --return-wait, then the same install finishes: {inst} {r.get('error')}")
-    r, inst = run_driver(driver, "noreturn", settle=30.0, extra=("--return-wait", "0"))
-    a = r.get("attempts", [])
-    check(r.get("ok") is False and len(a) == 1 and len(inst) == 2 and len({x[0] for x in inst}) == 2,
-          f"cdp_install.mjs: a port the fresh browser does not see either: one attempt, one resume (two presses), not ok: {inst}")
+    """(Round 32, one install attempt per build) after the page's noloader / noreturn, fresh browsers read the unit first; Install is pressed only for
+    this package's update loader and a write that had not finished"""
+    short = lambda u: [(x[2], x[3][:40]) for x in u.installs]
+    r, u = run_driver(driver, "update")
+    a = r.get("attempts", []); rv = (a[0].get("resume") or {}) if a else {}
+    check(r.get("ok") is True and len(a) == 1 and rv.get("pressed") is True and (rv.get("unit") or {}).get("identity") == "ota-FM-1_900"
+          and "attempt 1: fresh browser to resume" in r["_stdout"] and len(u.installs) == 2 and u.installs[1][2] == "ota"
+          and all(x[1] == "build-nightly-dual" for x in u.installs) and a[0]["fwWrites"] == 3,
+          f"cdp_install.mjs: 'update mode was not found': a fresh browser reads the update loader, presses the same build once, the install finishes: {short(u)} {r.get('error')}")
+    # the unit's sequence of Round 32 (a1-resume): the page's resume wrote everything, rebooted, "did not return after resuming" (its 40 s), the unit back later
+    r, u = run_driver(driver, "slowreturn", settle=8.0)
+    a = r.get("attempts", []); rv = (a[0].get("resume") or {}) if a else {}
+    check(r.get("ok") is False and len(a) == 1 and len(u.installs) == 1 and rv.get("pressed") is False and rv.get("wroteAll") is True
+          and len(rv.get("looks", [])) >= 2 and "the build's version" in (r.get("error") or "") and "NOT the build" not in (r.get("error") or "") and "Install not pressed" in (r.get("error") or ""),
+          f"cdp_install.mjs: 'did not return after resuming' after a finished write, the unit back 8 s later: read and judged, no Install pressed: {short(u)} {r.get('error')}")
+    r, u = run_driver(driver, "noreturn", settle=2.0)
+    a = r.get("attempts", []); rv = (a[0].get("resume") or {}) if a else {}
+    check(r.get("ok") is False and len(u.installs) == 1 and rv.get("pressed") is False and "the FM-1 answers running" in (r.get("error") or ""),
+          f"cdp_install.mjs: 'did not come back' after a finished write: read and judged, no Install pressed: {short(u)} {r.get('error')}")
+    r, u = run_driver(driver, "noreturn", settle=2.0, version="ORANGE CAT v0.15.0")
+    check(r.get("ok") is False and len(u.installs) == 1 and "NOT the build's version" in (r.get("error") or ""),
+          f"cdp_install.mjs: the FM-1 back running another version: judged NOT the build's, no Install pressed: {short(u)} {r.get('error')}")
+    r, u = run_driver(driver, "update-back")
+    a = r.get("attempts", []); rv = (a[0].get("resume") or {}) if a else {}
+    check(r.get("ok") is False and len(u.installs) == 1 and rv.get("pressed") is False and (rv.get("unit") or {}).get("identity") == "FM-1_900",
+          f"cdp_install.mjs: 'update mode was not found' but the FM-1 answers running: no Install pressed (it would be a new install): {short(u)} {r.get('error')}")
+    r, u = run_driver(driver, "slowreturn", settle=1000.0, extra=("--probe-wait", "8"))
+    a = r.get("attempts", []); rv = (a[0].get("resume") or {}) if a else {}
+    check(r.get("ok") is False and len(u.installs) == 1 and rv.get("pressed") is False and "nothing answered" in (r.get("error") or ""),
+          f"cdp_install.mjs: nothing answers within --probe-wait: no Install pressed: {short(u)} {r.get('error')}")
     for mode in ("refuse", "notfound"):
-        r, inst = run_driver(driver, mode)
+        r, u = run_driver(driver, mode)
         a = r.get("attempts", [])
-        check(r.get("ok") is False and len(a) == 1 and len(inst) == 1 and not a[0].get("resume") and "fresh browser" not in r["_stdout"],
-              f"cdp_install.mjs: a first Install that ends '{mode}' is the end of the attempt (no fresh browser, one press): {inst}")
+        check(r.get("ok") is False and len(a) == 1 and len(u.installs) == 1 and not a[0].get("resume") and "fresh browser" not in r["_stdout"],
+              f"cdp_install.mjs: a first Install that ends '{mode}' is the end of the attempt (no fresh browser, one press): {short(u)}")
 
 
 def main():
