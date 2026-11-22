@@ -65,3 +65,22 @@ block, `native(t)` returning it.
 
 Recommended: **(a) now** (it matches "a WAVE sound is a user preset", and changes nothing shared), with the release of the identifier move taking (b) if
 the owner finds the release behaviour wrong in use. **Waiting for that answer before M3 is built.**
+
+## 4. Listed for Session A (November 22)
+
+**Branches on origin:** `wave-engine` and `wave-bank`, both at c68c1e31 (wave-engine is a fast-forward of wave-bank; this section's commit is on wave-bank). They sit on
+`engines-b-presets` (merged at 00072d9b, the OC_ENGINE_MODS fixes). **Full SAN=1 suite through tools/suite_lock.sh, CI's test-step environment, at c68c1e31:
+ALL HOST TESTS PASSED in 13,719 s.** (The run before failed one job: the bank writer's two error codes had no page text; fixed at c68c1e31.)
+
+**What Session A reviews and times on the unit:**
+- **WAVE as engine 32** (`OC_WAVE`, on in tools/orangecat_engines.sh): 33 engine slots in a shipping build, FW_API_VERSION 7 (AP_WAVE). The module is 24,572 B
+  in 7 sectors and offered only while it is registered. FW_API_ID 0xCAF53177 is unchanged.
+- **Stereo behind `OC_STEREO` (off by default), Session A's renderer:** docs/candidates/wave_stereo.md (cost-word flag, the lane block at the state's start, the
+  post-hook sum; FW_API_VERSION 8). With it off, every other engine renders bit-identical (regress: 435 renders, 0 changed). To be timed on the unit before
+  it merges: the right lane's mix and its RAM per track.
+- **User tables (M4, section 2):** a bank in the sample slot's room, written from the installer page's WAVE TABLES panel with the slot's own commands; SLOT_INFO
+  state 3. Not run on a unit: the write over USB, a bank played on the device, a frame read during a rewrite.
+- **Numbers to confirm on the unit (section 1):** about 300 to 380 us a voice at unison 1, about 450 at 4+4; about 6 voices a track (unison 1), 3 (4+4); stereo
+  +25 to 28 %; 10,116 B a track, 1,264 B a voice.
+- **Open, the owner's:** M3's patch home (section 3: (a) in the arena, recommended, or (b) a firmware RAM home, which moves the interface).
+- **Ready for Session A: yes** (review, unit timing, the stereo decision); M3 not built.
