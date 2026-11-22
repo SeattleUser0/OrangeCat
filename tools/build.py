@@ -273,7 +273,7 @@ def app_flags():
                  "MELODEE_SID", "MELODEE_CZ", "MELODEE_FM6", "MELODEE_DRUM", "MELODEE_P5",
                  "MELODEE_MACRO", "MELODEE_SHAPES", "MELODEE_DRUMX",   # (Orange Cat 0.5.0, 0.5.1, 0.9.0) MACRO, SHAPES, DRUM-X
                  "MELODEE_MACRO_PICK",   # (Release 3, the model picker) 1: MACRO carries VA alone, the other models come from the MODELS module the installer page packs (eng_macro.c)
-                 "OC_MODULES", "OC_MODULE_WINS", "OC_SFC_PROBE", "OC_MOD_TAIL", "OC_HW_TEST", "OC_CANDIDATES", "OC_CORE_STATS", "OC_LATE_DIAG", "OC_DUB_SRAM", "OC_DUB_KSRAM", "OC_DUB_NOGOV", "OC_REV_RESIDENT", "OC_PERF_RESIDENT",    # (round 20: OC_FX_MODK is retired, fx_insert.h; OC_DUB_SRAM and OC_DUB_KSRAM place only the insert host now) (Orange Cat 0.10.0) loadable engine modules (core.h); (0.14.0) the candidates' build
+                 "OC_MODULES", "OC_MODULE_WINS", "OC_SFC_PROBE", "OC_MOD_TAIL", "OC_HW_TEST", "OC_CANDIDATES", "OC_ENGINE_MODS", "OC_CORE_STATS", "OC_LATE_DIAG", "OC_DUB_SRAM", "OC_DUB_KSRAM", "OC_DUB_NOGOV", "OC_REV_RESIDENT", "OC_PERF_RESIDENT",    # (round 20: OC_FX_MODK is retired, fx_insert.h; OC_DUB_SRAM and OC_DUB_KSRAM place only the insert host now) (Orange Cat 0.10.0) loadable engine modules (core.h); (0.14.0) the candidates' build
                  "OC_CLIP",         # (the new interface 0.10: UI_BUILD.md step 10) copy and paste of a sound; (needs the mixer, always on since step 9); off by default
                  "OC_CLIP_SEL",     # (the new interface 0.11: UI_BUILD.md step 11) copy and paste of notes and of a step's feel; needs OC_CLIP=1; off by default
                  "OC_ONE_AUTH",     # (ui-fix 7: UI_BUILD.md "ui-fix 7") one authority for every note; off by default

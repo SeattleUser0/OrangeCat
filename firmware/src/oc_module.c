@@ -187,6 +187,12 @@ static OC_MOD_GEO_QUAL oc_mod_geo_t oc_mod_geo[] = { { ENGI_SHAPES, 6u, 0x03u },
                                                      { ENGI_AETHER, 4u, 0x03u }, { ENGI_BRASS, 4u, 0x03u }, { ENGI_MIXTUR, 4u, 0x03u }, { ENGI_ARC, 4u, 0x03u },   /* (engines-b) op1r's second four, the same */
                                                      { ENGI_X0X303, 4u, 0x03u },   /* (engines-b) X0X's TB-303, the same */
 #endif
+#elif OC_ENGINE_MODS                                        /* (engines-b) the four a shipping build takes as modules: the candidates' rows */
+#if OC_MOD_TAIL
+                                                     { ENGI_X0X303, 3u, 0x3FFFFu }, { ENGI_SUPERSAW, 1u, 0x3FFFFu }, { ENGI_BRASS, 4u, 0x3FFFFu }, { ENGI_MIXTUR, 2u, 0x3FFFFu },
+#else
+                                                     { ENGI_X0X303, 4u, 0x03u }, { ENGI_SUPERSAW, 4u, 0x03u }, { ENGI_BRASS, 4u, 0x03u }, { ENGI_MIXTUR, 4u, 0x03u },
+#endif
 #endif
                                                    };
 static OC_MOD_GEO_QUAL oc_mod_geo_t *oc_mod_geo_of(uint32_t engine)

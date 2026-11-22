@@ -8,7 +8,7 @@
  * Orange Cat, the engine candidates gate (docs/orangecat/ENGINE_CANDIDATES.md, "The hub's other voices"): X0X's 303 (Open303's signal path: the
  * saw or the transistor-shaped square, the TeeBeeFilter with its feedback high-pass, the decay envelope's RC followers, the accent and its decay,
  * the slide, the de-clicker and Open303's output filters; 2x oversampled; float) as a loadable module translation unit (stage 0). The proposed
- * engine number is 47 (core.h ENGI_X0X303; registrable only in an OC_CANDIDATES build). bass303.c is self-contained (no mutable static): one
+ * engine number is 23 (core.h ENGI_X0X303; engines-b: 47 until the owner chose it as an installer module, OC_ENGINE_MODS). bass303.c is self-contained (no mutable static): one
  * bass303_t a part, in the part's arena block.
  *   - EDIT 1 (VCF: CUT RES ENV DEC), EDIT 2 (303: ACC WAVE DRIV SLID): eight of X0X's twelve pots. Fixed at X0X's defaults: TUNE 64 (A4 440: Orange
  *     Cat's tuning is not applied: the 303 figures its own pitch from the key), VOLUME 96, DRVTYP SOFT, ACCDEC 7;

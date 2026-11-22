@@ -290,12 +290,20 @@ static const engine_t *ENGINES[NENGINES] = {
 #if OC_CANDIDATES
     &ENG_RETIRED,                /* 20: (0.14.0) never an engine: the Prophet's native preset namespace (USER_NATIVE_P5) */
     &ENG_RETIRED, &ENG_RETIRED,  /* 21 SEM, 22 HADES: (0.14.0, OC_CANDIDATES) candidates a module supplies (eng_module_slot) */
-    &ENG_RETIRED,                /* 23: (0.14.0) the Rhodes port's proposed number: it fits no module start, never a module */
+    &ENG_RETIRED,                /* 23: (engines-b) X0X's TB-303 (core.h ENGI_X0X303), a module; (0.14.0) the Rhodes proposal's number until then */
     &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED,   /* 24..31: (0.14.1) op1r's synths (core.h ENGI_FMBELL ..), candidates a module */
     &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED,   /* supplies (eng_module_slot) */
     &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED,   /* 32..46: (engines-b) unassigned */
     &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED, &ENG_RETIRED,
-    &ENG_RETIRED,                /* 47: (engines-b) X0X's TB-303 (core.h ENGI_X0X303), a module */
+    &ENG_RETIRED,                /* 47: (engines-b) the Rhodes port's proposed number (it fits no module start, never a module) */
+#elif OC_ENGINE_MODS
+    &ENG_RETIRED,                /* 20: never an engine: the Prophet's native preset namespace (USER_NATIVE_P5) */
+    &ENG_RETIRED, &ENG_RETIRED,  /* 21, 22: SEM, HADES (proposals of a measurement build): retired here */
+    &ENG_RETIRED,                /* 23: (engines-b, OC_ENGINE_MODS) X0X303, a module (eng_module_slot) */
+    &ENG_RETIRED,                /* 24: FMBELL (a measurement build's): retired here */
+    &ENG_RETIRED,                /* 25: SUPERSAW, a module */
+    &ENG_RETIRED, &ENG_RETIRED,  /* 26, 27: DDDD, AETHER (a measurement build's): retired here */
+    &ENG_RETIRED, &ENG_RETIRED,  /* 28: BRASS, 29: MIXTUR, modules */
 #endif
 };
 
@@ -367,6 +375,8 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     ENGI_SEM, ENGI_HADES,        /* (0.14.0) the candidates of a measurement build: offered only while registered */
     ENGI_FMBELL, ENGI_SUPERSAW, ENGI_DDDD, ENGI_AETHER, ENGI_BRASS, ENGI_MIXTUR, ENGI_ARC, ENGI_GRANULAR,   /* (0.14.1) op1r's, the same */
     ENGI_X0X303,                 /* (engines-b) X0X's TB-303: the same */
+#elif OC_ENGINE_MODS
+    ENGI_X0X303, ENGI_SUPERSAW, ENGI_BRASS, ENGI_MIXTUR,   /* (engines-b) the four a shipping build takes as modules: offered only while registered */
 #endif
 };
 
@@ -382,7 +392,8 @@ static int eng_extra_retired(uint32_t e)
 #endif
     return e == ENGI_DIGITAL || (!MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || e == 6u || (e == ENGI_WHEEL && !eng_mod[ENGI_WHEEL]) || (e == 9u && !MELODEE_DRUMX) || e == 11u))
         || (!MELODEE_SID && e == 3u) || (!MELODEE_CZ && e == ENGI_CZ) || (!MELODEE_FM6 && e == ENGI_FM6) || (!MELODEE_SHAPES && e == ENGI_SHAPES && !eng_mod[ENGI_SHAPES]) /* (Release 3) SHAPES out of the build and its module not installed: the stored identity, preset and settings stay (found on the unit: a load clamped the preset to 0 and the next autosave wrote it back) */ || (!MELODEE_P5 && e == ENGI_PROPHET && !eng_mod[ENGI_PROPHET]) || (!MELODEE_DRUM && e == ENGI_DRUM)              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
-        || (OC_CANDIDATES && (e == 20u || e == ENGI_RHODES || ((e == ENGI_SEM || e == ENGI_HADES || eng_op1r(e) || e == ENGI_X0X303) && !eng_mod[e]) || (OC_CANDIDATES && e >= 32u && e < ENGI_X0X303)));   /* (0.14.0) a candidate's slot without its module; (0.14.1) op1r's */
+        || (OC_CANDIDATES && (e == 20u || e == ENGI_RHODES || ((e == ENGI_SEM || e == ENGI_HADES || eng_op1r(e) || e == ENGI_X0X303) && !eng_mod[e]) || (OC_CANDIDATES && e >= 32u && e < ENGI_RHODES))
+        || (OC_ENGINE_MODS && !OC_CANDIDATES && e >= 20u && e < 30u && !(ENG_MODS_SHIP(e) && eng_mod[e])));   /* (engines-b) 20..29 of a shipping build: retired but the four, while registered */   /* (0.14.0) a candidate's slot without its module; (0.14.1) op1r's */
 }
 /* the engines one can pick, in ENGINE_ORDER: eng_ok(e), the n-th of them
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
@@ -500,7 +511,7 @@ static void eng_hot_boot(void)
     }
     oc_pack_changed = eng_hot_refresh;
 }
-static int eng_module_slot(uint32_t e) { return e == ENGI_SHAPES || e == ENGI_PROPHET || e == ENGI_WHEEL || (OC_CANDIDATES && (e == ENGI_SEM || e == ENGI_HADES || eng_op1r(e) || e == ENGI_X0X303)); }   /* (0.14.0) WHEEL; the candidates; (0.14.1) op1r's; (engines-b) the TB-303 */
+static int eng_module_slot(uint32_t e) { return e == ENGI_SHAPES || e == ENGI_PROPHET || e == ENGI_WHEEL || (OC_CANDIDATES && (e == ENGI_SEM || e == ENGI_HADES || eng_op1r(e) || e == ENGI_X0X303)) || ENG_MODS_SHIP(e); }   /* (0.14.0) WHEEL; the candidates; (0.14.1) op1r's; (engines-b) the TB-303; the four of OC_ENGINE_MODS */
 static const engine_t *eng_default(uint32_t e)     /* what the slot holds without a module */
 {
 #if MELODEE_SHAPES

@@ -223,7 +223,7 @@
 #endif
 #define ENGI_SEM 21u              /* (0.14.0) proposed: Caravel's SEM (tools/module/sem_mod.c) */
 #define ENGI_HADES 22u            /* (0.14.0) proposed: Caravel's HADES (tools/module/hades_mod.c) */
-#define ENGI_RHODES 23u           /* (0.14.0) proposed: Frodhes' Rhodes (tools/module/rhodes_mod.c; it fits no module start: never registered) */
+#define ENGI_RHODES 47u           /* (0.14.0) proposed: Frodhes' Rhodes (tools/module/rhodes_mod.c; it fits no module start: never registered); (engines-b) 23 -> 47, its 23 to X0X303 */
 /* (0.14.1, branch op1r-candidates) proposed: op1r's synth plugins (https://github.com/Hundekraft/op1r-src, docs/orangecat/ENGINE_CANDIDATES.md,
  * "op1r"), in the order they go through the gate; each a module through tools/module/op1r/op1_glue.h. Numbers past 23 make the measurement build's
  * table 32 long (the last a 32-bit engine mask holds: engines.c eng_hs.refused); a number without its module is retired (silent) */
@@ -236,18 +236,25 @@
 #define ENGI_ARC 30u
 #define ENGI_GRANULAR 31u         /* granular: reserved; its port waits for the sample question (ENGINE_CANDIDATES.md) */
 #define OP1R_NCAND 8u             /* the op1r numbers 24..31 */
-/* (engines-b, Session B, 2026-11-21) X0X's TB-303 keeps the number the hub candidates proposed (op1r-candidates 0.3: 32..51 for the hub's engines, never
- * merged): 47. 32..46 stay unassigned slots (retired, silent) in this branch; the measurement build's table is 48 long and the one engine mask
- * (engines.c eng_hs.refused) is 64 bits, as the hub branch had it */
-#define ENGI_X0X303 47u           /* X0X's TB-303 (tools/module/x0x303_mod.c) */
+/* (engines-b, Session B, 2026-11-21) X0X's TB-303: 23 (the Rhodes proposal's slot until now; the Rhodes, never registrable, moves to 47), so the four engines
+ * a shipping build takes as modules (OC_ENGINE_MODS, below) all lie below 30. 32..46 stay unassigned slots (retired, silent) of a measurement build, whose table
+ * is 48 long; the one engine mask (engines.c eng_hs.refused) is 64 bits */
+#define ENGI_X0X303 23u           /* X0X's TB-303 (tools/module/x0x303_mod.c) */
+#ifndef OC_ENGINE_MODS
+#define OC_ENGINE_MODS 0          /* (engines-b; the owner's choice after the audition of November 21) 1: the four engines X0X303 (23), SUPERSAW (25), BRASS (28) and MIXTUR (29)
+                                   * take modules in a shipping build (tools/orangecat_engines.sh): the engine table is 30 long, 20..29 retired slots but those four, each
+                                   * offered only while its module is registered (as WHEEL). The installer page offers their modules unticked. A project with one of them
+                                   * loads on an older firmware as an engine past its table (refused there, as any newer engine) */
+#endif
+#define ENG_MODS_SHIP(e) (OC_ENGINE_MODS && ((e) == ENGI_X0X303 || (e) == ENGI_SUPERSAW || (e) == ENGI_BRASS || (e) == ENGI_MIXTUR))
 #define NENGINES_SHIPPED 20u        /* (0.14.2) the table every firmware without OC_CANDIDATES has: a stored engine past it is refused there */
-#define NENGINES (OC_CANDIDATES ? 48 : 20)   /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1; (0.14.0) 20..22 with OC_CANDIDATES; (0.14.1) 23..31; (engines-b) 32..47 */
+#define NENGINES (OC_CANDIDATES ? 48 : OC_ENGINE_MODS ? 30 : 20)   /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1; (0.14.0) 20..22 with OC_CANDIDATES; (0.14.1) 23..31; (engines-b) 32..47 */
 #define USER_NATIVE_FM 17u
 #define USER_NATIVE_CZ 18u
 #define USER_NONE 65535u
 #define ENGI_ANALOG 0u           /* retired in 1.2: never selectable (eng_ok), its stored sounds play silent */
 #define ENGI_DIGITAL 1u          /* retired: never selectable (eng_ok), its stored sounds play silent */
-#define NENG_SHOWN (NENGINES - 8u + MELODEE_MACRO + (MELODEE_SHAPES || OC_MODULES) - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 - (!MELODEE_P5 && !OC_MODULES) - !MELODEE_DRUM + MELODEE_DRUMX + (OC_MODULES && !MELODEE_LEGACY_EXTRAS) + (3u + OP1R_NCAND) * OC_CANDIDATES)   /* (Orange Cat: - SID - CZ-1 - FM6 -
+#define NENG_SHOWN (NENGINES - 8u + MELODEE_MACRO + (MELODEE_SHAPES || OC_MODULES) - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 - (!MELODEE_P5 && !OC_MODULES) - !MELODEE_DRUM + MELODEE_DRUMX + (OC_MODULES && !MELODEE_LEGACY_EXTRAS) + (3u + OP1R_NCAND) * OC_CANDIDATES + 4u * (OC_ENGINE_MODS && !OC_CANDIDATES))   /* (Orange Cat: - SID - CZ-1 - FM6 -
                                                  * PROPHET - DRUM + MACRO + SHAPES; 0.5.3: TRIO, the early test voice, gone; 0.14.0: + WHEEL, a module's) */   /* the engines one can pick: PRESETS, the EDIT
                                                 * layer, the editor, in the display order of engines.c ENGINE_ORDER */
 #define ENGI_SLICE 13u           /* reserved without MELODEE_SLICE: never selectable (eng_ok) */

@@ -17,8 +17,8 @@
 extern const fw_api_t *oc_host_fw;
 extern const fw_mod_hdr_t OC_MODULE_HDR;
 extern const engine_t *oc_host_module_engine(void);
-#if !OC_CANDIDATES
-#error "build with -DOC_CANDIDATES=1"
+#if !OC_CANDIDATES && !OC_ENGINE_MODS
+#error "build with -DOC_CANDIDATES=1 (a measurement build), or OC_ENGINE_MODS=1 for the four a shipping build takes (engines-b)"
 #endif
 
 #include "fw_pages_wire.h"
@@ -50,18 +50,22 @@ int main(int argc, char **argv)
     np = em->npresets;
     ng = load_kv(gpath, gold, MAXJ);
     check("the header passes the registration check and names the proposed number", fw_module_check(&h) == FW_MOD_OK && h.engine == CAND_ENGINE &&
-          h.engine >= 21u && h.engine < NENGINES && NENGINES == 48);   /* (engines-b) 48: the TB-303 at 47 */
-    if (CAND_ENGINE < ENGI_FMBELL)
-        check("no hot set of its own, the state in voice_t (a 4-byte token state: the loader refuses 0)", em->nhot == 0u && h.state_size == 4u && np >= 3u && np <= 64u);
-    else if (CAND_ENGINE == ENGI_X0X303)       /* (engines-b) X0X's 303: one bass303_t a part, one voice */
+          h.engine >= 21u && h.engine < NENGINES && NENGINES == (OC_CANDIDATES ? 48 : 30));   /* (engines-b) 48: a measurement build (the Rhodes proposal at 47); 30: a shipping build with OC_ENGINE_MODS */
+    if (CAND_ENGINE == ENGI_X0X303)            /* (engines-b) X0X's 303 (23: below op1r's numbers, but not Caravel's) */
         check("no hot set of its own, one bass303_t a part under 16 KB, one voice", em->nhot == 0u && h.state_size >= 4u && h.state_size <= 16384u &&
               em->poly == 1u && np >= 3u && np <= 64u);
+    else if (CAND_ENGINE < ENGI_FMBELL)
+        check("no hot set of its own, the state in voice_t (a 4-byte token state: the loader refuses 0)", em->nhot == 0u && h.state_size == 4u && np >= 3u && np <= 64u);
     else                                       /* (0.14.1) op1r's: the glue's part state (the voices' 128-sample blocks, the plugin's own), six voices */
         check("its hot set (brassophone: its warp table and op1r's sine; else none), the glue's part state (op1g_part_t) under 16 KB, OP1_VOICES voices",
               em->nhot == (CAND_ENGINE == ENGI_BRASS ? 2u : 0u) && h.state_size > 2048u &&
               h.state_size <= 16384u && em->poly == 6u && em->keep == 0u && np >= 3u && np <= 64u);
     check("the slot is retired and not offered without the module", ENGINES[CAND_ENGINE] == &ENG_RETIRED && !eng_ok(CAND_ENGINE) &&
           eng_sound_idx(CAND_ENGINE) == CAND_ENGINE && !eng_ok(20u));
+#if !OC_CANDIDATES
+    check("a shipping build (OC_ENGINE_MODS): this is one of its four module engines; a measurement build's numbers (FMBELL 24, SEM 21) are no slot here",
+          ENG_MODS_SHIP(CAND_ENGINE) && !eng_module_slot(ENGI_FMBELL) && !eng_module_slot(ENGI_SEM) && !eng_ok(ENGI_FMBELL));
+#endif
     check("the registration takes it (a candidate's slot in this build)", eng_register(&h, em) == EM_OK && ENGINES[CAND_ENGINE] == em);
     if (em->pages) {                           /* (engines-b) the page descriptor: what the device's loader and its knob registry do with it, on the device's layout */
         static uint8_t wimg[16384];

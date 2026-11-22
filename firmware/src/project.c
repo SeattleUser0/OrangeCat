@@ -806,7 +806,7 @@ static int proj_candidate_tracks(void)
 {
 #if OC_CANDIDATES
     for (uint32_t k = 0; k < NTRK; k++)
-        if (trk[k].eng_req >= NENGINES_SHIPPED) return 1;
+        if (trk[k].eng_req >= NENGINES_SHIPPED && !ENG_MODS_SHIP(trk[k].eng_req)) return 1;   /* (engines-b) the four of OC_ENGINE_MODS are a release's: saved */
 #endif
     return 0;
 }

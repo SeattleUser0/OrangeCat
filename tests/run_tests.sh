@@ -565,6 +565,14 @@ module_host_candidates_b() {                      # (engines-b, Session B) op1r'
         step "$E (op1r's through the glue, or X0X's) as a candidate module (OC_CANDIDATES build): registration in its proposed slot, every preset, its pages and knobs, tests/golden_modules.txt" \
             "$OUT/module_host_${e}_test" tests/golden_modules.txt
     done
+    for e in x0x303 supersaw brassophone mixtur; do   # (engines-b) the same four in the shipping build (OC_ENGINE_MODS, the build set's: no OC_CANDIDATES)
+        E=$(echo $e | tr a-z A-Z); [ $E = BRASSOPHONE ] && E=BRASS
+        $CC -c -O2 $FW -Itools/module/op1r -Ifirmware/src/x0x -o "$OUT/module_ship_${e}_tu.o" tests/module_host_${e}_tu.c || { fail "compile tests/module_host_${e}_tu.c (shipping)"; return 1; }
+        $CC -O2 $FW -DCAND_ENGINE=ENGI_$E -o "$OUT/module_ship_${e}_test" tests/module_host_cand_test.c "$OUT/module_ship_${e}_tu.o" -lm ||
+            { fail "compile tests/module_host_cand_test.c ($e, shipping)"; return 1; }
+        step "$E as a shipping build's module (OC_ENGINE_MODS): its slot, registration, the presets as the goldens, pages and knobs, saved in a project" \
+            "$OUT/module_ship_${e}_test" tests/golden_modules.txt
+    done
     $CC -O1 $FW -DOC_CANDIDATES=1 -o "$OUT/cand_image_pages_test" tests/cand_image_pages_test.c || { fail "compile tests/cand_image_pages_test.c"; return 1; }
     step "the candidates' page descriptors as the device's linker laid them (build/module/<name>.0.img): fw_pages_check_ex and fw_ui_check on the bytes" \
         "$OUT/cand_image_pages_test" build/module supersaw mixtur brassophone x0x303

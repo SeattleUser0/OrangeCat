@@ -132,6 +132,17 @@ int main(int argc, char **argv)
         bad |= project_save(0) != 1;                       /* SAVE refused too: TEST ENGINE: NOT SAVED */
         bad |= erases != e0;
 #endif
+#if OC_CANDIDATES && OC_ENGINE_MODS
+        {   uint32_t ok;                                   /* (engines-b) the four a shipping build takes (OC_ENGINE_MODS) are a release's: a project holding one is written */
+            for (uint32_t k = 0; k < NTRK; k++) trk[k].eng_req = (uint8_t)(k == 0 ? ENGI_X0X303 : k == 1 ? ENGI_SUPERSAW : k == 2 ? ENGI_BRASS : ENGI_MIXTUR);
+            ok = proj_candidate_tracks() == 0;
+            trk[0].eng_req = ENGI_FMBELL;                  /* .. a measurement build's own number is not */
+            ok &= proj_candidate_tracks() == 1;
+            printf("cand slot: tracks on X0X303 SUPERSAW BRASS MIXTUR are saved, one on FMBELL is not: %s\n", ok ? "ok" : "FAIL");
+            bad |= !ok;
+            for (uint32_t k = 0; k < NTRK; k++) trk[k].eng_req = (uint8_t)(NENGINES - 1u);
+        }
+#endif
         show("candidates");
         bad |= !proj_read_slot(0) || st_crc32(proj_wire_u.raw, BANK_STORE_SIZE) != crc;
         printf("cand slot: slot 1 as it was after the measurement: %s\n", bad ? "FAIL" : "ok");
