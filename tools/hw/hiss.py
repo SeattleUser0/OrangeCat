@@ -40,8 +40,9 @@ failure in the cases) every send 0 and TYPE ROOM, FX_REMOVE 2, `oc_install.mjs f
 one before (each module's id, start, sectors, version, state). A step that fails stops the swap: what is in the unit is printed with the way
 back (the installer page's Install with its default ticks puts the default set back, FX LAYER included).
 THE PASS MARK (BUILD.md 7.37 Q3, the owner's decision of November 21; hiss_verdict): each case's absolute floor (the mean of its replicates' USB
-floor_db) at or below its Release 1 figure (7.21's column S), no margin; SHIMR and DUB's SPRING against the velocity's highest S case (SPRING's),
-idle (the session's idle captures) against off's lowest (-90.9), both reported as new; exit 1 on a fail or a case that cannot be judged.
+floor_db) at or below its Release 1 figure (7.21's column S, measured on the USB capture), no margin; the AUDIO4c recorded. A case whose USB
+capture reads digital zero is not judgeable on USB and is judged on the AUDIO4c against the same 0.15.0 run's AUDIO4c figure (the lead's call).
+SHIMR and DUB's SPRING against the velocity's highest S case, idle against off's lowest, both new; exit 1 on a fail or a case not judgeable.
 SAFETY: unit_guard.py (a complete backup first, autosave held off, the step-exact restore read back). Fixed from r11: its restore wrote the
 parameters before loading track 1's sound back (the preset load then overwrote them), and its DUB writes used Release 2's ids (45 LEN,
 46 PTRN, 47 SPRP, 107 SPACE: today SPEED, MODE, TAPE, ECHO).
@@ -296,18 +297,23 @@ class FxSwap:
 
 
 # ---------------------------------------------------------------------------------------------------- the pass mark (Round 32, BUILD.md 7.37 Q3)
-# Release 1's figures: 7.21's table, column S (0.15.0), the USB capture's floor between the harmonics (dBFS, 3 to 15 kHz), by velocity
-S_FLOOR = {30: {"off": -90.9, "room": -84.7, "spring": -80.5}, 100: {"off": -81.1, "room": -81.9, "spring": -79.7}}
+# Release 1's figures, by the capture they were measured on. 7.21's table, column S (0.15.0), is the USB capture's floor between the harmonics
+# (dBFS, 3 to 15 kHz; "The floor between the harmonics on the USB capture": rows-S.json's usb means are these to 0.05 dB). The same run's
+# AUDIO4c floor (~/fm1-hw/r10/exp/rows-S.json, the a4c column, the mean of its two replicates; 7.21's "The analog capture agrees" quotes it)
+# is the figure when the USB capture reads digital zero (the lead's call, BUILD.md 7.37, November 21)
+S_FLOOR = {"usb": {30: {"off": -90.9, "room": -84.7, "spring": -80.5}, 100: {"off": -81.1, "room": -81.9, "spring": -79.7}},
+           "a4c": {30: {"off": -81.36, "room": -80.77, "spring": -80.24}, 100: {"off": -79.99, "room": -80.15, "spring": -79.75}}}
 DIGITAL_ZERO_DB = -170.0
 
 
-def s_figure(rev, dub, vel):
-    """(BUILD.md 7.37, the owner's decision of November 21) Release 1's figure for a case: (dBFS, new) or None (no figure at this velocity: not
-    judgeable), or "nomark" (not a Q3 case). The cases without an S figure (the lead's call, the safer reading): SHIMMER and DUB's SPRING against
-    the same velocity's highest S case (SPRING's), new; idle against off's lowest figure (-90.9, velocity 30's)"""
+def s_figure(rev, dub, vel, src="usb"):
+    """(BUILD.md 7.37, the owner's decision of November 21) Release 1's figure for a case on capture src: (dBFS, new) or None (no figure at
+    this velocity: not judgeable), or "nomark" (not a Q3 case). The cases without an S figure (the lead's call, the safer reading): SHIMMER and
+    DUB's SPRING against the same velocity's highest S case on that capture, new; idle against off's lowest on that capture"""
+    fig = S_FLOOR[src]
     if rev == "idle":
-        return min(v["off"] for v in S_FLOOR.values()), True
-    sref = S_FLOOR.get(vel)
+        return min(v["off"] for v in fig.values()), True
+    sref = fig.get(vel)
     if (rev, dub) in (("off", "off"), ("room", "off"), ("spring", "off")):
         return (sref[rev], False) if sref else None
     if (rev, dub) in (("shimr", "off"), ("off", "spring")):
@@ -315,36 +321,44 @@ def s_figure(rev, dub, vel):
     return "nomark"
 
 
+def _mean(fs):
+    return sum(fs) / len(fs) if fs and None not in fs else None
+
+
 def hiss_verdict(rows, a4c_spread_db=None, idle_rows=()):
     """(BUILD.md 7.37, the owner's decision of November 21: "the pass mark is the absolute floor at or below Release 1's for every case") each
-    case's absolute floor (the mean of its replicates' USB floor_db) at or below its Release 1 figure (s_figure), no margin; the session's idle
-    captures are the case idle. A digital-zero capture fails a case with a note (not judgeable) and passes idle (said so: an idle unit may send
-    zeros). The AUDIO4c repeatability is reported, not used.
+    case's absolute floor (the mean of its replicates' floor_db) at or below its Release 1 figure (s_figure), no margin, on the capture 7.21
+    measured: the USB capture; the AUDIO4c's is recorded. Where the case's USB capture reads digital zero (this bench's: -180 in every capture
+    of Round 32) it is not judgeable on USB, said so, and judged on the AUDIO4c against the same run's AUDIO4c figure (the lead's call). Neither
+    usable: not judgeable, fails. The session's idle captures are the case idle. The AUDIO4c repeatability is reported, not used.
     -> {"pass": bool, "a4c_spread_db", "cases": {case: {...}}}"""
     mean = {}
     for r in list(rows) + [{**r, "rev": "idle", "dub": "off", "vel": 0} for r in idle_rows]:
-        f = (r.get("usb") or {}).get("steady", {}).get("floor_db")
-        mean.setdefault((r["rev"], r["dub"], r["vel"]), []).append(f)
+        m = mean.setdefault((r["rev"], r["dub"], r["vel"]), {"usb": [], "a4c": []})
+        for src in ("usb", "a4c"):
+            m[src].append((r.get(src) or {}).get("steady", {}).get("floor_db"))
     out, ok = {}, True
     for (rev, dub, vel), fs in sorted(mean.items(), key=str):
         k = "idle" if rev == "idle" else f"{rev}:{dub}:{vel}"
-        fig = s_figure(rev, dub, vel)
-        if fig == "nomark":
-            out[k] = {"judged": False, "why": "not a Q3 case: no mark", "floor_db": round(sum(fs) / len(fs), 2) if fs and None not in fs else None}
+        u, a = _mean(fs["usb"]), _mean(fs["a4c"])
+        rec = {"usb_floor_db": None if u is None else round(u, 2), "a4c_floor_db": None if a is None else round(a, 2)}
+        if s_figure(rev, dub, vel) == "nomark":
+            out[k] = {"judged": False, "why": "not a Q3 case: no mark", **rec}
             continue
-        if fig is None or not fs or None in fs:
-            out[k] = {"judged": True, "ok": False, "why": "not judgeable: no Release 1 figure at this velocity, or a capture without a floor"}
+        src, note = "usb", None
+        if u is not None and u <= DIGITAL_ZERO_DB:
+            src, note = "a4c", f"the USB capture reads digital zero ({u:.1f} dBFS): not judgeable on USB; judged on the AUDIO4c (the lead's call)"
+        c = u if src == "usb" else a
+        fig = s_figure(rev, dub, vel, src)
+        if fig is None or c is None or c <= DIGITAL_ZERO_DB:
+            out[k] = {"judged": True, "ok": False, **rec, "why": (note + "; " if note else "") + "not judgeable: no Release 1 figure at this velocity, "
+                      "a capture without a floor, or digital zero"}
             ok = False
             continue
         ref, new = fig
-        c = sum(fs) / len(fs)
-        if c <= DIGITAL_ZERO_DB and rev != "idle":
-            out[k] = {"judged": True, "ok": False, "why": f"the USB capture reads digital zero ({c:.1f} dBFS): not judgeable"}
-            ok = False
-            continue
         good = c <= ref
-        out[k] = {"judged": True, "ok": good, "new": new, "floor_db": round(c, 2), "figure_db": ref, "over_db": round(c - ref, 2),
-                  "digital_zero": c <= DIGITAL_ZERO_DB}
+        out[k] = {"judged": True, "ok": good, "new": new, "source": src, "floor_db": round(c, 2), "figure_db": ref, "over_db": round(c - ref, 2),
+                  "note": note, **rec}
         ok = ok and good
     judged = [v for v in out.values() if v.get("judged")]
     return {"pass": bool(ok and judged), "a4c_spread_db": a4c_spread_db, "cases": out}
@@ -498,9 +512,9 @@ def main():
         st["verdict"] = hiss_verdict(rows, rep["repeatability"]["a4c_spread_db"], idle_rows)
         for k, v in st["verdict"]["cases"].items():
             if v.get("judged"):
-                print(f"hiss: {k}: " + (f"floor {v['floor_db']:.2f} dBFS against Release 1's {v['figure_db']:.1f} ({v['over_db']:+.2f})"
-                                         + (" digital zero" if v["digital_zero"] else "")
-                                         + (" NEW (no S figure: " + ("off's lowest" if k == "idle" else "the velocity's highest S case, SPRING's") + ")" if v["new"] else "")
+                print(f"hiss: {k}: " + (f"{v['source'].upper()} floor {v['floor_db']:.2f} dBFS against Release 1's {v['figure_db']:.2f} ({v['over_db']:+.2f})"
+                                         + (f" [{v['note']}]" if v["note"] else f" (AUDIO4c {v['a4c_floor_db']} recorded)")
+                                         + (" NEW (no S figure: " + ("off's lowest" if k == "idle" else "the velocity's highest S case") + ")" if v["new"] else "")
                                          if "floor_db" in v else v["why"])
                       + f": {'PASS' if v['ok'] else 'FAIL'}", flush=True)
         print(f"hiss: Q3 {'PASS' if st['verdict']['pass'] else 'FAIL'} (absolute floor at or below Release 1's, no margin; AUDIO4c spread {st['verdict']['a4c_spread_db']} dB)", flush=True)

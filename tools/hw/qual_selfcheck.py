@@ -21,7 +21,8 @@ tables (web/app/lib/fw_tables.js, generated from tests/web_tables.c with the Nig
      q4_install.py rev-set and fx-set (backup first, --expect, the driver's arguments, the Effects table judged)
   9. (BUILD.md 7.37, the owner's decisions of November 21; q23_checks) seqtest: DUB evicted recorded, not a fail; late halves allowed (3) only
      in the first run of a heavy DUB cell after the mix changed; the carry-over wait before a DUB cell (60 s, on a fake clock) and the refusal;
-     hiss: the absolute floor at or below Release 1's figure per case, no margin (Round 32's room:off:100 -91.04 and off:spring:100 -83.09 pass)
+     hiss: the absolute floor at or below Release 1's figure per case, no margin, on the USB capture (7.21's), on the AUDIO4c against its own S figure
+     when the USB reads digital zero (Round 32's AUDIO4c room:off:100 -91.04 and off:spring:100 -83.09 pass)
   ~/fm1-hw/hwvenv/bin/python3 tools/hw/qual_selfcheck.py        (exit 0: every check passed)
 """
 import contextlib
@@ -1139,10 +1140,20 @@ def q23_checks():
 
     def hr(rev, dub, vel, f): return {"rev": rev, "dub": dub, "vel": vel, "usb": {"steady": {"floor_db": f}}}
     def case(v, k): return v["cases"][k]
-    attempt("q23 Q3: Round 32's numbers: room:off:100 -91.04 passes against -81.9, off:spring:100 -83.09 passes against -79.7 (no off row needed)",
-            lambda: (lambda v: v["pass"] and case(v, "room:off:100")["figure_db"] == -81.9 and case(v, "off:spring:100")["figure_db"] == -79.7
+    def hb(rev, dub, vel, u, a): return {"rev": rev, "dub": dub, "vel": vel, "usb": {"steady": {"floor_db": u}}, "a4c": {"steady": {"floor_db": a}}}
+    attempt("q23 Q3: Round 32's bench (USB digital zero, -180): not judgeable on USB, said so; judged on the AUDIO4c: room:off:100 -91.04 passes "
+            "against S's AUDIO4c -80.15, off:spring:100 -83.09 against -79.75 (no off row needed)",
+            lambda: (lambda v: v["pass"] and case(v, "room:off:100")["source"] == "a4c" and case(v, "room:off:100")["figure_db"] == -80.15
+                     and "not judgeable on USB" in case(v, "room:off:100")["note"] and case(v, "off:spring:100")["figure_db"] == -79.75
                      and case(v, "off:spring:100")["floor_db"] == -83.09 and case(v, "off:spring:100")["new"])(
-                H.hiss_verdict([hr("room", "off", 100, -91.04)] * 3 + [hr("off", "spring", 100, -83.09)] * 3)))
+                H.hiss_verdict([hb("room", "off", 100, -180.0, -91.04)] * 3 + [hb("off", "spring", 100, -180.0, -83.09)] * 3)))
+    attempt("q23 Q3: a live USB capture is the one judged (7.21's source), the AUDIO4c only recorded; the AUDIO4c figure holds on the fallback",
+            lambda: (lambda v: v["pass"] and case(v, "room:off:30")["source"] == "usb" and case(v, "room:off:30")["a4c_floor_db"] == -60.0)(
+                H.hiss_verdict([hb("room", "off", 30, -85.0, -60.0)]))
+            and not H.hiss_verdict([hb("room", "off", 30, -85.0, -60.0), hb("room", "off", 30, -84.0, -60.0)])["pass"]
+            and not H.hiss_verdict([hb("room", "off", 30, -180.0, -80.7)])["pass"] and H.hiss_verdict([hb("room", "off", 30, -180.0, -80.77)])["pass"])
+    attempt("q23 Q3: both captures unusable (USB digital zero, AUDIO4c none or digital zero): not judgeable, fails",
+            lambda: not H.hiss_verdict([hb("room", "off", 100, -180.0, None)])["pass"] and not H.hiss_verdict([hb("room", "off", 100, -180.0, -180.0)])["pass"])
     attempt("q23 Q3: absolute, no margin: room:off:30 -84.6 fails against -84.7 (-84.7 itself passes); off:off:100 -81.0 fails against -81.1",
             lambda: not H.hiss_verdict([hr("room", "off", 30, -84.6)], 5.0)["pass"] and H.hiss_verdict([hr("room", "off", 30, -84.7)])["pass"]
             and not H.hiss_verdict([hr("off", "off", 100, -81.0)])["pass"])
@@ -1153,11 +1164,12 @@ def q23_checks():
             lambda: H.hiss_verdict([hr("shimr", "off", 30, -80.5), hr("off", "spring", 30, -81.0)])["pass"] and not H.hiss_verdict([hr("shimr", "off", 30, -80.4)])["pass"]
             and not H.hiss_verdict([hr("shimr", "off", 100, -79.6)])["pass"] and H.hiss_verdict([hr("shimr", "off", 100, -79.7)])["pass"])
     idle = lambda f: {"usb": {"steady": {"floor_db": f}}}
-    attempt("q23 Q3: idle (the session's idle captures) against off's lowest, -90.9; a digital-zero idle passes, a digital-zero note case fails",
+    attempt("q23 Q3: idle (the session's idle captures) against off's lowest, -90.9 on USB (-81.36 on the AUDIO4c when USB is digital zero); a digital-zero case with no AUDIO4c fails",
             lambda: (lambda v: v["pass"] and case(v, "idle")["figure_db"] == -90.9)(H.hiss_verdict([hr("room", "off", 30, -86.0)], 0.1, [idle(-91.0)] * 3))
             and not H.hiss_verdict([hr("room", "off", 30, -86.0)], 0.1, [idle(-90.0), idle(-91.0), idle(-91.0)])["pass"]
-            and H.hiss_verdict([hr("room", "off", 30, -86.0)], 0.1, [idle(-180.0)] * 3)["pass"]
-            and not H.hiss_verdict([hr("room", "off", 30, -180.0)], 0.1, [idle(-180.0)] * 3)["pass"])
+            and not H.hiss_verdict([hr("room", "off", 30, -86.0)], 0.1, [idle(-180.0)] * 3)["pass"]
+            and H.hiss_verdict([hr("room", "off", 30, -86.0)], 0.1, [{"usb": {"steady": {"floor_db": -180.0}}, "a4c": {"steady": {"floor_db": -82.0}}}] * 3)["pass"]
+            and not H.hiss_verdict([hr("room", "off", 30, -180.0)], 0.1, [idle(-91.0)] * 3)["pass"])
     attempt("q23 Q3: a velocity without S figures is not judgeable (fails); a non-Q3 case is recorded, not judged",
             lambda: not H.hiss_verdict([hr("room", "off", 64, -95.0)])["pass"]
             and (lambda v: not case(v, "dly:off:30")["judged"] and v["pass"])(H.hiss_verdict([hr("dly", "off", 30, -60.0), hr("room", "off", 30, -90.0)])))
