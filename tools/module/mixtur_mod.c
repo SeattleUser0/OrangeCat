@@ -53,6 +53,7 @@ typedef struct {
     uint32_t mx_own[6];                    /* mixtur.c's own[OP1_VOICES] (op1r: file scope; the glue checks the length below) */
 } mixtur_part_t;
 #define OP1G_PART_STATE mixtur_part_t
+#define OP1G_LEVEL_SLOT 7                  /* (engines-b) P_E7 is its LEVL (op1_glue.h): 64 the plugin's own level */
 #include "op1r/op1_glue.h"
 #define own (OP1G_OWN(v)->mx_own)          /* (each of mixtur's uses names its voice object v: adopt's argument, or self cast) */
 #define clamp mx_clamp
@@ -64,15 +65,18 @@ _Static_assert(sizeof(((mixtur_part_t *)0)->mx_own) == OP1_VOICES * sizeof(uint3
 OP1G_ENGINE_FUNCS(ENGINE_mixtur)
 
 static const preset_t MIXTUR_PRESETS[] = {
-    {"MIXTUR", {8, 13, 18, 28, 0, 0, 0, 0}, {0, 80, 40, 60}, 0, 0},       /* the plugin's defaults: undertones 1 2 3 5, formants unset */
-    {"SUBHARM", {8, 13, 23, 33, 20, 30, 60, 0}, {0, 72, 30, 70}, 0, 0},   /* 1 2 4 6, a darker formant pair, more Q */
-    {"VOWEL O", {8, 18, 0, 0, 12, 18, 90, 0}, {0, 64, 90, 50}, 0, 0},     /* 1 3, low F1 and F2: an "o" */
-    {"BIRDS", {8, 48, 63, 98, 70, 90, 110, 0}, {0, 60, 0, 40}, 0, 1},     /* 1 9 12 19, bright and resonant, MONO (Hitchcock's Birds) */
+    {"MIXTUR", {8, 13, 18, 28, 0, 0, 0, 96}, {0, 80, 40, 60}, 0, 0},   /* the plugin's defaults: undertones 1 2 3 5, formants unset; (engines-b) LEVL 96 */
+    {"SUBHARM", {8, 13, 23, 33, 20, 30, 60, 101}, {0, 72, 30, 70}, 0, 0},   /* 1 2 4 6, a darker formant pair, more Q; (engines-b) LEVL 101 */
+    {"VOWEL O", {8, 18, 0, 0, 12, 18, 90, 103}, {0, 64, 90, 50}, 0, 0},   /* 1 3, low F1 and F2: an "o"; (engines-b) LEVL 103 */
+    {"BIRDS", {8, 48, 63, 98, 70, 90, 110, 64}, {0, 60, 0, 40}, 0, 1},   /* 1 9 12 19, bright and resonant, MONO (Hitchcock's Birds) */
+    {"MIX LEAD", {8, 13, 0, 0, 70, 100, 60, 109}, {0, 64, 120, 30}, 0, 1},   /* (engines-b) undertones 1 and 2, bright formants, MONO */
+    {"MIX ORGAN", {8, 13, 18, 23, 50, 60, 20, 84}, {0, 64, 127, 40}, 0, 0},   /* (engines-b) undertones 1 to 4, held */
+    {"DRONE CHOIR", {8, 13, 23, 33, 30, 70, 100, 88}, {60, 90, 120, 90}, 0, 0},   /* (engines-b) 1 2 4 6, resonant formants, slow */
 };
 /* (engines-b) the page descriptor (fw_pages_t version 3): the rows, the pid table, HOME's four macro knobs (tools/module/cand_pages.h) */
 #include "cand_pages.h"
 static const engine_t ENG_MIXTUR;
-static const page_t MIXTUR_ROWS[] = {CAND_ROW("DIV", 0, 1, 2, 3), CAND_ROW("FORM", 4, 5, 6, 0xFF)};
+static const page_t MIXTUR_ROWS[] = {CAND_ROW("DIV", 0, 1, 2, 3), CAND_ROW("FORM", 4, 5, 6, 7)};
 /* (engines-b) HOME's four knobs, on the formants only (the dividers pick the undertones: what the sound is, EDIT's): VOWEL moves F1 and F2 apart
  * (o to i), BRITE lifts F2 (F1 a little), RES the formants' Q, SIZE moves both together (a larger or smaller body) */
 static const fw_kdef_t MIXTUR_KDEF[4] = {
@@ -81,7 +85,7 @@ static const fw_kdef_t MIXTUR_KDEF[4] = {
     CAND_MACRO("RES", CAND_T(6, CAND_LIN, 127), CAND_T0, CAND_T0, CAND_T0),
     CAND_MACRO("SIZE", CAND_T(4, CAND_LIN, 100), CAND_T(5, CAND_LIN, 100), CAND_T0, CAND_T0),
 };
-CAND_PAGES(MIXTUR, ENG_MIXTUR, MIXTUR_ROWS, 7, MIXTUR_KDEF)
+CAND_PAGES(MIXTUR, ENG_MIXTUR, MIXTUR_ROWS, 8, MIXTUR_KDEF)
 static const engine_t ENG_MIXTUR = {
     .name = "MIXTUR", .page_title = {"DIV", "FORM"},
     .edit = {
@@ -92,7 +96,7 @@ static const engine_t ENG_MIXTUR = {
         {"F1", F_INT, 0, 127, 0, 0, 0},         /* op1r's page word 5: 0 unset (392 Hz) */
         {"F2", F_INT, 0, 127, 0, 0, 0},
         {"RES", F_INT, 0, 127, 0, 0, 0},
-        {"-", F_INT, 0, 0, 0, 0, 0},
+        {"LEVL", F_INT, 0, 127, 64, 0, 0},     /* (engines-b) the module's level: (v / 64)^3, 64 the plugin's own */
     },
     .pages = &MIXTUR_PAGES,
     .presets = MIXTUR_PRESETS, .npresets = NELEM(MIXTUR_PRESETS),

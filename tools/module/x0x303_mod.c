@@ -64,6 +64,9 @@ static void x0x303_legato(track_t *t, voice_t *v)
     bass303_note_on(&P->b, v->note, v->vel >= 120u, 1);
     P->gate = 1;
 }
+#define X0X303_GAIN 6.0f                   /* (engines-b) the module's level: X0X's output peaks near -20 dBFS through Orange Cat's voice path (the render analysis,
+                                           * docs/candidates/engines_b.md); x 6 (+15.6 dB), and the clamp at twice X0X's full scale (a voice's full scale here is about
+                                           * -7 dBFS of the mix: at +-1 the gain clipped every preset at -7), peaks about -4 dBFS */
 static void x0x303_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
     x0x303_part_t *P = x0x303_part(t);
@@ -77,7 +80,7 @@ static void x0x303_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, cons
     x0x303_pots(t, &P->b);
     bass303_render(&P->b, buf, (int)n);
     for (i = 0; i < n; i++)
-        out[i] += voice_amp((int32_t)(fm_clampf(buf[i], -1.0f, 1.0f) * 32767.0f), m, i);
+        out[i] += voice_amp((int32_t)(fm_clampf(buf[i] * X0X303_GAIN, -2.0f, 2.0f) * 32767.0f), m, i);
 }
 static int x0x303_done(track_t *t, voice_t *v)
 {
@@ -90,6 +93,8 @@ static const preset_t X0X303_PRESETS[] = {
     {"SQUELCH", {40, 115, 100, 50, 110, 0, 40, 21}, {0, 64, 127, 10}, 0, 1},
     {"SQR ACID", {50, 90, 70, 70, 80, 1, 20, 30}, {0, 64, 127, 10}, 0, 1},
     {"RAT 303", {30, 110, 90, 40, 120, 0, 90, 21}, {0, 64, 127, 10}, 0, 1},
+    {"303 PLUCK", {45, 60, 90, 15, 40, 0, 10, 0}, {0, 64, 127, 10}, 0, 1},     /* (engines-b) a short decay, no slide */
+    {"DEEP 303", {20, 40, 40, 70, 30, 0, 0, 21}, {0, 64, 127, 10}, 0, 1},      /* (engines-b) closed, round, a long decay */
 };
 /* (engines-b) the page descriptor (fw_pages_t version 3): the rows, the pid table, HOME's four macro knobs (tools/module/cand_pages.h) */
 #include "cand_pages.h"

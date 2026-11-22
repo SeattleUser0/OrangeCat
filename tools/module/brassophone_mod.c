@@ -53,6 +53,7 @@ void *memset(void *d, int c, __SIZE_TYPE__ n) { return OC_FW()->mem_set(d, c, (u
 
 #define OP1G_ENGINE ENGI_BRASS
 #define OP1G_EXACT_SINE 1                  /* op1r's own sine: the hot set's second table (op1_glue.h) */
+#define OP1G_LEVEL_SLOT 7                  /* (engines-b) P_E7 is its LEVL (op1_glue.h): 64 the plugin's own level */
 #include "op1r/op1_glue.h"
 #ifdef OP1G_PARITY_SINE
 #define BRASS_WARP(s, c) ((int32_t)warp_table[(s)][(c)])   /* tests/op1r_parity's glue check: op1r's own table (warp_table.h, included by brass.c) */
@@ -72,15 +73,19 @@ _Static_assert(sizeof(brass_voice_t) <= OP1_VOICE_SIZE, "brassophone's voice is 
 OP1G_ENGINE_FUNCS(ENGINE_brass)
 
 static const preset_t BRASS_PRESETS[] = {
-    {"BRASS", {76, 64, 15, 29, 0, 0, 0, 0}, {6, 80, 100, 40}, 0, 0},      /* the plugin's defaults */
-    {"MUTED", {110, 30, 10, 25, 0, 0, 0, 0}, {10, 70, 90, 50}, 0, 0},     /* a narrow sweep from near the sine */
-    {"BLARE", {20, 120, 30, 40, 0, 0, 0, 0}, {2, 60, 110, 30}, 0, 0},     /* the whole sweep: bright at the peak */
-    {"HORN LD", {60, 90, 60, 45, 0, 0, 0, 0}, {14, 90, 120, 50}, 0, 1},   /* a slow attack, deep vibrato; MONO */
+    {"BRASS", {76, 64, 15, 29, 0, 0, 0, 114}, {6, 80, 100, 40}, 0, 0},   /* the plugin's defaults; (engines-b) LEVL 114 */
+    {"MUTED", {110, 30, 10, 25, 0, 0, 0, 103}, {10, 70, 90, 50}, 0, 0},   /* a narrow sweep from near the sine; (engines-b) LEVL 103 */
+    {"BLARE", {20, 120, 30, 40, 0, 0, 0, 118}, {2, 60, 110, 30}, 0, 0},   /* the whole sweep: bright at the peak; (engines-b) LEVL 118 */
+    {"HORN LD", {60, 90, 60, 45, 0, 0, 0, 115}, {14, 90, 120, 50}, 0, 1},   /* a slow attack, deep vibrato; MONO; (engines-b) LEVL 115 */
+    {"BRASS SECTION", {70, 70, 10, 30, 0, 0, 0, 86}, {20, 80, 110, 60}, 0, 0},   /* (engines-b) a held section */
+    {"BRASS STAB", {40, 110, 0, 0, 0, 0, 0, 107}, {0, 45, 30, 25}, 0, 0},   /* (engines-b) short, bright stabs */
+    {"TUBA", {90, 50, 5, 20, 0, 0, 0, 115}, {5, 70, 110, 25}, 0, 1},   /* (engines-b) a low horn, MONO */
+    {"SOFT HORN", {110, 30, 20, 35, 0, 0, 0, 76}, {40, 80, 110, 70}, 0, 0},   /* (engines-b) near the sine, slow */
 };
 /* (engines-b) the page descriptor (fw_pages_t version 3): the rows, the pid table, HOME's four macro knobs (tools/module/cand_pages.h) */
 #include "cand_pages.h"
 static const engine_t ENG_BRASS;
-static const page_t BRASS_ROWS[] = {CAND_ROW("HORN", 0, 1, 2, 3)};
+static const page_t BRASS_ROWS[] = {CAND_ROW("HORN", 0, 1, 2, 3), CAND_ROW("OUT", 7, 0xFF, 0xFF, 0xFF)};
 /* (engines-b) HOME's four knobs: BRITE the warp's start (STRT up is the sine: right is brighter, so the depth is negative), SWEEP how far the envelope
  * opens it, VIB the vibrato's depth (and its rate a little on the right), BLARE both at once (a harder blow) */
 static const fw_kdef_t BRASS_KDEF[4] = {
@@ -89,15 +94,16 @@ static const fw_kdef_t BRASS_KDEF[4] = {
     CAND_MACRO("VIB", CAND_T(2, CAND_LIN, 127), CAND_T(3, CAND_UP, 40), CAND_T0, CAND_T0),
     CAND_MACRO("BLARE", CAND_T(0, CAND_LIN, -70), CAND_T(1, CAND_LIN, 90), CAND_T0, CAND_T0),
 };
-CAND_PAGES(BRASS, ENG_BRASS, BRASS_ROWS, 4, BRASS_KDEF)
+CAND_PAGES(BRASS, ENG_BRASS, BRASS_ROWS, 8, BRASS_KDEF)
 static const engine_t ENG_BRASS = {
-    .name = "BRASS", .page_title = {"HORN", "-"},
+    .name = "BRASS", .page_title = {"HORN", "OUT"},
     .edit = {
         {"STRT", F_PCT, 0, 127, 76, 0, 0},      /* op1r's blue: the warp's start (up = sine) */
         {"SWP", F_PCT, 0, 127, 64, 0, 0},
         {"VIBD", F_PCT, 0, 127, 15, 0, 0},
         {"VIBR", F_PCT, 0, 127, 29, 0, 0},
-        {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0},
+        {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0},
+        {"LEVL", F_INT, 0, 127, 64, 0, 0},     /* (engines-b) the module's level: (v / 64)^3, 64 the plugin's own */
     },
     .pages = &BRASS_PAGES,
     .presets = BRASS_PRESETS, .npresets = NELEM(BRASS_PRESETS),

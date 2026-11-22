@@ -27,7 +27,7 @@
  *     control tick (the ADSR with the velocity), for all 128. The plugins read it as a timbre source; the glue still applies the amplitude.
  *   - op1_voice_vel_gain: v->vel x 258 (op1r's (vel << 8) >> 8 x 258); 0 or past 127: full.
  *   - params[0..3] (the four knobs, 0..32767): EDIT 1's P_E0..P_E3 (0..127) x 258, 0..32766; params[4] (op1r's engine selector, no plugin reads
- *     it): 0; params[5..7] (the second page's words, saved with the patch: OP1_ENG_PAGE_WORD): EDIT 2's P_E4..P_E6 x 258. P_E7 is not used.
+ *     it): 0; params[5..7] (the second page's words, saved with the patch: OP1_ENG_PAGE_WORD): EDIT 2's P_E4..P_E6 x 258. P_E7 is not used (engines-b: a module that defines OP1G_LEVEL_SLOT makes it its LEVL).
  *   - note_off: Orange Cat's engine_t has no note-off; the glue calls the plugin's (when it has one) at the first render after v->gate fell,
  *     the release's first block (within the 128 frames the OP-1 itself is late by).
  *   - the output: the plugin's int16 (Q15) is scaled by the voice's amplitude ramp and level, voice_amp (the ADSR and gain op1r's firmware applies
@@ -197,6 +197,12 @@ static inline __attribute__((always_inline)) void op1g_render(track_t *t, voice_
         if (E->note_off)
             E->note_off(self);
     }
+#ifdef OP1G_LEVEL_SLOT                       /* (engines-b) a LEVL control on edit value P_E7 (the one no plugin reads): the gain (v / 64)^3 in Q12 (v^3 >> 6: 4096 at 64,
+                                             * exact, so the renders at 64 are the plugin's own; +17.9 dB at 127, -18 dB at 32, 0 at 0); above unity the gained sample passes
+                                             * dsp.c's soft knee at half scale, so a plugin's onset peak rounds off instead of leaving 16 bits. Read once a call (per 32
+                                             * frames). b[k] x g stays under 2^31 (32767 x 32005) */
+    int32_t lv = clamp(t->p[P_E7], 0, 127), g = lv * lv * lv / 64;
+#endif
     while (i < n) {
         uint32_t left = P->left[vi], take;
         const int16_t *b;
@@ -212,8 +218,19 @@ static inline __attribute__((always_inline)) void op1g_render(track_t *t, voice_
         }
         take = left < n - i ? left : n - i;
         b = P->buf[vi] + (OP1_BLOCK - left);
+#ifdef OP1G_LEVEL_SLOT
+        if (g == 4096)
+            for (k = 0; k < take; k++, i++)
+                out[i] += voice_amp(b[k], m, i);
+        else
+            for (k = 0; k < take; k++, i++) {
+                int32_t y = b[k] * g / 4096;
+                out[i] += voice_amp(g > 4096 ? soft_knee(y, 16384) : y, m, i);
+            }
+#else
         for (k = 0; k < take; k++, i++)
             out[i] += voice_amp(b[k], m, i);
+#endif
         P->left[vi] = (uint8_t)(left - take);
     }
 }
