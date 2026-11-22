@@ -801,4 +801,48 @@ for (const [kind, pkg, expect] of [["dual", "standard.fwsc", STANDARD], ["nightl
   const joined = template.match(/<script type="module">([\s\S]*?)<\/script>/)[1].replace("/*LIB*/", lib).replace("/*META*/{}", "{}");
   assert.doesNotThrow(() => new vm.Script(joined), "the page script with its libraries joined compiles (no name declared twice)");
 }
+// (Round 32, BUILD.md 7.54) Install decides once, at the start of the press: a press begun with the unit in update mode (this package's loader) resumes, or
+// ends with "left update mode" when the loader is gone when the page looks again; never a full install of the now running unit in the same press
+{
+  const run = async (leaves) => {
+    const log = {installs: 0, resumes: 0, finds: 0};
+    const Updater = class {
+      async find(filter) {
+        const id = log.finds++ === 0 || !leaves ? {model: "ota-FM-1", text: MELODEE_LOADER} : {model: "FM-1", text: "FM-1_900"};   // the first look: update mode
+        return filter(id) ? {id, link: {close() {}}} : null;
+      }
+      async install(image, product, step) { log.installs++; step("done"); }
+      async resume(image, step) { log.resumes++; step("reboot"); log.said = page.element("status").textContent; step("done"); return true; }
+    };
+    const page = boot(store(), {model: "FM-1", text: "FM-1_900"}, META, {Updater});
+    await answer(page, "standard.fwsc");
+    page.element("stage-pack").checked = false; page.element("stage-mod").checked = false; page.element("stage-fx").checked = false; page.element("stage-fw").listeners.change();
+    await page.element("go").listeners.click();
+    return {log, status: page.element("status").textContent};
+  };
+  let r = await run(true);
+  assert.equal(r.log.installs, 0, "a press begun in update mode never installs in full when the loader has gone");
+  assert.equal(r.log.resumes, 0);
+  assert.equal(r.status, "The FM-1 left update mode: nothing was written. Press Install again if you want to install.");
+  r = await run(false);
+  assert.ok(r.log.resumes === 1 && r.log.installs === 0, "the loader still there: the write is resumed");
+  assert.equal(r.log.said, "The write finished; the FM-1 is restarting (this can take a minute).", "while the unit restarts after a resume the page says the write finished");
+  // (the review) a press begun with another loader in update mode (the stock one): refused, nothing resumed or installed
+  {
+    const log = {installs: 0, resumes: 0};
+    const Updater = class {
+      async find(filter) { const id = {model: "ota-FM-1", text: STOCK_LOADER}; return filter(id) ? {id, link: {close() {}}} : null; }
+      async install() { log.installs++; } async resume() { log.resumes++; return true; }
+    };
+    const page = boot(store(), {model: "FM-1", text: "FM-1_900"}, META, {Updater});
+    await answer(page, "standard.fwsc");
+    page.element("stage-pack").checked = false; page.element("stage-mod").checked = false; page.element("stage-fx").checked = false; page.element("stage-fw").listeners.change();
+    await page.element("go").listeners.click();
+    assert.ok(log.installs === 0 && log.resumes === 0, "another loader at the start of the press: nothing written");
+    assert.match(page.element("status").textContent, /stock|M-VAVE|official/i, "the page says which loader it refused: " + page.element("status").textContent);
+  }
+  const ota = readFileSync(new URL("fm1ota.js", import.meta.url), "utf8");
+  assert.match(ota, /RESUME_BACK_MS = 90000/, "a resume waits 90 s for the unit to come back");
+  assert.match(ota, /id\.model === model, RESUME_BACK_MS\)/, "resume() uses that wait");
+}
 console.log("installer page: Standard and the Nightly side by side, the choice kept, the boxes are what Install writes, a stock unit takes either in one run, the model picker: passed");

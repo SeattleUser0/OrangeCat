@@ -228,6 +228,8 @@ const TEXT = {
     flashPackage: "このパッケージのファームウェアは、この FM-1 のフラッシュチップを知りません。インストールは始めず、何も書き込んでいません。新しいリリースを選んでください。チップ: ",
     flashUnsupported: "FLASH NOT SUPPORTED: この FM-1 のフラッシュチップにはファームウェアが対応していません。インストールは始めず、何も書き込んでいません。",
     noreturn: "FM-1 が戻ってきません。電源を入れ直してください。",
+    leftUpdate: "FM-1 が書き込みモードを抜けました。何も書き込んでいません。インストールするならもう一度インストールを押してください。",
+    resumeRestart: "書き込みが終わりました。FM-1 が再起動しています（1 分ほどかかることがあります）。",
     mismatch: "書き込みは終わりましたが、FM-1 が別のバージョンを報告しています: ",
     badpkg: "インストールするファイルが壊れています。ページを再読み込みしてください。",
     leave: "書き込み中です。ページを閉じないでください。",
@@ -337,6 +339,8 @@ const TEXT = {
     flashPackage: "This package's firmware does not know this FM-1's flash chip, so the install was not started and nothing was written. Choose a newer release. The chip's JEDEC id: ",
     flashUnsupported: "FLASH NOT SUPPORTED: the FM-1 says its flash chip is not one its firmware knows. The install was not started and nothing was written.",
     noreturn: "The FM-1 did not come back. Power-cycle it.",
+    leftUpdate: "The FM-1 left update mode: nothing was written. Press Install again if you want to install.",
+    resumeRestart: "The write finished; the FM-1 is restarting (this can take a minute).",
     mismatch: "Written, but the FM-1 reports another version: ",
     badpkg: "The file to install is damaged. Reload the page.",
     leave: "Writing. Do not close the page.",
@@ -718,7 +722,10 @@ choose();
 const refuseLoader = (id) => id === STOCK_LOADER ? sayK("loaderStock") : id === MELODEE_LOADER ? sayK("loaderMelodee") : sayK("loaderUnknown", id);
 
 // the firmware stage (unchanged since 0.10): the unit's update, resolving when the new firmware has come back. f(0..1) is its share of the bar.
-async function flashFirmware(midi, product, f) {
+// (Round 32, BUILD.md 7.54) startLoader: the loader identity the press found at its start (the unit in update mode), or null (the unit running). The
+// press decides once: begun in update mode it resumes, or ends with leftUpdate when the loader is gone by now (nothing written), never a full install
+// of a running unit in the same press; begun with the unit running it installs as before.
+async function flashFirmware(midi, product, f, startLoader = null) {
   const up = new Updater(midi, log);
   const total = 74 + 1167;
   const step = (k, a) => {
@@ -727,13 +734,14 @@ async function flashFirmware(midi, product, f) {
     if (k === "verify") { sayK("verify"); f(a / total); }
     if (k === "loader") sayK("loader");
     if (k === "write") { sayK("write"); f((74 + a) / total); }
-    if (k === "reboot") sayK("reboot");
+    if (k === "reboot") sayK(startLoader ? "resumeRestart" : "reboot");   /* (Round 32) a resume's write is done: the unit restarts (resume waits 90 s) */
     if (k === "done") { f(1); sayK("done"); }
   };
-  const ota = await up.find((id) => /^ota-/i.test(id.model));
-  if (ota) {
+  if (startLoader) {
+    if (startLoader !== MELODEE_LOADER) { const e = new Error("loader"); e.code = "wrongloader"; e.detail = startLoader; throw e; }
+    const ota = await up.find((id) => id.text === MELODEE_LOADER);
+    if (!ota) { const e = new Error("left update mode"); e.code = "leftUpdate"; throw e; }
     ota.link.close();
-    if (ota.id.text !== MELODEE_LOADER) { const e = new Error("loader"); e.code = "wrongloader"; e.detail = ota.id.text; throw e; }
     if (!(await up.resume(image, step, product, MELODEE_LOADER))) { const e = new Error("stopped"); e.code = "stopped"; throw e; }
   } else {
     await up.install(image, product, step, MELODEE_LOADER);
@@ -746,7 +754,7 @@ async function openUnit(midi, waitMs = 60000) {
     const input = [...midi.inputs.values()].find(isU);
     const output = input && [...midi.outputs.values()].find((o) => o.name === input.name && o.state !== "disconnected");
     if (input && output) {
-      try { if (input.open) await input.open(); if (output.open) await output.open(); return new OcLink(input, output); } catch (_) { /* try again */ }
+      try { if (input.open) await input.open(); if (output.open) await output.open(); return new OcLink(input, output, { log }); } catch (_) { /* try again */ }
     }
     if (Date.now() > end) return null;
     await new Promise((r) => setTimeout(r, 1000));
@@ -826,6 +834,12 @@ $("go").addEventListener("click", async () => {
   let midi;
   try { midi = await navigator.requestMIDIAccess({ sysex: true }); }
   catch (e) { sayK("denied"); lockInstaller(false); return; }
+  /* (Round 32) is the unit in update mode as the press begins? flashFirmware decides on this, once */
+  let startLoader = null;
+  if (stages.firmware) {
+    try { const ota = await new Updater(midi, log).find((id) => /^ota-/i.test(id.model)); if (ota) { ota.link.close(); startLoader = ota.id.text; } }
+    catch (e) { log(String(e && e.message || e)); }
+  }
   if (stages.module) {                                  /* (review of the picker) the unit is read again for every Install, and the room is placed against what it holds now, before a byte is written */
     let u = null;
     try { const link = await openUnit(midi, 5000); if (link) { try { u = await readUnit(link); } finally { link.close(); } } } catch (e) { u = null; log(String(e && e.message || e)); }
@@ -863,7 +877,7 @@ $("go").addEventListener("click", async () => {
   try {
     const sum = await runSet({
       stages, files, log,
-      runFirmware: (f) => flashFirmware(midi, product, f),
+      runFirmware: (f) => flashFirmware(midi, product, f, startLoader),
       firmwareId: imageId, flashParts: imageParts, peekUnit: () => openUnit(midi, 5000),   /* (Round 26) the firmware is left as it is when the unit runs this package's image */
       openUnit: () => openUnit(midi),
       say: (k) => sayK(k),
@@ -949,7 +963,7 @@ async function leaveMelodee(target) {
       if (!device) { sayK("notfound"); return; }
       const input = device.link.input, output = device.link.output; device.link.close();
       if (!skipBackup) {
-        link = new BackupConnection(input, output);
+        link = new BackupConnection(input, output, { log });
         const info = archiveInfo(await link.request([1,[]]));
         if (!info.supported) { sayK("stockUnsupported"); return; }
         const archive = await captureBackup((r,o) => link.request(r,o), info.version,
