@@ -47,7 +47,9 @@
 #pragma once
 #include "fw_api_id.h"                                   /* generated: FW_API_ID (tools/gen_fw_api_id.py) */
 #define FW_API_MAGIC 0x50414657u                         /* "WFAP" little endian: FW API */
-#if defined(OC_WAVE) && OC_WAVE
+#if defined(OC_STEREO) && OC_STEREO
+#define FW_API_VERSION 8u                                /* (wave-engine) 8: the stereo lane (FW_MOD_COST_STEREO, fw_stereo_lane_t): a stereo module renders its right lane only on 8 or later */
+#elif defined(OC_WAVE) && OC_WAVE
 #define FW_API_VERSION 7u                                /* (wave-engine) 7: batch_push takes AP_WAVE: a WAVE module is refused by a firmware before 7 */
 #else
 #define FW_API_VERSION 6u                                /* (0.13.7) 4: hot, the hot sets' pointers; (0.14.0) 5: base_hot, the firmware's own;
@@ -117,6 +119,14 @@ typedef struct fw_api {
  *            tools/module/<name>.cost says it with a line "part N". */
 #define FW_MOD_COST_PART 0x80000000u
 #define FW_MOD_PART_UNITS(cost) (((cost) & FW_MOD_COST_PART) ? ((cost) >> 24) & 127u : 0u)
+/* (wave-engine, OC_STEREO; docs/candidates/wave_stereo.md) bit 23 of the cost word: the engine renders a right lane. Its arena state then STARTS with a
+ * fw_stereo_lane_t: the module fills `right` each block (its post hook, CPU0, after the batch's join) and sets `on`; the mixer (mix.c, a firmware with
+ * FW_API_VERSION 8 or later) takes the part's block as the left lane and `right` as the right, through the two-lane path. A module reads the firmware's
+ * version from the services table and renders mono (both lanes folded into the part's block) on an older one. Not a structure the interface identifier
+ * hashes: a wire layout, checked by its magic */
+#define FW_MOD_COST_STEREO 0x00800000u
+#define FW_STEREO_MAGIC 0x4F455453u                      /* "STEO" little endian */
+typedef struct { uint32_t magic, on; int32_t right[32]; } fw_stereo_lane_t;   /* (right: CTL frames) */
 #define FW_MOD_MAGIC 0x444F4D4Fu                         /* "OMOD" little endian */
 #define FW_MOD_CODE_OFF 0x100u
 typedef struct fw_mod_hdr {

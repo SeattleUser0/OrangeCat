@@ -27,37 +27,44 @@ mix_lanes included.
 So a two-lane track already exists end to end, for one engine, found by an engine-specific call (`dxe_right`) whose right block DRUM-X computes on CPU0 in
 its `post` hook. SPREAD cannot do what the owner asked: it pans whole voices (notes), not the unison copies inside one voice.
 
-## 3. The proposal: one hook, the existing lane path
+## 3. The design, as built behind `OC_STEREO`: no structure the interface hashes changes
 
-1. **`engine_t.right(t)`** (a new hook, appended at the end of `engine_t`; 0 for every engine but a stereo one): the track's right block this block, or 0
-   for mono, exactly as `dxe_right`. mix.c's `rb = rendered ? dxe_right(t) : 0` becomes `rb = rendered ? (e->right ? e->right(t) : dxe_right(t)) : 0`.
-   Everything after it is today's lane path: DIST on both lanes, the mute, solo, duck, level and pan (`mix_lanes`), the sends, the insert and the stems
-   on the mono sum. DRUM-X can move to the hook later (not in this change).
-2. **The voices.** A stereo engine's kernel writes its left lane into the PCM block it is given (the batch's or the track's, as now) and its right lane into
-   its own voice state (CTL int32: 128 B a voice). A merge function (`audio_batch_push_cost(..., merge)`, ADDING_AN_ENGINE.md 5a: CPU0, at the join, in
-   voice order) adds the voice's right block into the track's right block. Without the batch (the host's single renders) the render adds it itself. The
-   track's right block lives in the engine's own arena state (no new firmware RAM) and is cleared in the engine's `block` hook.
-3. **SPREAD on a stereo engine** is off (as on a panned kit: `!dxk_panned(t)` gains `&& !right`), so the two do not stack.
-4. **Mono stays mono.** `right` is 0 for every engine of today: `rb` is 0, the same writer runs, the same samples come out. With `OC_STEREO` off the field
-   does not exist and the mix.c line is today's.
+The first draft of this note put a `right` hook in `engine_t`. That moves `FW_API_IFACE` (tools/gen_fw_api_id.py hashes the structures' text, and even a
+`#if` line inside one counts), so every module would be rebuilt for a switch that is off. The build takes a route that changes no hashed structure:
 
-## 4. What it costs
+1. **The module says it in its header's cost word** (data, not layout: DDDD already uses it for FW_MOD_COST_PART): bit 23, `FW_MOD_COST_STEREO`
+   (fw_api.h; tools/build.py sets it from a `stereo` line in tools/module/<name>.cost).
+2. **Its arena state starts with a lane block**, `fw_stereo_lane_t {magic "STEO", on, right[CTL]}` (fw_api.h; a wire layout checked by its magic, not
+   hashed). Each block the engine's `block` hook clears `on`; its kernels (CPU1 or CPU0) write each voice's right lane into the voice's own state; its
+   `post` hook (CPU0, after the batch's join, the hook DRUM-X's sides already use) sums them into `right` and sets `on`. An integer sum, so the voices'
+   order (which core) does not change it: **no merge function and no fw_api_t growth**.
+3. **The mixer** (mix.c, two lines and two macros, only with `OC_STEREO`): `rb = dxe_right(t) ? dxe_right(t) : eng_right(t)` (engines.c `eng_right`:
+   a registered module with the flag, its state's lane block valid and on), then today's lane path: DIST on both lanes, the mute, solo, duck, level and
+   pan (`mix_lanes`); the sends, the insert and the USB stems on the mono sum. SPREAD is off for such a track (`!MIX_STEREO(t)`), as for a panned kit.
+4. **Old firmware, old modules.** A firmware with the switch says so by `FW_API_VERSION` 8 (the version, not the identifier). A stereo module reads it
+   from the services table and its own header's flag, and renders mono (its lanes folded, as before) on anything older; it declares api_version 7, so it
+   loads there. A module without the flag is never read for a lane.
 
-- **Interface:** `engine_t` is hashed into the interface identifier (tools/gen_fw_api_id.py), so adding the hook **moves `FW_API_IFACE`: every module is
-  rebuilt and installed once**, in the release that takes it. With the switch off nothing moves (verified in this branch: the identifier of a build
-  without `OC_STEREO` equals linux-hw's). That release is Session A's choice.
-- **CPU, a stereo track** (static counts on the target's code, not timed on the unit): the lane writer is 88 loop instructions a sample against the mono
+## 4. What it costs (measured on the host where it says so; the unit's numbers are Session A's)
+
+- **Interface:** none. `FW_API_ID` with the switch on is linux-hw's (0xCAF53177, tools/gen_fw_api_id.py); FW_API_VERSION 8.
+- **The mixer, a stereo track** (static counts on the target's code, not timed): the lane writer is 88 loop instructions a sample against the mono
   writer's 21: **+67 a sample, about 8,600 instructions a half buffer, roughly 24 us at 360 MHz, 0.8 % of the 2,901 us budget**; DIST, the mute and the
-  duck run on each lane (twice their cost, only when on); the merge adds 32 samples a voice a block on CPU0 (about 1.5 us a voice a half buffer, roughly);
-  the kernel's own right lane: one more pan and add a unison copy a sample (counted in WAVE's numbers, wave.md 4a). **An engine that is not stereo:
-  one load and one compare a block** (`e->right`).
-- **RAM:** the track's right block, 128 B, in the stereo engine's arena state; 128 B a voice for the voice's right block (8 voices: 1 KB a track, inside
-  WAVE's 16 KB). No static RAM in the firmware.
-- **What the unit must show (Session A):** a stereo WAVE track and its mono build sound the same summed (the mono build folds L + R / 2); four tracks of
-  WAVE with the switch on against off: worst and late (`fm1hw.py table`); DRUM-X's panned kits unchanged; every golden render of the mono engines
-  unchanged with the switch on (the host already proves it: section 5).
+  duck run on each lane (only when on). **A track that is not stereo: two loads and a compare a block** (`eng_right`'s checks).
+- **WAVE in stereo** (host, the candidates' harness, both builds back to back): **+25 to +28 % a voice** on its unison presets (WAVE PAD 127 -> 161 ns a
+  voice-sample, WAVE KEYS 84 -> 106, WAVE LEAD 148 -> 187: the pan per copy, the second filter, the right lane's amplitude), and the `post` sum (32 adds
+  a voice a block on CPU0); a preset of width 0 costs what it did.
+- **RAM:** the lane block (136 B) in the module's own arena state; per WAVE voice the right lane (128 B) and the second filter (24 B). No static RAM.
+- **Sound:** with the switch on, every golden render of the firmware is unchanged (tests/regress.c built with `-DOC_STEREO=1`: 435 renders, 0 changed),
+  DRUM-X's panned kits included. WAVE's lanes: side to mid -4.3 to -7.6 dB on its unison presets (L/R correlation 0.45 to 0.71), its width-0 presets
+  identical to mono. **(L + R) / 2 equals the mono render** to -42 dB (rounding) with the track 12 dB down; at full level the two differ by 0.5 to 1.5 dB
+  because the master limiter sees other peaks in two decorrelated lanes than in one.
 
-## 5. As built on wave-engine (behind OC_STEREO)
+## 5. What Session A should check on the unit before it merges
 
-The hook, the mix.c line, the SPREAD exclusion and the golden check: the full suite with `OC_STEREO=1` renders every existing golden line unchanged
-(no engine but WAVE has `right`). WAVE with the switch off folds its unison spread to mono in the kernel (no right lane, no merge).
+1. A stereo WAVE track and the same track in a build without the switch: worst and late at one to four tracks (`fm1hw.py table`), the kernel readout
+   for AP_WAVE on both cores (its batch cost entry is an estimate: audio_batch.h).
+2. DRUM-X's panned kits and every other engine: unchanged (the host says so; the unit's numbers should too).
+3. The insert (DUB TAPE) and the sends on a stereo track take the mono sum, as on a panned kit: decide whether that is right for WAVE or whether the
+   insert should one day take two lanes (not in this change).
+4. Whether the master limiter's level difference (section 4, Sound) wants a word in the guide or a change.

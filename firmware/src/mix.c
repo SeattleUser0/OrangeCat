@@ -271,6 +271,13 @@ static __attribute__((noinline)) void mix_duck(int32_t *b,int32_t *b2,uint32_t n
 /* (Orange Cat 0.14.2) a DRUM-X kit with lanes panned, its two sides bl (left) and br (right), each already where its lanes' PAN puts it:
  * the track's level, then its PAN (p0 to p1 over the block, << 8: AUTO PAN glides it) on each side, the track's PAN law (the far side down,
  * the near one as it is); the sends and the meter take the two sides' mean */
+#if OC_STEREO                                           /* (wave-engine, docs/candidates/wave_stereo.md: for Session A's review) a stereo module's right lane (engines.c eng_right) */
+#define MIX_RIGHT(t) (dxe_right(t)?dxe_right(t):eng_right(t))
+#define MIX_STEREO(t) eng_stereo(t)
+#else
+#define MIX_RIGHT(t) dxe_right(t)
+#define MIX_STEREO(t) 0
+#endif
 static __attribute__((noinline)) void mix_lanes(track_t *t,const int32_t *bl,const int32_t *br,uint32_t n,int32_t p0,int32_t p1)
 {
     int32_t lvl=LEVEL_Q12[t->p[P_LEVEL]&127],pk=t->peak;
@@ -315,7 +322,7 @@ static __attribute__((noinline)) void mix_prepare_batch(uint32_t n,uint32_t nt) 
     for(uint32_t p=0;p<nt;p++){
         track_t *t=&trk[p];
         mod_begin(t);batch_mod[p]=mod;memcpy(batch_params[p],t->p,sizeof t->p);
-        spread_on=t->p[P_SPRD]>0 && (trk_vmode(t)==V_POLY || trk_vmode(t)==V_UNISON) && !dxk_panned(t);   /* ((0.14.2) a kit panned: its sides) */
+        spread_on=t->p[P_SPRD]>0 && (trk_vmode(t)==V_POLY || trk_vmode(t)==V_UNISON) && !dxk_panned(t) && !MIX_STEREO(t);   /* ((0.14.2) a kit panned: its sides) */
         batch_spread_on[p]=spread_on;spread_buf=batch_spread[p];
         batch_rendered[p]=track_render_audio(t,batch_pcm[p],n,0);
         if(mod.on)mod_end(t);
@@ -349,12 +356,12 @@ static void mix_part_engine(track_t *t,uint32_t n)
 #endif
     {
         part_buf=part_storage;spread_buf=spread_storage;mod_begin(t);
-        spread_on=t->p[P_SPRD]>0 && (trk_vmode(t)==V_POLY || trk_vmode(t)==V_UNISON) && !dxk_panned(t);   /* ((0.14.2) as above) */
+        spread_on=t->p[P_SPRD]>0 && (trk_vmode(t)==V_POLY || trk_vmode(t)==V_UNISON) && !dxk_panned(t) && !MIX_STEREO(t);   /* ((0.14.2) as above) */
         rendered=(int)track_render_audio(t,part_buf,n,0);
     }
     AP_START(mix_start);
     mix_ins=fx_ins_capture(ti);                            /* (Release 2) */
-    int32_t *rb=rendered?dxe_right(t):0;               /* (0.14.2) a panned kit's right side (part_buf its left), 0: one */
+    int32_t *rb=rendered?MIX_RIGHT(t):0;               /* (0.14.2) a panned kit's right side (part_buf its left), 0: one; (wave-engine, OC_STEREO) or a stereo module's */
     if(rendered)mix_tail[ti]=16u;
     else if(mix_tail[ti] && jfx_dist_on(t))mix_tail[ti]--;
     else mix_tail[ti]=0;

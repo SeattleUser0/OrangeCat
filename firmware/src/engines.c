@@ -114,6 +114,23 @@ FW_API_SECTION __attribute__((used)) const fw_api_t FW_API = {
 };
 /* (0.10.0) the module registered under an engine number, or 0 (the loader, eng_register): its header says the state size */
 static const fw_mod_hdr_t *eng_mod[NENGINES];
+#if OC_STEREO
+/* (wave-engine, docs/candidates/wave_stereo.md) the track's right lane this block from a stereo module (FW_MOD_COST_STEREO: its state starts with a fw_stereo_lane_t),
+ * or 0; eng_stereo: the track's engine is one (SPREAD is off for it, as for a panned kit) */
+static int eng_stereo(const track_t *t)
+{
+    uint32_t e = t->engine < NENGINES ? t->engine : 0u;
+    return eng_mod[e] && (eng_mod[e]->cost & FW_MOD_COST_STEREO) && !(eng_mod[e]->cost & FW_MOD_COST_PART);
+}
+static int32_t *eng_right(const track_t *t)
+{
+    uint32_t p = (uint32_t)(t - trk);
+    fw_stereo_lane_t *L;
+    if (p >= NPART || !eng_stereo(t) || resource[RES_ENGINE0 + p].size < sizeof(fw_stereo_lane_t) || !(L = resource[RES_ENGINE0 + p].ptr))
+        return 0;
+    return L->magic == FW_STEREO_MAGIC && L->on ? L->right : 0;
+}
+#endif
 static uint32_t eng_state_size(uint32_t e)
 {
     if (e < NENGINES && eng_mod[e])

@@ -572,6 +572,12 @@ module_host_candidates_b() {                      # (engines-b, Session B) op1r'
         step "WAVE (Orange Cat's wavetable engine, engine 32) as a module: its slot, registration, the presets as the goldens, pages and knobs" \
             "$OUT/module_ship_${e}_test" tests/golden_modules.txt
     done
+    # (wave-engine) the same in a build with the stereo lane (OC_STEREO, docs/candidates/wave_stereo.md): WAVE's own lines (tests/golden_wave_stereo.txt: its unison spread
+    # left and right); every other render with the switch on is the shipping build's (tests/regress.c, below, with -DOC_STEREO=1)
+    $CC -c -O2 $FW -DOC_STEREO=1 -Itools/module -o "$OUT/module_wave_st_tu.o" tests/module_host_wave_tu.c || { fail "compile tests/module_host_wave_tu.c (OC_STEREO)"; return 1; }
+    $CC -O2 $FW -DOC_STEREO=1 -DCAND_ENGINE=ENGI_WAVE -o "$OUT/module_wave_st_test" tests/module_host_cand_test.c "$OUT/module_wave_st_tu.o" -lm ||
+        { fail "compile tests/module_host_cand_test.c (wave, OC_STEREO)"; return 1; }
+    step "WAVE in stereo (OC_STEREO): the right lane through the two-lane path, tests/golden_wave_stereo.txt" "$OUT/module_wave_st_test" tests/golden_wave_stereo.txt
     for e in x0x303 supersaw brassophone mixtur; do   # (engines-b) the same four in the shipping build (OC_ENGINE_MODS, the build set's: no OC_CANDIDATES)
         E=$(echo $e | tr a-z A-Z); [ $E = BRASSOPHONE ] && E=BRASS
         $CC -c -O2 $FW -Itools/module/op1r -Ifirmware/src/x0x -o "$OUT/module_ship_${e}_tu.o" tests/module_host_${e}_tu.c || { fail "compile tests/module_host_${e}_tu.c (shipping)"; return 1; }
@@ -940,6 +946,8 @@ if sound && [ $TABLES = 1 ]; then
     # The old paths keep their own run: the build set off, golden.txt with that one line as it was
     dubrev_t "regression with every switch of the build set off: the goldens of the old paths (song/4track_mix as it was)" regress_legacy:regress -O2 $BS_OFF $FW -- \
         sh -c "sed 's/^song\/4track_mix .*/song\/4track_mix 7b5647232840caa8/' tests/golden.txt > $OUT/golden_legacy.txt && $OUT/regress_legacy $OUT/golden_legacy.txt tests/cpu_baseline.txt"
+    dubrev_t "regression with the stereo lane built in (OC_STEREO, wave-engine): every golden render as the shipping build's" regress_stereo:regress -O2 $FW -DOC_STEREO=1 -- \
+        "$OUT/regress_stereo" tests/golden.txt tests/cpu_baseline.txt
     dubrev_t "regression with the buses deferred (Release 2): the same renders, the effects' returns one block late; tests/golden_fxdefer.txt holds the lines that differ" regress_defer:regress -O2 $FW -DMELODEE_FX_DEFER=1 -- \
         "$OUT/regress_defer" tests/golden.txt tests/cpu_baseline.txt
     job module_host

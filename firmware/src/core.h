@@ -246,6 +246,11 @@
                                    * offered only while its module is registered (as WHEEL). The installer page offers their modules unticked. A project with one of them
                                    * loads on an older firmware as an engine past its table (refused there, as any newer engine) */
 #endif
+#ifndef OC_STEREO
+#define OC_STEREO 0               /* (wave-engine; docs/candidates/wave_stereo.md, for Session A to review and time on the unit) 1: a module whose header's cost word says
+                                   * FW_MOD_COST_STEREO renders a right lane (its state's first block, fw_stereo_lane_t) and the track goes through the two-lane path
+                                   * (mix.c mix_lanes, as a panned DRUM-X kit); FW_API_VERSION 8. No structure the interface identifier hashes changes */
+#endif
 #ifndef OC_WAVE
 #define OC_WAVE 0                 /* (wave-engine) 1: WAVE, Orange Cat's own wavetable engine (32: tools/module/wave_mod.c), takes a module; the table grows to 33 (30, 31 retired
                                    * slots), FW_API_VERSION 7 (AP_WAVE in the batch). docs/candidates/wave_engine.md */

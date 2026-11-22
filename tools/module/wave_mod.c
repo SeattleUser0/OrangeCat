@@ -39,6 +39,14 @@ typedef void (*audio_batch_fn)(const void *data, int32_t *pcm);
 #define AUDIO_BATCH_BYTES 168u
 #define audio_batch_active (*OC_FW()->batch_active)
 #define audio_batch_push(run, data, bytes, out, n, id) (OC_FW()->batch_push((run), (data), (bytes), (out), (n), (id)))
+/* (stereo) the firmware renders a module's right lane from FW_API_VERSION 8 (fw_api.h FW_MOD_COST_STEREO); on an older one WAVE folds to mono */
+extern const fw_mod_hdr_t OC_MODULE_HDR;
+static inline int wave_stereo_fw(void)       /* the firmware takes the lane (8 or later) AND this module's header says it renders one (tools/build.py writes the cost word after the
+                                              * link: read through a volatile, so the compiler does not take the initializer's 0) */
+{
+    return OC_FW()->version >= 8u && (*(volatile const uint32_t *)&OC_MODULE_HDR.cost & FW_MOD_COST_STEREO);
+}
+#define WAVE_API_VERSION 7u                  /* the header's: what WAVE needs (AP_WAVE); stereo is asked at run time, so the module also loads on a 7 */
 #include "wave/eng_wave.c"
 
 /* the presets (the eight values, voice.c's ADSR, mono) and, a row each in the same order, their patches. Tables: 0 BASIC, 1 PULSE, 2 VOWEL, 3 BRIGHT.
@@ -56,23 +64,23 @@ static const preset_t WAVE_PRESETS[] = {
 #define S(src, dst, amt) {WS_##src, WD_##dst, amt, 0}
 #define S0 {0, 0, 0, 0}
 static const wv_patch_t WV_PATCH[] = {
-    /* tab, warp, uni, oct, semi, lvl, noise, mode, kbd, ENV 2 {A D S R}, LFO rates, LFO shapes, the four slots, the level (the render analysis) */
+    /* tab, warp, uni, oct, semi, lvl, noise, mode, kbd, ENV 2 {A D S R}, LFO rates, LFO shapes, the four slots, the stereo width, the level (the render analysis) */
     {{0, 1}, {WARP_BEND, WARP_BEND}, {1, 1}, {0, -1}, {0, 0}, {127, 60}, 0, WF_LADDER, 64, {0, 70, 20, 40}, {60, 60}, {0, 0},
-     {S(ENV2, CUT, 50), S(VEL, CUT, 20), S0, S0}, 87},
+     {S(ENV2, CUT, 50), S(VEL, CUT, 20), S0, S0}, 0, 87},
     {{0, 3}, {WARP_BEND, WARP_BEND}, {4, 2}, {0, 0}, {0, 0}, {110, 70}, 0, WF_LP, 64, {0, 60, 80, 40}, {70, 50}, {0, 0},
-     {S(LFO1, POSA, 20), S(ENV2, CUT, 30), S0, S0}, 65},
+     {S(LFO1, POSA, 20), S(ENV2, CUT, 30), S0, S0}, 90, 65},
     {{0, 0}, {WARP_SYNC, WARP_BEND}, {1, 1}, {0, 1}, {0, 0}, {120, 40}, 0, WF_LP, 64, {0, 70, 30, 40}, {60, 60}, {0, 0},
-     {S(ENV2, WARPA, 80), S(ENV2, CUT, 25), S0, S0}, 67},
+     {S(ENV2, WARPA, 80), S(ENV2, CUT, 25), S0, S0}, 0, 67},
     {{2, 0}, {WARP_BEND, WARP_BEND}, {1, 2}, {0, 0}, {0, 0}, {120, 50}, 0, WF_LP, 100, {0, 72, 40, 50}, {60, 60}, {0, 0},
-     {S(ENV2, CUT, 40), S(VEL, CUT, 20), S0, S0}, 77},
+     {S(ENV2, CUT, 40), S(VEL, CUT, 20), S0, S0}, 40, 77},
     {{0, 2}, {WARP_BEND, WARP_BEND}, {4, 4}, {0, 0}, {0, 0}, {100, 80}, 0, WF_LP, 40, {80, 90, 100, 90}, {25, 18}, {0, 0},
-     {S(LFO1, POSB, 40), S(LFO2, POSA, 25), S0, S0}, 63},
+     {S(LFO1, POSB, 40), S(LFO2, POSA, 25), S0, S0}, 110, 63},
     {{1, 1}, {WARP_BEND, WARP_BEND}, {4, 4}, {0, 0}, {0, 0}, {110, 70}, 0, WF_LP, 40, {50, 80, 110, 80}, {28, 22}, {0, 0},
-     {S(LFO1, POSA, 50), S(LFO2, POSB, 50), S0, S0}, 61},
+     {S(LFO1, POSA, 50), S(LFO2, POSB, 50), S0, S0}, 110, 61},
     {{3, 1}, {WARP_BEND, WARP_BEND}, {2, 1}, {0, 0}, {0, 0}, {120, 40}, 0, WF_LP, 80, {0, 62, 0, 45}, {60, 60}, {0, 0},
-     {S(ENV2, CUT, 60), S(ENV2, POSA, 40), S0, S0}, 94},
+     {S(ENV2, CUT, 60), S(ENV2, POSA, 40), S0, S0}, 60, 94},
     {{2, 3}, {WARP_BEND, WARP_MIRROR}, {3, 1}, {0, 0}, {0, 0}, {110, 70}, 10, WF_BP, 40, {40, 90, 110, 90}, {40, 15}, {3, 0},
-     {S(LFO1, POSA, 60), S(LFO2, WARPB, 40), S0, S0}, 70},
+     {S(LFO1, POSA, 60), S(LFO2, WARPB, 40), S0, S0}, 100, 70},
 };
 #undef S
 #undef S0
@@ -104,7 +112,7 @@ static const engine_t ENG_WAVE = {
     .pages = &WAVE_PAGES,
     .presets = WAVE_PRESETS, .npresets = NELEM(WAVE_PRESETS),
     .knob = {P_E0, P_E2, P_E4, P_E6}, .poly = WV_NV,
-    .note_on = wave_note_on, .render = wave_render, .units = wave_units, .keep = 0,
+    .note_on = wave_note_on, .render = wave_render, .units = wave_units, .block = wave_block, .post = wave_post, .keep = 0,
 };
 static wv_part_t *wave_part(const track_t *t)
 {
@@ -120,16 +128,16 @@ static const wv_patch_t *wave_patch(const track_t *t) { return &WV_PATCH[t->pres
 
 #ifdef OC_MODULE_HOST
 const fw_mod_hdr_t OC_MODULE_HDR = {
-    FW_MOD_MAGIC, FW_API_IFACE, sizeof(fw_api_t), FW_API_VERSION, FW_API_ADDR,
+    FW_MOD_MAGIC, FW_API_IFACE, sizeof(fw_api_t), WAVE_API_VERSION, FW_API_ADDR,
     ENGI_WAVE, sizeof(wv_part_t), 0, 0, OC_PACK_HASH,
-    0, OC_MODULE_VERSION, 0, 0, 0,
+    FW_MOD_COST_STEREO, OC_MODULE_VERSION, 0, 0, 0,   /* (the host's header: the cost word as tools/build.py writes it from tools/module/wave.cost) */
 };
 const fw_api_t *oc_host_fw;
 const engine_t *oc_host_module_engine(void) { return &ENG_WAVE; }
 #else
 extern char _modstart[];
 __attribute__((section(".modhdr"), used)) const fw_mod_hdr_t OC_MODULE_HDR = {
-    FW_MOD_MAGIC, FW_API_IFACE, sizeof(fw_api_t), FW_API_VERSION, FW_API_ADDR,
+    FW_MOD_MAGIC, FW_API_IFACE, sizeof(fw_api_t), WAVE_API_VERSION, FW_API_ADDR,
     ENGI_WAVE, sizeof(wv_part_t), (uint32_t)(uintptr_t)&ENG_WAVE, (uint32_t)(uintptr_t)_modstart, OC_PACK_HASH,
     0, OC_MODULE_VERSION, 0, 0, 0,
 };

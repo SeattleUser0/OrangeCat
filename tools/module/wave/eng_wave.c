@@ -36,6 +36,7 @@ typedef struct {
     uint8_t e2[4];                           /* ENV 2: A D S R, 0..127 */
     uint8_t lrate[2], lshape[2];             /* the LFOs: rate 0..127 (0.05 .. 20 Hz), shape 0 triangle 1 saw 2 square 3 S&H, + 4: retriggered at the note */
     wv_slot_t slot[4];
+    uint8_t width;                           /* (stereo, OC_STEREO firmware) the unison copies' spread, left to right, 0..127 (0: centred) */
     uint8_t level;                           /* the preset's level: (v / 64)^3, 64 unity (the render analysis sets it a preset: docs/candidates/wave_engine.md) */
 } wv_patch_t;
 typedef struct {
@@ -52,8 +53,12 @@ typedef struct {
     float g, k, a1, ic1, ic2, l[4];          /* the filter: coefficients (this block's) and state */
     uint8_t fmode, wmode[2];
     uint32_t rng, blk;
+    float ic1r, ic2r, lr[4];                 /* (stereo) the right lane's filter state */
+    int32_t rbuf[CTL];                       /* (stereo) the voice's right lane this block (the kernel writes it; wave_post sums it on CPU0) */
+    uint8_t rn;                              /* (stereo) frames in rbuf this block, 0 none */
 } wv_voice_t;
 typedef struct {
+    fw_stereo_lane_t lane;                   /* FIRST (fw_api.h FW_MOD_COST_STEREO): the track's right lane, for an OC_STEREO firmware's mixer */
     uint32_t magic;
     wv_voice_t v[WV_NV];
 } wv_part_t;
@@ -141,18 +146,20 @@ typedef struct {
     wv_voice_t *V;
     vmod_t m;
     uint16_t n;
-    uint8_t uni[2], wmode[2], fmode;
+    uint8_t uni[2], wmode[2], fmode, stereo;
+    int16_t pan[2][WV_UNI];                  /* (stereo) each copy's place, -32767 left .. 32767 right */
 } wave_job_t;
 _Static_assert(sizeof(wave_job_t) <= AUDIO_BATCH_BYTES, "WAVE's batch descriptor");
 static const int16_t WV_UNI_GAIN[WV_UNI + 1] = {0, 32767, 23170, 18919, 16384, 14654, 13377, 12385, 11585};   /* 1 / sqrt(n), Q15 */
 
-static void wave_voice(const void *data, int32_t *out)
+static inline __attribute__((always_inline)) void wave_body(const void *data, int32_t *out, const int stereo)
 {
     const wave_job_t *j = data;
     wv_voice_t *V = j->V;
     const vmod_t *m = &j->m;
     uint32_t i, o, k, n = j->n, rng = V->rng;
     float ic1 = V->ic1, ic2 = V->ic2, l0 = V->l[0], l1 = V->l[1], l2 = V->l[2], l3 = V->l[3];
+    float jc1 = V->ic1r, jc2 = V->ic2r, m0 = V->lr[0], m1 = V->lr[1], m2 = V->lr[2], m3 = V->lr[3];
     const float g = V->g, kk = V->k, a1 = V->a1;
     const float mlp = j->fmode == WF_LP || j->fmode == WF_NOTCH ? 1.0f : 0.0f, mbp = j->fmode == WF_BP ? 1.0f : 0.0f,
                 mhp = j->fmode == WF_HP || j->fmode == WF_NOTCH ? 1.0f : 0.0f;
@@ -160,13 +167,13 @@ static void wave_voice(const void *data, int32_t *out)
     for (o = 0; o < 2u; o++)
         og[o] = (V->amp[o] * WV_UNI_GAIN[j->uni[o]]) >> 15;
     for (i = 0; i < n; i++) {
-        int32_t acc = 0;
-        float y;
+        int32_t acc = 0, accr = 0;
+        float y, yr = 0.0f;
         for (o = 0; o < 2u; o++) {
             const int16_t *fr = V->frame[o];
             const uint32_t sh = V->len_sh[o], mask = (1u << (32u - sh)) - 1u;
             const int32_t w = V->warp[o];
-            int32_t s = 0;
+            int32_t s = 0, sr = 0;
             for (k = 0; k < j->uni[o]; k++) {
                 uint32_t ph = V->ph[o][k] += V->inc[o][k], q, idx, f;
                 if (j->wmode[o] == WARP_SYNC)            /* the frame read up to 1.37 x faster than the cycle: the overflow restarts it (the sync) */
@@ -177,14 +184,22 @@ static void wave_voice(const void *data, int32_t *out)
                 }
                 idx = q >> sh;
                 f = (q << (32u - sh)) >> 17;
-                s += wv_lerp(fr[idx], fr[(idx + 1u) & mask], f);
+                if (stereo) {                            /* the copy at its place: (L + R) / 2 is the mono copy */
+                    int32_t x = wv_lerp(fr[idx], fr[(idx + 1u) & mask], f);
+                    s += (x * (32768 - j->pan[o][k])) >> 15;
+                    sr += (x * (32768 + j->pan[o][k])) >> 15;
+                } else
+                    s += wv_lerp(fr[idx], fr[(idx + 1u) & mask], f);
             }
             acc += (s * og[o]) >> 15;
+            if (stereo) accr += (sr * og[o]) >> 15;
         }
         {   /* the sub (a sine an octave under A's first copy: parabolic) and noise (the voice's own generator) */
             int32_t x = (int32_t)((V->ph[0][0] >> 1) >> 16) - 32768, sine = (x * (32767 - (x < 0 ? -x : x))) >> 13;
             rng = rng * 1664525u + 1013904223u;
-            acc += (sine * V->sub + ((int32_t)(rng >> 17) - 16384) * V->noise) >> 15;
+            int32_t c = (sine * V->sub + ((int32_t)(rng >> 17) - 16384) * V->noise) >> 15;
+            acc += c;
+            if (stereo) accr += c;
         }
         {
             float in = (float)acc * (1.0f / 32768.0f);
@@ -199,16 +214,42 @@ static void wave_voice(const void *data, int32_t *out)
                 ic2 = g * bp + lp;
                 y = mlp * lp + mbp * bp + mhp * hp;
             }
+            if (stereo) {                                /* the right lane through its own filter */
+                float inr = (float)accr * (1.0f / 32768.0f);
+                if (j->fmode == WF_LADDER) {
+                    float fb = inr - kk * m3, c = fb - fb * fb * fb * 0.1481f;
+                    m0 += g * (c - m0); m1 += g * (m0 - m1); m2 += g * (m1 - m2); m3 += g * (m2 - m3);
+                    yr = m3;
+                } else {
+                    float hp = (inr - (kk + g) * jc1 - jc2) * a1, bp = g * hp + jc1, lp;
+                    jc1 = g * hp + bp;
+                    lp = g * bp + jc2;
+                    jc2 = g * bp + lp;
+                    yr = mlp * lp + mbp * bp + mhp * hp;
+                }
+            }
         }
         {
             int32_t smp = soft_knee((int32_t)(y * V->gain * 16383.0f), 32767);   /* Q15 with headroom to 2.0 (as WHEEL's); the level's peaks above 1.0 round off */
             smp = smp > 65535 ? 65535 : smp < -65535 ? -65535 : smp;
             out[i] += (int32_t)((uint32_t)voice_amp(smp, m, i) << 1);
+            if (stereo) {
+                int32_t sr = soft_knee((int32_t)(yr * V->gain * 16383.0f), 32767);
+                sr = sr > 65535 ? 65535 : sr < -65535 ? -65535 : sr;
+                V->rbuf[i] = (int32_t)((uint32_t)voice_amp(sr, m, i) << 1);
+            }
         }
     }
     V->ic1 = ic1; V->ic2 = ic2; V->l[0] = l0; V->l[1] = l1; V->l[2] = l2; V->l[3] = l3;
     V->rng = rng;
+    if (stereo) {
+        V->ic1r = jc1; V->ic2r = jc2; V->lr[0] = m0; V->lr[1] = m1; V->lr[2] = m2; V->lr[3] = m3;
+        V->rn = (uint8_t)n;
+    }
 }
+/* the kernels: mono (as before: the same instructions), and stereo (the right lane into the voice's rbuf) */
+static void wave_voice(const void *data, int32_t *out) { wave_body(data, out, 0); }
+static void wave_voice_st(const void *data, int32_t *out) { wave_body(data, out, 1); }
 
 static void wave_note_on(track_t *t, voice_t *v)
 {
@@ -232,6 +273,9 @@ static void wave_note_on(track_t *t, voice_t *v)
         if (P->lshape[o] & 4u) V->lph[o] = 0;
     V->ic1 = V->ic2 = 0.0f;
     V->l[0] = V->l[1] = V->l[2] = V->l[3] = 0.0f;
+    V->ic1r = V->ic2r = 0.0f;
+    V->lr[0] = V->lr[1] = V->lr[2] = V->lr[3] = 0.0f;
+    V->rn = 0;
 }
 
 static void wave_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
@@ -314,11 +358,43 @@ static void wave_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     j.uni[0] = V->uni[0]; j.uni[1] = V->uni[1];
     j.wmode[0] = V->wmode[0]; j.wmode[1] = V->wmode[1];
     j.fmode = V->fmode;
+    j.stereo = (uint8_t)(wave_stereo_fw() && P->width);
+    if (j.stereo)                                        /* the copies spread evenly across the width, A's and B's interleaved (A from the left, B from the right) */
+        for (o = 0; o < 2u; o++)
+            for (k = 0; k < WV_UNI; k++) {
+                int32_t u = V->uni[o], w = P->width * 258;
+                int32_t x = u > 1 ? (int32_t)((2 * (int32_t)k - (u - 1)) * w / (u - 1)) : 0;
+                j.pan[o][k] = (int16_t)clamp(o ? -x : x, -32767, 32767);
+            }
     if (audio_batch_active) {
-        audio_batch_push(wave_voice, &j, sizeof j, out, n, AP_WAVE);
+        audio_batch_push(j.stereo ? wave_voice_st : wave_voice, &j, sizeof j, out, n, AP_WAVE);
         return;
     }
-    wave_voice(&j, out);
+    (j.stereo ? wave_voice_st : wave_voice)(&j, out);
+}
+/* (stereo) once a block before the voices: no right lane yet; after the voices (CPU0, after the batch's join): the voices' right lanes summed into the track's (an
+ * integer sum: the order of the voices does not change it) */
+static void wave_block(track_t *t)
+{
+    wv_part_t *S = wave_part(t);
+    if (!S) return;
+    S->lane.magic = FW_STEREO_MAGIC;
+    S->lane.on = 0;
+    for (uint32_t i = 0; i < WV_NV; i++) S->v[i].rn = 0;
+}
+static void wave_post(track_t *t, int32_t *out, uint32_t n, uint32_t rendered)
+{
+    wv_part_t *S = wave_part(t);
+    uint32_t i, k, any = 0;
+    (void)out; (void)rendered;
+    if (!S || n > CTL) return;
+    for (k = 0; k < WV_NV; k++) any |= S->v[k].rn;
+    if (!any) return;
+    for (i = 0; i < n; i++) S->lane.right[i] = 0;
+    for (k = 0; k < WV_NV; k++)
+        if (S->v[k].rn)
+            for (i = 0; i < n; i++) S->lane.right[i] += S->v[k].rbuf[i];
+    S->lane.on = 1;
 }
 /* voice units (the shared budget): wave.md 4a's estimate, about 3 units at unison 1 and 5 at unison 4 a side; the unit's numbers replace it */
 static uint32_t wave_units(const track_t *t)

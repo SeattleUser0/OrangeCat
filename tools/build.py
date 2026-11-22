@@ -596,7 +596,8 @@ def module_cost(name):
     want = [w for w in want if w]
     # (0.14.1) "part N": the engine's cost is its part's, N voice budget units once a track (fw_api.h FW_MOD_COST_PART): bit 31 and N in 24..30
     part = [w for w in want if w.split()[0] == "part"]
-    want = [w for w in want if w.split()[0] != "part"]
+    stereo = any(w == "stereo" for w in want)            # (wave-engine) "stereo": the engine renders a right lane (fw_api.h FW_MOD_COST_STEREO, bit 23)
+    want = [w for w in want if w.split()[0] != "part" and w != "stereo"]
     pu = int(part[-1].split()[1]) if part and len(part[-1].split()) == 2 and part[-1].split()[1].isdigit() else (-1 if part else 0)
     budget = {}
     for ln in (SRC / "tests" / "target_budget.txt").read_text().splitlines():
@@ -609,6 +610,10 @@ def module_cost(name):
         if not 1 <= pu <= 127 or cost >= 1 << 24:
             return 0, missing + [f"part {pu if pu > 0 else '?'} (1..127 units; the measured cost under 2^24)"]
         cost = 0x80000000 | pu << 24 | cost
+    if stereo:
+        if cost >= 1 << 23 or pu:
+            return 0, missing + ["stereo (the measured cost under 2^23, not with part)"]
+        cost |= 0x00800000
     return cost, missing
 
 
