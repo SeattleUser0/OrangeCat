@@ -28,7 +28,7 @@ static void check(const char *what, int ok)
     printf("module host (WHEEL%s): %-100s %s\n", MELODEE_LEGACY_EXTRAS ? ", reference build" : "", what, ok ? "ok" : "FAIL");
     bad += !ok;
 }
-#define NPRESET 5u
+#define NPRESET 6u                             /* (engines-b) ORGAN BASS, the sixth (the owner's audition, November 21) */
 static void render(const engine_t *named, uint64_t *hash, uint32_t *crashed, char names[][64])   /* named: whose preset names (the retired slot has none) */
 {
     uint32_t i;
@@ -80,7 +80,7 @@ int main(int argc, char **argv)
     check("the header names engine 7 (ENGI_WHEEL, Melodee's number), the state size of drw_part_t and the pack hash",
           h.engine == ENGI_WHEEL && h.engine == 7u && h.state_size == sizeof(drw_part_t) && h.pack_hash == OC_PACK_HASH);
     check("the module declares no hot set of its own (it reads SINE and TANH_Q15 through the firmware's base_hot)", em->nhot == 0u && !em->hot && !em->hot_at);
-    check("five presets, the eight controls BARS and TONE, the block hook", em->npresets == NPRESET && !strcmp(em->name, "WHEEL") && em->block &&
+    check("six presets, the eight controls BARS and TONE, the block hook", em->npresets == NPRESET && !strcmp(em->name, "WHEEL") && em->block &&
           !strcmp(em->page_title[0], "BARS") && !strcmp(em->page_title[1], "TONE") && !strcmp(em->edit[0].label, "REG") && !strcmp(em->edit[7].label, "ROTR"));
     {   /* (0.14.0) base_hot: the module's sine is the firmware's; boot's copy into the arena changes no sample */
         int32_t s0 = 0, s1 = 0;
@@ -98,10 +98,10 @@ int main(int argc, char **argv)
         const engine_t *eb = ENGINES[ENGI_WHEEL];
         check("the reference build has WHEEL built in, in slot 7", eb && !strcmp(eb->name, "WHEEL") && eb != em && eng_ok(ENGI_WHEEL));
         render(em, other, &crashed, names);
-        check("the built-in WHEEL renders its five presets", crashed == 0);
+        check("the built-in WHEEL renders its six presets", crashed == 0);
         ENGINES[ENGI_WHEEL] = em;                       /* the registration, by hand (the built-in engine holds the slot: eng_register would call it shadowed) */
         render(em, module, &crashed, names);
-        check("the module renders its five presets", crashed == 0);
+        check("the module renders its six presets", crashed == 0);
         for (i = 0; i < NPRESET; i++) {
             same += module[i] == other[i];
             if (module[i] != other[i])
@@ -129,7 +129,7 @@ int main(int argc, char **argv)
         t->engine = t->eng_req = (uint8_t)ENGI_WHEEL;   /* a project's track stored with WHEEL before the module came */
         check("the same stored track now has WHEEL's state and plays (eng_state_prepare)", eng_state_prepare(t) && ENGINES[t->engine] == em);
         render(em, module, &crashed, names);
-        check("the module renders its five presets", crashed == 0);
+        check("the module renders its six presets", crashed == 0);
         for (i = 0, same = 0; i < NPRESET; i++) same += module[i] != other[i];
         check("... and they are sound, not the silence of the retired slot", same == NPRESET);
         check("... the lines in tests/golden_modules.txt (the reference build's built-in WHEEL renders the same)", golden(gold, ng, names, module) == NPRESET);

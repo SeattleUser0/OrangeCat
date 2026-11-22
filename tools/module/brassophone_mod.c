@@ -73,14 +73,15 @@ _Static_assert(sizeof(brass_voice_t) <= OP1_VOICE_SIZE, "brassophone's voice is 
 OP1G_ENGINE_FUNCS(ENGINE_brass)
 
 static const preset_t BRASS_PRESETS[] = {
+    {"TUBA", {90, 50, 5, 20, 0, 0, 0, 115}, {5, 70, 110, 25}, 0, 1},   /* (engines-b) a low horn, MONO */
+    {"HORN LD", {60, 90, 60, 45, 0, 0, 0, 115}, {14, 90, 120, 50}, 0, 1},   /* a slow attack, deep vibrato; MONO; (engines-b) LEVL 115 */
+    {"BRASS STAB", {40, 110, 0, 0, 0, 0, 0, 107}, {0, 45, 30, 25}, 0, 0},   /* (engines-b) short, bright stabs */
+    {"BRASS SECTION", {70, 70, 10, 30, 0, 0, 0, 86}, {20, 80, 110, 60}, 0, 0},   /* (engines-b) a held section */
+    {"SOFT HORN", {110, 30, 20, 35, 0, 0, 0, 76}, {40, 80, 110, 70}, 0, 0},   /* (engines-b) near the sine, slow */
+    /* (engines-b) the owner's maybes (November 21 audition): kept, after the keeps, for a second audition */
     {"BRASS", {76, 64, 15, 29, 0, 0, 0, 114}, {6, 80, 100, 40}, 0, 0},   /* the plugin's defaults; (engines-b) LEVL 114 */
     {"MUTED", {110, 30, 10, 25, 0, 0, 0, 103}, {10, 70, 90, 50}, 0, 0},   /* a narrow sweep from near the sine; (engines-b) LEVL 103 */
     {"BLARE", {20, 120, 30, 40, 0, 0, 0, 118}, {2, 60, 110, 30}, 0, 0},   /* the whole sweep: bright at the peak; (engines-b) LEVL 118 */
-    {"HORN LD", {60, 90, 60, 45, 0, 0, 0, 115}, {14, 90, 120, 50}, 0, 1},   /* a slow attack, deep vibrato; MONO; (engines-b) LEVL 115 */
-    {"BRASS SECTION", {70, 70, 10, 30, 0, 0, 0, 86}, {20, 80, 110, 60}, 0, 0},   /* (engines-b) a held section */
-    {"BRASS STAB", {40, 110, 0, 0, 0, 0, 0, 107}, {0, 45, 30, 25}, 0, 0},   /* (engines-b) short, bright stabs */
-    {"TUBA", {90, 50, 5, 20, 0, 0, 0, 115}, {5, 70, 110, 25}, 0, 1},   /* (engines-b) a low horn, MONO */
-    {"SOFT HORN", {110, 30, 20, 35, 0, 0, 0, 76}, {40, 80, 110, 70}, 0, 0},   /* (engines-b) near the sine, slow */
 };
 /* (engines-b) the page descriptor (fw_pages_t version 3): the rows, the pid table, HOME's four macro knobs (tools/module/cand_pages.h) */
 #include "cand_pages.h"

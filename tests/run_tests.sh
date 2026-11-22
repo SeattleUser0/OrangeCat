@@ -512,7 +512,7 @@ module_host_wheel() {                             # (Orange Cat 0.14.0) WHEEL's 
         { fail "compile tests/module_host_wheel_test.c (reference build)"; return 1; }
     $CC -O2 $FW -o "$OUT/module_host_wheel_test" tests/module_host_wheel_test.c "$OUT/module_host_wheel_tu.o" -lm ||
         { fail "compile tests/module_host_wheel_test.c"; return 1; }
-    step "WHEEL as a module on the host (Orange Cat 0.14.0): the reference build's built-in WHEEL and the module render the same five presets, tests/golden_modules.txt" \
+    step "WHEEL as a module on the host (Orange Cat 0.14.0): the reference build's built-in WHEEL and the module render the same six presets, tests/golden_modules.txt" \
         "$OUT/module_host_wheel_ref" tests/golden_modules.txt
     step "WHEEL as a module (0.14.0): slot 7 retired and silent, the registration offers it, a stored engine 7 plays it, unregistering retires it again" \
         "$OUT/module_host_wheel_test" tests/golden_modules.txt

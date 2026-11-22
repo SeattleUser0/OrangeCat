@@ -36,7 +36,8 @@ static const char *const PRESET_CAT[NENGINES] = {
 #endif
 #if MELODEE_MACRO
     [8] = "BLULEBOFGPPKPFFFUSUEDDDDDUS"                 /* (Orange Cat 0.5.0) MACRO (eng_macro.c MC_PRESETS; 0.5.3: HARP, STRING CHORDS) */
-          "BRKLKKKKPUSGLLPKLOOO",                       /* (Release 3, the model picker) the ten further models' twenty: VCF BASS, VCF BRASS, PD KEYS, PD RESO LEAD, DX EPIANO, DX BANK A 11,
+          "BRKLKKKKPUSGLLPKLOOO"
+          "KKKKK",                                      /* (engines-b) FM EPIANO, FM EPIANO 2, FM KEYS A, B, C */                       /* (Release 3, the model picker) the ten further models' twenty: VCF BASS, VCF BRASS, PD KEYS, PD RESO LEAD, DX EPIANO, DX BANK A 11,
                                                          * DX BANK B 1, DX BANK C 1, TERRAIN DRONE, TERRAIN PLUCK, STRING ENSEMBLE, STRING ORGAN, CHIP ARP, CHIP LEAD, WAVETABLE PAD,
                                                          * WAVETABLE KEYS, WAVETABLE 8BIT, VOWEL, SAM VOICE, LPC WORDS */
 #endif

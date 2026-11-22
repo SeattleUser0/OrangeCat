@@ -66,12 +66,13 @@ OP1G_ENGINE_FUNCS(ENGINE_mixtur)
 
 static const preset_t MIXTUR_PRESETS[] = {
     {"MIXTUR", {8, 13, 18, 28, 0, 0, 0, 96}, {0, 80, 40, 60}, 0, 0},   /* the plugin's defaults: undertones 1 2 3 5, formants unset; (engines-b) LEVL 96 */
-    {"SUBHARM", {8, 13, 23, 33, 20, 30, 60, 101}, {0, 72, 30, 70}, 0, 0},   /* 1 2 4 6, a darker formant pair, more Q; (engines-b) LEVL 101 */
-    {"VOWEL O", {8, 18, 0, 0, 12, 18, 90, 103}, {0, 64, 90, 50}, 0, 0},   /* 1 3, low F1 and F2: an "o"; (engines-b) LEVL 103 */
-    {"BIRDS", {8, 48, 63, 98, 70, 90, 110, 64}, {0, 60, 0, 40}, 0, 1},   /* 1 9 12 19, bright and resonant, MONO (Hitchcock's Birds) */
-    {"MIX LEAD", {8, 13, 0, 0, 70, 100, 60, 109}, {0, 64, 120, 30}, 0, 1},   /* (engines-b) undertones 1 and 2, bright formants, MONO */
     {"MIX ORGAN", {8, 13, 18, 23, 50, 60, 20, 84}, {0, 64, 127, 40}, 0, 0},   /* (engines-b) undertones 1 to 4, held */
+    {"VOWEL O", {8, 18, 0, 0, 12, 18, 90, 103}, {0, 64, 90, 50}, 0, 0},   /* 1 3, low F1 and F2: an "o"; (engines-b) LEVL 103 */
     {"DRONE CHOIR", {8, 13, 23, 33, 30, 70, 100, 88}, {60, 90, 120, 90}, 0, 0},   /* (engines-b) 1 2 4 6, resonant formants, slow */
+    {"BIRDS", {8, 48, 63, 98, 70, 90, 110, 64}, {0, 60, 0, 40}, 0, 1},   /* 1 9 12 19, bright and resonant, MONO (Hitchcock's Birds) */
+    /* (engines-b) the owner's maybes (November 21 audition): kept, after the keeps, for a second audition */
+    {"MIX LEAD", {8, 13, 0, 0, 70, 100, 60, 109}, {0, 64, 120, 30}, 0, 1},   /* (engines-b) undertones 1 and 2, bright formants, MONO */
+    {"SUBHARM", {8, 13, 23, 33, 20, 30, 60, 101}, {0, 72, 30, 70}, 0, 0},   /* 1 2 4 6, a darker formant pair, more Q; (engines-b) LEVL 101 */
 };
 /* (engines-b) the page descriptor (fw_pages_t version 3): the rows, the pid table, HOME's four macro knobs (tools/module/cand_pages.h) */
 #include "cand_pages.h"

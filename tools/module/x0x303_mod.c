@@ -90,11 +90,11 @@ static int x0x303_done(track_t *t, voice_t *v)
 static const preset_t X0X303_PRESETS[] = {
     /* {CUT RES ENV DEC, ACC WAVE DRIV SLID}, {A D S R} (unused: its own envelopes), ENV -> FILTER, mono */
     {"303", {64, 64, 64, 64, 64, 0, 0, 21}, {0, 64, 127, 10}, 0, 1},                 /* X0X's pot defaults */
-    {"SQUELCH", {40, 115, 100, 50, 110, 0, 40, 21}, {0, 64, 127, 10}, 0, 1},
-    {"SQR ACID", {50, 90, 70, 70, 80, 1, 20, 30}, {0, 64, 127, 10}, 0, 1},
+    {"DEEP 303", {20, 40, 40, 70, 30, 0, 0, 21}, {0, 64, 127, 10}, 0, 1},      /* (engines-b) closed, round, a long decay */
     {"RAT 303", {30, 110, 90, 40, 120, 0, 90, 21}, {0, 64, 127, 10}, 0, 1},
     {"303 PLUCK", {45, 60, 90, 15, 40, 0, 10, 0}, {0, 64, 127, 10}, 0, 1},     /* (engines-b) a short decay, no slide */
-    {"DEEP 303", {20, 40, 40, 70, 30, 0, 0, 21}, {0, 64, 127, 10}, 0, 1},      /* (engines-b) closed, round, a long decay */
+    /* (engines-b) the owner's maybes (November 21 audition): kept, after the keeps, for a second audition */
+    {"SQR ACID", {50, 90, 70, 70, 80, 1, 20, 30}, {0, 64, 127, 10}, 0, 1},
 };
 /* (engines-b) the page descriptor (fw_pages_t version 3): the rows, the pid table, HOME's four macro knobs (tools/module/cand_pages.h) */
 #include "cand_pages.h"

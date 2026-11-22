@@ -409,6 +409,13 @@ static const preset_t MC_PRESETS[] = {
     {"VOWEL", {24, 10, 64, 64, 0, 0, 70, 0}, {10, 80, 110, 60}, 0, 1},
     {"SAM VOICE", {24, 30, 64, 40, 0, 0, 70, 0}, {10, 80, 110, 60}, 0, 1},
     {"LPC WORDS", {24, 70, 64, 30, 0, 0, 70, 0}, {0, 127, 127, 60}, 0, 1},
+    /* (engines-b, the owner's audition of November 21) keys on the FM model, which the default pick carries: the default pick had none at the keys' level
+     * (CHORD STAB sat 5.5 dB under; DX EPIANO and PD KEYS need the larger pick). Levels by the render analysis, docs/candidates/engines_b.md 6 */
+    {"FM EPIANO", {2, 24, 40, 40, 0, 0, 60, 20}, {0, 60, 25, 40}, 0, 0},        /* warm: a low ratio, little index */
+    {"FM EPIANO 2", {2, 24, 30, 50, 0, 0, 70, 10}, {0, 62, 30, 40}, 0, 0},      /* a shorter, rounder decay */
+    {"FM KEYS A", {2, 90, 60, 30, 0, 0, 80, 30}, {0, 64, 30, 40}, 0, 0},        /* FM BELL's tone with a keys envelope */
+    {"FM KEYS B", {2, 90, 60, 30, 0, 0, 80, 30}, {0, 58, 20, 30}, 0, 0},        /* the same, shorter */
+    {"FM KEYS C", {2, 30, 70, 50, 0, 50, 45, 40}, {0, 60, 30, 40}, 0, 0},       /* FM BASS's tone played as keys (poly) */
 };
 #define MC_PRESETS_MACRO 27u                          /* MACRO's own, 0.5.x: what golden.txt's preset/MACRO lines 0..26 are */
 

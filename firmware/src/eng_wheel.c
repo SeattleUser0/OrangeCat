@@ -300,6 +300,7 @@ static const preset_t WHEEL_PRESETS[] = {
     {"GOSPEL", {6, 0, 0, 0, 1, 60, 40, 2}, {0, 64, 127, 45}, 0, 0},
     {"SOFT FLUTE", {1, 0, -2, 0, 0, 10, 0, 1}, {0, 64, 127, 55}, 0, 0},
     {"ROCK DRIVE", {7, 0, 0, 0, 0, 70, 100, 2}, {0, 64, 127, 40}, 0, 0},
+    {"ORGAN BASS", {1, 8, -4, -8, 0, 40, 20, 0}, {0, 64, 127, 20}, 0, 1},   /* (engines-b, the owner's audition of November 21) the sub drawbars, no top, no rotor; MONO */
 };
 
 static const engine_t ENG_WHEEL = {
