@@ -32,7 +32,7 @@
 //           pick) is read with the probe at the Install; fxCurrent and moduleCurrent compare it with the file's image for the module's start (ocUnitHolds), every kind, the models too. A
 //           unit that does not send it gets today's decision (version and size; a models module always written).
 
-import { bkPack, bkCrc } from "./fm1backup.js";
+import { bkPack, bkCrc, bkEcho, ReplyGate } from "./fm1backup.js";
 import { PLACE } from "./fm1place.js";
 
 export const OC_CMD = { PACK_INFO: 115, PACK_BEGIN: 116, PACK_WRITE: 117, PACK_END: 118, PACK_ERASE: 119,
@@ -47,13 +47,18 @@ const ocSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export class OcError extends Error { constructor(code, detail = "") { super(code + (detail ? ": " + detail : "")); this.code = code; this.detail = detail; } }
 
 // one MIDI in/out pair speaking F0 7D 46 4C cmd args F7 (the editor's framing); one request at a time
+// (Round 32) replies matched to their request through fm1backup.js's ReplyGate (bkEcho: the extension's n, BACKUP GET's id and offset ..): a late reply
+// of a try that timed out never answers a later request. A module or pack WRITE's reply (rc, done) echoes nothing, but a write taken says its end: an rc 0
+// reply is an owed write's only with that write's end; a refusal while a WRITE of another offset is owed is taken as that one's (writeChunk sends again)
 export class OcLink {
-  constructor(input, output) {
-    this.input = input; this.output = output; this.pending = null; this.closed = false;
+  constructor(input, output, { log } = {}) {
+    this.input = input; this.output = output; this.pending = null; this.closed = false; this.gate = new ReplyGate(bkEcho, log);
     input.onmidimessage = (e) => {
       const d = e.data;
       if (d.length < 6 || d[0] !== 240 || d[1] !== 125 || d[2] !== 70 || d[3] !== 76 || d[d.length - 1] !== 247) return;
-      if (this.pending && this.pending.cmd === d[4]) { const p = this.pending; this.pending = null; clearTimeout(p.timer); p.resolve(Array.from(d.slice(5, -1))); }
+      const a = Array.from(d.slice(5, -1));
+      if (!this.gate.take(d[4], a, this.pending)) return;
+      const p = this.pending; this.pending = null; clearTimeout(p.timer); this.gate.finish(p, true); p.resolve(a);
     };
   }
   get lost() { return this.closed || this.input.state === "disconnected" || this.output.state === "disconnected"; }
@@ -63,10 +68,11 @@ export class OcLink {
       if (this.lost) throw new OcError("ocLost");
       if (this.pending) throw new OcError("ocBusy");
       const r = await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => { this.pending = null; resolve(null); }, timeout);
-        this.pending = { cmd, timer, resolve };
-        try { this.output.send([240, 125, 70, 76, cmd, ...args, 247]); }
-        catch (e) { clearTimeout(timer); this.pending = null; reject(new OcError("ocLost")); }
+        const c = { cmd, args, resolve };
+        c.timer = setTimeout(() => { if (this.pending === c) { this.pending = null; this.gate.finish(c, false); } resolve(null); }, timeout);
+        this.pending = c;
+        try { this.output.send([240, 125, 70, 76, cmd, ...args, 247]); this.gate.sent(c, timeout); }
+        catch (e) { clearTimeout(c.timer); this.pending = null; reject(new OcError("ocLost")); }
       });
       if (r) return r;
     }

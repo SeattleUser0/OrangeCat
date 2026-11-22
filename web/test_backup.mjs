@@ -3,7 +3,8 @@
 // Portions Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 // fm1backup.js against a simulated device: 7-bit packing, CRC, manifest checks, a full capture,
 // validation before the first write, restore order (live music last) and abort on a failed chunk.
-import { BACKUP_IDS, ARR_IDS, BACKUP_CMD, bkU32, bkR32, bkPack, bkUnpack, bkCrc, bkManifest, readBackup, captureBackup, restoreBackup } from "./fm1backup.js";
+import { BACKUP_IDS, ARR_IDS, BACKUP_CMD, bkU32, bkR32, bkPack, bkUnpack, bkCrc, bkManifest, readBackup, captureBackup, restoreBackup, BackupConnection } from "./fm1backup.js";
+import { OcLink } from "./fm1oc.js";
 
 let fails = 0;
 const ok = (c, what) => { console.log(`${what.padEnd(72)} ${c ? "ok" : "FAIL"}`); if (!c) fails++; };
@@ -186,6 +187,39 @@ ok(sharedTarget.objs.get(28).every((v,i)=>v===sharedData[i]),"backup: final comp
      "backup: the arrangement objects restore byte for byte, an empty one as empty");
   const old = device([], { ids: sharedIds });
   ok(await athrows(() => restoreBackup(old.request, arrFile)) && !old.log.length, "backup: a firmware without them refuses the archive before any write");
+}
+// (Round 32) replies matched to their request. Found on the unit: a GET timed out, was sent again, and the late reply of its FIRST send answered the
+// NEXT GET ("Unexpected backup reply" at 50 %). The device below behind a MIDI port pair (the page's framing); one GET's reply comes 1.3 s late (past
+// captureBackup's 1 s timeout: the retry is answered at once), and every other GET's takes 60 ms (a busy unit), so the late reply lands while a later
+// GET waits. The capture must complete, byte for byte, the late reply discarded and logged.
+{
+  function midiPort(d, late) {
+    const input = { state: "connected", onmidimessage: null };
+    const output = { state: "connected", send(m) {
+      const cmd = m[4], args = Array.from(m.slice(5, -1));
+      Promise.resolve(d.request([cmd, args])).then((a) => {
+        const f = () => input.onmidimessage?.({ data: Uint8Array.from([240, 125, 70, 76, cmd, ...a, 247]) });
+        const ms = late(cmd, args); ms ? setTimeout(f, ms) : setImmediate(f);
+      });
+    } };
+    return { input, output };
+  }
+  const lateObjs = [[0, rnd(1800, 31)], [1, rnd(900, 32)], [2, rnd(700, 33)]];
+  const want = await captureBackup(device(lateObjs.map(([i, v]) => [i, v.slice()])).request, "LATE");
+  const lateOnce = () => {
+    let fired = false;
+    return (cmd, args) => cmd !== BACKUP_CMD.GET ? 0 : !fired && args[0] === 0 && bkR32(args, 1) === 256 ? (fired = true, 1300) : 60;
+  };
+  const same = (f) => f.objects.length === want.objects.length && f.objects.every((o, i) => o.id === want.objects[i].id && o.data === want.objects[i].data);
+  for (const [name, open] of [["the hardware tool's OcLink (tools/hw/oc_install.mjs backup)", (p, log) => { const l = new OcLink(p.input, p.output, { log }); return (r, o) => l.ask(r, o); }],
+                              ["the installer's BackupConnection (index_pkg.html)", (p, log) => { const l = new BackupConnection(p.input, p.output, { log }); return (r, o) => l.request(r, o); }]]) {
+    const logged = [], port = midiPort(device(lateObjs.map(([i, v]) => [i, v.slice()])), lateOnce());
+    let file = null, err = "";
+    try { file = await captureBackup(open(port, (m) => logged.push(m)), "LATE"); } catch (e) { err = e.message; }
+    ok(file && same(file), `backup (Round 32): ${name}: a GET's reply 1.3 s late, the backup completes byte for byte${err ? " (" + err + ")" : ""}`);
+    ok(logged.length === 1 && /late reply of command 66/.test(logged[0]), `backup (Round 32): ${name}: the late reply discarded and logged once`);
+    await new Promise((r) => setTimeout(r, 1400));             // (no reply left in flight for the next case)
+  }
 }
 console.log(fails ? `BACKUP WEB TESTS FAILED (${fails})` : "backup web tests passed");
 process.exit(fails ? 1 : 0);

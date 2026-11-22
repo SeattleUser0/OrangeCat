@@ -208,23 +208,83 @@ export async function restoreBackup(request, file, onProgress = () => {}) {
   return archive;
 }
 
+// (Round 32) replies matched to their request (BUILD.md 7.54). A reply can come after its request timed out: the unit was slow, the page sent the
+// request again (retries) or went on to the next one. Before this round the page took any reply of the command it waited for, so the late reply of
+// the FIRST send of a BACKUP GET answered the NEXT GET (another offset: "Unexpected backup reply" at 50 %). Now every send that got no reply of its own
+// is owed for a while (3 x its timeout, at least 3 s), and a reply that comes is matched:
+//   1. it echoes the arguments of an owed send of another request (echo(cmd, args, a), the arguments the firmware puts back: editor.c,
+//      editor_backup.c): that send's late reply, discarded and logged; for a command whose reply echoes nothing, any reply of the command while one of
+//      another identity (other arguments) is owed is taken as that one's (the request waiting then times out and is sent again: never a wrong answer);
+//   2. it is the waiting request's when the command is the same and echo() agrees; an owed send of the identical request (cmd and arguments: its reply
+//      says the same) is taken as the one that answered;
+//   3. anything else is not this page's (a push frame, another tool's reply): ignored, as before.
+// The same gate is in web/editor.html's Link (the editor page and the web app's editor_proto.js), with the editor's replyMatches as echo().
+export function bkEcho(cmd, args, a, owed = false) {
+  switch (cmd) {
+    case 66: return a[0] === args[0] && [1, 2, 3, 4, 5].every((i) => a[i + 1] === args[i]);   // BACKUP GET: id, rc, offset (5), size: id and offset
+    case 67: return a[0] === args[0] && a[1] === args[1];                                       // BACKUP PUT: op, id, rc
+    case 11: case 12: case 13: case 14: return a[0] === args[0];                               // the old sample slot commands (Melodee 1.x): slot first
+    case 0: return a[0] === args[0];                                                            // the extension (FX_INFO ..): n, then the reply
+    case 117: case 122: return !owed || a[0] !== 0 || (a[1] | a[2] << 7 | a[3] << 14) === (args[0] | args[1] << 7 | args[2] << 14) + bkPackedLen(args.length - 3);
+      // PACK / MOD WRITE: rc, done (3 x 7 bits), no echo; but a write the unit took (rc 0) says its own end in done (oc_pack_write, oc_mod_write since 0.8.0),
+      // so an rc 0 reply with another end is not an owed write's (owed: echo asked about an owed send). A refusal could be any write's.
+    default: return true;                                                                       // INFO, LIST, 110, the pack and module commands: no echo
+  }
+}
+const bkPackedLen = (L) => Math.floor(L / 8) * 7 + (L % 8 ? L % 8 - 1 : 0);   // the bytes bkPack made L wire bytes of
+const bkSame = (x, y) => x.cmd === y.cmd && x.args.length === y.args.length && x.args.every((v, i) => v === y.args[i]);
+export class ReplyGate {
+  constructor(echo, log = (m) => console.warn(m)) { this.echo = echo; this.log = log; this.owed = []; this.stale = 0; }
+  // c ({cmd, args}) was sent (again)
+  sent(c, timeout) { c.sends = (c.sends || 0) + 1; c.until = Date.now() + Math.max(3000, 3 * timeout); }
+  // c is done: answered (true) or timed out; its sends without a reply are owed
+  finish(c, answered) {
+    for (let n = (c.sends || 0) - (answered && !c.borrowed ? 1 : 0); n > 0; n--) this.owed.push({ cmd: c.cmd, args: c.args, until: c.until });
+  }
+  // a reply (cmd, data a) while c waits (or null) -> true: it is c's; false: discarded
+  take(cmd, a, c) {
+    const now = Date.now(); this.owed = this.owed.filter((o) => o.until > now);
+    const i = this.owed.findIndex((o) => o.cmd === cmd && !(c && bkSame(o, c)) && this.echo(cmd, o.args, a, true));
+    if (i >= 0) {
+      this.owed.splice(i, 1); this.stale++;
+      this.log(`late reply of command ${cmd} discarded (its request had timed out): [${a.slice(0, 9).join(" ")}]`); return false;
+    }
+    if (!c || c.cmd !== cmd || !this.echo(cmd, c.args, a)) return false;                           // not a reply of this page's (a push, another tool's)
+    const j = this.owed.findIndex((o) => bkSame(o, c));
+    if (j >= 0) { this.owed.splice(j, 1); c.borrowed = true; }
+    return true;
+  }
+}
+
 // Installer connection: no editor page or watcher owns this input simultaneously.
+// (Round 32) replies through a ReplyGate; opt.retries sends a request again after its timeout (captureBackup asks GET with one retry).
 export class BackupConnection {
-  constructor(input, output) {
-    this.input = input; this.output = output; this.pending = null;
+  constructor(input, output, { log } = {}) {
+    this.input = input; this.output = output; this.pending = null; this.gate = new ReplyGate(bkEcho, log);
     input.onmidimessage = (e) => {
       const d = e.data;
       if (d.length < 6 || d[0] !== 240 || d[1] !== 125 || d[2] !== 70 || d[3] !== 76 || d.at(-1) !== 247) return;
-      if (this.pending?.cmd === d[4]) { const p = this.pending; this.pending = null; clearTimeout(p.timer); p.resolve(Array.from(d.slice(5, -1))); }
+      const a = Array.from(d.slice(5, -1));
+      if (!this.gate.take(d[4], a, this.pending)) return;
+      const p = this.pending; this.pending = null; clearTimeout(p.timer); this.gate.finish(p, true); p.resolve(a);
     };
   }
   async request([cmd, args], opt = {}) {
     if (this.pending || this.closed || this.input.state === "disconnected" || this.output.state === "disconnected") throw new Error("Backup connection closed or busy");
+    const timeout = opt.timeout || 1200; let tries = opt.retries || 0;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending = null; reject(new Error("Backup timed out. Keep the FM-1 connected and stopped.")); }, opt.timeout || 1200);
-      this.pending = { cmd, timer, resolve, reject };
-      try { this.output.send([240, 125, 70, 76, cmd, ...args, 247]); }
-      catch (e) { clearTimeout(timer); this.pending = null; reject(e); }
+      const c = { cmd, args, resolve, reject };
+      const fire = () => {
+        try { this.output.send([240, 125, 70, 76, cmd, ...args, 247]); }
+        catch (e) { this.pending = null; this.gate.finish(c, false); reject(e); return; }
+        this.gate.sent(c, timeout);
+        c.timer = setTimeout(() => {
+          if (this.pending !== c) return;
+          if (tries-- > 0) { fire(); return; }
+          this.pending = null; this.gate.finish(c, false); reject(new Error("Backup timed out. Keep the FM-1 connected and stopped."));
+        }, timeout);
+      };
+      this.pending = c; fire();
     });
   }
   close() {

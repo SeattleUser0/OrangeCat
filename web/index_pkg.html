@@ -746,7 +746,7 @@ async function openUnit(midi, waitMs = 60000) {
     const input = [...midi.inputs.values()].find(isU);
     const output = input && [...midi.outputs.values()].find((o) => o.name === input.name && o.state !== "disconnected");
     if (input && output) {
-      try { if (input.open) await input.open(); if (output.open) await output.open(); return new OcLink(input, output); } catch (_) { /* try again */ }
+      try { if (input.open) await input.open(); if (output.open) await output.open(); return new OcLink(input, output, { log }); } catch (_) { /* try again */ }
     }
     if (Date.now() > end) return null;
     await new Promise((r) => setTimeout(r, 1000));
@@ -949,7 +949,7 @@ async function leaveMelodee(target) {
       if (!device) { sayK("notfound"); return; }
       const input = device.link.input, output = device.link.output; device.link.close();
       if (!skipBackup) {
-        link = new BackupConnection(input, output);
+        link = new BackupConnection(input, output, { log });
         const info = archiveInfo(await link.request([1,[]]));
         if (!info.supported) { sayK("stockUnsupported"); return; }
         const archive = await captureBackup((r,o) => link.request(r,o), info.version,

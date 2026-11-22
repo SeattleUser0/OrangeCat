@@ -94,7 +94,8 @@ function makeUnit(opts = {}) {
       let rc = 0;
       if (off === u.modDone) u.modDone += n; else rc = 1;
       if ((opts.dropReply || []).includes(k)) return;            //   taken, the reply is lost
-      reply(122, [rc, ...n3(u.modDone)]);
+      const ms = opts.late?.[k] ?? opts.slow ?? 0, data = [rc, ...n3(u.modDone)];   // (Round 32) the reply to send k comes ms late (a busy unit)
+      if (ms) setTimeout(() => reply(122, data), ms); else reply(122, data);
     }
     else if (cmd === 122) { u.writes[122]++; reply(122, [0, ...n3(args[0] | args[1] << 7 | args[2] << 14)]); }
     else if (cmd === 123) { u.module = true; reply(123, [opts.modRc || 0, ...n3(0x400)]); }
@@ -278,6 +279,20 @@ const withTrailer = () => { const f = makePack(), t = new Uint8Array(f.length + 
   const out = real.output, send = out.send;                   // (the unit's count is moved: its reply to the repeat is not this chunk's end)
   out.send = (m) => { if (m[4] === 122 && u.tries.length === 1) u.modDone = 0x300; send(m); };
   await assert.rejects(installModule(real, OCM.parse(makeOcm()), () => {}, {}), (e) => e.code === "modFail");
+}
+// 12d2. (Round 32) replies matched to their request: a late reply never answers the next write. The unit took the first send of 256 (its reply lost);
+// the second send's reply (a refusal, done == the chunk's end) comes 1.1 s late, past its timeout; the third is answered (150 ms, as every reply here)
+// and the write goes on. Before Round 32 the link took any reply of command 122: the late refusal answered the write of 512 and the install failed
+// (modFail). Now it is discarded (logged), and the module goes to its end with every byte once.
+{
+  const logged = [];
+  const u = makeUnit({pack: "current", strict: true, dropReply: [0], late: {1: 1100}, slow: 150});
+  const link = new OcLink(u.link().input, u.link().output, {log: (m) => logged.push(m)});
+  await installModule(link, OCM.parse(makeOcm()), () => {}, {});
+  assert.deepEqual(u.tries, [256, 256, 256, 512, 768], "256 sent three times, then each offset once");
+  assert.ok(u.sent.includes(123) && u.modDone === 0x400, "the module went to its end, every byte once");
+  assert.ok(logged.length === 1 && /late reply of command 122/.test(logged[0]), "the late reply discarded and logged");
+  await new Promise((r) => setTimeout(r, 200));
 }
 // 12e. (release-2) the pack write is sent again as the module write is
 {

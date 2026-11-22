@@ -14,6 +14,8 @@ import * as PG from "../lib/pages.js";
 import { connected } from "./test_unit.mjs";
 import { PACK } from "../lib/mock.js";
 import { existsSync } from "node:fs";
+import { Session } from "../lib/session.js";
+import { BACKUP_IDS, bkU32, bkR32, bkPack, bkCrc } from "#fm1backup";
 
 const SRC = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "firmware", "src");
 const read = (f) => readFileSync(join(SRC, f), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
@@ -82,4 +84,67 @@ export async function run() {
   const slot = PG.projectSlot(s.dump);
   ok(slot && slot.index === s.dump.g[16] - 1 && slot.text === FW.classes[FW.gpClass[16]].text[slot.index], `proto: the slot in use is PROJECT's SLOT read from DUMP, in the unit's words (${slot && slot.text})`);
   s.close();
+  await lateReplies();
+}
+
+/* (Round 32) replies matched to their request: the app's Session (its Link, the editor's) against a unit behind a MIDI port pair whose reply to one
+   send comes after the request's timeout (the request was sent again and answered), while the next request of the command waits. Before Round 32
+   the Link took the late reply for the next request when the command's reply was not compared (KIT_GET, a module WRITE); now it is discarded. */
+async function lateReplies() {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  function unit(answer, delay) {
+    const input = { state: "connected", onmidimessage: null }, sent = [];
+    const output = { state: "connected", send(d) {
+      const f = E.unframe(d), k = sent.push(f) - 1, a = answer(f.cmd, f.a);
+      if (!a) return;
+      const ms = delay(f.cmd, f.a, k), go = () => input.onmidimessage?.({ data: Uint8Array.from(E.frame(f.cmd, a)) });
+      ms ? setTimeout(go, ms) : setImmediate(go);
+    } };
+    return { input, output, sent };
+  }
+  const stale = [], hooks = {};
+  const open = (u) => { const x = new Session(u.input, u.output, hooks); x.link.onStale = (f) => stale.push(f.cmd); return x; };
+  /* KIT_GET (the reply names the track: editor.c ed_kit_handle): track 0's first reply 500 ms late (timeout 400, one retry), track 1's 200 ms */
+  {
+    stale.length = 0;
+    const u = unit((cmd, a) => (cmd === E.CMD.KIT_GET ? [a[0], 0, 1, ...new Array(77).fill(0)] : null), (cmd, a, k) => (k === 0 ? 500 : a[0] === 1 ? 200 : 5));
+    const x = open(u), k0 = await x.kitGet(0), k1 = await x.kitGet(1);
+    ok(k0?.track === 0 && k1?.track === 1 && stale.length === 1, `proto (Round 32): KIT_GET: track 0's late reply does not answer track 1's request (got ${k0?.track}, ${k1?.track}; ${stale.length} discarded)`);
+    await wait(300); x.close();
+  }
+  /* a module WRITE (rc, done: no echo) sent again: the first send's late reply (rc 0, done 512) must not answer the write of 512 */
+  {
+    stale.length = 0;
+    let done = 256;
+    const u = unit((cmd, a) => {
+      if (cmd !== E.CMD.MOD_WRITE) return null;
+      const off = a[0] | a[1] << 7 | a[2] << 14, n = Math.floor((a.length - 3) * 7 / 8);
+      if (off !== done) return [1, done & 127, done >> 7 & 127, done >> 14];
+      done += n; return [0, done & 127, done >> 7 & 127, done >> 14];
+    }, (cmd, a, k) => (k === 0 ? 450 : k === 1 ? 5 : 250));
+    const x = open(u), chunk = new Uint8Array(256).fill(7);
+    const r1 = E.parse[E.CMD.MOD_WRITE](await x.rq(E.req.modWrite(256, chunk), { timeout: 300 }));
+    const r2 = E.parse[E.CMD.MOD_WRITE](await x.rq(E.req.modWrite(512, chunk), { timeout: 300 }));
+    ok(r1.done === 512 && r2.rc === 0 && r2.done === 768 && stale.length === 1,
+       `proto (Round 32): MOD_WRITE sent again: the first send's late reply does not answer the next write (done ${r1.done}, then rc ${r2.rc} done ${r2.done}; ${stale.length} discarded)`);
+    await wait(300); x.close();
+  }
+  /* BACKUP GET (id and offset echoed): object 0's piece at 256 answered 1.3 s late (timeout 1000, one retry), the others in 60 ms: readObject completes */
+  {
+    stale.length = 0;
+    const obj = Uint8Array.from({ length: 1500 }, (_, i) => (i * 13 + 5) & 255);
+    let fired = false;
+    const u = unit((cmd, a) => {
+      if (cmd === E.CMD.BACKUP_LIST) return [1, 0, BACKUP_IDS.length, ...BACKUP_IDS.flatMap((id) => [id, ...bkU32(id ? 0 : obj.length), ...bkU32(id ? 0 : bkCrc(obj))])];
+      if (cmd !== E.CMD.BACKUP_GET) return null;
+      const off = bkR32(a, 1), n = a[6] | a[7] << 7;
+      return [a[0], 0, ...bkU32(off), n & 127, n >> 7, ...bkPack(obj.subarray(off, off + n))];
+    }, (cmd, a) => (cmd !== E.CMD.BACKUP_GET ? 0 : !fired && bkR32(a, 1) === 256 ? (fired = true, 1300) : 60));
+    const x = open(u);
+    let got = null, err = "";
+    try { got = await x.readObject(0); } catch (e) { err = e.message; }
+    ok(got && got.length === obj.length && got.every((v, i) => v === obj[i]) && stale.length === 1,
+       `proto (Round 32): BACKUP GET: a piece's reply 1.3 s late, the object reads byte for byte, the late reply discarded${err ? " (" + err + ")" : ""}`);
+    await wait(1400); x.close();
+  }
 }

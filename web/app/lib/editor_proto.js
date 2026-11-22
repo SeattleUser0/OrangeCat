@@ -604,7 +604,44 @@ function replyMatches(cmd, args, a) {
     case CMD.TRACK_MIX: case CMD.TRACK_DUMP: return a[0] === args[0];
     case CMD.WATCH: return (a[0] & 1) === (args[0] & 1);   /* bit 1: v4 firmware only */
     case CMD.TRACK_STEP: case CMD.TRACK_PARAM: return a[0] === args[0] && a[1] === args[1];
+    /* (Round 32) the replies that echo and were taken from any reply of the command: KIT_GET / KIT_PUT the track (editor.c ed_kit_handle), PAGES the
+       engine, PANEL the engine and the first parameter (its low 7 bits) */
+    case CMD.KIT_GET: case CMD.KIT_PUT: case CMD.PAGES: return a[0] === args[0];
+    case CMD.PANEL: return a[0] === args[0] && a[1] === (args.length >= 3 ? args[1] : 0);
     default: return true;
+  }
+}
+
+/* (Round 32) replies matched to their request (BUILD.md 7.54; the same gate as web/fm1backup.js ReplyGate). A send that got no reply of its own (the
+   request timed out, or was sent again: retries) is owed for 3 x its timeout, at least 3 s. A reply that echoes (replyMatches) the arguments of an
+   owed send of another request is that send's late reply: discarded (onStale), never the answer to a later request; for a command whose reply
+   echoes nothing (replyMatches true) any reply of it while one of other arguments is owed is taken as that one's (the waiting request is sent again
+   or times out: never a wrong answer; a module or pack WRITE taken says its end: owedMatches). An owed send of the identical request (cmd and arguments) answers the request waiting. */
+/* could reply a be the late one of the owed send args? replyMatches, and (a module or pack WRITE: rc, done (3 x 7 bits), no echo) a write the unit took
+   (rc 0) says its own end in done (oc_mod_write, oc_pack_write since 0.8.0): another rc 0 reply is not that send's. A refusal could be any write's. */
+function owedMatches(cmd, args, a) {
+  if (cmd === CMD.PACK_WRITE || cmd === CMD.MOD_WRITE) {
+    const n = args.length - 3;
+    return a[0] !== 0 || (a[1] | a[2] << 7 | a[3] << 14) === (args[0] | args[1] << 7 | args[2] << 14) + Math.floor(n / 8) * 7 + (n % 8 ? n % 8 - 1 : 0);
+  }
+  return replyMatches(cmd, args, a);
+}
+const sameReq = (x, y) => x.cmd === y.cmd && x.args.length === y.args.length && x.args.every((v, i) => v === y.args[i]);
+class ReplyBook {
+  constructor() { this.owed = []; this.stale = 0; }
+  sent(c) { c.sends = (c.sends || 0) + 1; c.until = Date.now() + Math.max(3000, 3 * c.timeout); }
+  finish(c, answered) {
+    for (let n = (c.sends || 0) - (answered && !c.borrowed ? 1 : 0); n > 0; n--) this.owed.push({ cmd: c.cmd, args: c.args, until: c.until });
+  }
+  /* -> "stale" (an owed send's late reply), "mine" (the request c's), or "unknown" */
+  take(f, c) {
+    const now = Date.now(); this.owed = this.owed.filter((o) => o.until > now);
+    const i = this.owed.findIndex((o) => o.cmd === f.cmd && !(c && sameReq(o, c)) && owedMatches(f.cmd, o.args, f.a));
+    if (i >= 0) { this.owed.splice(i, 1); this.stale++; return "stale"; }
+    if (!c || f.cmd !== c.cmd || !replyMatches(c.cmd, c.args, f.a)) return "unknown";
+    const j = this.owed.findIndex((o) => sameReq(o, c));
+    if (j >= 0) { this.owed.splice(j, 1); c.borrowed = true; }
+    return "mine";
   }
 }
 
@@ -622,6 +659,8 @@ class Link {
     this.onTimeout = opts.onTimeout || (() => {});
     this.onPush = opts.onPush || (() => {});
     this.onGap = opts.onGap || (() => {});         /* (ms) nothing was sent for that long (WATCH may have ended) */
+    this.onStale = opts.onStale || ((f) => console.warn("late reply discarded (its request had timed out)", f));   /* (Round 32) */
+    this.replies = new ReplyBook();
   }
   get idle() { return !this.cur && !this.q.length; }
   hasQueued(key) { return this.q.some((r) => r.key === key); }
@@ -653,6 +692,7 @@ class Link {
     if (this.lastSent && now - this.lastSent > 2500) this.onGap(now - this.lastSent);
     this.lastSent = now;
     try { this.sendRaw(frame(c.cmd, c.args)); } catch (e) { this.finish(null, e); return; }
+    this.replies.sent(c);
     c.timer = setTimeout(() => {
       if (this.cur !== c) return;
       if (c.retries-- > 0) { this.fire(); return; }
@@ -665,6 +705,7 @@ class Link {
     if (!c) return;
     clearTimeout(c.timer);
     this.cur = null;
+    this.replies.finish(c, !err);
     if (err) c.rej(err); else c.res(val);
     this.pump();
   }
@@ -673,8 +714,9 @@ class Link {
     const f = unframe(data);
     if (!f) return;                                  /* not ours (notes, clock, other SysEx) */
     if (PUSH.has(f.cmd)) { this.onPush(f); return; }
-    const c = this.cur;
-    if (!c || f.cmd !== c.cmd || !replyMatches(c.cmd, c.args, f.a)) { this.onUnknown(f); return; }
+    const c = this.cur, k = this.replies.take(f, c);
+    if (k === "stale") { this.onStale(f); return; }
+    if (k !== "mine") { this.onUnknown(f); return; }
     this.finish(f.a);
   }
   close() {
@@ -3162,4 +3204,4 @@ async function replaceOcm(send, probe, row, ocm, ask, progress) {
 const DEV_SAVED_G = new Set([4, 5, 6, 7, 8, 9, 13, 17, 21, 41]), DEV_REST_MS = 1000;
 /*PROTO-END*/
 
-export { CMD, CRC_TABLE, CZ, DEV_SAVED_G, DUBFW, ENGINE_ORDER, F, FADE, FLASH_OPT, FM4, FM6, HDR, IMA_IDX, IMA_STEP, KIT_LANE, KIT_RANGE, KIT_SIGNED, LANES, LANE_ALIAS, LANE_NOTE, LANE_OF, LIB, Link, MODULE_SLOTS, NOTE_NAMES, OCM_FX_SECTORS, OCM_GEO, OCM_LINK0, OCM_MAGIC, OCM_MODELS_ID, OCM_RELOCATABLE, OCM_SECTOR, OC_BEGIN_MS, P5, P5_FACTORY, PUSH, P_CHORD, P_MPCDEG, Reader, SCALE_INFO, SMP, TRACK_OWN, UP, aliasOf, assignEngine, auditionPatch, autoTrim, bank, buildSlot, capturePatch, chkError, cleanPatch, crc16x, crc32, czBankDecode, czBankEncode, czBankRead, czBankUpload, czBkNumber, czBkPack, czBkU32, czBkUnpack, czLegacyTone, czLibraryPatch, devicePresetRows, drumLane, drumWireValid, dubField, dubPack, dubSyncNow, dxkCrc, dxkitFromRecord, dxkitRecord, dxkitValid, engineLabel, engineOrder, enginesRows, fetchModPages, fmtValue, frame, fromDigital, fxCheck, globalReserved, gridFromSteps, hitsEnc, hitsText, imaEncode, kitBody, kitFromBody, libraryFile, macroId, makeMockDevice, mayWrite, mixer, modCode, modSummary, nativeBank, nativeImportTargets, normalize, noteName, ocmCheck, ocmFxCaps, ocmFxDesc, ocmFxRead, ocmImage, ocmModelsDesc, ocmParse, ocmReason, ocmRelocate, ocmSwapPlan, ocmTails, ocmWrite, p5LibraryPatch, pack7, packProblem, paramKeys, paramReserved, parse, parseHits, parseNote, parseNotes, parseWav, patNorm, patternFromSteps, patternUsed, pyRound, readDevicePreferences, readHits, readLibraryFile, readSysexLibrary, remapParams, replaceOcm, replyMatches, req, resample, reservedFm4, rootFromName, sameKeys, scaleRows, sharedBank, startWatch, stepAccents, stepLanes, stepsFromPattern, strEnc, tailParams, takeSample, trackOwn, unframe, unpack7, upName, v14dec, v14enc, writeRange, zoomView };
+export { CMD, CRC_TABLE, CZ, DEV_SAVED_G, DUBFW, ENGINE_ORDER, F, FADE, FLASH_OPT, FM4, FM6, HDR, IMA_IDX, IMA_STEP, KIT_LANE, KIT_RANGE, KIT_SIGNED, LANES, LANE_ALIAS, LANE_NOTE, LANE_OF, LIB, Link, MODULE_SLOTS, NOTE_NAMES, OCM_FX_SECTORS, OCM_GEO, OCM_LINK0, OCM_MAGIC, OCM_MODELS_ID, OCM_RELOCATABLE, OCM_SECTOR, OC_BEGIN_MS, P5, P5_FACTORY, PUSH, P_CHORD, P_MPCDEG, Reader, ReplyBook, SCALE_INFO, SMP, TRACK_OWN, UP, aliasOf, assignEngine, auditionPatch, autoTrim, bank, buildSlot, capturePatch, chkError, cleanPatch, crc16x, crc32, czBankDecode, czBankEncode, czBankRead, czBankUpload, czBkNumber, czBkPack, czBkU32, czBkUnpack, czLegacyTone, czLibraryPatch, devicePresetRows, drumLane, drumWireValid, dubField, dubPack, dubSyncNow, dxkCrc, dxkitFromRecord, dxkitRecord, dxkitValid, engineLabel, engineOrder, enginesRows, fetchModPages, fmtValue, frame, fromDigital, fxCheck, globalReserved, gridFromSteps, hitsEnc, hitsText, imaEncode, kitBody, kitFromBody, libraryFile, macroId, makeMockDevice, mayWrite, mixer, modCode, modSummary, nativeBank, nativeImportTargets, normalize, noteName, ocmCheck, ocmFxCaps, ocmFxDesc, ocmFxRead, ocmImage, ocmModelsDesc, ocmParse, ocmReason, ocmRelocate, ocmSwapPlan, ocmTails, ocmWrite, owedMatches, p5LibraryPatch, pack7, packProblem, paramKeys, paramReserved, parse, parseHits, parseNote, parseNotes, parseWav, patNorm, patternFromSteps, patternUsed, pyRound, readDevicePreferences, readHits, readLibraryFile, readSysexLibrary, remapParams, replaceOcm, replyMatches, req, resample, reservedFm4, rootFromName, sameKeys, sameReq, scaleRows, sharedBank, startWatch, stepAccents, stepLanes, stepsFromPattern, strEnc, tailParams, takeSample, trackOwn, unframe, unpack7, upName, v14dec, v14enc, writeRange, zoomView };
