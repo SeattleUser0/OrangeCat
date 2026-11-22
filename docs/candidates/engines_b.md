@@ -183,3 +183,60 @@ page, the workflow and the engine table are Session A's to decide):
    box); engine module entries are bare URLs. The same flag on these four entries, and the page's room meter counting them only when ticked.
 Room, once ticked (section 4): all four 10 sectors; the default set already fills 21 of 21, so the page will say what to leave out (SHAPES' 6 sectors
 hold SUPERSAW 1 + MIXTUR 2 + X0X303 3).
+
+## 9. The owner's audition, applied (November 21)
+
+**The four modules, in his order** (bass, lead, keys, pad, pluck, texture; the maybes after; the cuts removed). Unreleased modules, so their indices
+moved freely; golden lines regenerated.
+
+| Engine | Presets (0 ..) | Maybes (after) | Cut |
+|---|---|---|---|
+| X0X303 | 303, DEEP 303, RAT 303, 303 PLUCK | SQR ACID | SQUELCH |
+| SUPERSAW | DRIVE BAS, SUB BASS, SQR LEAD, SUPERSAW, SAW PLUCK, HOOVER | TRANCE LEAD, SAW KEYS, SAW PAD | - |
+| MIXTUR | MIXTUR, MIX ORGAN, VOWEL O, DRONE CHOIR, BIRDS | MIX LEAD, SUBHARM | - |
+| BRASS | TUBA, HORN LD, BRASS STAB, BRASS SECTION, SOFT HORN | BRASS, MUTED, BLARE | - |
+
+**MACRO and WHEEL, factory presets added** (appended: shipping engines, no index moves), each rendering byte for byte the file the owner heard:
+MACRO 47 FM EPIANO, 48 FM EPIANO 2, 49 FM KEYS A, 50 FM KEYS B, 51 FM KEYS C (the FM model: the default pick; browse.c category K; five golden lines added,
+regress 435 renders unchanged and no health failure; the four-knob audit clear on all five, >= 4 dB); WHEEL 5 ORGAN BASS (the module and the reference
+build's built-in WHEEL render it alike; its test counts six). JAZZ PERC and ROCK DRIVE were WHEEL's already. PERC BASS (a proposal) cut.
+
+## 10. The four as installer modules, unticked (November 21)
+
+- **Firmware**: `OC_ENGINE_MODS` (core.h; on in tools/orangecat_engines.sh): a shipping build's engine table is 30 long, 20..29 retired slots but X0X303
+  (23), SUPERSAW (25), BRASS (28) and MIXTUR (29), each offered only while its module is registered. **X0X303 moved from 47 to 23** (the Rhodes proposal's
+  slot; the Rhodes, never registrable, to 47) so the table grows by 10 entries, not 28 (about 90 B of RAM). A project holding one is saved
+  (proj_candidate_tracks). Limits as any engine past 15: no user preset slot, no favorite (upreset.c, favorites.c). An older firmware refuses a project
+  that holds one (an engine past its table).
+- **The site**: web/make_site.py `ENGINE_OPTIONAL` lists the four `{url, kind: 0, engine, name, sectors, optional: true}`. Workflow rev 30 builds the
+  three new modules and puts the four in the Nightly; the Standard site leaves them out until a release takes them (as each effect module so far).
+- **The page**: one box an engine, unticked by default (`eng-opt-<n>`); a ticked one is counted by the room meter, the placement and Install (after the
+  stage's engine module); when the ticked set does not fit, the give-way question offers the ticked engines beside the ticked effect modules, and the
+  meter names the one chosen. web/fm1place.js carries the four's geometry, proved against the C planner (web/test_place.mjs, now drawing and planning
+  the four: 349,008 plans without the tail and 362,868 with it, 0 disagree). web/test_installer_page.mjs d2b: unticked by default, not installed; ticked,
+  installed after the stage's module. **Not tested on the page:** the give-way question with an engine ticked (the page test has no models master for it).
+- **Room**: Release 3's default set fills 21 of 21 sectors, so ticking any of the four asks what gives way: X0X303 3, SUPERSAW 1, BRASS 4, MIXTUR 2.
+
+## 11. The second audition (`~/oc-audition/engines-b-2026-11-21-round2/`, values in its values.tsv)
+
+**The nine maybes, what made each weaker than its kept neighbours, and the rework** (levels by the render analysis; the original values stay in the
+code until the owner chooses):
+
+| Maybe | Weaker because (the render analysis, the knob audit) | Rework |
+|---|---|---|
+| X0X303 SQR ACID | the darkest of the 303s (centroid 193 Hz, 303's 267) and peaks 4 dB under theirs: hollow beside 303 and DEEP 303 | CUT 100, RES 105, ENV 110: centroid 281 Hz, -20.3 dB |
+| SUPERSAW SAW PAD | almost SUPERSAW itself (398 / 377 Hz, both -14.6 dB): only its slow swell differs; all four knobs under 3 dB | DTUN 127, MRPH 30, no sub or drive, slower: wider and brighter than SUPERSAW; knobs clear |
+| SUPERSAW TRANCE LEAD | sound as measured, a thin mono stack (detune 60) beside SQR LEAD: character, not a fault | DTUN 95, MRPH 15, DRIV 70, no sub |
+| SUPERSAW SAW KEYS | 1 dB under the keys' level, dark for keys (493 Hz), WIDTH and DRIVE weak | brighter and driven (MRPH 45, DRIV 45), LEVL 100: -18.4 dB (a chord meets the soft knee) |
+| MIXTUR SUBHARM | a second MIXTUR: the same role, envelope and level (-19.1 / -19.4 dB) | a slow pad (A 40, S 110, more Q): -14.9 dB |
+| MIXTUR MIX LEAD | static (its level holds flat, +0.1 dB) and resonant-bright (1,161 Hz) | less Q (35), lower formants, a third undertone for body: 785 Hz |
+| BRASS BRASS, MUTED, BLARE | poly leads that swell 490 to 505 ms on every note, sluggish on a line beside HORN LD (5 ms); on BLARE, BRITE does nothing (0.6 dB) | MONO, attack 0 (BLARE 14), BLARE's start and sweep lowered: BRITE now clear (5.3 dB). **SWEEP stays weak on all mono brass leads** (BLARE 0.6): the sweep follows the envelope, which a legato line does not retrigger; detached notes move it |
+
+**The next batch, levelled** (FMBELL, DDDD and ARC gained LEVL on P_E7, their renders at 64 unchanged; AETHER has no free control, P_E7 is its TILT):
+
+| Engine | Existing presets | Proposed (new) | Notes |
+|---|---|---|---|
+| FMBELL | FM BELL, GLASS (plucks: bells that ring), E PIANO (keys), FM BASS (bass, -15.5 dB: one voice) | FM LEAD, FM PAD, FM NOISE | - |
+| DDDD | WALL, CRACKLE, SCREAM, STUTTER (textures; STUTTER -20.5 dB: its gating) | none kept | METAL HIT (a pluck from the wall: -24 dB, gone in 10 ms) and LOW DRONE (not low: 7 kHz) dropped: a wall is texture |
+| ARC | ARC, BEATING (pads), REED (lead), SCREAM (texture) | ARC BASS, ARC KEYS | - |
+| AETHER | AETHER, THEREMIN (leads), REEDY (pad), SIREN (texture) | none | the leads and SIREN 4 to 7 dB under (peaks near -18 dBFS): a level for them needs a module gain REEDY cannot take, or a control in place of one of op1r's |
