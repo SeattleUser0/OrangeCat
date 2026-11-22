@@ -304,6 +304,10 @@ static const engine_t *ENGINES[NENGINES] = {
     &ENG_RETIRED,                /* 25: SUPERSAW, a module */
     &ENG_RETIRED, &ENG_RETIRED,  /* 26, 27: DDDD, AETHER (a measurement build's): retired here */
     &ENG_RETIRED, &ENG_RETIRED,  /* 28: BRASS, 29: MIXTUR, modules */
+#if OC_WAVE
+    &ENG_RETIRED, &ENG_RETIRED,  /* 30, 31: ARC, GRANULAR (a measurement build's): retired here */
+    &ENG_RETIRED,                /* 32: (wave-engine) WAVE, a module */
+#endif
 #endif
 };
 
@@ -378,6 +382,9 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
 #elif OC_ENGINE_MODS
     ENGI_X0X303, ENGI_SUPERSAW, ENGI_BRASS, ENGI_MIXTUR,   /* (engines-b) the four a shipping build takes as modules: offered only while registered */
 #endif
+#if OC_WAVE
+    ENGI_WAVE,                   /* (wave-engine) WAVE, offered only while registered */
+#endif
 };
 
 /* (0.14.1) one of op1r's proposed numbers (core.h ENGI_FMBELL .. ENGI_GRANULAR), a measurement build's */
@@ -392,8 +399,8 @@ static int eng_extra_retired(uint32_t e)
 #endif
     return e == ENGI_DIGITAL || (!MELODEE_LEGACY_EXTRAS && (e == 2u || e == 5u || e == 6u || (e == ENGI_WHEEL && !eng_mod[ENGI_WHEEL]) || (e == 9u && !MELODEE_DRUMX) || e == 11u))
         || (!MELODEE_SID && e == 3u) || (!MELODEE_CZ && e == ENGI_CZ) || (!MELODEE_FM6 && e == ENGI_FM6) || (!MELODEE_SHAPES && e == ENGI_SHAPES && !eng_mod[ENGI_SHAPES]) /* (Release 3) SHAPES out of the build and its module not installed: the stored identity, preset and settings stay (found on the unit: a load clamped the preset to 0 and the next autosave wrote it back) */ || (!MELODEE_P5 && e == ENGI_PROPHET && !eng_mod[ENGI_PROPHET]) || (!MELODEE_DRUM && e == ENGI_DRUM)              /* (Orange Cat) an unhooked engine is retired: silent, identity kept */
-        || (OC_CANDIDATES && (e == 20u || e == ENGI_RHODES || ((e == ENGI_SEM || e == ENGI_HADES || eng_op1r(e) || e == ENGI_X0X303) && !eng_mod[e]) || (OC_CANDIDATES && e >= 32u && e < ENGI_RHODES))
-        || (OC_ENGINE_MODS && !OC_CANDIDATES && e >= 20u && e < 30u && !(ENG_MODS_SHIP(e) && eng_mod[e])));   /* (engines-b) 20..29 of a shipping build: retired but the four, while registered */   /* (0.14.0) a candidate's slot without its module; (0.14.1) op1r's */
+        || (OC_CANDIDATES && (e == 20u || e == ENGI_RHODES || ((e == ENGI_SEM || e == ENGI_HADES || eng_op1r(e) || e == ENGI_X0X303) && !eng_mod[e]) || (OC_CANDIDATES && e >= 32u && e < ENGI_RHODES && !(ENG_MODS_SHIP(e) && eng_mod[e])))
+        || ((OC_ENGINE_MODS || OC_WAVE) && !OC_CANDIDATES && e >= 20u && e < NENGINES && !(ENG_MODS_SHIP(e) && eng_mod[e])));   /* (engines-b) 20..29 of a shipping build: retired but the four, while registered */   /* (0.14.0) a candidate's slot without its module; (0.14.1) op1r's */
 }
 /* the engines one can pick, in ENGINE_ORDER: eng_ok(e), the n-th of them
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */

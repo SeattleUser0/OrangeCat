@@ -232,7 +232,7 @@ const TEXT = {
     mismatch: "書き込みは終わりましたが、FM-1 が別のバージョンを報告しています: ",
     badpkg: "インストールするファイルが壊れています。ページを再読み込みしてください。",
     leave: "書き込み中です。ページを閉じないでください。",
-    stagesTitle: "インストールボタンが書き込む内容（チェックしたものすべて）", stageFw: "ファームウェア", stagePack: "アセットパック", stageMod: "SHAPESとWHEELのモジュール", stageProphet: "Prophetモジュール", stageEngOpt: "追加のエンジン（チェックしたものだけ）:", engOptWhy: "X0X303、SUPERSAW、BRASS、MIXTURはそれぞれ1つのモジュールです。初期状態ではチェックされていません。チェックしたものは他のモジュールの隣に場所が必要です。足りないときは、下の行がどれを外すかを尋ねます。",
+    stagesTitle: "インストールボタンが書き込む内容（チェックしたものすべて）", stageFw: "ファームウェア", stagePack: "アセットパック", stageMod: "SHAPESとWHEELのモジュール", stageProphet: "Prophetモジュール", stageEngOpt: "追加のエンジン（チェックしたものだけ）:", engOptWhy: "X0X303、SUPERSAW、BRASS、MIXTUR、WAVEはそれぞれ1つのモジュールです。初期状態ではチェックされていません。チェックしたものは他のモジュールの隣に場所が必要です。足りないときは、下の行がどれを外すかを尋ねます。",
     packWhy: "パックが無いとMACROとSHAPESは鳴りません。", modWhy: "SHAPES（マクロ・オシレーター）: 新しいビルドではファームウェアに内蔵されず、このモジュールとして入ります（チェック済み）。入れないとSHAPESを使うトラックは無音になり MODULE MISSING と表示されますが、曲と設定は残ります。以前のSHAPES内蔵ビルドのユニットも、このモジュールを入れればSHAPESが戻ります。",
     prophetWhy: "Prophetモジュール(32 KB)はSHAPESモジュールと一緒には入りません。どちらか一方を選んでください。もう一方が入っているときは、先に消してください。",
     downgradeWhy: "このファームウェアより古いファームウェアは、モジュール領域の新しい部分に入れたモジュールを認識しません。古いファームウェアに戻す場合は、それらのモジュールを入れ直してください。",
@@ -341,7 +341,7 @@ const TEXT = {
     mismatch: "Written, but the FM-1 reports another version: ",
     badpkg: "The file to install is damaged. Reload the page.",
     leave: "Writing. Do not close the page.",
-    stagesTitle: "What the Install button installs (everything ticked)", stageFw: "Firmware", stagePack: "Asset pack", stageMod: "SHAPES and WHEEL modules", stageProphet: "Prophet module", stageEngOpt: "More engines (only the ones you tick):", engOptWhy: "X0X303, SUPERSAW, BRASS and MIXTUR are a module each, unticked to start with. A ticked one needs room beside the other modules; when there is not enough, the line under the models asks which module gives way.",
+    stagesTitle: "What the Install button installs (everything ticked)", stageFw: "Firmware", stagePack: "Asset pack", stageMod: "SHAPES and WHEEL modules", stageProphet: "Prophet module", stageEngOpt: "More engines (only the ones you tick):", engOptWhy: "X0X303, SUPERSAW, BRASS, MIXTUR and WAVE are a module each, unticked to start with. A ticked one needs room beside the other modules; when there is not enough, the line under the models asks which module gives way.",
     packWhy: "Without the pack, MACRO and SHAPES stay silent.", modWhy: "SHAPES: the macro oscillator engine. New builds have no SHAPES inside the firmware; it comes as this module (ticked). Without it, tracks that use SHAPES are silent and flagged MODULE MISSING; their music and settings are kept. A unit that had SHAPES built in gets it back by installing this module.",
     prophetWhy: "Prophet: a polysynth engine in the same place as SHAPES. The Prophet module (32 KB) does not fit in the unit together with the SHAPES module: choose one. If the other is already in the unit, remove it first.",
     downgradeWhy: "A firmware older than this one does not see modules installed in the new part of the module area; going back means installing those modules again.",
@@ -446,7 +446,7 @@ function unitView() {
   return PLACE.afterFirmware(unitState, {tail: true, iface: master.manifest.hdr ? master.manifest.hdr.iface : null, lowOk: !!(unitState.slot && unitState.slot.state >= 1)});
 }
 /* (the review: never erase without naming it) the modules of the unit that the new firmware will not load (another interface), and the starts it cannot read: by name */
-const ENG_NAMES = {14: "SHAPES", 19: "PROPHET", 7: "WHEEL", 8: "MACRO MODELS", 23: "X0X303", 25: "SUPERSAW", 28: "BRASS", 29: "MIXTUR"}, FX_NAMES = {1: "DUB TAPE", 2: "REVERB MODES", 3: "FX LAYER", 0x4D08: "MACRO MODELS"};
+const ENG_NAMES = {14: "SHAPES", 19: "PROPHET", 7: "WHEEL", 8: "MACRO MODELS", 23: "X0X303", 25: "SUPERSAW", 28: "BRASS", 29: "MIXTUR", 32: "WAVE"}, FX_NAMES = {1: "DUB TAPE", 2: "REVERB MODES", 3: "FX LAYER", 0x4D08: "MACRO MODELS"};
 const junkNames = (p) => [...p.junk.map((j) => j.kind ? FX_NAMES[j.mid] || "EFFECT 0x" + (j.mid >>> 0).toString(16).toUpperCase() : ENG_NAMES[j.engine] || "ENGINE #" + j.engine),
   ...p.unread.map((x) => t("unreadAt").replace("{n}", String(x.start)))];
 /* (the re-review) a sample in 0.15.0's slot longer than the new firmware's slot keeps (smp_slot.c SMP_SLOT_MAX 60,896 B): the new firmware reads the slot EMPTY and its tail lies in

@@ -17,6 +17,9 @@ enum {
     AP_BATCH_PREPARE, AP_BATCH_MERGE, AP_BATCH_CPU0, AP_BATCH_CPU1,
     AP_MACRO, AP_DRUMX, AP_SHAPES, AP_WHEEL,        /* (Orange Cat 0.14.3) the ports' voice kernels in the batch (audio_batch.h); appended */
     AP_DUB,                                         /* (Release 2) DUB TAPE's job: not a voice, the batch's first descriptor (audio_batch.h) */
+#if defined(OC_WAVE) && OC_WAVE
+    AP_WAVE,                                        /* (wave-engine) WAVE's voice kernel (tools/module/wave/eng_wave.c); appended, only in a build with OC_WAVE (FW_API_VERSION 7) */
+#endif
     AP_COUNT
 };
 #if MELODEE_AUDIO_PROFILE

@@ -194,6 +194,13 @@ static OC_MOD_GEO_QUAL oc_mod_geo_t oc_mod_geo[] = { { ENGI_SHAPES, 6u, 0x03u },
                                                      { ENGI_X0X303, 4u, 0x03u }, { ENGI_SUPERSAW, 4u, 0x03u }, { ENGI_BRASS, 4u, 0x03u }, { ENGI_MIXTUR, 4u, 0x03u },
 #endif
 #endif
+#if OC_WAVE                                                  /* (wave-engine) WAVE: its code and starter tables (tools/build.py "wave") */
+#if OC_MOD_TAIL
+                                                     { ENGI_WAVE, 6u, 0x3FFFFu },
+#else
+                                                     { ENGI_WAVE, 6u, 0x03u },
+#endif
+#endif
                                                    };
 static OC_MOD_GEO_QUAL oc_mod_geo_t *oc_mod_geo_of(uint32_t engine)
 {

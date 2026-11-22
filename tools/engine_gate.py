@@ -112,6 +112,8 @@ GATE = {
                           "OP1_VOICE_ENV); velocity through op1_voice_vel_gain; its own strike envelope and sputter; no CUT or SHP; E1..E7 per block",
             "backend": "none: the Van der Pol lamps are its own; isqrt32 and the pitch mantissa are small helpers",
             "source": "op1r (ultralazr, Musica Obscura #1) synth_sdk/plugins/arc/arc.c at bf808cfa, GPL-3.0-or-later with the OP-1 firmware permission, taken under GPL-3.0"},
+    "wave": {"engine": 32, "funcs": ["wave_voice", "wave_render"], "voice_type": "wv_voice_t",
+             "source": "Orange Cat's own (tools/module/wave/eng_wave.c, wave_tables.h from gen_wave_tables.py), GPL-3.0-only"},
     "x0x303": {"engine": 23, "funcs": ["bass303_render"], "voice_type": None,
         "controls": "eight of X0X's twelve pots on EDIT 1 and 2 (CUT RES ENV DEC, ACC WAVE DRIV SLID); fixed: TUNE (A4 440), VOLUME, DRVTYP SOFT, ACCDEC; lost: none of the render's",
         "modulation": "its own envelopes (ownenv: the filter's decay, the accent, the amp), the accent from velocity >= 120, slides from legato notes (the legato hook); voice.c's LFO on AMP and the fades; not voice.c's pitch (glide, bend, LFO pitch, microtonal scale: the 303 figures its pitch from the key) nor CUT or SHP; E1..E8 per block",

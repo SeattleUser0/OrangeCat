@@ -18,7 +18,7 @@ const TAIL = process.env.PLACE_TAIL === String(PLACE.OC_TAIL) ? PLACE.OC_TAIL : 
 let oracle = process.env.PLAN_ORACLE || "";
 if (!oracle || !existsSync(oracle)) {                                  // built here from the loader's own source (tests/plan_oracle.c includes firmware/src/oc_module.c)
   oracle = join(mkdtempSync(join(tmpdir(), "oc-place-")), "plan_oracle");
-  const b = spawnSync(process.env.CC || "cc", ["-O1", "-w", "-Ibuild/gen", "-Ifirmware/src", "-DOC_MODULE_WINS=1", "-DMELODEE_MACRO_PICK=1", "-DOC_ENGINE_MODS=1", ...(TAIL ? ["-DOC_MOD_TAIL=" + TAIL + "u"] : []), "tests/plan_oracle.c", "-lm", "-o", oracle], { encoding: "utf8" });
+  const b = spawnSync(process.env.CC || "cc", ["-O1", "-w", "-Ibuild/gen", "-Ifirmware/src", "-DOC_MODULE_WINS=1", "-DMELODEE_MACRO_PICK=1", "-DOC_ENGINE_MODS=1", "-DOC_WAVE=1", ...(TAIL ? ["-DOC_MOD_TAIL=" + TAIL + "u"] : []), "tests/plan_oracle.c", "-lm", "-o", oracle], { encoding: "utf8" });
   if (b.status !== 0) { console.log("place: the oracle did not build\n" + b.stderr); process.exit(1); }
 }
 if (OC_STARTS !== 18 || !ENG_GEO || !ENG_GEO[14] || OC_FX_ENGINE !== 0xFFFF) { console.log("place: the library's constants are missing"); process.exit(1); }
@@ -29,7 +29,7 @@ const MIDS = [0x1001, 0x1002, 0x1003, 0x2000, 0x4D08, 0x4D07, 0x4D00, 0x3000, 0x
 const ENGS = [14, 7, 19, 8, 9, 3, 0];
 const QUERIES = () => {
   const q = [];
-  for (const e of [14, 7, 19, 8, 23, 25, 28, 29]) q.push({ engine: e });   // (engines-b) the four optional engines asked too
+  for (const e of [14, 7, 19, 8, 23, 25, 28, 29, 32]) q.push({ engine: e });   // (engines-b) the four optional engines asked too
   for (const mid of [0x1001, 0x4D08, 0x2000, 0x7777]) for (const n of [1, 3, 4, 5, 6, 8, 9, 12, 18]) q.push({ mid, sectors: n });
   return q;
 };
@@ -41,7 +41,7 @@ const randState = (dense) => {
     const r = rnd(10);
     if (r < (dense ? 2 : 6)) continue;                                   // empty
     const st = r < 9 ? 7 : pick([1, 2, 3, 4, 5, 6, 8]);
-    if (rnd(2)) { const g = pick([14, 7, 19, 23, 25, 28, 29]);   /* (engines-b) and the four of OC_ENGINE_MODS */ s.starts[i] = { state: st, kind: 0, mid: 0, engine: g, length: ENG_GEO[g].sectors * 0x1000 - rnd(300) }; }
+    if (rnd(2)) { const g = pick([14, 7, 19, 23, 25, 28, 29, 32]);   /* (engines-b) and the four of OC_ENGINE_MODS */ s.starts[i] = { state: st, kind: 0, mid: 0, engine: g, length: ENG_GEO[g].sectors * 0x1000 - rnd(300) }; }
     else if (rnd(8) === 0) s.starts[i] = { state: st, kind: 0, mid: 0, engine: pick(ENGS), length: 1 + rnd(0x9000) };
     else s.starts[i] = { state: st, kind: 1 + rnd(3), mid: pick(MIDS), engine: OC_FX_ENGINE, length: 1 + rnd(0x9000) };
   }
@@ -68,7 +68,7 @@ for (const low of [true, false]) {
 for (let k = 0; k < 600; k++) {
   let s = emptyState(rnd(4) !== 0, TAIL);
   const mods = [];
-  if (rnd(2)) mods.push({ engine: 14 }); if (rnd(2)) mods.push({ engine: 7 }); for (const e of [23, 25, 28, 29]) if (rnd(4) === 0) mods.push({ engine: e });   // (engines-b) the optional engines, after the stage, as the page orders them if (rnd(3)) mods.push({ mid: 0x1001, sectors: 3 }); if (rnd(4) === 0) mods.push({ mid: 0x1002, sectors: 1 + rnd(2) });
+  if (rnd(2)) mods.push({ engine: 14 }); if (rnd(2)) mods.push({ engine: 7 }); for (const e of [23, 25, 28, 29, 32]) if (rnd(4) === 0) mods.push({ engine: e });   // (engines-b) the optional engines, after the stage, as the page orders them if (rnd(3)) mods.push({ mid: 0x1001, sectors: 3 }); if (rnd(4) === 0) mods.push({ mid: 0x1002, sectors: 1 + rnd(2) });
   mods.push({ mid: 0x4D08, sectors: 1 + rnd(14) });
   if (rnd(3) === 0) s = randState(false);
   for (const m of mods) { add(s); const c = plan(s, m); if (c < 0) break; s = PLACE.apply(s, m, c); }

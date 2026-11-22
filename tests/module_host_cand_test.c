@@ -50,8 +50,11 @@ int main(int argc, char **argv)
     np = em->npresets;
     ng = load_kv(gpath, gold, MAXJ);
     check("the header passes the registration check and names the proposed number", fw_module_check(&h) == FW_MOD_OK && h.engine == CAND_ENGINE &&
-          h.engine >= 21u && h.engine < NENGINES && NENGINES == (OC_CANDIDATES ? 48 : 30));   /* (engines-b) 48: a measurement build (the Rhodes proposal at 47); 30: a shipping build with OC_ENGINE_MODS */
-    if (CAND_ENGINE == ENGI_X0X303)            /* (engines-b) X0X's 303 (23: below op1r's numbers, but not Caravel's) */
+          h.engine >= 21u && h.engine < NENGINES && NENGINES == (OC_CANDIDATES ? 48 : OC_WAVE ? 33 : 30));   /* (engines-b) 48: a measurement build (the Rhodes proposal at 47); 30: a shipping build with OC_ENGINE_MODS */
+    if (CAND_ENGINE == ENGI_WAVE)              /* (wave-engine) WAVE: its voices' frames in its state (no hot set), eight voices, under 16 KB a track */
+        check("no hot set, a part state under 16 KB, eight voices, a units hook", em->nhot == 0u && h.state_size > 4096u && h.state_size <= 16384u &&
+              em->poly == 8u && em->units && np >= 3u && np <= 64u);
+    else if (CAND_ENGINE == ENGI_X0X303)       /* (engines-b) X0X's 303 (23: below op1r's numbers, but not Caravel's) */
         check("no hot set of its own, one bass303_t a part under 16 KB, one voice", em->nhot == 0u && h.state_size >= 4u && h.state_size <= 16384u &&
               em->poly == 1u && np >= 3u && np <= 64u);
     else if (CAND_ENGINE < ENGI_FMBELL)

@@ -153,7 +153,7 @@ FX_OPTIONAL = {2}
 
 # (engines-b, the owner's choice after the audition of November 21) the engine modules a release offers UNTICKED: X0X303, SUPERSAW, BRASS and MIXTUR (core.h OC_ENGINE_MODS). The installer
 # page gives each a box of its own that starts unticked, counts it in the room meter only when ticked, and may name it as the module that gives way
-ENGINE_OPTIONAL = {23: "X0X303", 25: "SUPERSAW", 28: "BRASS", 29: "MIXTUR"}
+ENGINE_OPTIONAL = {23: "X0X303", 25: "SUPERSAW", 28: "BRASS", 29: "MIXTUR", 32: "WAVE"}   # (wave-engine) and WAVE
 
 
 def engine_of(path):

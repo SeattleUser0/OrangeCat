@@ -246,15 +246,21 @@
                                    * offered only while its module is registered (as WHEEL). The installer page offers their modules unticked. A project with one of them
                                    * loads on an older firmware as an engine past its table (refused there, as any newer engine) */
 #endif
-#define ENG_MODS_SHIP(e) (OC_ENGINE_MODS && ((e) == ENGI_X0X303 || (e) == ENGI_SUPERSAW || (e) == ENGI_BRASS || (e) == ENGI_MIXTUR))
+#ifndef OC_WAVE
+#define OC_WAVE 0                 /* (wave-engine) 1: WAVE, Orange Cat's own wavetable engine (32: tools/module/wave_mod.c), takes a module; the table grows to 33 (30, 31 retired
+                                   * slots), FW_API_VERSION 7 (AP_WAVE in the batch). docs/candidates/wave_engine.md */
+#endif
+#define ENGI_WAVE 32u             /* (wave-engine) WAVE (a module) */
+_Static_assert(!OC_WAVE || OC_ENGINE_MODS || OC_CANDIDATES, "OC_WAVE needs the module rows 20..29 of OC_ENGINE_MODS (or a measurement build)");
+#define ENG_MODS_SHIP(e) ((OC_ENGINE_MODS && ((e) == ENGI_X0X303 || (e) == ENGI_SUPERSAW || (e) == ENGI_BRASS || (e) == ENGI_MIXTUR)) || (OC_WAVE && (e) == ENGI_WAVE))
 #define NENGINES_SHIPPED 20u        /* (0.14.2) the table every firmware without OC_CANDIDATES has: a stored engine past it is refused there */
-#define NENGINES (OC_CANDIDATES ? 48 : OC_ENGINE_MODS ? 30 : 20)   /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1; (0.14.0) 20..22 with OC_CANDIDATES; (0.14.1) 23..31; (engines-b) 32..47 */
+#define NENGINES (OC_CANDIDATES ? 48 : OC_WAVE ? 33 : OC_ENGINE_MODS ? 30 : 20)   /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1; (0.14.0) 20..22 with OC_CANDIDATES; (0.14.1) 23..31; (engines-b) 32..47 */
 #define USER_NATIVE_FM 17u
 #define USER_NATIVE_CZ 18u
 #define USER_NONE 65535u
 #define ENGI_ANALOG 0u           /* retired in 1.2: never selectable (eng_ok), its stored sounds play silent */
 #define ENGI_DIGITAL 1u          /* retired: never selectable (eng_ok), its stored sounds play silent */
-#define NENG_SHOWN (NENGINES - 8u + MELODEE_MACRO + (MELODEE_SHAPES || OC_MODULES) - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 - (!MELODEE_P5 && !OC_MODULES) - !MELODEE_DRUM + MELODEE_DRUMX + (OC_MODULES && !MELODEE_LEGACY_EXTRAS) + (3u + OP1R_NCAND) * OC_CANDIDATES + 4u * (OC_ENGINE_MODS && !OC_CANDIDATES))   /* (Orange Cat: - SID - CZ-1 - FM6 -
+#define NENG_SHOWN (NENGINES - 8u + MELODEE_MACRO + (MELODEE_SHAPES || OC_MODULES) - !MELODEE_SLICE - 6u * !MELODEE_LEGACY_EXTRAS - !MELODEE_SID - !MELODEE_CZ - !MELODEE_FM6 - (!MELODEE_P5 && !OC_MODULES) - !MELODEE_DRUM + MELODEE_DRUMX + (OC_MODULES && !MELODEE_LEGACY_EXTRAS) + (3u + OP1R_NCAND) * OC_CANDIDATES + 4u * (OC_ENGINE_MODS && !OC_CANDIDATES) + OC_WAVE)   /* (Orange Cat: - SID - CZ-1 - FM6 -
                                                  * PROPHET - DRUM + MACRO + SHAPES; 0.5.3: TRIO, the early test voice, gone; 0.14.0: + WHEEL, a module's) */   /* the engines one can pick: PRESETS, the EDIT
                                                 * layer, the editor, in the display order of engines.c ENGINE_ORDER */
 #define ENGI_SLICE 13u           /* reserved without MELODEE_SLICE: never selectable (eng_ok) */

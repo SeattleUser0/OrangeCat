@@ -273,7 +273,7 @@ def app_flags():
                  "MELODEE_SID", "MELODEE_CZ", "MELODEE_FM6", "MELODEE_DRUM", "MELODEE_P5",
                  "MELODEE_MACRO", "MELODEE_SHAPES", "MELODEE_DRUMX",   # (Orange Cat 0.5.0, 0.5.1, 0.9.0) MACRO, SHAPES, DRUM-X
                  "MELODEE_MACRO_PICK",   # (Release 3, the model picker) 1: MACRO carries VA alone, the other models come from the MODELS module the installer page packs (eng_macro.c)
-                 "OC_MODULES", "OC_MODULE_WINS", "OC_SFC_PROBE", "OC_MOD_TAIL", "OC_HW_TEST", "OC_CANDIDATES", "OC_ENGINE_MODS", "OC_CORE_STATS", "OC_LATE_DIAG", "OC_DUB_SRAM", "OC_DUB_KSRAM", "OC_DUB_NOGOV", "OC_REV_RESIDENT", "OC_PERF_RESIDENT",    # (round 20: OC_FX_MODK is retired, fx_insert.h; OC_DUB_SRAM and OC_DUB_KSRAM place only the insert host now) (Orange Cat 0.10.0) loadable engine modules (core.h); (0.14.0) the candidates' build
+                 "OC_MODULES", "OC_MODULE_WINS", "OC_SFC_PROBE", "OC_MOD_TAIL", "OC_HW_TEST", "OC_CANDIDATES", "OC_ENGINE_MODS", "OC_WAVE", "OC_CORE_STATS", "OC_LATE_DIAG", "OC_DUB_SRAM", "OC_DUB_KSRAM", "OC_DUB_NOGOV", "OC_REV_RESIDENT", "OC_PERF_RESIDENT",    # (round 20: OC_FX_MODK is retired, fx_insert.h; OC_DUB_SRAM and OC_DUB_KSRAM place only the insert host now) (Orange Cat 0.10.0) loadable engine modules (core.h); (0.14.0) the candidates' build
                  "OC_CLIP",         # (the new interface 0.10: UI_BUILD.md step 10) copy and paste of a sound; (needs the mixer, always on since step 9); off by default
                  "OC_CLIP_SEL",     # (the new interface 0.11: UI_BUILD.md step 11) copy and paste of notes and of a step's feel; needs OC_CLIP=1; off by default
                  "OC_ONE_AUTH",     # (ui-fix 7: UI_BUILD.md "ui-fix 7") one authority for every note; off by default
@@ -553,6 +553,8 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts"
            "mixtur": {"src": "tools/module/mixtur_mod.c", "sectors": 4, "starts": [0, 6], "name": "MIXTUR", "inc": ["tools/module/op1r"], "tail": {"sectors": 2, "starts": list(range(-6, 11))}},
            "arc": {"src": "tools/module/arc_mod.c", "sectors": 4, "starts": [0, 6], "name": "ARC", "inc": ["tools/module/op1r"]},
            "x0x303": {"src": "tools/module/x0x303_mod.c", "sectors": 4, "starts": [0, 6], "name": "X0X303", "inc": ["firmware/src/x0x"], "tail": {"sectors": 3, "starts": list(range(-6, 10))}},
+           # (wave-engine) WAVE, Orange Cat's own wavetable engine (engine 32; OC_WAVE): its code and starter tables; any start of the area in a tail build
+           "wave": {"src": "tools/module/wave_mod.c", "sectors": 6, "starts": [0, 6], "name": "WAVE", "inc": ["tools/module"], "tail": {"sectors": 6, "starts": list(range(-6, 7))}},
            # (Release 3 step 6) DUB TAPE as an effect module (kind 1, FX_MODULES_PLAN.md 15): no geometry row; its span is ceil(length / 4096) sectors from any start of the area's grid
            "dub": {"src": "tools/module/dub_mod.c", "sectors": 3, "name": "DUB", "kind": 1},
            # (Release 3 step 8a) the reverb modes SPRING, SHIMMER and RESO as one effect module (kind 2, a bank of three; FX_MODULES_PLAN.md 16): one sector, any start of the grid

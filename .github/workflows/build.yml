@@ -150,7 +150,7 @@ jobs:
         modfail=0
         # (rev 27, Release 3, the model picker: docs/candidates/model_picker.md) and the MODELS module of MACRO (--module plaits, kind 4): the master package
         # build/plaits-<version>.ocp (every model, a region each; the installer page packs the user's pick from it) and the default pick build/plaits-<version>.ocm (MACRO's own fourteen)
-        for m in shapes prophet wheel dub reverb fxlayer plaits sem hades fmbell supersaw dddd x0x303 brassophone mixtur; do
+        for m in shapes prophet wheel dub reverb fxlayer plaits sem hades fmbell supersaw dddd x0x303 brassophone mixtur wave; do
           modok=0; python3 tools/build.py --module $m > build/module-report-$m.txt 2>&1 || modok=1
           echo "::notice title=module $m::$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' build/module-report-$m.txt)"
           if [ "$modok" != 0 ]; then echo "::error title=module build failed::see the module $m notice"; modfail=1; fi
@@ -186,7 +186,7 @@ jobs:
           else cp build/melodee.pak "build/orangecat-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.pak"; fi
         fi
         # (rev 11) the module package: orangecat-shapes-<version>-<commit>.ocm; (rev 13) and the Prophet's
-        for m in shapes prophet wheel dub reverb fxlayer plaits sem hades fmbell supersaw dddd x0x303 brassophone mixtur; do
+        for m in shapes prophet wheel dub reverb fxlayer plaits sem hades fmbell supersaw dddd x0x303 brassophone mixtur wave; do
           if [ -f build/$m-"$(tr -d '[:space:]' < VERSION)".ocm ]; then
             cp build/$m-"$(tr -d '[:space:]' < VERSION)".ocm "build/orangecat-$m-$(tr -d '[:space:]' < VERSION)-${GITHUB_SHA::7}.ocm"
           fi
@@ -202,7 +202,7 @@ jobs:
         # the packages artifact beside the files, and the unit's file browser lists them as "Set" (Install set: the pack, then the module)
         pk=$(ls build/orangecat-*.pak | head -1); base=$(basename "$pk" .pak); fw=$(ls build/orangecat-*.fwsc | head -1)
         python3 tools/oc_manifest.py --set "build/$base.pack.set.json" --pak "$base.pak" --fwsc "$(basename "$fw")"
-        for m in shapes prophet wheel dub reverb fxlayer plaits sem hades fmbell supersaw dddd x0x303 brassophone mixtur; do
+        for m in shapes prophet wheel dub reverb fxlayer plaits sem hades fmbell supersaw dddd x0x303 brassophone mixtur wave; do
           ocm=$(ls build/orangecat-$m-*.ocm 2>/dev/null | head -1)
           if [ -n "$ocm" ]; then python3 tools/oc_manifest.py --set "build/$base.$m.set.json" --pak "$base.pak" --fwsc "$(basename "$fw")" --ocm "$(basename "$ocm")"; fi
         done
