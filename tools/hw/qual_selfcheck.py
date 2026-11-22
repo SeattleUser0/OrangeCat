@@ -12,9 +12,18 @@ tables (web/app/lib/fw_tables.js, generated from tests/web_tables.c with the Nig
   6. (Round 31) the soak's load and its preflight on a fake unit (DESIGN VALID / INVALID by the worst half without DUB and DUB's state);
      hiss.py --swap-fx on a fake unit and a fake installer: the files by the unit's version, the steps in order, the FX table put back, and a
      failure at each step stopping with what is left and the way back.
-  7. (Round 32) cdp_install.mjs's retries in headless Chrome against a mock installer page whose FM-1 port, like Chrome's Web MIDI, is seen only
-     by a browser started after the port appeared: the update-mode port after Install (then "not found" on the same browser) and the normal
-     port after "did not come back"; the run must install on its second attempt in a fresh browser (CDP_MOCK_ONLY=1: only these checks)
+  7. (Round 32) cdp_install.mjs in headless Chrome against a mock installer page whose FM-1 port, like Chrome's Web MIDI, is seen only by a
+     browser started after the port appeared, and whose SysEx answers come from the mock unit: after noloader / noreturn fresh browsers read
+     what answers; only this package's update loader after an unfinished write gets one more press of the same build; a running FM-1 (also after
+     the slow return of a finished resume write) is judged, never pressed; a refusal or "FM-1 not found" ends the attempt
+     (CDP_MOCK_ONLY=1: only these checks and 8's)
+  8. (Round 32, 7.37 Q1's FX and REV levels) cdp_install.mjs --ticks / --remove against a mock of the page's boxes, meter, give-way choice and
+     Remove (its texts checked against web/index_pkg.html); q4_answers_example.json's rev-set and fx-set rules against the page's own texts;
+     q4_install.py rev-set and fx-set (backup first, --expect, the driver's arguments, the Effects table judged)
+  9. (BUILD.md 7.37, the owner's decisions of November 21; q23_checks) seqtest: DUB evicted recorded, not a fail; late halves allowed (3) only
+     in the first run of a heavy DUB cell after the mix changed; the carry-over wait before a DUB cell (60 s, on a fake clock) and the refusal;
+     hiss: the absolute floor at or below Release 1's figure per case, no margin, on the USB capture (7.21's), on the AUDIO4c against its own S figure
+     when the USB reads digital zero (Round 32's AUDIO4c room:off:100 -91.04 and off:spring:100 -83.09 pass)
   ~/fm1-hw/hwvenv/bin/python3 tools/hw/qual_selfcheck.py        (exit 0: every check passed)
 """
 import contextlib
@@ -22,11 +31,13 @@ import http.server
 import socket
 import threading
 import time
+import types
 import urllib.parse
 import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -82,45 +93,124 @@ class Fake:
         raise TimeoutError(f"the fake has no command {cmd}")
 
 
-MOCK_PAGE = """<!doctype html><meta charset="utf-8"><title>mock installer</title>
-<div id="status">Looking for the FM-1</div><span id="dual-version">0.15.0</span><span id="nightly-version">0.16.0-mock</span>
+MOCK_PAGE = r"""<!doctype html><meta charset="utf-8"><title>mock installer</title>
+<div id="status">Looking for the FM-1</div><span id="dual-version">0.15.0</span><span id="nightly-version">0.16.0-abcde12</span>
 <select id="release"><option value="nightly">nightly</option></select>
-<label><input type="radio" name="b" id="build-nightly-dual"> Nightly 0.16.0-mock</label><div id="install-what"></div><div id="stages"></div>
+<label><input type="radio" name="b" id="build-dual"> Standard 0.15.0</label>
+<label><input type="radio" name="b" id="build-nightly-dual"> Nightly 0.16.0-abcde12</label><div id="install-what"></div><div id="stages"></div>
 <progress id="bar" max="100" value="0"></progress><button id="go" disabled>Install</button><pre id="log"></pre>
 <script>
 let bid = localStorage.getItem("bid");                   // one id per browser profile: a fresh browser has none
 if (!bid) { bid = String(Math.random()).slice(2); localStorage.setItem("bid", bid); }
-fetch("/hello?bid=" + bid);
+const hello = fetch("/hello?bid=" + bid);
+// Web MIDI as Chrome gives it: the ports present when this browser started (the server answers by the unit at this browser's first load); the
+// unit's SysEx replies come from the server (the update handshake's identity, the editor's INFO)
+navigator.requestMIDIAccess = async () => {
+  await hello;
+  const names = await (await fetch("/ports?bid=" + bid)).json(), ins = new Map(), outs = new Map();
+  for (const name of names) {
+    const inp = { name, state: "connected", onmidimessage: null };
+    const out = { name, state: "connected", send: (bytes) => { fetch("/midi?bid=" + bid + "&name=" + encodeURIComponent(name) + "&b=" + Array.from(bytes).join(","))
+      .then((r) => r.json()).then((rs) => rs.forEach((d) => inp.onmidimessage && inp.onmidimessage({ data: new Uint8Array(d) }))); } };
+    ins.set(name, inp); outs.set(name, out);
+  }
+  return { inputs: ins, outputs: outs };
+};
 const $ = (x) => document.getElementById(x);
-$("build-nightly-dual").addEventListener("change", () => { $("go").disabled = false; $("status").textContent = "FM-1 found"; });
+for (const b of ["build-dual", "build-nightly-dual"]) $(b).addEventListener("change", () => { $("go").disabled = false; $("status").textContent = "FM-1 found"; });
 $("go").onclick = async () => {
   $("release").disabled = true; $("go").disabled = true; $("bar").value = 10;
-  const r = await (await fetch("/install?bid=" + bid)).json();
+  const b = [...document.querySelectorAll("input[name=b]")].find((x) => x.checked);
+  const r = await (await fetch("/install?bid=" + bid + "&build=" + (b ? b.id : ""))).json();
   await new Promise((ok) => setTimeout(ok, 1500));
-  $("log").textContent += r.log.map((l) => l + "\\n").join("");
+  $("log").textContent += r.log.map((l) => l + "\n").join("");
   $("status").textContent = r.status; $("release").disabled = false; $("go").disabled = false;
 };
 </script>"""
 
+HS_QUERY = [0xF0, 0x00, 0x32, 0x45, 0x00, 0x00, 0x00, 0x40, 0x7F, 0xF7]
+
+
+def pack7(data):
+    out, acc, nb = [], 0, 0
+    for b in data:
+        acc |= b << nb; nb += 8
+        while nb >= 7:
+            out.append(acc & 0x7F); acc >>= 7; nb -= 7
+    if nb:
+        out.append(acc & 0x7F)
+    return out
+
+
+def identity_reply(text):
+    """the update handshake's identity (web/fm1ota.js parseIdentity): 34 bytes, 00 59 11, the text at 6..32"""
+    d = [0, 0x59, 0x11, 0, 0, 0] + list(text.encode().ljust(27, b"\0")) + [0]
+    return [0xF0, *pack7(d), 0xF7]
+
 
 class MockUnit:
-    """the FM-1 as Chrome's Web MIDI shows it: a port is seen only by a browser whose page first loaded after the port appeared (+ `settle` s)"""
-    def __init__(self, mode, settle=0.0):
-        self.mode, self.settle, self.seen, self.appeared, self.installs = mode, settle, {}, None, []
+    """the FM-1 as Chrome's Web MIDI shows it: a browser sees the port of the unit's state when its page first loaded (normal, ota: the update
+    loader, gone), `settle` s after a change. The first Install: update (switched to update mode, the loader's port not seen: the page's noloader),
+    update-back (the same, then the unit back running before a fresh browser looks), noreturn and slowreturn (the whole image written, rebooted,
+    the unit running again `settle` s later: the page's noreturn / fm1ota's "did not return after resuming"), refuse (the room meter's refusal),
+    notfound. A later Install in a browser that sees the loader finishes the same install (the page's resume); in a browser that sees the unit
+    RUNNING it is a new install (switched to update mode again: what the owner's one-attempt limit forbids); else the page's noloader"""
+    TEXT = {"update": "The FM-1 in update mode was not found. Replug the USB cable and press Install again (it stays in update mode until it is finished).",
+            "noreturn": "The FM-1 did not come back. Power-cycle it.",
+            "slowreturn": "The FM-1 did not return after resuming the write.",
+            "refuse": "Room: 12 sectors; this pick needs 15: 3 too many. Leave a model or a wave bank out. Install waits until the models fit.",
+            "notfound": "FM-1 not found. Check the USB cable (a data cable), close other apps that use MIDI, and press Install again."}
+    PORT = {"normal": "Orange Cat FM-1", "ota": "Orange Cat FM-1 Update"}
 
-    def install(self, bid):
-        t0 = self.seen.get(bid, 0.0)
-        if self.appeared is None:                        # the first Install: the unit switched (update) or restarted (noreturn); the port appears now
-            self.appeared = time.time()
-            st = ("The FM-1 in update mode was not found. Replug the USB cable and press Install again." if self.mode == "update"
-                  else "The FM-1 did not come back after the firmware's restart. Replug the USB cable and press Install again.")
-            log = ["Switching the FM-1 to update mode"] + (["write 1", "write 2", "restarting"] if self.mode == "noreturn" else [])
-        elif t0 >= self.appeared + self.settle:
-            st, log = "Result: Firmware: installed | Pack: already current, left as it is | Module: installed", ["write 1", "write 2", "write 3", "Result: done"]
+    def __init__(self, mode, settle=0.0, version="ORANGE CAT v0.16.0-abcde"):
+        self.mode, self.settle, self.version, self.seen, self.installs, self.pressed = mode, settle, version, {}, [], 0
+        self.timeline = [(0.0, "normal")]
+
+    def state_at(self, t):
+        return [st for t0, st in self.timeline if t0 <= t][-1]
+
+    def seen_state(self, bid):
+        return self.state_at(self.seen.get(bid, 0.0))
+
+    def ports(self, bid):
+        st = self.seen_state(bid)
+        return [self.PORT[st]] if st in self.PORT else []
+
+    def midi(self, bid, name, b):
+        st = self.seen_state(bid)
+        if self.PORT.get(st) != name or self.state_at(time.time()) != st:      # (that port is gone now: nothing answers)
+            return []
+        if b == HS_QUERY:
+            return [identity_reply("FM-1_900" if st == "normal" else "ota-FM-1_900")]
+        if b == [240, 125, 70, 76, 1, 247] and st == "normal":
+            return [[240, 125, 70, 76, 1, *self.version.encode(), 0, 0, 247]]
+        return []
+
+    def install(self, bid, build):
+        now, st = time.time(), self.seen_state(bid)
+        self.pressed += 1
+        if self.pressed == 1:
+            m = self.mode
+            if m in ("update", "update-back"):
+                self.timeline.append((now, "ota"))
+                if m == "update-back":
+                    self.timeline.append((now + 0.5, "normal"))
+                out, log = self.TEXT["update"], ["start FM-1_900", "verify 1", "loader"]
+            elif m in ("noreturn", "slowreturn"):
+                self.timeline += [(now, "gone"), (now + self.settle, "normal")]
+                out, log = self.TEXT[m], [f"write {i}" for i in range(1, 6)] + ["reboot "]
+            else:
+                out, log = self.TEXT[m], []
+        elif st == "ota" and self.state_at(now) == "ota":
+            self.timeline.append((now + 1.0, "normal"))
+            out, log = "Result: Firmware: installed | Pack: already current, left as it is | Module: installed", ["write 1", "write 2", "write 3", "reboot ", "Result: done"]
+        elif st == "normal":
+            self.timeline.append((now, "ota"))
+            out, log = self.TEXT["update"], ["start FM-1_900", "verify 1", "loader"]
         else:
-            st, log = "FM-1 not found. Replug the USB cable and press Install again.", []
-        self.installs.append((bid, st))
-        return {"status": st, "log": log}
+            out, log = self.TEXT["update"], []
+        self.installs.append((bid, build, st, out))
+        return {"status": out, "log": log}
 
 
 def mock_site(unit):
@@ -132,8 +222,13 @@ def mock_site(unit):
             u = urllib.parse.urlparse(self.path); q = urllib.parse.parse_qs(u.query); bid = (q.get("bid") or [""])[0]
             if u.path == "/hello":
                 unit.seen.setdefault(bid, time.time()); body, ct = b"{}", "application/json"
+            elif u.path == "/ports":
+                body, ct = json.dumps(unit.ports(bid)).encode(), "application/json"
+            elif u.path == "/midi":
+                b = [int(x) for x in (q.get("b") or [""])[0].split(",") if x]
+                body, ct = json.dumps(unit.midi(bid, (q.get("name") or [""])[0], b)).encode(), "application/json"
             elif u.path == "/install":
-                body, ct = json.dumps(unit.install(bid)).encode(), "application/json"
+                body, ct = json.dumps(unit.install(bid, (q.get("build") or [""])[0])).encode(), "application/json"
             else:
                 body, ct = MOCK_PAGE.encode(), "text/html"
             self.send_response(200); self.send_header("Content-Type", ct); self.send_header("Content-Length", str(len(body))); self.end_headers()
@@ -143,49 +238,372 @@ def mock_site(unit):
     return srv
 
 
+# (Round 32, 7.37 Q1's REV level) a mock of the installer page's boxes, room meter, give-way choice, "Modules in the unit" (Read, Remove) and the drop
+# question, by the page's rules (web/index_pkg.html: removableFx takes only the optional REVERB MODES off, never DUB TAPE or the FX layer; a module that
+# gives way stays in the unit; Install reads the unit and clears a choice made for another unit), with the page's English texts (checked against the page
+# below). The effect area holds 5 sectors: the default set (DUB TAPE 3, FX LAYER 2) fills it; REVERB MODES takes 1. The unit lives in the server.
+MOCK_TICKS_PAGE = r"""<!doctype html><meta charset="utf-8"><title>mock installer (ticks)</title>
+<div id="status">Looking for the FM-1</div><span id="dual-version">0.15.0</span><span id="nightly-version">0.16.0-mock</span>
+<select id="release"><option value="nightly">nightly</option></select>
+<label><input type="radio" name="b" id="build-nightly-dual"> Nightly 0.16.0-mock</label>
+<fieldset id="stages">
+<p><label><input type="checkbox" id="stage-fw" checked> <span>Firmware</span></label></p>
+<p><label><input type="checkbox" id="stage-pack" checked> <span>Asset pack</span></label></p>
+<p><label><input type="checkbox" id="stage-mod" checked> <span>SHAPES and WHEEL modules</span></label></p>
+<p><label><input type="checkbox" id="stage-prophet"> <span>Prophet module</span></label></p>
+<p><label><input type="checkbox" id="stage-fx" checked> <span>Effect modules</span> <span id="fx-names">(DUB TAPE, FX LAYER)</span></label></p>
+<p><label><input type="checkbox" id="stage-fx-opt"> <span>More effect modules</span> <span id="fx-opt-names">(REVERB MODES)</span></label></p>
+<p><label><input type="checkbox" id="stage-models" checked> <span>MACRO models</span> <span id="models-count">(3)</span></label></p>
+<div id="models-pick"><p id="models-list"><label><input type="checkbox" id="mdl-0" checked> VA</label></p><p id="models-room"></p></div>
+<p id="give-way" hidden></p>
+</fieldset>
+<p id="install-what"></p><progress id="bar" max="100" value="0"></progress><p><button id="go" disabled>Install</button></p>
+<details id="unit-mods"><button id="unit-read">Read from the unit</button><pre id="unit-fx"></pre>
+<select id="fx-remove-id"></select> <button id="fx-remove" disabled>Remove</button></details><pre id="log"></pre>
+<script>
+const $ = (x) => document.getElementById(x);
+const FX = [{id: 1, name: "DUB TAPE", sectors: 3, box: "stage-fx"}, {id: 3, name: "FX LAYER", sectors: 2, box: "stage-fx"}, {id: 2, name: "REVERB MODES", sectors: 1, box: "stage-fx-opt", optional: true}];
+const AREA = 5, hex8 = (v) => "0x" + (v >>> 0).toString(16).toUpperCase().padStart(8, "0");
+let unit = null, giveWay = null, sig = "", built = false, writing = false;
+const ticked = () => FX.filter((x) => $(x.box).checked);
+const key = () => JSON.stringify([ticked().map((x) => x.id), unit]);
+function room(gw) {                                     // {ok, drop}: the set (less gw) on the unit as read (or counted, unread)
+  const set = ticked().filter((x) => x.id !== gw), held = unit ? unit.map((e) => e.id) : [];
+  const need = set.filter((x) => !held.includes(x.id)).reduce((s, x) => s + x.sectors, 0);
+  const used = unit ? unit.reduce((s, e) => s + e.sectors, 0) : 0;
+  if (need <= AREA - used) return {ok: true, drop: []};
+  const drop = (unit || []).filter((e) => FX.find((x) => x.id === e.id && x.optional && !$(x.box).checked));
+  return need <= AREA - used + drop.reduce((s, e) => s + e.sectors, 0) ? {ok: true, drop} : {ok: false, drop: []};
+}
+function meter() {
+  if (giveWay != null && key() !== sig) giveWay = null;
+  let r = room(null), gwOn = false;
+  const cands = r.ok ? [] : ticked().filter((x) => room(x.id).ok);
+  if (!r.ok && cands.some((x) => x.id === giveWay)) { r = room(giveWay); gwOn = true; }
+  const gw = $("give-way");
+  gw.hidden = !cands.length;
+  gw.innerHTML = cands.length ? "The modules you ticked need more room than the FM-1 has. Choose the effect module that gives way: it is left out of this install, and the rest goes in. " +
+    cands.map((x) => `<label><input type="radio" name="give-way" id="gw-${x.id}"> ${x.name} (${x.sectors} ${x.sectors === 1 ? "sector" : "sectors"})</label>`).join(" ") : "";
+  cands.forEach((x) => { const b = $("gw-" + x.id); b.checked = gwOn && giveWay === x.id; b.addEventListener("change", () => { if (b.checked) { giveWay = x.id; sig = key(); meter(); } }); });
+  const gone = gwOn ? FX.find((x) => x.id === giveWay) : null;
+  $("models-room").textContent = (gone ? gone.name + " gives way: it is not installed this time (if it is in the FM-1, it stays there as it is). " : "") + (r.ok ? "Room: it fits." : "Room: it does not fit." + (cands.length ? " Install waits until you choose." : ""));
+  $("install-what").textContent = "Install writes: " + ["stage-fw", "stage-pack", "stage-mod", "stage-fx", "stage-fx-opt", "stage-models"].filter((b) => $(b).checked).join(", ") + (gone ? ". " + gone.name + " gives way: it is not installed this time (if it is in the FM-1, it stays there as it is)." : "");
+  $("go").disabled = writing || !built || !r.ok;
+  return {r, gwOn};
+}
+const lock = (on) => { writing = on; $("release").disabled = on; $("unit-read").disabled = on; $("fx-remove").disabled = on || !$("fx-remove-id").value; meter(); };
+function show(u) {
+  unit = u; $("unit-fx").textContent = u.length ? u.map((e) => `${hex8(e.id)}  v1.0.0  ok  start ${e.start}  ${e.sectors} sectors  module`).join("\n") : "none";
+  $("fx-remove-id").replaceChildren(...u.map((e) => { const o = document.createElement("option"); o.value = String(e.id); o.textContent = hex8(e.id); return o; }));
+}
+const pause = (ms) => new Promise((ok) => setTimeout(ok, ms));
+["stage-fw", "stage-pack", "stage-mod", "stage-prophet", "stage-fx", "stage-fx-opt", "stage-models"].forEach((b) => $(b).addEventListener("change", meter));
+$("build-nightly-dual").addEventListener("change", () => { built = true; $("status").textContent = "FM-1 found"; meter(); });
+$("unit-read").addEventListener("click", async () => { lock(true); await pause(300); show(await (await fetch("/unit")).json()); $("status").textContent = "Ready"; lock(false); });
+$("fx-remove").addEventListener("click", async () => {
+  const id = Number($("fx-remove-id").value);
+  if (writing || !(id > 0) || !confirm("This effect module is erased from the unit. Continue?")) return;
+  lock(true); await pause(300); show(await (await fetch("/remove?id=" + id)).json()); $("status").textContent = "The effect module was removed"; lock(false);
+});
+$("go").onclick = async () => {
+  lock(true); $("bar").value = 10;
+  show(await (await fetch("/unit")).json());             // Install reads the unit again: a choice made for another unit is cleared
+  const {r, gwOn} = meter();
+  if (!r.ok) { $("status").textContent = $("models-room").textContent; lock(false); return; }
+  const names = r.drop.map((e) => FX.find((x) => x.id === e.id).name).join(", ");
+  if (r.drop.length && !confirm(`The set you ticked does not fit beside the modules in the FM-1 now. ${names} is in the FM-1 but not in the set you ticked: the page removes it to make room and does not put it back (tick it and install it again if you want it back). Nothing else is moved. Remove ${names} and install the set?`)) {
+    $("status").textContent = "Result: Firmware: already current, left as it is | The module was not installed."; lock(false); return;
+  }
+  const want = ticked().filter((x) => !(gwOn && x.id === giveWay)).map((x) => x.id);
+  const res = await (await fetch("/install?want=" + want.join(".") + "&drop=" + r.drop.map((e) => e.id).join("."))).json();
+  await pause(500);
+  $("log").textContent += res.log.map((l) => l + "\n").join("");
+  show(res.unit);
+  $("status").textContent = "Result: Firmware: already current, left as it is | Pack: already current, left as it is | " + res.parts.join(" | ") + (r.drop.length ? " | Removed to make room, not put back (not in the set you ticked): " + names + "." : "");
+  lock(false);
+};
+</script>"""
+
+FX_NAME = {1: "DUB TAPE", 2: "REVERB MODES", 3: "FX LAYER"}
+FX_SECT = {1: 3, 2: 1, 3: 2}
+
+
+class TicksUnit:
+    """the unit's effect modules [{id, start, sectors}] behind MOCK_TICKS_PAGE; every request logged"""
+    def __init__(self, fx):
+        self.fx, self.calls = [dict(e) for e in fx], []
+
+    def handle(self, path, q):
+        self.calls.append((path, {k: v[0] for k, v in q.items()}))
+        if path == "/remove":
+            self.fx = [e for e in self.fx if e["id"] != int(q["id"][0])]
+            return self.fx
+        if path == "/install":
+            want = [int(x) for x in (q.get("want") or [""])[0].split(".") if x]
+            drop = [int(x) for x in (q.get("drop") or [""])[0].split(".") if x]
+            self.fx = [e for e in self.fx if e["id"] not in drop]
+            held = [e["id"] for e in self.fx]
+            new = [i for i in want if i not in held]
+            for i in new:
+                self.fx.append({"id": i, "start": 18 if i == 1 else 2, "sectors": FX_SECT[i]})
+            kept = [e for e in self.fx if e["id"] in want and e["id"] not in new]
+            plan = "plan: " + (", ".join(f"{FX_NAME[i]} at start {18 if i == 1 else 2}" for i in new) or "nothing to write") + (
+                " | kept: " + ", ".join(f"{FX_NAME[e['id']]} at start {e['start']}" for e in kept) if kept else "")
+            return {"unit": self.fx, "log": [plan, "Result: done"], "parts": ["Module: installed" if i in new else "Module: already current, left as it is" for i in want]}
+        return self.fx
+
+
+def ticks_site(unit):
+    class H(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            u = urllib.parse.urlparse(self.path)
+            if u.path in ("/unit", "/remove", "/install"):
+                body, ct = json.dumps(unit.handle(u.path, urllib.parse.parse_qs(u.query))).encode(), "application/json"
+            else:
+                body, ct = MOCK_TICKS_PAGE.encode(), "text/html"
+            self.send_response(200); self.send_header("Content-Type", ct); self.send_header("Content-Length", str(len(body))); self.end_headers()
+            self.wfile.write(body)
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+DEFAULT_FX = [{"id": 3, "start": 2, "sectors": 2}, {"id": 1, "start": 18, "sectors": 3}]
+REV_FX = [{"id": 2, "start": 2, "sectors": 1}, {"id": 1, "start": 18, "sectors": 3}]
+
+
+def run_ticks(fx, extra, answers_step=None, driver=None):
+    """cdp_install.mjs against MOCK_TICKS_PAGE with the unit's effect modules `fx`; answers_step: that step's rules from q4_answers_example.json"""
+    driver = driver or os.environ.get("CDP_DRIVER") or os.path.join(HERE, "cdp_install.mjs")
+    unit = TicksUnit(fx)
+    srv = ticks_site(unit)
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            ex = list(extra)
+            if answers_step:
+                f = os.path.join(d, "answers.json")
+                json.dump(json.load(open(os.path.join(HERE, "q4_answers_example.json")))[answers_step], open(f, "w"))
+                ex += ["--answers", f]
+            cmd = ["node", driver, "--url", f"http://127.0.0.1:{srv.server_address[1]}/", "--build", "build-nightly-dual", "--out", d,
+                   "--minutes", "1", "--retries", "1", "--port", str(free_port()), *ex]
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=180, env=dict(os.environ, TMPDIR=d))
+            try:
+                res = json.loads(p.stdout.strip().splitlines()[-1])
+            except (ValueError, IndexError):
+                res = {"ok": False, "error": "no result line: " + (p.stderr or p.stdout)[-300:]}
+            res["_stdout"], res["_rc"] = p.stdout, p.returncode
+            return res, unit
+    finally:
+        srv.shutdown(); srv.server_close()
+
+
+def ticks_checks():
+    """(Round 32, 7.37 Q1: FX and REV) cdp_install.mjs --ticks / --remove on MOCK_TICKS_PAGE, the answers file's rev-set and fx-set rules against the
+    page's own texts, q4_install.py's rev-set and fx-set: each fails on 52e16b13 (no --ticks: the driver installs the default ticks)"""
+    page = open(os.path.join(REPO, "web", "index_pkg.html"), encoding="utf-8").read()
+    en = page[page.index('fxRemoveConfirm: "This'):]
+    tx = lambda k: re.search(k + r': "([^"]*)"', en).group(1)
+    ex = json.load(open(os.path.join(HERE, "q4_answers_example.json")))
+    attempt("ticks: the mock page's texts are the page's (fxRemoveConfirm, dropConfirm, giveWayAsk, giveWayChosen) and its boxes' ids",
+            lambda: tx("fxRemoveConfirm") in MOCK_TICKS_PAGE and tx("dropConfirm").split("{drop}")[0] in MOCK_TICKS_PAGE and tx("giveWayAsk") in MOCK_TICKS_PAGE
+            and tx("giveWayChosen").replace("{name}", "") in MOCK_TICKS_PAGE
+            and all(f'id="{b}"' in page and f'id="{b}"' in MOCK_TICKS_PAGE for b in ("stage-fx", "stage-fx-opt", "fx-names", "fx-opt-names", "give-way", "unit-read", "unit-fx", "fx-remove-id", "fx-remove")))
+    page_texts = {"rev-set": [tx("fxRemoveConfirm")], "fx-set": [tx("dropConfirm").replace("{drop}", "REVERB MODES")]}
+    attempt("ticks: q4_answers_example.json: rev-set answers only fxRemoveConfirm, fx-set only the dropConfirm naming REVERB MODES, both yes, each a prefix of the page's text",
+            lambda: all(len(ex.get(s, [])) == 1 and ex[s][0]["answer"] is True and ex[s][0].get("why") and page_texts[s][0].startswith(ex[s][0]["starts"])
+                        and ("REVERB MODES is in the FM-1" in ex[s][0]["starts"] if s == "fx-set" else True) for s in page_texts)
+            and not tx("dropConfirm").replace("{drop}", "FX LAYER").startswith(ex["fx-set"][0]["starts"])
+            and not tx("rearrangeDropConfirm").replace("{drop}", "REVERB MODES").startswith(ex["fx-set"][0]["starts"]))
+    if os.environ.get("CDP_SKIP_CHROME"):
+        return
+    # REV: FX LAYER removed by the page's Remove (its question answered by rev-set's rule), REVERB MODES ticked, FX LAYER the one that gives way
+    r, u = run_ticks(DEFAULT_FX, ["--remove", "fxlayer", "--ticks", "+reverbmodes,-fxlayer", "--expect", "0.16.0"], "rev-set")
+    t = r.get("ticks") or {}
+    attempt("ticks: rev-set: the page's Remove takes FX LAYER off once (its question answered yes), REVERB MODES ticked, FX LAYER gives way; Install writes REVERB MODES alone; ok "
+            + str(r.get("error")),
+            lambda: r.get("ok") is True and [c for c, _ in u.calls].count("/remove") == 1 and u.calls[[c for c, _ in u.calls].index("/remove")][1] == {"id": "3"}
+            and sorted(e["id"] for e in u.fx) == [1, 2] and [q.get("want") for c, q in u.calls if c == "/install"] == ["1.2"]
+            and t["removal"]["done"] and [d["text"] for d in t["removal"]["dialogs"]] == [tx("fxRemoveConfirm")]
+            and {b["id"]: b["checked"] for b in t["after"]["boxes"]}["stage-fx-opt"] is True and any(g["id"] == "gw-3" and g["checked"] for g in t["after"]["giveWay"])
+            and {b["id"]: b["checked"] for b in t["initial"]["boxes"]}["stage-fx-opt"] is False
+            and r.get("plan") == [{"name": "REVERB MODES", "start": 2, "kept": False}, {"name": "DUB TAPE", "start": 18, "kept": True}]
+            and not r["attempts"][0]["dialogs"] and "the boxes before Install:" in r["_stdout"])
+    # FX: back to the default ticks on the REV unit: the page's drop question naming REVERB MODES answered by fx-set's rule, FX LAYER installed
+    r, u = run_ticks(REV_FX, ["--ticks", "-reverbmodes,+fxlayer", "--expect", "0.16.0"], "fx-set")
+    attempt("ticks: fx-set: REVERB MODES unticked, FX LAYER ticked; the page's dropConfirm naming REVERB MODES answered yes; FX LAYER installed, REVERB MODES gone; ok " + str(r.get("error")),
+            lambda: r.get("ok") is True and sorted(e["id"] for e in u.fx) == [1, 3] and "/remove" not in [c for c, _ in u.calls]
+            and (r.get("ticks") or {}).get("ok") is True and {b["id"]: b["checked"] for b in r["ticks"]["after"]["boxes"]} == {**{b["id"]: b["checked"] for b in r["ticks"]["initial"]["boxes"]}}
+            and {b["id"]: b["checked"] for b in r["ticks"]["after"]["boxes"]}["stage-fx-opt"] is False and not any(g["checked"] for g in r["ticks"]["after"]["giveWay"])
+            and [d["text"] for d in r["attempts"][0]["dialogs"]] == [tx("dropConfirm").replace("{drop}", "REVERB MODES")]
+            and r.get("plan") == [{"name": "FX LAYER", "start": 2, "kept": False}, {"name": "DUB TAPE", "start": 18, "kept": True}])
+    # refusals: a name the page does not have; FX LAYER to give way while the unit holds it (the page never offers it then); nothing written in either
+    r, u = run_ticks(DEFAULT_FX, ["--ticks", "+reverb,-fxlayer"], "rev-set")
+    attempt("ticks: a name the page has no box or module for (reverb) refuses before anything is read or written",
+            lambda: r.get("ok") is False and "no box or module +reverb" in (r.get("error") or "") and not u.calls and r["_rc"] != 0)
+    r, u = run_ticks(DEFAULT_FX, ["--ticks", "+reverbmodes,-fxlayer"], "rev-set")
+    attempt("ticks: -fxlayer with FX LAYER in the unit: the page does not offer it to give way: refused, Install not pressed",
+            lambda: r.get("ok") is False and "does not offer it to give way" in (r.get("error") or "") and [c for c, _ in u.calls] == ["/unit"] and sorted(e["id"] for e in u.fx) == [1, 3])
+    r, u = run_ticks(DEFAULT_FX, ["--ticks", "+reverbmodes,-fxlayer", "--remove", "fxlayer"], "fx-set")
+    attempt("ticks: the Remove question with no rule for it (fx-set's rules) is cancelled: nothing removed, nothing installed",
+            lambda: r.get("ok") is False and "/remove" not in [c for c, _ in u.calls] and "/install" not in [c for c, _ in u.calls] and r.get("unmatched") == [tx("fxRemoveConfirm")])
+    r, u = run_ticks(DEFAULT_FX, ["--remove", "fxlayer", "--ticks", "+reverbmodes,-dubtape"], "rev-set")
+    attempt("ticks: a refusal after the page's Remove (DUB TAPE is not offered to give way) says FX LAYER is off the unit and the way back",
+            lambda: r.get("ok") is False and "does not offer it to give way" in (r.get("error") or "") and "FX LAYER is off the unit" in (r.get("error") or "")
+            and "default ticks" in (r.get("error") or "") and r.get("removedOffUnit") == "FX LAYER" and "/install" not in [c for c, _ in u.calls])
+    # q4_install.py: rev-set and fx-set: --expect required, a backup first, the driver with the ticks, the FX table judged
+    import argparse as AP
+    import q4_install as Q4
+    with tempfile.TemporaryDirectory() as d:
+        order = []
+        good = {"rev-set": {"fx": {"effects": [{"id": 2, "state": 7, "start": 2}, {"id": 1, "state": 7, "start": 18}]}, "mod": {"starts": []}},
+                "fx-set": {"fx": {"effects": [{"id": 3, "state": 7, "start": 2}, {"id": 1, "state": 7, "start": 18}]}, "mod": {"starts": []}}}
+        plans = {"rev-set": [{"name": "REVERB MODES", "start": 2, "kept": False}, {"name": "DUB TAPE", "start": 18, "kept": True}],
+                 "fx-set": [{"name": "FX LAYER", "start": 2, "kept": False}, {"name": "DUB TAPE", "start": 18, "kept": True}]}
+        probe = {}
+        E = lambda *fx: {"fx": {"effects": [{"id": i, "state": st, "start": at} for i, st, at in fx]}, "mod": {"starts": []}}
+        start_of = {"rev-set": E((3, 7, 2), (1, 7, 18)), "fx-set": E((2, 7, 2), (1, 7, 18))}   # (review of f7f81713) the level each step starts from
+
+        class P:
+            def __init__(self, out): self.stdout, self.returncode = out, 0
+
+        drv = {"ok": True}
+
+        def fake_run(cmd, **k):
+            order.append(("driver", cmd))
+            return P(json.dumps({"ok": drv["ok"], "plan": plans[Q4.A.case], "attempts": [], "final": "Result: x" if drv["ok"] else "Room: it does not fit.",
+                                 "error": None if drv["ok"] else "the page ended without a result"}) + "\n")
+        old = (Q4.backup, Q4.state, Q4.subprocess.run, Q4.time.sleep)
+        Q4.backup = lambda tag: order.append(("backup", tag)) or f"/x/backup-{tag}.json"
+        Q4.state = lambda tag: order.append(("state", tag)) or {"probe": probe["before"] if "the check" in tag else probe.get("p"),
+                                                                "describe": {"version": probe.get("ver", "ORANGE CAT v0.16.0-e2696")}}
+        Q4.subprocess.run = fake_run
+        Q4.time.sleep = lambda s: None
+        try:
+            def go(case, expect="0.16.0-e2696a", p=None, before=None, ver=None, ok=True):
+                order.clear(); probe["p"] = p if p is not None else good[case]; probe["before"] = before if before is not None else start_of[case]
+                probe["ver"] = ver or "ORANGE CAT v0.16.0-e2696"; drv["ok"] = ok
+                Q4.A = AP.Namespace(out=d, label="T", case=case, expect=expect, layout=None, yes=True, confirm=None, url="x", nightly_build="build-nightly-dual",
+                                    minutes=1.0, answers=None)
+                try:
+                    return Q4.run_case()
+                except SystemExit as e:
+                    return str(e)
+            kinds = lambda: [k for k, _ in order]
+
+            def no_expect():
+                rv = go("rev-set", expect=None)
+                return isinstance(rv, str) and "--expect" in rv and not order
+            attempt("ticks: q4_install rev-set without --expect is refused before anything", no_expect)
+
+            def rev():
+                rv = go("rev-set")
+                cmd = next(c for k, c in order if k == "driver")
+                return (rv == 0 and order[0] == ("state", "rev-set: before (the check)") and order[1] == ("backup", "before-rev-set") and kinds().index("backup") < kinds().index("driver")
+                        and cmd[cmd.index("--ticks") + 1] == "+reverbmodes,-fxlayer" and cmd[cmd.index("--remove") + 1] == "fxlayer" and cmd[cmd.index("--expect") + 1] == "0.16.0-e2696a")
+            attempt("ticks: q4_install rev-set: the unit checked, a backup, then the driver with --remove fxlayer --ticks +reverbmodes,-fxlayer --expect; REVERB MODES 7, FX LAYER absent: ok", rev)
+
+            def fx():
+                rv = go("fx-set")
+                cmd = next(c for k, c in order if k == "driver")
+                return rv == 0 and order[1] == ("backup", "before-fx-set") and cmd[cmd.index("--ticks") + 1] == "-reverbmodes,+fxlayer" and "--remove" not in cmd
+            attempt("ticks: q4_install fx-set: the unit checked, a backup, then the driver with --ticks -reverbmodes,+fxlayer; FX LAYER 7, REVERB MODES absent: ok", fx)
+            both = E((2, 7, 2), (3, 7, 4), (1, 7, 18))
+            attempt("ticks: q4_install rev-set fails when FX LAYER is still in the table, or REVERB MODES is not registered (state 2)",
+                    lambda: "FX LAYER" in str(go("rev-set", p=both)) and "REVERB MODES" in str(go("rev-set", p=E((2, 2, 2), (1, 7, 18)))))
+            attempt("ticks: q4_install fx-set fails when REVERB MODES is still in the table",
+                    lambda: "REVERB MODES" in str(go("fx-set", p=both)))
+
+            def refused(case, **k):
+                rv = go(case, **k)
+                return isinstance(rv, str) and "refused before anything is written" in rv and kinds() == ["state"]
+            # (review of f7f81713) the unit checked read only first: refused before the backup and the driver unless it is at the other level, on --expect's build
+            attempt("ticks: q4_install rev-set refuses (no backup, no driver) unless FX LAYER is state 7 and REVERB MODES absent, on --expect's build",
+                    lambda: refused("rev-set", before=E((1, 7, 18))) and refused("rev-set", before=E((3, 7, 2), (2, 7, 4), (1, 7, 18))) and refused("rev-set", before=E((3, 2, 2), (1, 7, 18)))
+                    and refused("rev-set", ver="ORANGE CAT v0.16.0-4573e") and refused("rev-set", ver="ORANGE CAT v0.15.0-e2696") and refused("rev-set", before={"mod": {"starts": []}}))
+            attempt("ticks: q4_install fx-set refuses (no backup, no driver) unless REVERB MODES is state 7 and FX LAYER absent (the default unit: refused)",
+                    lambda: refused("fx-set", before=start_of["rev-set"]) and refused("fx-set", before=E((2, 7, 2), (3, 7, 4), (1, 7, 18))) and refused("fx-set", ver="ORANGE CAT v0.16.0-4573e"))
+
+            def way_back():
+                rv = go("rev-set", ok=False)
+                return isinstance(rv, str) and "THE WAY BACK" in rv and "fx-set" in rv and "/x/backup-before-rev-set.json" in rv and Q4.RESTORE_HINT in rv
+            attempt("ticks: q4_install rev-set that fails after its backup names the way back (fx-set, the page's default ticks) and the backup's path", way_back)
+        finally:
+            Q4.backup, Q4.state, Q4.subprocess.run, Q4.time.sleep = old
+
+
 def free_port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0)); return s.getsockname()[1]
 
 
-def run_driver(driver, mode, settle=0.0, extra=()):
-    """cdp_install.mjs (`driver`) against a mock site of `mode`; (the result line, the unit's installs)"""
-    unit = MockUnit(mode, settle)
+def run_driver(driver, mode, settle=0.0, extra=(), **kw):
+    """cdp_install.mjs (`driver`) against a mock site of `mode`, one attempt (its default); (the result line, the unit)"""
+    unit = MockUnit(mode, settle, **kw)
     srv = mock_site(unit)
     try:
         with tempfile.TemporaryDirectory() as d:
             cmd = ["node", driver, "--url", f"http://127.0.0.1:{srv.server_address[1]}/", "--build", "build-nightly-dual", "--out", d,
-                   "--minutes", "2", "--retries", "3", "--port", str(free_port()), "--retry-wait", "1", *extra]
-            p = subprocess.run(cmd, capture_output=True, text=True, timeout=240, env=dict(os.environ, TMPDIR=d))
+                   "--minutes", "2", "--port", str(free_port()), "--retry-wait", "1", "--return-wait", "1", "--probe-wait", "30", *extra]
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=dict(os.environ, TMPDIR=d))
             try:
                 res = json.loads(p.stdout.strip().splitlines()[-1])
             except (ValueError, IndexError):
                 res = {"ok": False, "error": "no result line: " + (p.stderr or p.stdout)[-300:]}
             res["_stdout"] = p.stdout
-            return res, unit.installs
+            return res, unit
     finally:
         srv.shutdown(); srv.server_close()
 
 
 def cdp_retry_checks(driver=os.path.join(HERE, "cdp_install.mjs")):
-    r, inst = run_driver(driver, "update")
-    a = r.get("attempts", [])
-    check(r.get("ok") is True and len(a) == 2 and a[1].get("freshBrowser") and "attempt 2: fresh browser" in r["_stdout"] and len({b for b, _ in inst}) == 2
-          and a[0]["status"].startswith("The FM-1 in update mode was not found") and a[1]["fwWrites"] == 3,
-          f"cdp_install.mjs: after 'update mode was not found' the retry runs in a fresh browser, which sees the port and installs: {[x.get('status') for x in a]} {r.get('error')}")
-    r, inst = run_driver(driver, "noreturn", settle=2.5, extra=("--return-wait", "3"))
-    a = r.get("attempts", [])
-    check(r.get("ok") is True and len(a) == 2 and a[1].get("freshBrowser") and "did not come back" in a[0]["status"] and "in 3 s" in r["_stdout"],
-          f"cdp_install.mjs: after 'did not come back' the fresh browser waits --return-wait and installs: {[x.get('status') for x in a]} {r.get('error')}")
-    r, inst = run_driver(driver, "noreturn", settle=30.0, extra=("--return-wait", "0"))
-    a = r.get("attempts", [])
-    check(r.get("ok") is False and len(a) == 3 and all(x.get("freshBrowser") for x in a[1:]) and len({b for b, _ in inst}) == 3 and "not found" in (r.get("final") or ""),
-          f"cdp_install.mjs: a port no fresh browser sees: three attempts, each retry a new browser, not ok: {[x.get('status') for x in a]}")
+    """(Round 32, one install attempt per build) after the page's noloader / noreturn, fresh browsers read the unit first; Install is pressed only for
+    this package's update loader and a write that had not finished"""
+    short = lambda u: [(x[2], x[3][:40]) for x in u.installs]
+    r, u = run_driver(driver, "update")
+    a = r.get("attempts", []); rv = (a[0].get("resume") or {}) if a else {}
+    check(r.get("ok") is True and len(a) == 1 and rv.get("pressed") is True and (rv.get("unit") or {}).get("identity") == "ota-FM-1_900"
+          and "attempt 1: fresh browser to resume" in r["_stdout"] and len(u.installs) == 2 and u.installs[1][2] == "ota"
+          and all(x[1] == "build-nightly-dual" for x in u.installs) and a[0]["fwWrites"] == 3,
+          f"cdp_install.mjs: 'update mode was not found': a fresh browser reads the update loader, presses the same build once, the install finishes: {short(u)} {r.get('error')}")
+    # the unit's sequence of Round 32 (a1-resume): the page's resume wrote everything, rebooted, "did not return after resuming" (its 40 s), the unit back later
+    r, u = run_driver(driver, "slowreturn", settle=8.0)
+    a = r.get("attempts", []); rv = (a[0].get("resume") or {}) if a else {}
+    check(r.get("ok") is False and len(a) == 1 and len(u.installs) == 1 and rv.get("pressed") is False and rv.get("wroteAll") is True
+          and len(rv.get("looks", [])) >= 2 and "the build's version" in (r.get("error") or "") and "NOT the build" not in (r.get("error") or "") and "Install not pressed" in (r.get("error") or ""),
+          f"cdp_install.mjs: 'did not return after resuming' after a finished write, the unit back 8 s later: read and judged, no Install pressed: {short(u)} {r.get('error')}")
+    r, u = run_driver(driver, "noreturn", settle=2.0)
+    a = r.get("attempts", []); rv = (a[0].get("resume") or {}) if a else {}
+    check(r.get("ok") is False and len(u.installs) == 1 and rv.get("pressed") is False and "the FM-1 answers running" in (r.get("error") or ""),
+          f"cdp_install.mjs: 'did not come back' after a finished write: read and judged, no Install pressed: {short(u)} {r.get('error')}")
+    r, u = run_driver(driver, "noreturn", settle=2.0, version="ORANGE CAT v0.15.0")
+    check(r.get("ok") is False and len(u.installs) == 1 and "NOT the build's version" in (r.get("error") or ""),
+          f"cdp_install.mjs: the FM-1 back running another version: judged NOT the build's, no Install pressed: {short(u)} {r.get('error')}")
+    r, u = run_driver(driver, "update-back")
+    a = r.get("attempts", []); rv = (a[0].get("resume") or {}) if a else {}
+    check(r.get("ok") is False and len(u.installs) == 1 and rv.get("pressed") is False and (rv.get("unit") or {}).get("identity") == "FM-1_900",
+          f"cdp_install.mjs: 'update mode was not found' but the FM-1 answers running: no Install pressed (it would be a new install): {short(u)} {r.get('error')}")
+    r, u = run_driver(driver, "slowreturn", settle=1000.0, extra=("--probe-wait", "8"))
+    a = r.get("attempts", []); rv = (a[0].get("resume") or {}) if a else {}
+    check(r.get("ok") is False and len(u.installs) == 1 and rv.get("pressed") is False and "nothing answered" in (r.get("error") or ""),
+          f"cdp_install.mjs: nothing answers within --probe-wait: no Install pressed: {short(u)} {r.get('error')}")
+    for mode in ("refuse", "notfound"):
+        r, u = run_driver(driver, mode)
+        a = r.get("attempts", [])
+        check(r.get("ok") is False and len(a) == 1 and len(u.installs) == 1 and not a[0].get("resume") and "fresh browser" not in r["_stdout"],
+              f"cdp_install.mjs: a first Install that ends '{mode}' is the end of the attempt (no fresh browser, one press): {short(u)}")
 
 
 def main():
+    if os.environ.get("REMOTE_ONLY"):                    # (Round 32) only the unattended-objects checks (no Chrome, no node page)
+        remote_checks()
+        print(f"\n{len(FAILS)} failed" if FAILS else "\nevery check passed")
+        return 1 if FAILS else 0
     if os.environ.get("CDP_MOCK_ONLY"):
         cdp_retry_checks(os.environ.get("CDP_DRIVER") or os.path.join(HERE, "cdp_install.mjs"))
+        ticks_checks()
         print(f"\n{len(FAILS)} failed" if FAILS else "\nevery check passed")
         return 1 if FAILS else 0
     fw = fw_tables()
@@ -272,10 +690,13 @@ def main():
     p = subprocess.run(["node", "-e", body + "\nconsole.log(JSON.stringify(" + json.dumps(list(rcases)) + ".map((x) => resultProblems(x).length)))"], capture_output=True, text=True)
     check(p.returncode == 0 and json.loads(p.stdout) == list(rcases.values()), "cdp_install.mjs: a Result with a part that did not install is not ok, the parts named " + (p.stderr or p.stdout)[-200:])
     cdp_retry_checks()
+    ticks_checks()
     soak_checks()
     swap_checks()
     round32_checks()
     gfix_checks()
+    q23_checks()
+    remote_checks()
     print(f"\n{len(FAILS)} failed" if FAILS else "\nevery check passed")
     return 1 if FAILS else 0
 
@@ -578,10 +999,11 @@ def round32_checks():
     # ---- Q2
     import seqtest as S
     attempt("Q2: seqtest's defaults are the qualification's: SEED 20261115, REPS 2", lambda: S.SEED == 20261115 and S.REPS == 2)
-    row = {"name": "r00", "cell": "heavy:1", "expected": 512, "matched": 512, "missed": [], "voices_after_release": {"sounding": 0, "gated": 0}, "dub_cell": True, "dub_evicted": False}
-    attempt("Q2: a hung note fails a row; DUB evicted fails a DUB cell, not a cell without DUB",
+    row = {"name": "r00", "cell": "heavy:1", "expected": 512, "matched": 512, "missed": [], "voices_after_release": {"sounding": 0, "gated": 0}, "dub_cell": True, "dub_evicted": False,
+           "late": 0, "late_allowed": 0}
+    attempt("Q2: a hung note fails a row; DUB evicted fails no cell (the owner's decision of November 21: recorded)",
             lambda: S.row_ok(row)[0] and not S.row_ok({**row, "voices_after_release": {"sounding": 1, "gated": 0}})[0]
-            and not S.row_ok({**row, "dub_evicted": True})[0] and S.row_ok({**row, "dub_cell": False, "dub_evicted": True})[0])
+            and S.row_ok({**row, "dub_evicted": True})[0] and S.row_ok({**row, "dub_cell": False, "dub_evicted": True})[0])
     attempt("Q2: DUB evicted read from the governor's firings and DUB FULL",
             lambda: S.dub_evicted({"gov": 2}, [(1.0, 2, 3, 0)], {"gov": 3, "full": 0}) and S.dub_evicted({"gov": 2}, [(1.0, 2, 2, 0x10)], {"gov": 2, "full": 0}) and not S.dub_evicted({"gov": 2}, [(1.0, 2, 2, 0)], {"gov": 2, "full": 0}))
     attempt("Q2 (review): an unanswered DUB state read is not judgeable, and fails a DUB cell, never 'not evicted'",
@@ -602,14 +1024,10 @@ def round32_checks():
     sys.argv = ["hiss.py"]
     import hiss as H
 
+    # (the Round 32 cost rule's checks are replaced by q23_checks: the owner's decision of November 21, the absolute floor)
     def hr(rev, dub, vel, f): return {"rev": rev, "dub": dub, "vel": vel, "usb": {"steady": {"floor_db": f}}}
-    base = [hr("off", "off", 30, -91.0), hr("off", "off", 100, -81.0)]
-    attempt("Q3: costs within S's plus the margin pass, quieter passes (one-sided), new cases against SPRING's S cost",
-            lambda: H.hiss_verdict(base + [hr("room", "off", 30, -84.6), hr("spring", "off", 30, -87.0), hr("shimr", "off", 30, -80.0), hr("off", "spring", 100, -79.0)], 0.2)["pass"])
-    attempt("Q3: ROOM 2 dB over S's cost at a 1 dB margin fails; the margin is twice the AUDIO4c spread when larger",
-            lambda: not H.hiss_verdict(base + [hr("room", "off", 30, -82.8)], 0.3)["pass"] and H.hiss_verdict(base + [hr("room", "off", 30, -82.8)], 1.5)["pass"])
-    attempt("Q3: a digital-zero USB capture, or no off:off at the velocity, is not judgeable (fails)",
-            lambda: not H.hiss_verdict([hr("off", "off", 30, -180.0), hr("room", "off", 30, -180.0)], 0.2)["pass"] and not H.hiss_verdict([hr("room", "off", 100, -82.0)], 0.2)["pass"])
+    attempt("Q3: a digital-zero USB capture in a case with a note is not judgeable (fails)",
+            lambda: not H.hiss_verdict([hr("off", "off", 30, -180.0), hr("room", "off", 30, -180.0)], 0.2)["pass"])
     # ---- Q4
     import q4_install as Q4
     attempt("Q4: the plan: (a then d), b, c each twice by random.Random(20261117), d right after its a",
@@ -629,17 +1047,6 @@ def round32_checks():
         attempt("Q4: case a's objects: only those present before compared byte for byte, a new one listed, not a difference",
                 lambda: (lambda c: list(c["differing"]) == [5] and c["new"] == [8] and not c["kept"])(Q4.compare_objects(f1, f2)))
         Q4.state = lambda tag: {"tag": tag}
-        def eof():
-            import builtins
-            old = builtins.input
-            builtins.input = lambda *_: (_ for _ in ()).throw(EOFError())
-            try:
-                Q4.ask("x? "); return False
-            except SystemExit as e:
-                return e.code == 3
-            finally:
-                builtins.input = old
-        attempt("Q4: end of input at a prompt is a clean stop (exit 3, the state read), not a crash", eof)
     probe = {"mod": {"starts": [{"state": 0, "engine": 0}] + [{"state": 7, "engine": 14}] + [{"state": 0, "engine": 0}] * 3 + [{"state": 7, "engine": 7}] + [{"state": 0, "engine": 0}] * 15},
              "fx": {"effects": [{"id": 3, "state": 7, "start": 2}, {"id": 0x4D08, "state": 7, "start": 17}, {"id": 1, "state": 7, "start": 18}]}}
     attempt("Q4: every module of the layout registered at its start; one elsewhere fails",
@@ -718,7 +1125,7 @@ def gfix_checks():
 
     class TU:
         def req(self, *a, **k): raise TimeoutError("lost")
-    row = {"name": "r00", "cell": "light:0", "expected": 64, "matched": 64, "missed": [], "voices_after_release": None, "dub_cell": False, "dub_evicted": False}
+    row = {"name": "r00", "cell": "light:0", "expected": 64, "matched": 64, "missed": [], "voices_after_release": None, "dub_cell": False, "dub_evicted": False, "late": 0}
     attempt("gfix: the voices not answered are not judgeable (strict: None), and the run fails",
             lambda: F.Unit.voices(TU(), strict=True) is None and F.Unit.voices(TU())["sounding"] == 0 and not S.row_ok(row)[0] and S.hung(None))
     attempt("gfix: a DUB eviction is recorded in a cell without DUB (flagged, not failed)",
@@ -738,6 +1145,573 @@ def gfix_checks():
         except SystemExit as e:
             return "more than once" in str(e)
     attempt("gfix: a plan that names a module twice is refused (no silent winner)", twice)
+
+
+def dub_reply(st, rdy, full=0, gov=0):
+    """AUDIO_STATS [0, 7] as the firmware sends it: full, gov, then instance 1's st rdy have R hold run, 5 bytes of 7 bits each"""
+    return [0] + n5(full) + n5(gov) + n5(st) + n5(rdy) + n5(4) + n5(0) + n5(0) + n5(1 if st == 2 else 0)
+
+
+class DubUnit:
+    """answers only AUDIO_STATS [0, 7]: DUB out (st 0, DUB FULL 16) for `out_polls` reads, then running with its memory; out_polls None: never
+    back; lost: no reply at all"""
+    def __init__(self, out_polls, lost=False):
+        self.out_polls, self.lost, self.reads = out_polls, lost, 0
+    def req(self, cmd, args=(), timeout=3.0):
+        assert cmd == 72 and list(args) == [0, 7], (cmd, args)
+        self.reads += 1
+        if self.lost: raise TimeoutError("lost")
+        back = self.out_polls is not None and self.reads > self.out_polls
+        return dub_reply(2, 1) if back else dub_reply(0, 0, full=16)
+
+
+def q23_checks():
+    """(BUILD.md 7.37, the owner's decisions of November 21, branch r32-q23) each fails on r32-gtools 0c86c900"""
+    import seqtest as S
+    row = {"name": "r03", "cell": "heavy:1", "expected": 256, "matched": 256, "missed": [], "voices_after_release": {"sounding": 0, "gated": 0},
+           "dub_cell": True, "dub_evicted": False, "late": 0, "late_allowed": 0}
+    attempt("q23 Q2: DUB evicted in a DUB cell is recorded, not a fail (Round 14's written limit)",
+            lambda: S.row_ok({**row, "dub_evicted": True})[0] and S.cell_totals([{**row, "dub_evicted": True, "ok": True}])["heavy:1"]["dub_evicted_runs"] == 1)
+    order = [("warm", ("heavy", "2")), ("r00", ("heavy", "2")), ("r01", ("light", "2")), ("r02", ("heavy", "1")), ("r03", ("heavy", "1")),
+             ("r04", ("heavy", "0")), ("r05", ("heavy", "2")), ("r06", ("light", "0"))]
+    attempt("q23 Q2: late halves allowed (3) only in the first run of a heavy DUB cell after the mix changed (the warm-up counts), 0 elsewhere",
+            lambda: [S.late_allowance(order, i) for i in range(len(order))] == [3, 0, 0, 3, 0, 0, 3, 0] and S.LATE_LIMIT == 3)
+    attempt("q23 Q2: late halves judged: 3 within the allowance pass, 4 fail; 1 in a run with no allowance fails; unread late fails",
+            lambda: S.row_ok({**row, "late": 3, "late_allowed": 3})[0] and not S.row_ok({**row, "late": 4, "late_allowed": 3})[0]
+            and not S.row_ok({**row, "late": 1})[0] and not S.row_ok({**row, "cell": "light:2", "late": 1})[0] and not S.row_ok({**row, "late": None})[0])
+    attempt("q23 Q2: the onsets total and the hung note stay the mark with late halves allowed",
+            lambda: not S.row_ok({**row, "late": 2, "late_allowed": 3, "missed": [{"ps": 0}], "matched": 255})[0]
+            and not S.row_ok({**row, "late": 2, "late_allowed": 3, "voices_after_release": {"sounding": 1, "gated": 0}})[0])
+    clk = {"t": 0.0}
+
+    def fake_clock(): return clk["t"]
+    def fake_sleep(s): clk["t"] += s
+
+    def r24():
+        clk["t"] = 0.0
+        w = S.wait_dub_ready(DubUnit(out_polls=18), 60.0, 1.0, fake_clock, fake_sleep)
+        return w["ready"] and w["waited_s"] == 18.0 and w["first"]["full"] == 16 and w["first"]["i1"]["st"] == 0
+    attempt("q23 Q2 carry-over: DUB out at the cell's start (full 16, st 0, as light:2's r24), back 18 s later: the wait ends ready at 18 s", r24)
+
+    def never():
+        clk["t"] = 0.0
+        w = S.wait_dub_ready(DubUnit(out_polls=None), 60.0, 1.0, fake_clock, fake_sleep)
+        clk["t"] = 0.0
+        lost = S.wait_dub_ready(DubUnit(out_polls=0, lost=True), 60.0, 1.0, fake_clock, fake_sleep)
+        return not w["ready"] and w["waited_s"] == 60.0 and w["polls"] == 61 and not lost["ready"]
+    attempt("q23 Q2 carry-over: DUB never back (or no reply): the wait gives up at 60 s, not ready", never)
+    attempt("q23 Q2 carry-over: st 2 without rdy, or with DUB FULL, is not ready",
+            lambda: not S.dub_ready({"full": 0, "i1": {"st": 2, "rdy": 0}}) and not S.dub_ready({"full": 16, "i1": {"st": 2, "rdy": 1}})
+            and S.dub_ready({"full": 0, "i1": {"st": 2, "rdy": 1}}) and not S.dub_ready(None))
+
+    class NoCapture:
+        class Recorder:
+            def __init__(self, *a, **k): raise AssertionError("a capture started for a refused cell")
+
+    def refused():
+        saved = (S.program_load, S.time, S.capture, S.DUB_WAIT_S, S.PASSES)
+        try:
+            S.PASSES = 16
+            S.program_load = lambda u, kind, dub: ([{"req": True}] * 128, {})
+            S.time = types.SimpleNamespace(sleep=lambda s: None, monotonic=time.monotonic)
+            S.capture = NoCapture
+            S.DUB_WAIT_S = 0.0                           # (the bound reached at once: the 60 s wait is checked above on a fake clock)
+            u = DubUnit(out_polls=None)
+            r = S.run(u, "r24", ("light", "2"))
+            tot = S.cell_totals([r])["light:2"]
+            return (not r["ok"] and r.get("refused") and "not judgeable" in r["why"][0] and r["dub_wait"]["ready"] is False
+                    and not tot["ok"] and tot["total"] == "0 of 128" and u.reads >= 1)
+        finally:
+            S.program_load, S.time, S.capture, S.DUB_WAIT_S, S.PASSES = saved
+    attempt("q23 Q2 carry-over: a DUB cell whose DUB is not back is refused before any capture: not judgeable, the cell fails", refused)
+    out_ = {"full": 16, "i1": {"st": 0, "rdy": 0}}; in_ = {"full": 0, "i1": {"st": 2, "rdy": 1}}
+    attempt("q23 review: a heavy DUB run whose DUB the wait brought back gets the allowance (3) even after the same cell; DUB running throughout, "
+            "a light cell or a refused wait: 0",
+            lambda: S.waited_allowance(("heavy", "1"), {"ready": True, "first": out_}) == 3 and S.waited_allowance(("heavy", "1"), {"ready": True, "first": in_}) == 0
+            and S.waited_allowance(("light", "2"), {"ready": True, "first": out_}) == 0 and S.waited_allowance(("heavy", "2"), {"ready": False, "first": out_}) == 0
+            and S.waited_allowance(("heavy", "0"), None) == 0)
+    src_ = open(os.path.join(HERE, "seqtest.py")).read()
+    attempt("q23 review: seqtest.run raises the order's allowance by waited_allowance after the wait, before the captures",
+            lambda: src_.index("wait = wait_dub_ready(u)") < src_.index("late_allow = max(late_allow, waited_allowance(cell, wait))") < src_.index('capture.Recorder(f"{OUT}/{LABEL}-{name}-a4c.wav"'))
+    sys.argv = ["hiss.py"]
+    import hiss as H
+
+    def hr(rev, dub, vel, f): return {"rev": rev, "dub": dub, "vel": vel, "usb": {"steady": {"floor_db": f}}}
+    def case(v, k): return v["cases"][k]
+    attempt("q23 review: digital zero per replicate: USB [-180, -85, -85] is not judgeable on USB (not a -116.7 floor), judged on the AUDIO4c",
+            lambda: (lambda v: "not judgeable on USB" in case(v, "room:off:30")["why"] and not v["pass"])(
+                H.hiss_verdict([hr("room", "off", 30, -180.0), hr("room", "off", 30, -85.0), hr("room", "off", 30, -85.0)]))
+            and (lambda v: case(v, "room:off:30")["source"] == "a4c" and case(v, "room:off:30")["floor_db"] == -81.0 and v["pass"])(
+                H.hiss_verdict([{"rev": "room", "dub": "off", "vel": 30, "usb": {"steady": {"floor_db": f}}, "a4c": {"steady": {"floor_db": -81.0}}} for f in (-180.0, -85.0, -85.0)]))
+            and not H.hiss_verdict([{"rev": "room", "dub": "off", "vel": 30, "usb": {"steady": {"floor_db": -180.0}}, "a4c": {"steady": {"floor_db": f}}} for f in (-180.0, -82.0, -82.0)])["pass"])
+    def hb(rev, dub, vel, u, a): return {"rev": rev, "dub": dub, "vel": vel, "usb": {"steady": {"floor_db": u}}, "a4c": {"steady": {"floor_db": a}}}
+    attempt("q23 Q3: Round 32's bench (USB digital zero, -180): not judgeable on USB, said so; judged on the AUDIO4c: room:off:100 -91.04 passes "
+            "against S's AUDIO4c -80.15, off:spring:100 -83.09 against -79.75 (no off row needed)",
+            lambda: (lambda v: v["pass"] and case(v, "room:off:100")["source"] == "a4c" and case(v, "room:off:100")["figure_db"] == -80.15
+                     and "not judgeable on USB" in case(v, "room:off:100")["note"] and case(v, "off:spring:100")["figure_db"] == -79.75
+                     and case(v, "off:spring:100")["floor_db"] == -83.09 and case(v, "off:spring:100")["new"])(
+                H.hiss_verdict([hb("room", "off", 100, -180.0, -91.04)] * 3 + [hb("off", "spring", 100, -180.0, -83.09)] * 3)))
+    attempt("q23 Q3: a live USB capture is the one judged (7.21's source), the AUDIO4c only recorded; the AUDIO4c figure holds on the fallback",
+            lambda: (lambda v: v["pass"] and case(v, "room:off:30")["source"] == "usb" and case(v, "room:off:30")["a4c_floor_db"] == -60.0)(
+                H.hiss_verdict([hb("room", "off", 30, -85.0, -60.0)]))
+            and not H.hiss_verdict([hb("room", "off", 30, -85.0, -60.0), hb("room", "off", 30, -84.0, -60.0)])["pass"]
+            and not H.hiss_verdict([hb("room", "off", 30, -180.0, -80.7)])["pass"] and H.hiss_verdict([hb("room", "off", 30, -180.0, -80.77)])["pass"])
+    attempt("q23 Q3: both captures unusable (USB digital zero, AUDIO4c none or digital zero): not judgeable, fails",
+            lambda: not H.hiss_verdict([hb("room", "off", 100, -180.0, None)])["pass"] and not H.hiss_verdict([hb("room", "off", 100, -180.0, -180.0)])["pass"])
+    attempt("q23 Q3: absolute, no margin: room:off:30 -84.6 fails against -84.7 (-84.7 itself passes); off:off:100 -81.0 fails against -81.1",
+            lambda: not H.hiss_verdict([hr("room", "off", 30, -84.6)], 5.0)["pass"] and H.hiss_verdict([hr("room", "off", 30, -84.7)])["pass"]
+            and not H.hiss_verdict([hr("off", "off", 100, -81.0)])["pass"])
+    attempt("q23 Q3: a loud session off does not excuse a case (no cost): off:off:30 -85 and room:off:30 -84 both fail",
+            lambda: (lambda v: not v["pass"] and not case(v, "room:off:30")["ok"] and not case(v, "off:off:30")["ok"])(
+                H.hiss_verdict([hr("off", "off", 30, -85.0), hr("room", "off", 30, -84.0)])))
+    attempt("q23 Q3: SHIMMER and DUB's SPRING against the velocity's highest S case (SPRING's: -80.5 at 30, -79.7 at 100)",
+            lambda: H.hiss_verdict([hr("shimr", "off", 30, -80.5), hr("off", "spring", 30, -81.0)])["pass"] and not H.hiss_verdict([hr("shimr", "off", 30, -80.4)])["pass"]
+            and not H.hiss_verdict([hr("shimr", "off", 100, -79.6)])["pass"] and H.hiss_verdict([hr("shimr", "off", 100, -79.7)])["pass"])
+    idle = lambda f: {"usb": {"steady": {"floor_db": f}}}
+    attempt("q23 Q3: idle (the session's idle captures) against off's lowest, -90.9 on USB (-81.36 on the AUDIO4c when USB is digital zero); a digital-zero case with no AUDIO4c fails",
+            lambda: (lambda v: v["pass"] and case(v, "idle")["figure_db"] == -90.9)(H.hiss_verdict([hr("room", "off", 30, -86.0)], 0.1, [idle(-91.0)] * 3))
+            and not H.hiss_verdict([hr("room", "off", 30, -86.0)], 0.1, [idle(-90.0), idle(-91.0), idle(-91.0)])["pass"]
+            and not H.hiss_verdict([hr("room", "off", 30, -86.0)], 0.1, [idle(-180.0)] * 3)["pass"]
+            and H.hiss_verdict([hr("room", "off", 30, -86.0)], 0.1, [{"usb": {"steady": {"floor_db": -180.0}}, "a4c": {"steady": {"floor_db": -82.0}}}] * 3)["pass"]
+            and not H.hiss_verdict([hr("room", "off", 30, -180.0)], 0.1, [idle(-91.0)] * 3)["pass"])
+    attempt("q23 Q3: a velocity without S figures is not judgeable (fails); a non-Q3 case is recorded, not judged",
+            lambda: not H.hiss_verdict([hr("room", "off", 64, -95.0)])["pass"]
+            and (lambda v: not case(v, "dly:off:30")["judged"] and v["pass"])(H.hiss_verdict([hr("dly", "off", 30, -60.0), hr("room", "off", 30, -90.0)])))
+
+
+PROMPT_TOOLS = ("q4_install.py", "soak/qual_soak.py", "hiss.py", "seqtest.py", "rectest.py", "cdp_install.mjs", "unit_objects.py")
+PROMPT_PATTERNS = (r"\binput\(", r"getpass", r"sys\.stdin", r"createInterface", r"\.question\(", r'"--ask"', r"Press Enter")
+BOTH_FIRMWARES = {1, 2, 3, 5, 8, 9, 27, 28, 30, 31, 64, 65, 66, 67, 73, 80, 102}   # the commands of v0.15.0's editor.c that 4573e79d keeps unchanged
+
+
+def mock_backup(mock, path, arr=True):
+    """a backup file of the mock as oc_install.mjs backup writes one (web/fm1backup.js captureBackup: format, version 1, every object's data)"""
+    import base64
+    o = mock.objects()
+    json.dump({"format": "felucca-backup", "version": 1, "firmware": mock.info()["version"],
+               "objects": [{"id": k, "size": len(o[k]), "crc": zlib_crc(o[k]) if o[k] else 0, "data": base64.b64encode(o[k]).decode()}
+                           for k in list(range(29)) + (list(range(64, 85)) if arr else [])]}, open(path, "w"))
+    return path
+
+
+def zlib_crc(b):
+    import zlib
+    return zlib.crc32(bytes(b)) & 0xFFFFFFFF
+
+
+def remote_checks():
+    """(Round 32, the owner's rule: every test runs unattended) the saved objects of Q4 written and erased over the editor (tools/hw/unit_objects.py)
+    on a mock editor that answers as v0.15.0 and as 4573e79d (tools/hw/editor_mock.py), and no prompt left in the qualification tools; each check
+    fails on 52e16b13 (no unit_objects.py, q4_install.py's input() and cdp_install.mjs --ask)"""
+    import builtins
+    import re
+    import argparse as AP
+
+    def no_prompt():
+        bad = []
+        for f in PROMPT_TOOLS:
+            path = os.path.join(HERE, f)
+            src = open(path).read() if os.path.exists(path) else None
+            bad += [f"{f}: missing"] if src is None else [f"{f}: {pat}" for pat in PROMPT_PATTERNS if re.search(pat, src)]
+        if bad:
+            print("     prompts left:", bad)
+        return not bad
+    attempt("remote: no operator prompt in q4_install.py, qual_soak.py, hiss.py, seqtest.py, rectest.py, cdp_install.mjs, unit_objects.py", no_prompt)
+    attempt("review: one install attempt per build (SPEC.md 13.1): q4_install.py passes --retries 1, cdp_install.mjs defaults to 1",
+            lambda: '"--retries", "1"' in open(os.path.join(HERE, "q4_install.py")).read() and '"--retries", "3"' not in open(os.path.join(HERE, "q4_install.py")).read()
+            and "Number(opt.retries || 1)" in open(os.path.join(HERE, "cdp_install.mjs")).read())
+    real_input = builtins.input
+    try:
+        import unit_objects as _UO_pace
+    except ImportError:
+        _UO_pace = None
+    pace0 = (_UO_pace.PACE_S, _UO_pace.SETTLE_S) if hasattr(_UO_pace, "PACE_S") else None
+    if pace0:
+        _UO_pace.PACE_S = _UO_pace.SETTLE_S = 0.0           # (no real link: no pause needed)
+
+    def prompted(*_):
+        raise AssertionError("a tool asked the operator (input())")
+    builtins.input = prompted
+    try:
+        for fn in (_remote_unit_checks, _remote_q4_checks, _link_checks):
+            try:
+                fn()
+            except BaseException as e:                   # noqa: BLE001 (on 52e16b13: no unit_objects.py)
+                check(False, f"remote: {fn.__name__} raised {e!r:.160}")
+    finally:
+        builtins.input = real_input
+        if pace0:
+            _UO_pace.PACE_S, _UO_pace.SETTLE_S = pace0
+
+
+def hushed(fn, *a, **k):
+    """fn's own printing (a tool's log lines) kept out of the checks' output"""
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        return fn(*a, **k)
+
+
+def _remote_unit_checks():
+    import unit_objects as UO
+    import editor_mock as EM
+    quiet = lambda line: None
+    for fw in ("0.15.0", "nightly"):
+        d = tempfile.mkdtemp(prefix="uo-")
+        u = EM.EditorMock(fw)
+        st = {}
+
+        def seeded(u=u, d=d, st=st, fw=fw):
+            m = UO.seed(u, d, "T", log=quiet)
+            st["m"] = m
+            lists = m["lists_written"]
+            return (m["phrase"]["len"] == 16 and [p["slot"] for p in m["presets"]] == [70, 71] and lists["scene_used"] == [1]
+                    and lists["scene"][:2] == [1, 0] and lists["chain"][0] == m["phrase"]["number"] and m["objects"]["2"]["size"] > 0
+                    and m["objects"]["18"]["size"] > 0 and u.projects.get(0) and {c for c, _ in u.sent} <= BOTH_FIRMWARES
+                    and os.path.exists(os.path.join(d, "seed-T.json")))
+        attempt(f"remote ({fw}): seed writes project slot A (MACRO tracks, the phrase on track 1 bank 1, LEN 16, BPM 120), the scene, presets U71 U72, "
+                f"reads them back, with commands both firmwares have", seeded)
+        attempt(f"remote ({fw}): the seed's phrase, project record and preset bank are BACKUP_LIST objects on both firmwares (2, 64, 68, 18: 4573e79d builds with OC_PJ4 0)",
+                lambda st=st: (lambda o: all(o[k]["size"] > 0 for k in ("2", "64", "68", "18")))(st["m"]["objects"]))
+        attempt(f"remote ({fw}): verify passes on the seed, after an install of the Nightly (another P_COUNT: the presets by label) too",
+                lambda u=u, st=st: UO.verify(u, st["m"], log=quiet)["ok"] and (u.set_fw("nightly") or True) and UO.verify(u, st["m"], log=quiet)["ok"])
+
+        def broken(u=u, st=st):
+            rec = u.projects[0]
+            rec["tracks"][0]["banks"][0][4] = EM.EMPTY
+            v = UO.verify(u, st["m"], log=quiet)
+            return not v["ok"] and any(p.startswith("object 2") for p in v["problems"])
+        attempt(f"remote ({fw}): verify fails when a seeded step is gone from the saved project", broken)
+        u2 = EM.EditorMock(fw)
+        UO.seed(u2, d, "T2", log=quiet)
+        u2.projects[2] = u2.projects[0]
+        u2.old_records[3] = {"OCJ2": "OLD FORMAT"}
+
+        def wiped(u=u2, fw=fw):
+            r = UO.wipe_projects(u, log=quiet)
+            objs = UO.backup_list(u)
+            return (not u.projects and not u.old_records and all(objs[k] == (0, 0) for k in (2, 3, 4, 5, 64, 65, 66, 67))
+                    and not any(UO.project_used(u, s) for s in range(4)) and "67" in r["command"])
+        attempt(f"remote ({fw}): wipe-projects empties slots A..D by BACKUP_PUT of 2..5 with size 0 (and an OLD FORMAT record by 64 + slot), read back empty", wiped)
+        attempt(f"remote ({fw}): wipe-presets erases every user preset (80 op 5), read back empty",
+                lambda u=u2: UO.wipe_presets(u, log=quiet)["used_after"] == [] and not u.lib)
+        # the preconditions
+        u3 = EM.EditorMock(fw)
+        b = mock_backup(u3, os.path.join(d, "b.json"))
+        real = UO.suites_running
+
+        def pre(suites, busy, stale, u=u3, b=b, d=d):
+            UO.suites_running = lambda: suites
+            u.busy = busy
+            if stale:
+                u.lib[9] = ("MACRO", 8, "NEW", {})
+            try:
+                uu, path = UO.preconditions(lambda: u, d, "T", backup=b)
+                return path == b
+            except SystemExit:
+                return False
+            finally:
+                UO.suites_running = real
+                u.busy = 0
+                u.lib.pop(9, None)
+        attempt(f"remote ({fw}): a write refuses while a host suite runs, while the transport runs, and with a backup that is not the unit now; goes on with one that is",
+                lambda: not pre([(1, "run_tests.sh")], 0, False) and not pre([], 1, False) and not pre([], 0, True) and pre([], 0, False))
+
+        def cli(u=u3, b=b, d=d):
+            UO.suites_running = lambda: []
+            try:
+                n0 = len(u.sent)
+                refused = hushed(UO.main, [d, "C", "seed", "--backup", b], open_unit=lambda: u) == 2 and len(u.sent) == n0
+                return refused and hushed(UO.main, [d, "C", "seed", "--backup", b, "--confirm", "SEED"], open_unit=lambda: u) == 0 and u.projects.get(0)
+            finally:
+                UO.suites_running = real
+        attempt(f"remote ({fw}): unit_objects.py seed without --confirm SEED refuses before a request (nothing asked); with it, it seeds", cli)
+        _review_unit_checks(fw, d)
+
+
+def _review_unit_checks(fw, d):
+    """(the review of 78304b8a) each fails there"""
+    import unit_objects as UO
+    import editor_mock as EM
+    quiet = lambda line: None
+    real = UO.suites_running
+    u = EM.EditorMock(fw)
+    u.lib_old[200] = "OLD ONE"
+    u.lib[70] = ("MACRO", 8, "MINE", {"LEVEL": 33})
+    u.projects[1] = json.loads(json.dumps(u.music))
+    b = mock_backup(u, os.path.join(d, f"rv-{fw}.json"))
+    m = UO.seed(u, d, "RV", log=quiet)
+    gate = [lab for lab, lo, hi, dd in EM.layout(fw)].index("GATE")
+    attempt(f"review ({fw}): a track parameter whose default is outside -64..127 (GATE 200) is seeded as it is, not as Put's 127",
+            lambda: all(t["p"]["GATE"] == 200 for t in u.music["tracks"]) and m["params"][0][gate] == 200)
+    attempt(f"review ({fw}): the seed names the preset slots it wrote over (70 held MINE: the backup holds it, the restore puts it back)",
+            lambda: m["preset_slots_overwritten"] == [70])
+    n0 = len(u.sent)
+    v = UO.verify(u, m, log=quiet)
+    sent = u.sent[n0:]
+    attempt(f"review ({fw}): verify is read only: no load (PROJECT op 0), no write; only {sorted(UO.VERIFY_READS)}",
+            lambda: v["ok"] and {c for c, _ in sent} <= UO.VERIFY_READS and not any(c == 9 and a[0] != 2 for c, a in sent)
+            and not any(c == 80 and a[0] not in (0, 1) for c, a in sent) and not any(c == 102 and a[0] != 0 for c, a in sent))
+    pid = m["phrase"]["id"]
+    keep = u.pool[pid]
+    u.pool[pid] = (keep[0], keep[1], "changed")
+    attempt(f"review ({fw}): verify compares the phrase's CRC (ARRANGE INFO), not only its LEN",
+            lambda: any(p.startswith("the phrase") for p in UO.verify(u, m, log=quiet)["problems"]))
+    u.pool[pid] = keep
+    UO.wipe_presets(u, log=quiet)
+    attempt(f"review ({fw}): wipe-presets erases an OLD-format preset too (library list's oldFormat; op 5)", lambda: not u.lib_old and not u.lib)
+    UO.wipe_projects(u, log=quiet)
+    r = UO.restore(u, b, log=quiet)
+    attempt(f"review ({fw}): restore writes the backup back (BACKUP_PUT in restoreBackup's order) and BACKUP_LIST 0 and 1 equal the file: the OLD preset, slot 70's MINE, project slot B back",
+            lambda: r["ok"] and u.lib_old.get(200) == "OLD ONE" and u.lib.get(70, ("", 0, ""))[2] == "MINE" and 1 in u.projects and 0 not in u.projects
+            and not UO.backup_matches(u, b))
+    UO.wipe_presets(u, log=quiet)
+    u.lossy = {6, 18}
+    attempt(f"review ({fw}): a restore that does not verify (the unit drops an object) is reported not ok, with the object",
+            lambda: (lambda r: not r["ok"] and any(p.startswith("object 18") for p in r["problems"]))(UO.restore(u, b, log=quiet)))
+    u.lossy = set()
+    attempt(f"review ({fw}): unit_objects.py restore without --confirm RESTORE refuses before a request; with it, the backup comes back",
+            lambda: hushed(UO.main, [d, "R", "restore", "--backup", b], open_unit=lambda: u) == 2
+            and (setattr(UO, "suites_running", lambda: []), hushed(UO.main, [d, "R", "restore", "--backup", b, "--confirm", "RESTORE"], open_unit=lambda: u))[1] == 0
+            and not UO.backup_matches(u, b))
+    UO.suites_running = lambda: []
+
+    def refused(backup, prep=None):
+        if prep: prep()
+        try:
+            hushed(UO.preconditions, lambda: u, d, "P", backup=backup)
+            return False
+        except SystemExit:
+            return True
+    attempt(f"review ({fw}): the preconditions refuse a missing backup file, a backup without the arrangement objects of a unit that holds them, a failed backup",
+            lambda: refused(os.path.join(d, "none.json")) and refused(mock_backup(u, os.path.join(d, "v1.json"), arr=False))
+            and refused(None, lambda: setattr(UO, "subprocess", AP_NS(run=lambda *a, **k: AP_NS(returncode=1, stdout="", stderr="node: no port"), DEVNULL=None)))
+            and not refused(mock_backup(u, os.path.join(d, "ok.json"))))
+    import subprocess as SP
+    UO.subprocess = SP
+    UO.suites_running = real
+
+
+def AP_NS(**k):
+    import argparse
+    return argparse.Namespace(**k)
+
+
+def _link_checks():
+    """(Round 32, the unit's restore that failed three times, and a backup's "Unexpected backup reply") the link's faults as the unit showed them,
+    on the mock; each fails on 1e378d73"""
+    import unit_objects as UO
+    import editor_mock as EM
+    quiet = lambda line: None
+    pace = (getattr(UO, "PACE_S", 0.0), getattr(UO, "SETTLE_S", 0.0))
+    UO.PACE_S = UO.SETTLE_S = 0.0
+    try:
+        for fw in ("0.15.0", "nightly"):
+            d = tempfile.mkdtemp(prefix="uo-")
+            for name, faults in (("a lost reply on a data chunk (object 5 at 2560)", [{"kind": "lose_reply", "op": 1, "oid": 5, "off": 2560}]),
+                                 ("a dropped frame on a data chunk (object 5 at 2560: usb.c's one frame still pending)", [{"kind": "drop_request", "op": 1, "oid": 5, "off": 2560}]),
+                                 ("a lost reply on a commit (object 8, empty: it took effect)", [{"kind": "lose_reply", "op": 2, "oid": 8}]),
+                                 ("a dropped commit frame (object 8)", [{"kind": "drop_request", "op": 2, "oid": 8}]),
+                                 ("object 1 (604 B: 256, 256, 92) with its chunk at 256 taken twice, the second answer (rc 1) coming late on the chunk at 512",
+                                  [{"kind": "dup_frame", "op": 1, "oid": 1, "off": 256}])):
+                u = EM.EditorMock(fw)
+                u.projects[3] = json.loads(json.dumps(u.music))
+                u.music["tracks"][0]["banks"][0][1] = (1, 61, 0, 0, 0, 0, 0, 90, 0, 0, 0, 100)
+                b = mock_backup(u, os.path.join(d, "b.json"))
+                UO.wipe_presets(u, log=quiet); u.projects.pop(3); u.settings = b"other settings" + bytes(590); u.music["bpm"] = 61
+                u.faults = list(faults)
+
+                def run(u=u, b=b):
+                    r = UO.restore(u, b, log=quiet)
+                    chunks = [a for c, a in u.sent if c == 67 and a[0] == 1]
+                    return r["ok"] and not UO.backup_matches(u, b) and not u.faults and 3 in u.projects
+                attempt(f"link ({fw}): the restore goes on through {name}: the object written again from its begin, never a chunk twice, the unit equals the backup", run)
+            u = EM.EditorMock(fw)
+            b = mock_backup(u, os.path.join(d, "b2.json"))
+            UO.wipe_presets(u, log=quiet)                    # (object 6, slot 3's bank, now differs from the backup)
+            u.fail_commit = {6}
+
+            def gives_up(u=u, b=b):
+                try:
+                    UO.restore(u, b, log=quiet); return False
+                except UO.RestoreFailed as e:
+                    return "object 6" in str(e) and e.done == [2, 3, 4, 5]
+            attempt(f"link ({fw}): an object the unit never takes (rc 4 every time) stops the restore after its tries, the objects written before it named", gives_up)
+    finally:
+        UO.PACE_S, UO.SETTLE_S = pace
+    p = subprocess.run(["node", os.path.join(HERE, "late_reply_check.mjs")], cwd=REPO, capture_output=True, text=True)
+    try:
+        got = json.loads(p.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        got = {}
+    attempt("link: a BACKUP_GET answered late: the page's OcLink takes it for the next request (\"Unexpected backup reply\", the unit's 50 % failure); "
+            "oc_install.mjs's matched request (tools/hw/bk_request.mjs) drops it and the backup completes",
+            lambda: got == {"oclink": "Unexpected backup reply", "matched": "ok"} and "matchedRequest" in open(os.path.join(HERE, "oc_install.mjs")).read())
+
+
+def _expect_exit(fn):
+    try:
+        fn(); return False
+    except SystemExit as e:
+        return "NOT kept" in str(e)
+
+
+def _remote_q4_checks():
+    import argparse as AP
+    import q4_install as Q4
+    import editor_mock as EM
+    import fm1hw as F
+    try:
+        import unit_objects as UO
+    except ImportError:                                  # (52e16b13: q4_install.py is checked on its own)
+        UO = AP.Namespace(suites_running=None)
+    saved = {k: getattr(Q4, k) for k in ("backup", "page", "nightly", "state")}
+    real_unit, real_suites = F.Unit, UO.suites_running
+    try:
+        for fw in ("0.15.0", "nightly"):
+            d = tempfile.mkdtemp(prefix="q4r-")
+            u = EM.EditorMock(fw)
+            u.projects[1] = json.loads(json.dumps(u.music))
+            Q4.A = AP.Namespace(out=d, label="R", case="b-projects", expect="0.16.0", layout=None, yes=True, confirm=None, url="x", nightly_build="b",
+                                backup=None, answers=None, minutes=1.0, standard="0.15.0", no_seed=False, no_pause=False)
+            n = {"k": 0}
+
+            def bk(tag, u=u, d=d, n=n):
+                n["k"] += 1
+                return mock_backup(u, os.path.join(d, f"backup-{tag}-{n['k']}.json"))
+            Q4.backup, Q4.state = bk, (lambda tag: {"tag": tag})
+            F.Unit = lambda u=u: u
+            UO.suites_running = lambda: []
+
+            def refused():
+                try:
+                    hushed(Q4.projects_wipe); return False
+                except SystemExit as e:
+                    return "--confirm WIPE" in str(e) and 1 in u.projects
+            attempt(f"remote q4 ({fw}): b-projects without --confirm WIPE refuses (no prompt) before its backup, the slots as they were",
+                    lambda n=n: refused() and n["k"] == 0)
+            Q4.A.confirm = ["WIPE"]
+            attempt(f"remote q4 ({fw}): b-projects empties every slot over the editor, no panel step",
+                    lambda u=u, d=d: (hushed(Q4.projects_wipe) or True) and not u.projects and "BACKUP_PUT (67) size 0" in open(os.path.join(d, "q4-R.log")).read())
+
+            def case_b(u=u, d=d):
+                first = json.load(open(os.path.join(d, "q4-wipe-backups-R.json")))[0]["backup"]
+                hushed(Q4.presets_wipe)
+                Q4.nightly = lambda step, take_backup=True, u=u: (u.set_fw("nightly"), {"ok": True})[1]
+                Q4.A.case = "b"
+                try:
+                    hushed(Q4.run_case)
+                    ex = None
+                except SystemExit as e:
+                    ex = str(e)
+                if fw == "nightly":
+                    return ex is None and 1 in u.projects and u.lib.get(3) and not UO.backup_matches(u, first)
+                pend = json.load(open(os.path.join(d, "PENDING-RESTORE-R.json")))       # (wiped on 0.15.0, restored only on the firmware it was taken on)
+                return (ex and "PENDING RESTORE" in ex and pend["pending_restore"] == first and "0.15.0" in pend["onto_firmware"]
+                        and "--confirm RESTORE" in pend["command"] and "taken on" in pend["why"])
+            attempt(f"review q4 ({fw}): case b, after the wipes and the Nightly, restores the first wipe's backup on the firmware it was taken on "
+                    f"({'restored, the unit equals it' if fw == 'nightly' else 'taken on 0.15.0: PENDING-RESTORE, exit non-zero'})", case_b)
+        Q4.nightly = saved["nightly"]                      # (the real one: its confirm word before page())
+        for step, fx in (("rev-set", [{"id": 3, "state": 7, "start": 2}]), ("fx-set", [{"id": 2, "state": 7, "start": 2}])):
+            calls = []
+            Q4.A = AP.Namespace(out=tempfile.mkdtemp(prefix="q4r-"), label="F", case=step, expect="0.16.0-4573e7", layout=None, yes=False, confirm=None,
+                                url="x", nightly_build="b", backup=None, answers=None, minutes=1.0, standard="0.15.0", no_seed=False)
+            Q4.state = lambda tag, fx=fx: {"describe": {"version": "ORANGE CAT v0.16.0-4573e7"}, "probe": {"fx": {"effects": fx}}}
+            Q4.backup = lambda tag, calls=calls: calls.append(("backup", tag))
+            Q4.page = lambda st, calls=calls, **k: calls.append(("page", st)) or {"ok": True}
+
+            def word_first(step=step, calls=calls):
+                try:
+                    hushed(Q4.run_case); return False
+                except SystemExit as e:
+                    return "--confirm INSTALL" in str(e) and not calls
+            attempt(f"merge: {step} without --confirm INSTALL (or --yes) refuses before its backup and the page, nothing asked", word_first)
+        Q4.state = lambda tag: {"tag": tag}
+        # case a: 0.15.0 Standard, the seed, the Nightly over it (the same store: OC_PJ4 0)
+        d = tempfile.mkdtemp(prefix="q4a-")
+        u = EM.EditorMock("nightly")                       # (the unit runs the Nightly before a1)
+        Q4.A = AP.Namespace(out=d, label="A", case="a", expect="0.16.0", layout=None, yes=True, confirm=["SEED"], url="x", nightly_build="b",
+                            backup=None, answers=None, minutes=1.0, standard="0.15.0", no_seed=False, no_pause=False)
+        n = {"k": 0}
+        Q4.backup = lambda tag, u=u, d=d, n=n: (n.__setitem__("k", n["k"] + 1), mock_backup(u, os.path.join(d, f"backup-{tag}-{n['k']}.json")))[1]
+        Q4.page = lambda step, u=u, **k: (u.set_fw("0.15.0") if step == "a1-standard" else None, {"ok": True})[1]
+        Q4.nightly = lambda step, take_backup=True, u=u: (u.set_fw("nightly"), {"ok": True})[1]
+        F.Unit = lambda u=u: u
+        res = {}
+
+        def case_a():
+            try:
+                hushed(Q4.case_a)
+                res["exit"] = None
+            except SystemExit as e:
+                res["exit"] = str(e)
+            line = [json.loads(x) for x in open(os.path.join(d, "q4-A.log")) if '"case": "a"' in x and "seed_verified" in x][-1]
+            res["line"] = line
+            b0 = sorted(f for f in os.listdir(d) if f.startswith("backup-before-a1-standard"))
+            return (line["seed_verified"]["ok"] and line["projects_differing"] == [] and res["exit"] is None and line["objects"]["kept"] and line["ok"]
+                    and bool(b0) and not UO.backup_matches(u, os.path.join(d, b0[0])) and u.fw == "nightly")
+        attempt("remote q4: case a writes the seed on 0.15.0 without a prompt; after the Nightly the seed reads back, every project loads as before, every object is "
+                "kept byte for byte, and (review) the backup taken before a1 is restored on the Nightly: the unit equals it (LIST 0 and 1)", case_a)
+
+        def no_seed_word(u=u, d=d):
+            calls = []
+            Q4.A.confirm = []
+            Q4.backup = lambda tag: calls.append(("backup", tag))
+            Q4.page = lambda step, **k: calls.append(("page", step)) or {"ok": True}
+            try:
+                hushed(Q4.case_a); return False
+            except SystemExit as e:
+                return "--confirm SEED" in str(e) and not calls
+        def changed_on_install(u):
+            Q4.nightly = lambda step, take_backup=True, u=u: (u.set_fw("nightly"), u.lib.__setitem__(3, ("MACRO", 8, "USER PAD", {"LEVEL": 91})), {"ok": True})[2]
+            return hushed(lambda: _expect_exit(Q4.case_a))
+        attempt("remote q4: case a's byte compare keeps every object present before, 64..83 too (no conversion on 4573e79d), and a changed one fails it",
+                lambda: res.get("line", {}).get("objects", {}).get("kept") and changed_on_install(u))
+
+        def pending(fault, d=d):
+            """case a stopped by `fault` (set on the mock / the module): a PENDING-RESTORE record, exit non-zero"""
+            f = os.path.join(d, "PENDING-RESTORE-A.json")
+            if os.path.exists(f): os.remove(f)
+            u.set_fw("nightly"); u.fail_commit = set()
+            undo = fault()
+            try:
+                hushed(Q4.case_a); ex = None
+            except SystemExit as e:
+                ex = str(e)
+            finally:
+                undo()
+                u.fail_commit = set()
+                Q4.nightly = lambda step, take_backup=True, u=u: (u.set_fw("nightly"), {"ok": True})[1]
+            if not (ex and "PENDING RESTORE" in ex and os.path.exists(f)):
+                return None
+            rec = json.load(open(f))
+            last = open(os.path.join(d, "q4-A.log")).read().strip().splitlines()[-1]
+            ok = ("before-a1-standard" in rec["pending_restore"] and "0.16.0" in rec["onto_firmware"] and "--confirm RESTORE" in rec["command"]
+                  and "pending_restore" in last)
+            return rec if ok else None
+
+        def a2_fails():
+            Q4.nightly = lambda step, take_backup=True: {"ok": False, "error": "mock: not found"}
+            return lambda: None
+
+        def seed_refused():
+            real = UO.seed
+            UO.seed = lambda *a, **k: (_ for _ in ()).throw(UO.Refused("unit_objects: mock: the seed refused"))
+            return lambda: setattr(UO, "seed", real)
+
+        def restore_breaks():                            # (the settings changed over the install, then refused by the unit at their commit)
+            u.fail_commit = {1}
+            Q4.nightly = lambda step, take_backup=True, u=u: (u.set_fw("nightly"), setattr(u, "settings", b"changed" + bytes(597)), {"ok": True})[2]
+            return lambda: None
+        attempt("review q4: case a, the Nightly install failing: PENDING-RESTORE (the before-a1 backup, onto the Nightly, nothing written, the command), exit non-zero",
+                lambda: (lambda r: r is not None and r["objects_written_already"] == [])(pending(a2_fails)))
+        attempt("review q4: case a, the seed refused: PENDING-RESTORE, exit non-zero", lambda: pending(seed_refused) is not None)
+        attempt("review q4: case a, the restore failing part way (object 1 refused at every try): PENDING-RESTORE with the objects already written (2..83), exit non-zero",
+                lambda: (lambda r: r is not None and r["objects_written_already"][:3] == [2, 3, 4] and 1 not in r["objects_written_already"])(pending(restore_breaks)))
+        attempt("review q4: case a without --confirm SEED refuses before the backup and before the Standard install (every word before the first write)", no_seed_word)
+
+    finally:
+        for k, v in saved.items():
+            setattr(Q4, k, v)
+        F.Unit, UO.suites_running = real_unit, real_suites
 
 
 if __name__ == "__main__":

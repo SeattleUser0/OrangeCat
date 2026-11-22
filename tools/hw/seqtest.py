@@ -17,9 +17,12 @@
 #               DIVE RISE recorded on a DUB track, played back, then after SHIFT RIGHT, SHIFT LEFT and REVERSE
 #   seqtest.py OUT LABEL [CELLS|all] [REPS=2] [SEED=20261115] [PASSES=16]      seqtest.py --list
 # (Round 32, BUILD.md 7.37 Q2) the qualification's SEED 20261115 and REPS 2 are the defaults; a row fails on a hung note (voices sounding or gated
-# 3 s after the stop: every note released), and a DUB cell fails when DUB was evicted (the governor fired or DUB FULL during it); each cell's total
+# 3 s after the stop: every note released), and DUB evicted (the governor fired or DUB FULL during it) is recorded (a fail until November 21: below); each cell's total
 # of onsets is printed and judged (every replicate's expected onsets matched); a cell the image cannot run is refused, not skipped; exit 1 when
 # any cell fails.
+# (Round 32, the owner's decision of November 21, BUILD.md 7.37) DUB evicted is recorded, a fail in no cell; late halves are recorded and judged:
+# allowed (at most LATE_LIMIT) only in the first run of a heavy DUB cell after the mix changed (Round 14's written limit, 7.25), a fail anywhere
+# else; before every DUB cell the script waits (up to DUB_WAIT_S, the load stopped) until DUB runs with its memory, else the cell is refused.
 # The step command's v8 bytes (d78a402) carry a step's condition, nudge and ratchet; on an older image the feel cells are refused and say so.
 import sys, os, time, json, random, math
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -49,6 +52,8 @@ OUT = LABEL = None
 CELLS = DEFAULT_CELLS.split(",")
 REPS, SEED, PASSES = 2, 20261115, 16
 RELEASE_S = 3.0                                          # (Round 32) after the stop, before the voices are read: every release over
+LATE_LIMIT = 3                                           # (7.37, Nov 21) Round 14's "two or three halves once" (7.25: heavy:2 warm-up 3, heavy:1 first 2)
+DUB_WAIT_S = 60.0                                        # (7.37, Nov 21) the carry-over wait before a DUB cell: DUB running with its memory, or refused
 BPM, NSTEP = 120, 16
 STEP_S = 60.0 / BPM / 4
 # (Round 30 item 2) every parameter id is resolved by its label from the unit's own descriptor (resolve_ids, run at start). Until Round 29 the r11
@@ -491,7 +496,7 @@ def play_chain(u, play_s, dub, during=None):
     return polls, running
 
 
-def run(u, name, cell):
+def run(u, name, cell, late_allow=0):
     kind = cell[0]
     dub = kind in ("light", "heavy") and int(cell[1])
     if kind in ("light", "heavy"): exp, rules = program_load(u, kind, dub)
@@ -501,6 +506,12 @@ def run(u, name, cell):
     else: raise SystemExit(f"cell {cell}")
     time.sleep(3.0)
     play_s = PASSES * NSTEP * STEP_S
+    wait = wait_dub_ready(u) if dub else None             # (7.37, Nov 21) the carry-over: DUB back with its memory before a DUB cell, the load stopped
+    if wait is not None and not wait["ready"]:
+        row = refused_row(name, cell, exp, wait)
+        row["ok"], row["why"] = row_ok(row)
+        return row
+    late_allow = max(late_allow, waited_allowance(cell, wait))   # (7.37, Nov 21 review) DUB waited back in: the window empty, "the first after the mix changed"
     ra = capture.Recorder(f"{OUT}/{LABEL}-{name}-a4c.wav", "audio4c").start()
     ru = capture.Recorder(f"{OUT}/{LABEL}-{name}-usb.wav", "usb").start()
     time.sleep(0.5)
@@ -524,7 +535,8 @@ def run(u, name, cell):
     row = {"name": name, "cell": ":".join(cell), "passes": PASSES, "t0": t0, **res, "late": st["late"], "worst_us": st["worst_us"], "load_pct": st.get("load_pct"),
            "mem_before": m0, "mem_after": m1, "voices_end": v, "dac_silences": max(a["ch1"]["dac_silences"], a["ch2"]["dac_silences"]), "usb_holes": uu["ch1"]["dropouts"],
            "voices_after_release": v_rel, "dub_after": d1, **dub_fields(d0, polls, d1, dub),
-           "dub_before": d0, "dub_polls_changes": [p for i, p in enumerate(polls) if i == 0 or p[1:] != polls[i - 1][1:]], "still_running": running, "clock_gap_ms": clock_gap}
+           "dub_before": d0, "dub_polls_changes": [p for i, p in enumerate(polls) if i == 0 or p[1:] != polls[i - 1][1:]], "still_running": running, "clock_gap_ms": clock_gap,
+           "dub_wait": wait, "late_allowed": late_allow}
     if kind == "slide" and t0 is not None:
         summary, detail = slide_checks(mu, rate_u, ons, t0, rules, PASSES, unison=cell[2] == "UNISON")
         row["slide"] = summary
@@ -550,7 +562,7 @@ def hung(v):
 
 
 def dub_fields(d0, polls, d1, dub):
-    """(Round 32) every cell records whether DUB was evicted (flagged in a cell without DUB, failing a DUB cell: row_ok)"""
+    """(Round 32) every cell records whether DUB was evicted (recorded in every cell, a fail in none: 7.37, Nov 21)"""
     return {"dub_evicted": dub_evicted(d0, polls, d1), "dub_cell": bool(dub)}
 
 
@@ -571,7 +583,9 @@ def dub_evicted(d0, polls, d1):
 
 
 def row_ok(row):
-    """(ok, why) of one run: every onset, the chance, flam and slide rules, no hung note, and DUB not evicted in a DUB cell"""
+    """(ok, why) of one run: every onset, the chance, flam and slide rules, no hung note, the late halves within the written limit (late_allowance);
+    DUB evicted is recorded, not judged (7.37, Nov 21); a refused DUB cell fails"""
+    if row.get("refused"): return False, [row["refused"]]   # (7.37, Nov 21: DUB not back before a DUB cell: nothing measured)
     why = []
     if row.get("error") or row.get("missed") != []: why.append(f"onsets missed: {len(row.get('missed') or [])} of {row.get('expected')}" if not row.get("error") else row["error"])
     if not all(g["ok"] for g in row.get("chance_groups", [])) or not all(c["ok"] for c in row.get("chance", {}).values()): why.append("chance outside its region")
@@ -580,17 +594,65 @@ def row_ok(row):
     if not all(sl["cell_fail"] == 0 for sl in row.get("slide", {}).values()): why.append("slide checks")
     if row.get("voices_after_release") is None: why.append("the voices after the stop not read (no reply): the hung-note check not judgeable")
     elif hung(row.get("voices_after_release")): why.append(f"a hung note: {row['voices_after_release']} {RELEASE_S} s after the stop")
-    if row.get("dub_cell") and row.get("dub_evicted"): why.append("DUB evicted in a DUB cell (the governor fired or DUB FULL)")
-    if row.get("dub_cell") and row.get("dub_evicted") is None: why.append("DUB's state was not read before or after the cell (no reply): not judgeable")
+    if row.get("dub_cell") and row.get("dub_evicted") is None:
+        why.append("DUB's state was not read before or after the cell (no reply): not judgeable")
+    # (7.37, Nov 21) DUB evicted: recorded (row["dub_evicted"]), a fail in no cell: Round 14's written limit
+    late, allow = row.get("late"), row.get("late_allowed", 0) or 0
+    if late is None: why.append("the late halves not read: not judgeable")
+    elif late > allow:
+        why.append(f"{late} late halves" + (f", over the written limit's {allow} (the first run of a heavy DUB cell after the mix changed)" if allow
+                                           else " (allowed only in the first run of a heavy DUB cell after the mix changed)"))
     return not why, why
+
+
+def late_allowance(order, i):
+    """(7.37, Nov 21) the late halves run i of the drawn order (the warm-up included) may have under Round 14's written limit (7.25: "0 in every
+    cell but the first of each kind after the mix changed"; CHANGES.md: "two or three halves once"): LATE_LIMIT when it is a heavy DUB cell
+    (heavy:1, heavy:2) and the previous run was a different cell, or it is the first run; else 0"""
+    c = tuple(order[i][1])
+    if c[0] != "heavy" or len(c) < 2 or not int(c[1]): return 0
+    return LATE_LIMIT if i == 0 or tuple(order[i - 1][1]) != c else 0
+
+
+def waited_allowance(cell, wait):
+    """(7.37, Nov 21, the review of 4a404aa3) a heavy DUB cell whose DUB the carry-over wait brought back (out at the wait's first read, running
+    at its end) starts with the governor's window emptied with the load stopped: the state 7.25 calls "the first after the mix changed", even
+    when the previous run was the same cell. LATE_LIMIT then, else 0"""
+    c = tuple(cell)
+    if c[0] != "heavy" or len(c) < 2 or not int(c[1]) or not wait: return 0
+    return LATE_LIMIT if wait.get("ready") and not dub_ready(wait.get("first")) else 0
+
+
+def dub_ready(d):
+    """DUB's instance 1 running with its memory: st 2, rdy 1, no DUB FULL bit (0xF0); None (no reply): not ready"""
+    return bool(d) and d["i1"]["st"] == 2 and d["i1"]["rdy"] == 1 and not (d["full"] >> 4)
+
+
+def wait_dub_ready(u, limit_s=None, poll_s=1.0, clock=time.monotonic, sleep=time.sleep):
+    """(7.37, Nov 21) before a DUB cell, the transport stopped: wait up to limit_s (DUB_WAIT_S) until DUB runs with its memory. Light:2's r24 on
+    the unit began with DUB out from heavy:2 (dub_before full 16, st 0) and DUB came back 18 s in: the cell measured nothing of DUB.
+    -> {"ready", "waited_s", "first", "last", "polls"}"""
+    limit_s = DUB_WAIT_S if limit_s is None else limit_s
+    t0 = clock(); first = d = dub_read(u); n = 1
+    while not dub_ready(d) and clock() - t0 < limit_s:
+        sleep(poll_s); d = dub_read(u); n += 1
+    return {"ready": dub_ready(d), "waited_s": round(clock() - t0, 1), "limit_s": limit_s, "first": first, "last": d, "polls": n}
+
+
+def refused_row(name, cell, exp, wait):
+    """(7.37, Nov 21) a DUB cell whose DUB did not come back: refused, not judgeable; nothing played, its expected onsets count against the total"""
+    return {"name": name, "cell": ":".join(cell), "passes": PASSES, "expected": sum(1 for e in exp if e["req"]), "matched": 0, "missed": None,
+            "late": None, "dub_cell": True, "dub_evicted": None, "dub_wait": wait, "dub_before": wait["last"],
+            "refused": f"refused, not judgeable: DUB did not come back with its memory in {wait['limit_s']:.0f} s before the cell (last state {wait['last']})"}
 
 
 def cell_totals(rows):
     """(Round 32) per cell: onsets matched of expected over its replicates (e.g. 512 of 512) and the cell's verdict (every replicate ok)"""
     out = {}
     for r in rows:
-        c = out.setdefault(r["cell"], {"matched": 0, "expected": 0, "runs": 0, "ok": True, "why": []})
+        c = out.setdefault(r["cell"], {"matched": 0, "expected": 0, "runs": 0, "ok": True, "why": [], "late": 0, "dub_evicted_runs": 0})
         c["matched"] += r.get("matched", 0) or 0; c["expected"] += r.get("expected", 0) or 0; c["runs"] += 1
+        c["late"] += r.get("late") or 0; c["dub_evicted_runs"] += 1 if r.get("dub_evicted") else 0   # (7.37, Nov 21: recorded)
         if not r.get("ok"): c["ok"] = False; c["why"] += [f"{r['name']}: {w}" for w in r.get("why", ["not ok"])]
     for c in out.values():
         if c["matched"] != c["expected"] or not c["expected"]: c["ok"] = False
@@ -639,14 +701,14 @@ def main():
         log({"label": LABEL, "version": info["version"], "v8": V8, "saved": saved, "bank": BANK, "cells": [":".join(c) for c in cells], "reps": REPS, "seed": SEED,
              "passes": PASSES, "order": [(n, ":".join(c)) for n, c in order]})
         rows = []
-        for name, c in order:
-            row = run(u, name, c)
+        for i, (name, c) in enumerate(order):
+            row = run(u, name, c, late_allowance(order, i))
             log(row)
             if name != "warm": rows.append(row)
             json.dump(rows, open(f"{OUT}/rows-{LABEL}.json", "w"), indent=1)
         tot = cell_totals(rows)
         for c, t in tot.items():
-            print(f"seqtest: {c}: {t['total']} onsets, {'PASS' if t['ok'] else 'FAIL'}" + ("" if t["ok"] else f" ({'; '.join(t['why'][:4])})"), flush=True)
+            print(f"seqtest: {c}: {t['total']} onsets, late {t['late']}, DUB evicted in {t['dub_evicted_runs']} of {t['runs']}, {'PASS' if t['ok'] else 'FAIL'}" + ("" if t["ok"] else f" ({'; '.join(t['why'][:4])})"), flush=True)
         log({"summary": {"rows": len(rows), "ok": sum(1 for r in rows if r.get("ok")), "not_ok": [r["name"] + " " + r["cell"] for r in rows if not r.get("ok")],
                          "cells": tot, "all_cells_pass": all(t["ok"] for t in tot.values())}})
         st_["pass"] = bool(tot) and all(t["ok"] for t in tot.values())
