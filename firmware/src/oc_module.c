@@ -180,7 +180,7 @@ static OC_MOD_GEO_QUAL oc_mod_geo_t oc_mod_geo[] = { { ENGI_SHAPES, 6u, 0x03u },
                                                      { ENGI_SEM, 4u, 0x03u }, { ENGI_HADES, 4u, 0x03u },   /* (0.14.0) the candidates of a measurement build */
 #if OC_MOD_TAIL                                              /* (engines-b) the four built as modules, re-cut as WHEEL is: the sectors they need, any start of the area that holds them (oc_mod_allowed's span check) */
                                                      { ENGI_FMBELL, 4u, 0x03u }, { ENGI_SUPERSAW, 1u, 0x3FFFFu }, { ENGI_DDDD, 4u, 0x03u },
-                                                     { ENGI_AETHER, 4u, 0x03u }, { ENGI_BRASS, 4u, 0x3FFFFu }, { ENGI_MIXTUR, 1u, 0x3FFFFu }, { ENGI_ARC, 4u, 0x03u },
+                                                     { ENGI_AETHER, 4u, 0x03u }, { ENGI_BRASS, 4u, 0x3FFFFu }, { ENGI_MIXTUR, 2u, 0x3FFFFu }, { ENGI_ARC, 4u, 0x03u },
                                                      { ENGI_X0X303, 3u, 0x3FFFFu },
 #else
                                                      { ENGI_FMBELL, 4u, 0x03u }, { ENGI_SUPERSAW, 4u, 0x03u }, { ENGI_DDDD, 4u, 0x03u },    /* (0.14.1) op1r's synths: WHEEL's geometry */

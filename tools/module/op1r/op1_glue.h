@@ -224,7 +224,7 @@ static inline __attribute__((always_inline)) void op1g_render(track_t *t, voice_
                 out[i] += voice_amp(b[k], m, i);
         else
             for (k = 0; k < take; k++, i++) {
-                int32_t y = b[k] * g / 4096;
+                int32_t y = (b[k] * g) >> 12;    /* (an arithmetic shift: the JieLi clang, as gcc, keeps the sign; no divide in the loop) */
                 out[i] += voice_amp(g > 4096 ? soft_knee(y, 16384) : y, m, i);
             }
 #else

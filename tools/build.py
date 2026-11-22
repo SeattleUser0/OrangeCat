@@ -547,10 +547,10 @@ MODULES = {"shapes": {"src": "tools/module/shapes_mod.c", "sectors": 6, "starts"
            "supersaw": {"src": "tools/module/supersaw_mod.c", "sectors": 4, "starts": [0, 6], "name": "SUPERSAW", "inc": ["tools/module/op1r"], "tail": {"sectors": 1, "starts": list(range(-6, 12))}},
            "dddd": {"src": "tools/module/dddd_mod.c", "sectors": 4, "starts": [0, 6], "name": "DDDD", "inc": ["tools/module/op1r"]},
            # (engines-b, from op1r-candidates 0.3) op1r's second four, and X0X's TB-303 (proposed 47): WHEEL's geometry. (engines-b) the four built as modules
-           # (SUPERSAW above, MIXTUR, BRASS, X0X303) are re-cut in a tail build as WHEEL is: the sectors they need (1, 1, 4, 3), every start of the area that holds them
+           # (SUPERSAW above, MIXTUR, BRASS, X0X303) are re-cut in a tail build as WHEEL is: the sectors they need (1, 2, 4, 3), every start of the area that holds them
            "aether": {"src": "tools/module/aether_mod.c", "sectors": 4, "starts": [0, 6], "name": "AETHER", "inc": ["tools/module/op1r"]},
            "brassophone": {"src": "tools/module/brassophone_mod.c", "sectors": 4, "starts": [0, 6], "name": "BRASS", "inc": ["tools/module/op1r"], "tail": {"sectors": 4, "starts": list(range(-6, 9))}},
-           "mixtur": {"src": "tools/module/mixtur_mod.c", "sectors": 4, "starts": [0, 6], "name": "MIXTUR", "inc": ["tools/module/op1r"], "tail": {"sectors": 1, "starts": list(range(-6, 12))}},
+           "mixtur": {"src": "tools/module/mixtur_mod.c", "sectors": 4, "starts": [0, 6], "name": "MIXTUR", "inc": ["tools/module/op1r"], "tail": {"sectors": 2, "starts": list(range(-6, 11))}},
            "arc": {"src": "tools/module/arc_mod.c", "sectors": 4, "starts": [0, 6], "name": "ARC", "inc": ["tools/module/op1r"]},
            "x0x303": {"src": "tools/module/x0x303_mod.c", "sectors": 4, "starts": [0, 6], "name": "X0X303", "inc": ["firmware/src/x0x"], "tail": {"sectors": 3, "starts": list(range(-6, 10))}},
            # (Release 3 step 6) DUB TAPE as an effect module (kind 1, FX_MODULES_PLAN.md 15): no geometry row; its span is ceil(length / 4096) sectors from any start of the area's grid
