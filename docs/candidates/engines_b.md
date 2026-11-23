@@ -269,3 +269,47 @@ test-step environment, at 00072d9b: ALL HOST TESTS PASSED in 15,883 s.**
   unit's cost rows (section 5).
 - **Ready for Session A: yes** (review, merge, unit timing); a release waits for the unit rows.
 
+
+## 13. The owner's second audition, applied, and round 3 (November 23)
+
+**In the code (commit 5507b066), in his order:** bass, lead, keys, pad, pluck, texture, then the maybes. The values are the audition's
+(`~/oc-audition/engines-b-2026-11-21-round2/values.tsv`), and each of those presets renders byte for byte the file he heard (28 of 28, compared from the
+preset index with no overrides). The golden lines moved only for presets whose values changed.
+
+| Engine | Presets (0 ..) | Maybes (after) | Cut |
+|---|---|---|---|
+| X0X303 | 303, DEEP 303, RAT 303, SQR ACID (rework), 303 PLUCK | - | - |
+| SUPERSAW | DRIVE BAS, SUB BASS, SQR LEAD, TRANCE LEAD (rework), SAW KEYS (rework), SUPERSAW, SAW PAD (rework), SAW PLUCK, HOOVER | - | - |
+| MIXTUR | MIX LEAD (rework), MIXTUR, MIX ORGAN, VOWEL O, SUBHARM (rework), DRONE CHOIR, BIRDS | - | - |
+| BRASS | TUBA, HORN LD, BRASS (rework: MONO, attack 0), BRASS STAB, BRASS SECTION, SOFT HORN | - | MUTED, BLARE |
+| FMBELL | FM BASS, E PIANO, FM PAD (new), FM BELL, GLASS, FM NOISE (new) | FM LEAD | - |
+| ARC | ARC BASS (new), REED, ARC KEYS (new), ARC, BEATING, SCREAM | - | - |
+| AETHER | THEREMIN, REEDY | AETHER, SIREN | - |
+| DDDD | WALL, CRACKLE, SCREAM, STUTTER | - | - |
+
+Every round-2 sound was marked: none is left unmarked. The four kept next-batch engines' existing presets carry their audition levels (LEVL).
+
+**Sizes after** (tools/build.py --module): X0X303 12,232 B of its 3 sectors (56 B left), SUPERSAW 2,428 B (1 sector), BRASS 15,316 B (4), MIXTUR 4,356 B
+(2): the same sectors as before, so section 10's room numbers stand. The candidates: FMBELL 2,044 B, ARC 11,600 B, AETHER 3,208 B (with LEVL, below), DDDD
+4,624 B.
+
+**AETHER: LEVL in place of VOL (commit e4ca5b07).** AETHER had no level control, so its leads sat 4 to 7 dB under the role. P_E7 is the stand-in's TILT,
+and op1r's VOL (the volume tilt, P_E3) does nothing here because the stand-in's X is 0. P_E3 is now the glue's LEVL; op1_glue.h reads the slot the module
+names (OP1G_LEVEL_SLOT: 7 for the others, 3 for AETHER). The four presets hold 64 there and render byte for byte as before.
+
+**Round 3** (`~/oc-audition/round3-2026-11-23/`, stereo, with its README): FM LEAD, AETHER and SIREN reworked once, beside WAVE's four (wave_engine.md 5).
+The code keeps the values he heard until he picks. FM LEAD: feedback 46 (from 50) and index 80 (from 70), so less buzz (782 Hz, from 2,582) but still bright.
+AETHER: timbre 120 and LEVL 82, apart from THEREMIN (which it rendered almost exactly like) and at the leads' level. **SIREN is a fixed tone as a factory
+preset:** it needs TILT to move, and a factory preset (preset_t) cannot route the track's LFO to E8. Round 3 renders it with that route (a user preset can
+hold it) so he can hear what it would take; keeping it means a slow sweep inside AETHER (a module change) or a modulation route in factory presets (a
+firmware change), else a cut.
+
+**The browser and duplicate names (SCREAM on ARC and DDDD; GLASS on FMBELL).** Read from ui_browser.c, not rendered: a host harness for the browser
+with two modules registered needed most of the UI's stubs, and was left. The card (the sound under the cursor) shows the name and, under it, the engine's
+name in the engine's own shade; the two rows above and below show the name only, tinted by engine. The list goes engine by engine (ENGINE_ORDER), so the
+two SCREAMs are never neighbours in ALL or in a category list. A neighbour row reading SCREAM differs from the card's only by its tint. All three of these
+engines are candidates (OC_CANDIDATES builds only), not in a shipping build. WAVE's GLASS KEYS and GLASS PAD are names of their own.
+**Found:** a module engine's factory presets have no category letters (browse.c PRESET_CAT is the firmware's, for its own engines), so the browser's
+category lists file every WAVE, X0X303, SUPERSAW, BRASS and MIXTUR factory preset under OTHER. The PRESETS knob walks each bank in the order above; LIST
+by category does not find them. A fix needs the module to give its categories (a descriptor field, so an interface change) or the firmware to guess
+them by name as it does for user presets (cat_guess); not done here.
