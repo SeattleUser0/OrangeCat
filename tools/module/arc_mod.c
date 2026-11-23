@@ -89,10 +89,17 @@ static const op1_engine_t ENGINE_arc_oc = { arc_note_on_oc, arc_render, arc_note
 OP1G_ENGINE_FUNCS(ENGINE_arc_oc)
 
 static const preset_t ARC_PRESETS[] = {
-    {"ARC", {47, 23, 19, 35, 0, 0, 0, 64}, {0, 80, 110, 50}, 0, 0},        /* the plugin's defaults */
-    {"REED", {80, 10, 8, 20, 0, 0, 0, 64}, {2, 72, 100, 40}, 0, 0},        /* more current: a reedy buzz, clean */
-    {"BEATING", {40, 30, 20, 30, 64, 20, 64, 64}, {4, 80, 110, 60}, 0, 0}, /* the second lamp near 1:1, weak coupling: beats */
-    {"SCREAM", {127, 90, 70, 110, 100, 127, 100, 64}, {0, 64, 127, 30}, 0, 1},   /* relaxation, strong coupling (chaos), sputter; MONO */
+    /* bass */
+    {"ARC BASS", {30, 10, 5, 40, 0, 0, 0, 96}, {0, 70, 100, 20}, 0, 1},   /* (round 2, kept November 23) low current, a strike, MONO */
+    /* lead */
+    {"REED", {80, 10, 8, 20, 0, 0, 0, 89}, {2, 72, 100, 40}, 0, 0},   /* more current: a reedy buzz, clean */
+    /* keys */
+    {"ARC KEYS", {50, 15, 10, 90, 0, 0, 0, 92}, {0, 60, 30, 40}, 0, 0},   /* (round 2, kept November 23) a strong strike, short */
+    /* pad */
+    {"ARC", {47, 23, 19, 35, 0, 0, 0, 68}, {0, 80, 110, 50}, 0, 0},   /* the plugin's defaults */
+    {"BEATING", {40, 30, 20, 30, 64, 20, 64, 77}, {4, 80, 110, 60}, 0, 0},   /* the second lamp near 1:1, weak coupling: beats */
+    /* texture */
+    {"SCREAM", {127, 90, 70, 110, 100, 127, 100, 100}, {0, 64, 127, 30}, 0, 1},   /* relaxation, strong coupling (chaos), sputter; MONO */
 };
 static const engine_t ENG_ARC = {
     .name = "ARC", .page_title = {"LAMP", "PAIR"},

@@ -89,10 +89,11 @@ _Static_assert(sizeof(((dddd_part_t *)0)->last_call) == OP1_VOICES * sizeof(uint
 OP1G_ENGINE_FUNCS(ENGINE_dddd)
 
 static const preset_t DDDD_PRESETS[] = {
-    {"WALL", {0, 93, 78, 31, 0, 0, 0, 64}, {0, 64, 127, 30}, 0, 0},       /* the plugin's defaults */
-    {"CRACKLE", {43, 60, 40, 20, 20, 0, 0, 64}, {0, 64, 127, 40}, 0, 0},  /* the crackle source, a low-pass, calm hands */
-    {"SCREAM", {127, 115, 100, 60, 64, 30, 0, 64}, {0, 64, 127, 36}, 0, 0}, /* metal, feedback past 80 %, band-pass */
-    {"STUTTER", {85, 90, 70, 110, 100, 60, 40, 64}, {0, 64, 127, 30}, 0, 0}, /* the hands at the top (stutter), crushed */
+    /* texture */
+    {"WALL", {0, 93, 78, 31, 0, 0, 0, 68}, {0, 64, 127, 30}, 0, 0},   /* the plugin's defaults */
+    {"CRACKLE", {43, 60, 40, 20, 20, 0, 0, 90}, {0, 64, 127, 40}, 0, 0},   /* the crackle source, a low-pass, calm hands */
+    {"SCREAM", {127, 115, 100, 60, 64, 30, 0, 68}, {0, 64, 127, 36}, 0, 0},   /* metal, feedback past 80 %, band-pass */
+    {"STUTTER", {85, 90, 70, 110, 100, 60, 40, 100}, {0, 64, 127, 30}, 0, 0},   /* the hands at the top (stutter), crushed */
 };
 static const engine_t ENG_DDDD = {
     .name = "DDDD", .page_title = {"WALL", "PAGE 2"},

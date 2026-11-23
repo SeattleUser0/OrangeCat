@@ -158,6 +158,8 @@ for the owner to decide (a name change is a preset change).
 - **What merges:** engines-b (after its full SAN=1 suite, section 8) and engines-b-presets on it. Everything new is behind `OC_CANDIDATES` or is a
   module that only a measurement build registers; the shipping build's engine table, NENGINES 20 and the interface identifiers (tools/gen_fw_api_id.py: FW_API_ID 0xCAF53177 and the four ABI ids, compared with linux-hw 52e16b13: identical) do not move.
   The only change a shipping build compiles is the 64-bit `eng_hs.refused` (a wider mask: the same bits below 32).
+(**Superseded by section 10 and 12:** with `OC_ENGINE_MODS`, on in tools/orangecat_engines.sh since the owner's picks, a shipping build's table is 30 long;
+the interface identifiers still do not move.)
 - **Ready for Session A: yes for review and a measurement build; no for a release** (proposed numbers, no unit rows yet).
 - **Decisions in this round one might decide otherwise:** the TB-303 kept the hub's 47 (NENGINES 48 in a candidates build) instead of a number in
   23..31; LEVL took P_E7, the slot no op1r plugin reads; the 303's level is a constant, its eight slots all X0X's pots; the descriptors' rows are data the
@@ -240,3 +242,30 @@ code until the owner chooses):
 | DDDD | WALL, CRACKLE, SCREAM, STUTTER (textures; STUTTER -20.5 dB: its gating) | none kept | METAL HIT (a pluck from the wall: -24 dB, gone in 10 ms) and LOW DRONE (not low: 7 kHz) dropped: a wall is texture |
 | ARC | ARC, BEATING (pads), REED (lead), SCREAM (texture) | ARC BASS, ARC KEYS | - |
 | AETHER | AETHER, THEREMIN (leads), REEDY (pad), SIREN (texture) | none | the leads and SIREN 4 to 7 dB under (peaks near -18 dBFS): a level for them needs a module gain REEDY cannot take, or a control in place of one of op1r's |
+
+## 12. Listed for Session A (November 22)
+
+**Branches on origin:** `engines-b` and `engines-b-presets`, both at 00072d9b (engines-b-presets is a fast-forward of engines-b; this page's last
+commit is on engines-b-presets only). `wave-study` (docs/candidates/wave.md) is on origin too. **Full SAN=1 suite through tools/suite_lock.sh, CI's
+test-step environment, at 00072d9b: ALL HOST TESTS PASSED in 15,883 s.**
+
+**The first suite at the presets head failed (nine jobs); fixed at 00072d9b.** All nine came from `OC_ENGINE_MODS` raising NENGINES to 30:
+- **A firmware bug:** NENG_SHOWN was counted from NENGINES, so the browser's list held 23 entries for an ENGINE_ORDER of 13, the rest padded with engine 0
+  (ANALOG, retired). It counts from NENGINES_SHIPPED now, and engines.c asserts it is ENGINE_ORDER's length in every build.
+- **A display bug:** G_ENGSEL's names ended at 19, so a track on 23..29 read as PROPHET (the value clamped). N_ENGNAME has a name for every slot now ("-"
+  for the module slots without their module, as WHEEL's 7), asserted. The editor's SET already took any engine below NENGINES.
+- **Stale tests and generated files:** the 20-engine assertions (fw_api, engine table, retirement), the Rhodes' 23 (47 now), WHEEL's quoted image (2,956 B
+  with ORGAN BASS); the editor's mock (30 engines, the five FM keys presets), MODULE_SLOTS and web/app/lib/modules.js (the four), gen_fw_tables.mjs (it
+  dropped the four's geometry rows: it keeps them when tools/orangecat_engines.sh turns OC_ENGINE_MODS on); layout.js, fw_tables.js, editor_proto.js and
+  docs/orangecat/CONTROLS.md regenerated.
+
+**What Session A should know before merging:**
+- A shipping build now has a 30-entry engine table (about 90 B of RAM) and G_ENGSEL spans 0..29; the editor protocol's INFO says 30 engines. FW_API_ID
+  0xCAF53177 and the ABI ids are unchanged.
+- The four take module slots 23, 25, 28 and 29 (X0X303, SUPERSAW, BRASS, MIXTUR). The installer page offers them as boxes, **unticked by default**, and the room meter
+  names what gives way (Release 3's set fills 21 of 21 sectors: X0X303 3, SUPERSAW 1, BRASS 4, MIXTUR 2). Workflow rev 30 puts their .ocm in the Nightly.
+- Presets per the owner's audition (section 9): MACRO 47..51 (FM EPIANO, FM EPIANO 2, FM KEYS A/B/C) and WHEEL ORGAN BASS are factory presets.
+- **Not run here (Session A's, on the unit):** each of the four registered and played, the installer's give-way question with an engine ticked, the
+  unit's cost rows (section 5).
+- **Ready for Session A: yes** (review, merge, unit timing); a release waits for the unit rows.
+
