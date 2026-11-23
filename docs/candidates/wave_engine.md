@@ -87,11 +87,11 @@ the device's 1400ceef).
   a project (a user preset track and a factory preset track). tests/module_host_cand_test.c: the native panel's first eight entries are the edit values.
 - **Not on the unit yet:** the pages on the screen, a save and load on the device's flash, the release on the unit.
 
-## 4. Listed for Session A (November 22)
+## 4. Listed for Session A (November 22, M3 added November 23)
 
-**Branches on origin:** `wave-engine` and `wave-bank`, both at c68c1e31 (wave-engine is a fast-forward of wave-bank; this section's commit is on wave-bank). They sit on
-`engines-b-presets` (merged at 00072d9b, the OC_ENGINE_MODS fixes). **Full SAN=1 suite through tools/suite_lock.sh, CI's test-step environment, at c68c1e31:
-ALL HOST TESTS PASSED in 13,719 s.** (The run before failed one job: the bank writer's two error codes had no page text; fixed at c68c1e31.)
+**Branches on origin:** `wave-engine` and `wave-bank`, both at this section's commit (wave-bank is a fast-forward of wave-engine). They sit on
+`engines-b-presets` (merged at 00072d9b, the OC_ENGINE_MODS fixes). **Full SAN=1 suite through tools/suite_lock.sh, CI's test-step environment, at 6e48c30d
+(M3): ALL HOST TESTS PASSED in 9,435 s** (296 jobs, November 23). The earlier run at c68c1e31 (M2, M4) passed in 13,719 s. This commit changes only this file.
 
 **What Session A reviews and times on the unit:**
 - **WAVE as engine 32** (`OC_WAVE`, on in tools/orangecat_engines.sh): 33 engine slots in a shipping build, FW_API_VERSION 7 (AP_WAVE). The module is 26,756 B
