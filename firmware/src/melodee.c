@@ -79,6 +79,8 @@ static volatile uint32_t oc_hwt_forced[2];
 
 /* ----------------------------------------------------------- sound --- */
 #include "core.h"
+static int fw_audio_context(void);                       /* (wave-engine M3) after audio.c: inside the audio interrupt (engines.c fw_resource_get) */
+#define FW_AUDIO_CONTEXT() fw_audio_context()
 #include "engines.c"             /* dsp.c, the eng_*.c files, the factory patterns */
 #include "params.c"
 #include "mod.c"               /* the modulation matrix, used by voice.c and mix.c */
@@ -99,6 +101,7 @@ static volatile uint32_t oc_hwt_forced[2];
 #include "seq.c"
 #include "card_freeze.c"         /* (Orange Cat 0.4.20) frozen tracks: the audio side (seq.c's pass marks, mix.c's hooks) */
 #include "audio.c"
+static int fw_audio_context(void) { return melodee_dbg.in_audio != 0u; }
 
 /* -------------------------------------------------------------- UI --- */
 #include "panel.c"

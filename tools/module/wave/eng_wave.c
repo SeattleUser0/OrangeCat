@@ -32,10 +32,15 @@ enum { WARP_BEND, WARP_SYNC, WARP_MIRROR };
 enum { WF_LP, WF_BP, WF_HP, WF_NOTCH, WF_LADDER };
 enum { WS_ENV2, WS_LFO1, WS_LFO2, WS_VEL, WS_KEY, WS_N };
 enum { WD_POSA, WD_POSB, WD_WARPA, WD_WARPB, WD_CUT, WD_RES, WD_PITCH, WD_LVLA, WD_LVLB, WD_N };
-typedef struct { uint8_t src, dst; int8_t amt, pad; } wv_slot_t;          /* amt -127..127: a full source moves the destination by amt of its 0..127 range */
+/* (M3) every byte of the patch unsigned, a signed value stored with an offset (WV_OCT0, WV_SEMI0, WV_AMT0): the patch is the module's native block (its pages
+ * edit it byte for byte, a user preset stores it, mod_rec.h), whose entries the firmware clamps to their panel ranges as bytes */
+#define WV_OCT0 2u                           /* oct -2..2 stored 0..4 */
+#define WV_SEMI0 12u                         /* semi -12..12 stored 0..24 */
+#define WV_AMT0 127u                         /* amt -127..127 stored 0..254 */
+typedef struct { uint8_t src, dst, amt, pad; } wv_slot_t;          /* amt - WV_AMT0, -127..127: a full source moves the destination by that of its 0..127 range */
 typedef struct {
     uint8_t tab[2], warp[2], uni[2];
-    int8_t oct[2], semi[2];
+    uint8_t oct[2], semi[2];                 /* + WV_OCT0, + WV_SEMI0 */
     uint8_t lvl[2], noise, mode, kbd;        /* levels 0..127; noise 0..127; filter mode; key tracking 0..127 (127: the cutoff follows the key) */
     uint8_t e2[4];                           /* ENV 2: A D S R, 0..127 */
     uint8_t lrate[2], lshape[2];             /* the LFOs: rate 0..127 (0.05 .. 20 Hz), shape 0 triangle 1 saw 2 square 3 S&H, + 4: retriggered at the note */
@@ -62,14 +67,22 @@ typedef struct {
     int32_t rbuf[CTL];                       /* (stereo) the voice's right lane this block (the kernel writes it; wave_post sums it on CPU0) */
     uint8_t rn;                              /* (stereo) frames in rbuf this block, 0 none */
 } wv_voice_t;
+/* (M3) the native block (fw_pages.h native: byte i = panel entry i): eight bytes that stand for the edit values (the panel's entries 0..7 are the track's
+ * P_E0..P_E7, for HOME's macro knobs' pids; no row shows these bytes and nothing reads them), then the patch. It lives in the part (the arena): the owner's
+ * answer of November 22 (wave_engine.md 3, (a)): a sound edited and not saved is the track's until its state is given back; a user preset keeps it */
+#define WV_NB_EV 8u
+typedef struct { uint8_t ev[WV_NB_EV]; wv_patch_t p; } wv_native_t;
+_Static_assert(sizeof(wv_patch_t) == 41u && sizeof(wv_native_t) == WV_NB_EV + 41u, "the patch is bytes, without padding: the native block's layout");
 typedef struct {
     fw_stereo_lane_t lane;                   /* FIRST (fw_api.h FW_MOD_COST_STEREO): the track's right lane, for an OC_STEREO firmware's mixer */
     uint32_t magic;
+    wv_native_t nb;                          /* (M3) the track's patch as it plays and is edited */
     wv_voice_t v[WV_NV];
 } wv_part_t;
 
 static wv_part_t *wave_part(const track_t *t);
 static const wv_patch_t *wave_patch(const track_t *t);
+static const wv_patch_t *wave_patch_held(const track_t *t);
 
 static inline int32_t wv_lerp(int32_t a, int32_t b, uint32_t f15) { return a + (((b - a) * (int32_t)f15) >> 15); }   /* (an arithmetic shift: no divide in the sample loop) */
 /* 2^x for x in about -12 .. 12 (a five-term polynomial on the fraction: 1e-5 relative) */
@@ -335,7 +348,8 @@ static void wave_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     for (k = 0; k < WD_N; k++) dst[k] = 0;
     for (k = 0; k < 4u; k++) {                           /* the matrix: a full source moves its destination by amt of 127 (the 0..127 range, << 8) */
         const wv_slot_t *s = &P->slot[k];
-        if (s->amt && s->src < WS_N && s->dst < WD_N) dst[s->dst] += (src[s->src] * s->amt) / 128;
+        int32_t amt = (int32_t)s->amt - (int32_t)WV_AMT0;
+        if (amt && s->src < WS_N && s->dst < WD_N) dst[s->dst] += (src[s->src] * amt) / 128;
     }
     /* the frame each oscillator plays: the position (POS A, POS B, the track's SHAPE modulation, the matrix), the level the pitch allows */
     hz = (float)m->inc * (44100.0f / 4294967296.0f);
@@ -343,7 +357,7 @@ static void wave_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
         uint32_t c;
         float f;
         ti[o] = P->tab[o] < WV_NTAB + WVB_NTAB ? P->tab[o] : 0u;   /* (wave-bank) WV_NTAB.. name the bank's tables */
-        r[o] = wv_exp2(((float)P->oct[o] * 12.0f + (float)P->semi[o]) * (1.0f / 12.0f) + (float)dst[WD_PITCH] * (1.0f / (12.0f * 256.0f)));
+        r[o] = wv_exp2(((float)((int32_t)P->oct[o] - (int32_t)WV_OCT0) * 12.0f + (float)((int32_t)P->semi[o] - (int32_t)WV_SEMI0)) * (1.0f / 12.0f) + (float)dst[WD_PITCH] * (1.0f / (12.0f * 256.0f)));
         f = hz * r[o] * 128.0f;                          /* the top harmonic of the stored frame */
         pos[o] = clamp(p[P_E0 + o] * 256 + (m->shape - (64 << 8)) + dst[WD_POSA + o], 0, 127 << 8);
         pos16[o] = (uint32_t)pos[o] * 2u;
@@ -438,6 +452,6 @@ static void wave_post(track_t *t, int32_t *out, uint32_t n, uint32_t rendered)
 /* voice units (the shared budget): wave.md 4a's estimate, about 3 units at unison 1 and 5 at unison 4 a side; the unit's numbers replace it */
 static uint32_t wave_units(const track_t *t)
 {
-    const wv_patch_t *P = wave_patch(t);
+    const wv_patch_t *P = wave_patch_held(t);
     return 3u + ((uint32_t)P->uni[0] + P->uni[1]) / 4u;
 }

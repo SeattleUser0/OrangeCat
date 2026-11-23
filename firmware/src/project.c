@@ -1211,6 +1211,8 @@ static int project_restore_runtime(const project_t *input)
             up_rec_t kr = *up_rec(trk[k].user - 1u);
             (void)up_kit_load(&kr, k);
         }
+    for (k = 0; k < NTRK; k++)                          /* (wave-engine M3) a module engine's patch (WAVE's): the user preset's block, or the factory preset's */
+        up_mod_reload(k);
     proj_name_get(proj_name, (const uint8_t *)p->name);
     proj_cur = PROJ_NO_SLOT; PJP_FOLLOW();                            /* (project_load: its slot) */
     undo_clear();                                       /* (ui.c) the undo levels belong to the old project */

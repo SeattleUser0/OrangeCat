@@ -81,6 +81,7 @@ static void sound_paste(void)
     if (MELODEE_CZ) cz_track_accept(t);
     fm1_irq_on();
     fm6_set_patch(i, snd_clip.fm6);
+    up_mod_reload(i);                                   /* (wave-engine M3) a module's patch as the pasted sound names it */
     load_end(t);
     sync_reload = 1;
     ui.force = 1;

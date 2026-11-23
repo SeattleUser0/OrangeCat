@@ -76,6 +76,15 @@ int main(int argc, char **argv)
         fw_ui_info_t info;
         uint32_t da = 0, ui = 0, wn = fwp_wire(pg, wimg, sizeof wimg, CW_BASE, &da), k, t, want = 0, got = 0, inrange = 1;
         int rc = wn ? fw_pages_check_ex(cw_rd, wimg, da, CW_BASE + 0x100u, CW_BASE + wn, SC_MOD, P_COUNT, G_COUNT, &ui) : -1;
+        if (CAND_ENGINE == ENGI_WAVE) {        /* (wave-engine M3) WAVE's panel is its native block: entries 0..7 the edit values (pids 1..8, P_E0..P_E7), then the patch */
+            uint32_t same = pg->npanel > 8u && pg->native && pg->loaded && pg->pid;
+            for (k = 0; same && k < 8u; k++)
+                same = !strcmp(pg->panel[k].label, em->edit[k].label) && pg->panel[k].min == em->edit[k].min && pg->panel[k].max == em->edit[k].max &&
+                       pg->pid[k].id == k + 1u && pg->pid[k].legacy == P_E0 + k;
+            for (k = 8u; same && k < pg->npanel; k++) same = pg->pid[k].legacy == FW_PID_NONE;
+            check("its descriptor (fw_pages_t version 3), in the device's layout, passes the loader's check; a native panel: entries 0..7 its edit[] (P_E0..P_E7), the patch after",
+                  rc == FWP_OK && ui && same);
+        } else
         check("its descriptor (fw_pages_t version 3), in the device's layout, passes the loader's check; the panel is its edit[], the pid table P_E0..",
               rc == FWP_OK && ui && pg->panel == em->edit && pg->npanel >= 1u && pg->npanel <= 8u && pg->pid && pg->pid[0].legacy == P_E0);
         int uc = wn ? fw_ui_check(cw_rd, wimg, ui, CW_BASE + 0x100u, CW_BASE + wn, modui_scene_ok, &info) : -1;

@@ -776,7 +776,11 @@ static const page_t PAGES[] = {
 /* ------------------------------------------------- a module's pages (0.12.0, fw_pages.h) ---
  * The engines that may bring pages are listed here; each has FW_PAGES_MAX indices after PAGES, in this order, so a page keeps its index while another
  * module comes and goes. page_at(i) is every page the UI shows; page_n() the count to loop to (holes in it are pages that are never visible). */
-static const uint8_t MODPAGE_ENG[] = {ENGI_SHAPES, ENGI_PROPHET};
+static const uint8_t MODPAGE_ENG[] = {ENGI_SHAPES, ENGI_PROPHET
+#if OC_WAVE
+    , ENGI_WAVE                                         /* (wave-engine M3) WAVE's patch pages: after the two, so their indices stay */
+#endif
+};
 #define NMODPAGE ((uint32_t)sizeof MODPAGE_ENG)
 #define NPAGES_ALL (NPAGES + NMODPAGE * FW_PAGES_MAX)
 static const page_t PAGE_NONE = {"", FAM_COUNT, SC_MOD, GR_NONE, {0xFF, 0xFF, 0xFF, 0xFF}};

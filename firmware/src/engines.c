@@ -62,7 +62,22 @@ _Static_assert(AUDIO_BATCH_BYTES == 168u, "the modules' AUDIO_BATCH_BYTES (tools
 #define FW_UNUSED __attribute__((unused))
 static FW_UNUSED void *fw_mem_copy(void *d, const void *s, uint32_t n) { return memcpy(d, s, n); }
 static FW_UNUSED void *fw_mem_set(void *d, int c, uint32_t n) { return memset(d, c, n); }
-static FW_UNUSED void *fw_resource_get(uint32_t id, uint32_t bytes) { return resource_get(id, bytes); }
+/* (wave-engine M3) a module's own state asked for from outside the audio interrupt (a page's hook: native, loaded, active; the UI's units estimate): the state
+ * already held at that size, or 0. Never a take or a release there: the arena is the audio owner's (seq.c eng_idle_check, voice.c eng_state_take), so a take
+ * from the main loop could interleave with one of the interrupt's. FW_AUDIO_CONTEXT() is the interrupt's flag on the device (melodee.c: audio.c's
+ * melodee_dbg.in_audio, set for the whole render); the host harness renders without the interrupt, so there it is 1 unless a test sets fw_host_ui (the UI side) */
+#ifndef FW_AUDIO_CONTEXT
+static uint8_t fw_host_ui;
+#define FW_AUDIO_CONTEXT() (!fw_host_ui)
+#endif
+static FW_UNUSED void *fw_resource_get(uint32_t id, uint32_t bytes)
+{
+    if (!FW_AUDIO_CONTEXT() && id - RES_ENGINE0 < NPART) {
+        uint32_t size = (bytes + 3u) & ~3u;
+        return size && resource[id].size == size ? resource[id].ptr : 0;
+    }
+    return resource_get(id, bytes);
+}
 static FW_UNUSED int32_t fw_tuning_log(void) { return tuning_log(); }
 uint32_t fw_rng_cell = 0x21u;                /* (0.10.0) the module SHAPES' pb_rng_state (braids/pb_dsp.h): the firmware's word, same start value */
 #if defined(__APPLE__)
@@ -176,9 +191,30 @@ static uint32_t eng_state_size(uint32_t e)
     default: return 0;
     }
 }
+/* (wave-engine M3) a module engine's native block as the track's user preset stores it (mod_rec.h): the firmware keeps this copy, never the block itself (the
+ * module's state). on: there is one (a user preset with the extension was loaded or saved on the track; a factory preset's load, another engine's sound: off).
+ * mod_ext_pend bit k: the module's state on track k is new or about to be (a load, an engine change, a release), so the copy is given to it at the track's next
+ * block (voice.c mod_ext_apply, in the audio interrupt, once the state is held). In the pool: 61 bytes a track */
+#include "mod_rec.h"
+typedef struct { uint8_t on, eng, n; uint8_t b[MXR_BODY_MAX]; } mod_ext_t;
+static mod_ext_t mod_ext[NTRK] __attribute__((section(".pool")));
+static volatile uint8_t mod_ext_pend;
+/* (M3) track tr's stored copy: n bytes of engine e's block (n 0: none), the state told at its next block; with the audio IRQ off (mod_ext_apply reads it there) */
+static void mod_ext_set(uint32_t tr, uint32_t e, const uint8_t *b, uint32_t n)
+{
+    mod_ext_t *x = &mod_ext[tr % NTRK];
+    x->on = 0;
+    if (n > MXR_BODY_MAX) n = MXR_BODY_MAX;
+    x->eng = (uint8_t)e; x->n = (uint8_t)n;
+    memcpy(x->b, b, n);
+    x->on = n != 0u;
+    mod_ext_pend |= (uint8_t)(1u << (tr % NTRK));
+}
+static void mod_ext_off(uint32_t tr) { mod_ext[tr % NTRK].on = 0; }   /* (M3) a factory preset's load: the module's state keeps (or takes) the preset's own */
 static void eng_state_clear(uint32_t part)
 {
     if (part < NPART) resource_release(RES_ENGINE0 + part);
+    if (part < NTRK) mod_ext_pend |= (uint8_t)(1u << part);   /* (M3) a new state: the stored copy goes to it */
 }
 static void eng_state_reset(void) { for (uint32_t k = 0; k < NPART; k++) eng_state_clear(k); }
 static int eng_state_prepare(const track_t *t)

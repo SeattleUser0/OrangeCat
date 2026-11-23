@@ -1035,6 +1035,7 @@ static uint32_t undo_tool_sig(const track_t *t)
     return h;
 }
 static void seq_tool_apply(track_t *t, uint32_t len, uint32_t kind, uint8_t *map);
+static void up_mod_reload(uint32_t k);               /* (wave-engine M3, upreset.c) */
 static void undo_level(int redo)
 {
     static uint8_t map[NSTEP];
@@ -1140,6 +1141,7 @@ static void undo_level(int redo)
         }
         { p5_patch_t pp=*p5_patch_of(t);p5_patch[tr]=u->p5;u->p5=pp;p5_ready[tr]=1; }
         { cz_patch_t cp = cz_patch[tr]; cz_patch[tr] = u->cz; u->cz = cp; if (MELODEE_CZ) cz_track_accept(t); }   /* (Orange Cat: MELODEE_CZ) */
+        up_mod_reload(tr);                       /* (wave-engine M3) a module's patch as the sound put back names it (an edit not saved is not undone back) */
 
     }
     if (u->ctl_tool & 3u) u->after = undo_tool_sig(t);   /* (Round 25) the bank as this level left it: the next undo or redo of it swaps the copy when it is still so */
@@ -1216,6 +1218,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     t->preset = (uint8_t)pi;
     memset(&drum_patch[t-trk],0,sizeof(drum_patch_t));
     dxk_off(trk_index(t));                            /* (0.14.2) DRUM-X: the factory kit pi as it is */
+    mod_ext_off(trk_index(t));                        /* (wave-engine M3) a module's patch: the factory preset's (its loaded hook, below) */
     for (i = 0; i < P_E0; i++)                        /* the rest of the sound to its defaults: a preset */
         if (!param_kept(i))                           /* sounds the same after any edit */
             t->p[i] = TP[i].def;

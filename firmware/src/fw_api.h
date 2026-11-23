@@ -69,7 +69,8 @@ typedef struct fw_api {
     uint32_t iface;                                      /* FW_API_IFACE */
     void *(*mem_copy)(void *d, const void *s, uint32_t n);
     void *(*mem_set)(void *d, int c, uint32_t n);
-    void *(*resource_get)(uint32_t id, uint32_t bytes);  /* the arena, as the engines' accessors call it */
+    void *(*resource_get)(uint32_t id, uint32_t bytes);  /* the arena, as the engines' accessors call it. (wave-engine M3) Outside the audio interrupt (a page's hook) an engine state is only
+                                                         * the one already held at that size, or 0: never taken there (engines.c fw_resource_get). No layout change */
     int32_t (*tuning_log)(void);                         /* the A4 offset, Q-whatever dsp.c returns */
     track_t *trk;                                        /* the track array (NTRK) */
     const uint8_t *pack_ready;                           /* 1 when the asset pack is there (oc_pack_good) */

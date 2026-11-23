@@ -229,6 +229,10 @@ spare bytes, as DRUM (engine 10, its patch) and DRUM-X (engine 9, its kit) do:
 - **Tests.** The record round-trips byte for byte across a power cycle; a record of before loads to the same render; a backup from before
   restores and plays the same; a damaged extension loads as one of before (unified_presets_test.c drumx_kits, backup_test.c
   drumx_kit_archive, drumx_test.c 16).
+- **A module engine (wave-engine M3).** A module with a native block (fw_pages_t.native, not the Prophet) gets this for free: firmware/src/mod_rec.h
+  (mark 'M', version 1, length, CRC-8 of the engine number and the body) holds the block's first n bytes; the firmware keeps the stored copy a track
+  (engines.c `mod_ext`) and gives it to the module's state when that state is new (voice.c `mod_ext_apply`, each byte clamped to its panel entry). The
+  record's engine may be 0..15 or 21 and up (upreset.c `up_engine_storable`). Not yet: the editor's `LIBRARY` kind for it. WAVE (engine 32) is the first.
 
 ## 7. Packaging
 

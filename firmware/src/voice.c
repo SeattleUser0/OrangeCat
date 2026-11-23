@@ -1269,6 +1269,22 @@ static void engine_render(track_t *t,voice_t *v,const engine_t *e,int32_t *out,u
 
 /* Keep the per-voice renderer separate from the bus/ISR loops. This bounds
  * the ISR's code footprint and permits an independent target cost check. */
+/* (wave-engine M3) the stored copy of a module engine's native block (engines.c mod_ext, mod_rec.h) into its new state: at the track's first block after a load,
+ * an engine change or a release (mod_ext_pend), here in the audio interrupt with the state held. Each byte clamped to its panel entry's range (a record can come
+ * from a file); a copy of another engine, or none: nothing (the module's new state is its factory preset t->preset). Waits while an engine change is under way */
+static void mod_ext_apply(track_t *t)
+{
+    uint32_t k = (uint32_t)(t - trk) % NTRK, i, n;
+    const fw_pages_t *p;
+    const mod_ext_t *x = &mod_ext[k];
+    uint8_t *b;
+    if (!((mod_ext_pend >> k) & 1u) || t->engine != t->eng_req) return;
+    mod_ext_pend &= (uint8_t)~(1u << k);
+    if (!x->on || x->eng != t->engine || t->engine == ENGI_PROPHET || !(p = pages_of_engine(t->engine)) || !p->native || !(b = p->native(t))) return;
+    n = x->n < p->npanel ? x->n : p->npanel;
+    for (i = 0; i < n; i++)
+        if (p->panel[i].label) b[i] = (uint8_t)clamp(x->b[i], p->panel[i].min, p->panel[i].max);
+}
 static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t *out, uint32_t n, int clear_idle)
 {
     const engine_t *e = ENGINES[t->engine];
@@ -1299,6 +1315,7 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
     if (mod.on && mod.ldep < 32767) lfo = mulq15(lfo, mod.ldep);
     if (spread_on) spread_clear();
     if ((live || e->block || e->post) && !eng_state_prepare(t)) return 0;
+    if (mod_ext_pend) mod_ext_apply(t);               /* (wave-engine M3) a user preset's native block into a new module state */
     if (fade)                                           /* engine switch: the old engine, its own values */
         for (i = 0; i < 8u; i++) {
             pe_new[i] = t->p[P_E0 + i];

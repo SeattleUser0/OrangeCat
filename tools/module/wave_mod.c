@@ -64,47 +64,137 @@ static const preset_t WAVE_PRESETS[] = {
     {"USER TABLE A", {0, 0, 0, 0, 100, 10, 20, 0}, {0, 64, 110, 40}, 0, 0},
     {"USER TABLE B", {0, 64, 0, 0, 100, 10, 30, 0}, {10, 70, 110, 60}, 0, 0},
 };
-#define S(src, dst, amt) {WS_##src, WD_##dst, amt, 0}
-#define S0 {0, 0, 0, 0}
+#define S(src, dst, amt) {WS_##src, WD_##dst, (uint8_t)((amt) + (int)WV_AMT0), 0}
+#define S0 {0, 0, WV_AMT0, 0}
+#define OC(x) (uint8_t)((x) + (int)WV_OCT0)
+#define SE(x) (uint8_t)((x) + (int)WV_SEMI0)
 static const wv_patch_t WV_PATCH[] = {
     /* tab, warp, uni, oct, semi, lvl, noise, mode, kbd, ENV 2 {A D S R}, LFO rates, LFO shapes, the four slots, the stereo width, the level (the render analysis) */
-    {{0, 1}, {WARP_BEND, WARP_BEND}, {1, 1}, {0, -1}, {0, 0}, {127, 60}, 0, WF_LADDER, 64, {0, 70, 20, 40}, {60, 60}, {0, 0},
+    {{0, 1}, {WARP_BEND, WARP_BEND}, {1, 1}, {OC(0), OC(-1)}, {SE(0), SE(0)}, {127, 60}, 0, WF_LADDER, 64, {0, 70, 20, 40}, {60, 60}, {0, 0},
      {S(ENV2, CUT, 50), S(VEL, CUT, 20), S0, S0}, 0, 87},
-    {{0, 3}, {WARP_BEND, WARP_BEND}, {4, 2}, {0, 0}, {0, 0}, {110, 70}, 0, WF_LP, 64, {0, 60, 80, 40}, {70, 50}, {0, 0},
+    {{0, 3}, {WARP_BEND, WARP_BEND}, {4, 2}, {OC(0), OC(0)}, {SE(0), SE(0)}, {110, 70}, 0, WF_LP, 64, {0, 60, 80, 40}, {70, 50}, {0, 0},
      {S(LFO1, POSA, 20), S(ENV2, CUT, 30), S0, S0}, 90, 65},
-    {{0, 0}, {WARP_SYNC, WARP_BEND}, {1, 1}, {0, 1}, {0, 0}, {120, 40}, 0, WF_LP, 64, {0, 70, 30, 40}, {60, 60}, {0, 0},
+    {{0, 0}, {WARP_SYNC, WARP_BEND}, {1, 1}, {OC(0), OC(1)}, {SE(0), SE(0)}, {120, 40}, 0, WF_LP, 64, {0, 70, 30, 40}, {60, 60}, {0, 0},
      {S(ENV2, WARPA, 80), S(ENV2, CUT, 25), S0, S0}, 0, 67},
-    {{2, 0}, {WARP_BEND, WARP_BEND}, {1, 2}, {0, 0}, {0, 0}, {120, 50}, 0, WF_LP, 100, {0, 72, 40, 50}, {60, 60}, {0, 0},
+    {{2, 0}, {WARP_BEND, WARP_BEND}, {1, 2}, {OC(0), OC(0)}, {SE(0), SE(0)}, {120, 50}, 0, WF_LP, 100, {0, 72, 40, 50}, {60, 60}, {0, 0},
      {S(ENV2, CUT, 40), S(VEL, CUT, 20), S0, S0}, 40, 77},
-    {{0, 2}, {WARP_BEND, WARP_BEND}, {4, 4}, {0, 0}, {0, 0}, {100, 80}, 0, WF_LP, 40, {80, 90, 100, 90}, {25, 18}, {0, 0},
+    {{0, 2}, {WARP_BEND, WARP_BEND}, {4, 4}, {OC(0), OC(0)}, {SE(0), SE(0)}, {100, 80}, 0, WF_LP, 40, {80, 90, 100, 90}, {25, 18}, {0, 0},
      {S(LFO1, POSB, 40), S(LFO2, POSA, 25), S0, S0}, 110, 63},
-    {{1, 1}, {WARP_BEND, WARP_BEND}, {4, 4}, {0, 0}, {0, 0}, {110, 70}, 0, WF_LP, 40, {50, 80, 110, 80}, {28, 22}, {0, 0},
+    {{1, 1}, {WARP_BEND, WARP_BEND}, {4, 4}, {OC(0), OC(0)}, {SE(0), SE(0)}, {110, 70}, 0, WF_LP, 40, {50, 80, 110, 80}, {28, 22}, {0, 0},
      {S(LFO1, POSA, 50), S(LFO2, POSB, 50), S0, S0}, 110, 61},
-    {{3, 1}, {WARP_BEND, WARP_BEND}, {2, 1}, {0, 0}, {0, 0}, {120, 40}, 0, WF_LP, 80, {0, 62, 0, 45}, {60, 60}, {0, 0},
+    {{3, 1}, {WARP_BEND, WARP_BEND}, {2, 1}, {OC(0), OC(0)}, {SE(0), SE(0)}, {120, 40}, 0, WF_LP, 80, {0, 62, 0, 45}, {60, 60}, {0, 0},
      {S(ENV2, CUT, 60), S(ENV2, POSA, 40), S0, S0}, 60, 94},
-    {{2, 3}, {WARP_BEND, WARP_MIRROR}, {3, 1}, {0, 0}, {0, 0}, {110, 70}, 10, WF_BP, 40, {40, 90, 110, 90}, {40, 15}, {3, 0},
+    {{2, 3}, {WARP_BEND, WARP_MIRROR}, {3, 1}, {OC(0), OC(0)}, {SE(0), SE(0)}, {110, 70}, 10, WF_BP, 40, {40, 90, 110, 90}, {40, 15}, {3, 0},
      {S(LFO1, POSA, 60), S(LFO2, WARPB, 40), S0, S0}, 100, 70},
     /* (wave-bank) USER TABLE A: bank table 0 on both oscillators (B an octave up, quieter); B: bank tables 0 and 1 */
-    {{WV_NTAB + 0, WV_NTAB + 0}, {WARP_BEND, WARP_BEND}, {2, 1}, {0, 1}, {0, 0}, {120, 40}, 0, WF_LP, 60, {0, 70, 100, 40}, {60, 60}, {0, 0},
+    {{WV_NTAB + 0, WV_NTAB + 0}, {WARP_BEND, WARP_BEND}, {2, 1}, {OC(0), OC(1)}, {SE(0), SE(0)}, {120, 40}, 0, WF_LP, 60, {0, 70, 100, 40}, {60, 60}, {0, 0},
      {S(VEL, CUT, 20), S0, S0, S0}, 60, 64},
-    {{WV_NTAB + 0, WV_NTAB + 1}, {WARP_BEND, WARP_BEND}, {2, 2}, {0, 0}, {0, 0}, {110, 90}, 0, WF_LP, 40, {0, 70, 100, 50}, {30, 20}, {0, 0},
+    {{WV_NTAB + 0, WV_NTAB + 1}, {WARP_BEND, WARP_BEND}, {2, 2}, {OC(0), OC(0)}, {SE(0), SE(0)}, {110, 90}, 0, WF_LP, 40, {0, 70, 100, 50}, {30, 20}, {0, 0},
      {S(LFO1, POSA, 30), S(LFO2, POSB, 30), S0, S0}, 90, 64},
 };
 #undef S
 #undef S0
+#undef OC
+#undef SE
 _Static_assert(NELEM(WV_PATCH) == NELEM(WAVE_PRESETS), "a patch a preset");
 
-/* the page descriptor (fw_pages_t version 3): the rows, the pid table, HOME's four macro knobs (wave.md 6) */
+/* (M3) the pages (fw_pages_t version 3): the native block (eng_wave.c wv_native_t) is the panel, byte i entry i. Entries 0..7 are the eight edit values
+ * (the engine's edit[], pids 1..8 with their legacy slots P_E0..P_E7: HOME's macro knobs name them); the firmware's EDIT 1 and EDIT 2 show and edit those,
+ * so no row of WAVE's names them. Entries 8.. are the patch, a byte each, every one stored with a user preset (mod_rec.h). A signed value is F_OFS (0 at the
+ * middle of its range: OCT, SEMI, a slot's AMT); the bank's tables are USER 1..16 (wave-bank: without a bank they play BASIC). */
 #include "cand_pages.h"
 static const engine_t ENG_WAVE;
-static const page_t WAVE_ROWS[] = {CAND_ROW("OSC", 0, 1, 2, 3), CAND_ROW("TONE", 4, 5, 6, 7)};
+#define WVO(f) ((uint8_t)(WV_NB_EV + __builtin_offsetof(wv_patch_t, f)))   /* a patch field's panel index */
+enum {
+    WP_TABA = WVO(tab[0]), WP_TABB, WP_WARPA, WP_WARPB, WP_UNIA, WP_UNIB, WP_OCTA, WP_OCTB, WP_SEMIA, WP_SEMIB, WP_LVLA, WP_LVLB, WP_NOISE, WP_MODE, WP_KBD,
+    WP_E2A, WP_E2D, WP_E2S, WP_E2R, WP_LRATE1, WP_LRATE2, WP_LSHAPE1, WP_LSHAPE2, WP_SLOT0, WP_WIDTH = WP_SLOT0 + 16, WP_LEVEL, WP_N
+};
+_Static_assert(WP_TABA == 8 && WP_LSHAPE2 == WVO(lshape[1]) && WP_SLOT0 == WVO(slot) && WP_WIDTH == WVO(width) && WP_LEVEL == WVO(level) &&
+               WP_N == sizeof(wv_native_t), "the panel indices are the native block's bytes");
+static const char *const WN_TAB[] = {"BASIC", "PULSE", "VOWEL", "BRIGHT", "USER 1", "USER 2", "USER 3", "USER 4", "USER 5", "USER 6", "USER 7", "USER 8",
+                                     "USER 9", "USER 10", "USER 11", "USER 12", "USER 13", "USER 14", "USER 15", "USER 16"};
+_Static_assert(NELEM(WN_TAB) == WV_NTAB + WVB_NTAB, "a name a table");
+static const char *const WN_WARP[] = {"BEND", "SYNC", "MIRROR"};
+static const char *const WN_MODE[] = {"LP", "BP", "HP", "NOTCH", "LADDER"};
+static const char *const WN_LSHAPE[] = {"TRI", "SAW", "SQUARE", "S&H", "TRI KEY", "SAW KEY", "SQR KEY", "S&H KEY"};   /* KEY: restarted at the note */
+static const char *const WN_SRC[] = {"ENV 2", "LFO 1", "LFO 2", "VELO", "KEY"};
+static const char *const WN_DST[] = {"POS A", "POS B", "WARP A", "WARP B", "CUT", "RES", "PITCH", "LVL A", "LVL B"};
+_Static_assert(NELEM(WN_SRC) == WS_N && NELEM(WN_DST) == WD_N, "a name a source, a destination");
+#define WD(l, f, mn, mx, df) {l, f, mn, mx, df, 0, 0}
+#define WE(l, n, df) {l, F_ENUM, 0, (int16_t)(NELEM(n) - 1), df, n, 0}
+#define WSLOT {"SRC", F_ENUM, 0, WS_N - 1, 0, WN_SRC, 0}, {"DEST", F_ENUM, 0, WD_N - 1, 0, WN_DST, 0}, {"AMT", F_OFS, 0, 2 * WV_AMT0, WV_AMT0, 0, 0}, {0, 0, 0, 0, 0, 0, 0}
+static const param_desc_t WV_PANEL[WP_N] = {
+    {"POSA", F_PCT, 0, 127, 64, 0, 0}, {"POSB", F_PCT, 0, 127, 64, 0, 0}, {"WRPA", F_PCT, 0, 127, 0, 0, 0}, {"WRPB", F_PCT, 0, 127, 0, 0, 0},
+    {"CUT", F_PCT, 0, 127, 90, 0, 0}, {"RES", F_PCT, 0, 127, 20, 0, 0}, {"DTUN", F_PCT, 0, 127, 20, 0, 0}, {"SUB", F_PCT, 0, 127, 0, 0, 0},
+    WE("TAB A", WN_TAB, 0), WE("TAB B", WN_TAB, 1), WE("WARP A", WN_WARP, 0), WE("WARP B", WN_WARP, 0),
+    WD("UNI A", F_INT, 1, WV_UNI, 1), WD("UNI B", F_INT, 1, WV_UNI, 1),
+    {"OCT A", F_OFS, 0, 2 * WV_OCT0, WV_OCT0, 0, 0}, {"OCT B", F_OFS, 0, 2 * WV_OCT0, WV_OCT0, 0, 0},
+    {"SEMI A", F_OFS, 0, 2 * WV_SEMI0, WV_SEMI0, 0, "st"}, {"SEMI B", F_OFS, 0, 2 * WV_SEMI0, WV_SEMI0, 0, "st"},
+    WD("LVL A", F_PCT, 0, 127, 120), WD("LVL B", F_PCT, 0, 127, 60), WD("NOISE", F_PCT, 0, 127, 0), WE("FILTER", WN_MODE, WF_LP), WD("KEYTRK", F_PCT, 0, 127, 64),
+    WD("ATTACK", F_PCT, 0, 127, 0), WD("DECAY", F_PCT, 0, 127, 70), WD("SUSTN", F_PCT, 0, 127, 40), WD("RELEAS", F_PCT, 0, 127, 40),
+    WD("RATE 1", F_PCT, 0, 127, 60), WD("RATE 2", F_PCT, 0, 127, 60), WE("SHAPE1", WN_LSHAPE, 0), WE("SHAPE2", WN_LSHAPE, 0),
+    WSLOT, WSLOT, WSLOT, WSLOT,
+    WD("WIDTH", F_PCT, 0, 127, 0), WD("LEVEL", F_INT, 0, 127, 64),
+};
+#undef WD
+#undef WE
+#undef WSLOT
+/* the stable ids: 1..8 the edit values (as every candidate's, cand_pages.h), 100 + the byte for the patch (never reused; a slot's spare byte keeps its id) */
+#define WPID(i) {(uint16_t)(100u + (i)), FW_PID_NONE}
+#define WPID4(i) WPID(i), WPID(i + 1), WPID(i + 2), WPID(i + 3)
+static const fw_pid_t WV_PID[WP_N] = {
+    {1, P_E0}, {2, P_E1}, {3, P_E2}, {4, P_E3}, {5, P_E4}, {6, P_E5}, {7, P_E6}, {8, P_E7},
+    WPID4(8), WPID4(12), WPID4(16), WPID4(20), WPID4(24), WPID4(28), WPID4(32), WPID4(36), WPID4(40), WPID4(44), WPID(48),
+};
+#undef WPID
+#undef WPID4
+_Static_assert(NELEM(WV_PID) == WP_N, "a pid an entry");
+#define WROW(title, a, b, c, d) {title, FAM_EDIT, SC_MOD, GR_NONE, {a, b, c, d}}
+#define WMOD(title, k) WROW(title, WP_SLOT0 + 4 * (k), WP_SLOT0 + 4 * (k) + 1, WP_SLOT0 + 4 * (k) + 2, 0xFF)
+static const page_t WAVE_ROWS[] = {
+    WROW("WAVE OSC A", WP_TABA, WP_WARPA, WP_UNIA, WP_LVLA), WROW("WAVE OSC B", WP_TABB, WP_WARPB, WP_UNIB, WP_LVLB),
+    WROW("WAVE TUNE", WP_OCTA, WP_SEMIA, WP_OCTB, WP_SEMIB),  WROW("WAVE FILTER", WP_MODE, WP_KBD, WP_NOISE, WP_LEVEL),
+    WROW("WAVE ENV 2", WP_E2A, WP_E2D, WP_E2S, WP_E2R),       WROW("WAVE LFO", WP_LRATE1, WP_LSHAPE1, WP_LRATE2, WP_LSHAPE2),
+    WMOD("WAVE MOD 1", 0), WMOD("WAVE MOD 2", 1), WMOD("WAVE MOD 3", 2), WMOD("WAVE MOD 4", 3),
+    WROW("WAVE STEREO", WP_WIDTH, 0xFF, 0xFF, 0xFF),
+};
+#undef WROW
+#undef WMOD
 static const fw_kdef_t WAVE_KDEF[4] = {
     CAND_MACRO("MORPH", CAND_T(0, CAND_LIN, 127), CAND_T(1, CAND_LIN, 90), CAND_T0, CAND_T0),
     CAND_MACRO("WARP", CAND_T(2, CAND_UP, 127), CAND_T(3, CAND_UP, 80), CAND_T(4, CAND_LIN, -30), CAND_T0),
     CAND_MACRO("TONE", CAND_T(4, CAND_LIN, 127), CAND_T(5, CAND_UP, 50), CAND_T0, CAND_T0),
     CAND_MACRO("WIDE", CAND_T(6, CAND_UP, 127), CAND_T(7, CAND_DOWN, -60), CAND_T0, CAND_T0),
 };
-CAND_PAGES(WAVE, ENG_WAVE, WAVE_ROWS, 8, WAVE_KDEF)
+static const fw_ui_t WAVE_UI = {FW_UI_MAGIC, FW_UI_WIRE, 1, 0, 4, 0, 0, WAVE_KDEF};
+static wv_part_t *wave_part_held(const track_t *t);
+/* the track's native block: its part's, while WAVE plays on the track (never another engine's state, during a change); 0 otherwise. From the UI the
+ * firmware's resource_get gives only a state already held (engines.c fw_resource_get): nothing is taken outside the audio interrupt */
+static uint8_t *wave_native(track_t *t)
+{
+    wv_part_t *S = wave_part_held(t);
+    return S ? (uint8_t *)&S->nb : 0;
+}
+/* a factory preset was loaded on the track (ui.c preset_apply): its patch, when the part is there (else the part takes it when it is: wave_part) */
+static void wave_loaded(track_t *t, uint32_t preset)
+{
+    wv_part_t *S = wave_part_held(t);
+    if (S) S->nb.p = WV_PATCH[preset < NELEM(WV_PATCH) ? preset : 0u];
+}
+/* drawn dim: WIDTH on a firmware without the right lane; a slot's DEST and AMT while its AMT is 0 */
+static int wave_active(const track_t *t, uint32_t id)
+{
+    wv_part_t *S;
+    if (id == WP_WIDTH) return wave_stereo_fw();
+    if (id < WP_SLOT0 || id >= WP_SLOT0 + 16u || (id - WP_SLOT0) % 4u == 2u || !(S = wave_part_held(t))) return 1;
+    return S->nb.p.slot[(id - WP_SLOT0) / 4u].amt != WV_AMT0;
+}
+static const fw_pages_t WAVE_PAGES = {
+    .magic = FW_PAGES_MAGIC, .size = FW_PAGES_WIRE, .version = FW_PAGES_VERSION,
+    .npages = (uint16_t)NELEM(WAVE_ROWS), .npanel = WP_N, .rows = WAVE_ROWS, .panel = WV_PANEL,
+    .native = wave_native, .active = wave_active, .loaded = wave_loaded,
+    .knob = {0, 1, 2, 3}, .cc = {0xFF, 0xFF, 0xFF, 0xFF},
+    .ui = &WAVE_UI, .pid = WV_PID, .ext = 0};
 static const engine_t ENG_WAVE = {
     .name = "WAVE", .page_title = {"OSC", "TONE"},
     .edit = {
@@ -122,17 +212,36 @@ static const engine_t ENG_WAVE = {
     .knob = {P_E0, P_E2, P_E4, P_E6}, .poly = WV_NV,
     .note_on = wave_note_on, .render = wave_render, .units = wave_units, .block = wave_block, .post = wave_post, .keep = 0,
 };
+/* the track's part; a new one (its magic not there) starts from the factory patch t->preset (a user preset's patch is given by the firmware right after:
+ * voice.c mod_ext_apply) */
 static wv_part_t *wave_part(const track_t *t)
 {
     wv_part_t *P = resource_get(OC_FW()->res_engine0 + (uint32_t)(t - trk) % NPART, sizeof(wv_part_t));
     if (P && P->magic != WV_MAGIC) {
         memset(P, 0, sizeof *P);
-        P->magic = WV_MAGIC;
+        P->nb.p = WV_PATCH[t->preset < NELEM(WV_PATCH) ? t->preset : 0u];
         for (uint32_t i = 0; i < WV_NV; i++) P->v[i].cached[0] = P->v[i].cached[1] = ~0u;
+        P->magic = WV_MAGIC;
     }
     return P;
 }
-static const wv_patch_t *wave_patch(const track_t *t) { return &WV_PATCH[t->preset < NELEM(WV_PATCH) ? t->preset : 0u]; }
+/* .. only while WAVE is the track's engine, the one it plays and the one asked for (in a change the state may be the old engine's) */
+static wv_part_t *wave_part_held(const track_t *t)
+{
+    return t->engine == ENGI_WAVE && t->eng_req == ENGI_WAVE ? wave_part(t) : 0;
+}
+/* the patch the track plays (the audio side: note_on, render; its part is there); the factory one when there is none */
+static const wv_patch_t *wave_patch(const track_t *t)
+{
+    wv_part_t *S = wave_part(t);
+    return S ? &S->nb.p : &WV_PATCH[t->preset < NELEM(WV_PATCH) ? t->preset : 0u];
+}
+/* .. for a voice-unit estimate, which may be asked from the UI (admission): the part only while WAVE plays on the track */
+static const wv_patch_t *wave_patch_held(const track_t *t)
+{
+    wv_part_t *S = wave_part_held(t);
+    return S ? &S->nb.p : &WV_PATCH[t->preset < NELEM(WV_PATCH) ? t->preset : 0u];
+}
 
 #ifdef OC_MODULE_HOST
 const fw_mod_hdr_t OC_MODULE_HDR = {

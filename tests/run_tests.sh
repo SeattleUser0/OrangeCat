@@ -598,6 +598,10 @@ wave_bank() {                                     # (wave-bank) WAVE's user tabl
     $CC -c -O2 $FW -Itools/module -o "$OUT/wave_bank_tu.o" tests/module_host_wave_tu.c || { fail "compile tests/module_host_wave_tu.c (wave bank)"; return 1; }
     $CC -O2 $FW -Itests -o "$OUT/wave_bank_render_test" tests/wave_bank_render_test.c "$OUT/wave_bank_tu.o" -lm || { fail "compile tests/wave_bank_render_test.c"; return 1; }
     step "WAVE plays the bank (USER TABLE A, B), a broken one as none, the factory presets unchanged" "$OUT/wave_bank_render_test" build/host
+    # (wave-engine M3) WAVE's patch in its state (the owner's (a)): its pages, a factory preset's, a user preset's (the record's extension, mod_rec.h), a release,
+    # an engine change, records that do not read, a project; the firmware's units with the module's host unit
+    $CC -O1 $FW -Itests -o "$OUT/wave_patch_test" tests/wave_patch_test.c "$OUT/wave_bank_tu.o" -lm || { fail "compile tests/wave_patch_test.c"; return 1; }
+    step "WAVE's patch (M3): its pages edit the state, a user preset keeps it, a new state takes it back; records that do not read play preset 0" "$OUT/wave_patch_test"
 }
 cand_slot() {                                     # (Orange Cat 0.14.2) a saved project across a measurement build: the unit's slot 1, October 2026
     build cand_slot_norm cand_slot_test -O1 $FW || return

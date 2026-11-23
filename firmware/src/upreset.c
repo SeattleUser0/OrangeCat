@@ -47,6 +47,7 @@ static const uint8_t UP_NATIVE_PARAMS[] = {
 _Static_assert(sizeof UP_NATIVE_PARAMS <= 46u,"native preset parameter storage");
 #include "cz_patch.h"
 #include "dxk_rec.h"                            /* (0.14.2) DRUM-X's kit and its record */
+#include "mod_rec.h"                            /* (wave-engine M3) a module engine's native block in a record */
 #define UP_VER_CZ 8u                            /* native CZ-1 bytes in the 144-byte payload */
 #define UP_PMAX 72u                              /* room for P_COUNT to grow */
 #define UP_USED 0xA5u
@@ -183,6 +184,32 @@ static uint32_t up_kit_get(const up_rec_t *r, uint8_t *b)
 }
 _Static_assert(DXK_ROOM - 46u <= UP_PMAX * 2u - 127u && DXK_BYTES <= DXK_ROOM && sizeof ((up_rec_t *)0)->cz_extra == 46u, "a kit fits a record of any np");
 
+/* (wave-engine M3) a module engine's native block (mod_rec.h: 4 + n bytes) in a user preset of that engine, where DRUM-X keeps its kit: the first 46 bytes in
+ * cz_extra, the rest in packed after the np values. The record's own version stays (the extension says its version itself); a firmware before it reads the
+ * preset by its values and leaves the bytes. 0 ok, 1 no room (a record whose np leaves too little) */
+static int up_mxr_put(up_rec_t *r, const uint8_t *b, uint32_t n)
+{
+    uint32_t a = sizeof r->cz_extra, rest = n > a ? n - a : 0u;
+    if (n > MXR_ROOM || r->np > sizeof r->packed || sizeof r->packed - r->np < rest)
+        return 1;
+    memcpy(r->cz_extra, b, n < a ? n : a);
+    memcpy(r->packed + r->np, b + a, rest);
+    return 0;
+}
+/* .. the bytes where it would be, into b (MXR_ROOM): how many there are */
+static uint32_t up_mxr_get(const up_rec_t *r, uint8_t *b)
+{
+    uint32_t a = sizeof r->cz_extra, rest;
+    if (r->np > sizeof r->packed)
+        return 0;
+    rest = sizeof r->packed - r->np;
+    rest = rest > MXR_ROOM - a ? MXR_ROOM - a : rest;
+    memcpy(b, r->cz_extra, a);
+    memcpy(b + a, r->packed + r->np, rest);
+    return a + rest;
+}
+_Static_assert(MXR_ROOM == DXK_ROOM && MXR_ROOM - 46u <= UP_PMAX * 2u - 127u, "a module's block fits a record of any np");
+
 /* (Round 26) the MACRO model a record's sound names (its P_E0, clamped as eng_macro.c mc_want does), 0 (VA, always built in) for any other */
 static uint32_t up_rec_model(const up_rec_t *r)
 {
@@ -192,6 +219,11 @@ static uint32_t up_rec_model(const up_rec_t *r)
     v = (int32_t)r->packed[r->np - 8u] - 64;      /* (up_value, below) */
     return (uint32_t)(v < 0 ? 0 : v > 31 ? 31 : v);
 }
+/* (wave-engine M3) the engines a general record (UP_VER, UP_VER_GRID) may name: 0..15 as always, and (the module engines' numbers) 21 up to the build's
+ * table. 16..18 and 20 are the old preset namespaces (USER_GENERAL, USER_NATIVE_*: never an engine of a record), 19 the Prophet (its own record version,
+ * UP_VER_P5). Before, the check stopped at 16: a sound on X0X303 (23), SUPERSAW (25), BRASS (28), MIXTUR (29) or WAVE (32) could not be saved as a user
+ * preset at all. A record of a number past this build's table is refused, as one of 16 and up was (param_desc_of reads ENGINES[engine]) */
+static int up_engine_storable(uint32_t e) { return e < USER_GENERAL || (e > USER_NATIVE_P5 && e < NENGINES && e < 64u); }
 static int up_valid(const up_rec_t *r)
 {
     if((r->used & ~UP_STAR)==UP_USED && up_native(r)){
@@ -206,7 +238,7 @@ static int up_valid(const up_rec_t *r)
 #endif
     }
     if ((r->used & ~UP_STAR) == UP_USED && up_native_cz(r)) { uint8_t raw[CZ_BYTES];return (r->np==92u || r->np==100u || r->np==104u || r->np==108u || r->np==119u || r->np==122u || r->np==125u /* (the FX cuts) */ || r->np==P_COUNT) && r->name[0] && up_cz_raw(r,raw); }
-    if (!((r->used & ~UP_STAR) == UP_USED && (r->ver == UP_VER || r->ver == UP_VER_GRID || ((MELODEE_DRUM && r->engine == ENGI_DRUM) && (r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID))) && r->engine < USER_GENERAL &&
+    if (!((r->used & ~UP_STAR) == UP_USED && (r->ver == UP_VER || r->ver == UP_VER_GRID || ((MELODEE_DRUM && r->engine == ENGI_DRUM) && (r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID))) && up_engine_storable(r->engine) &&
           r->np >= 8u && r->np <= UP_PMAX * 2u && r->name[0])) return 0;
     for (uint32_t i = 0; i < r->np; i++) if (r->packed[i] > 191u) return 0;
     if((MELODEE_DRUM && r->engine == ENGI_DRUM) && (r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID)){drum_patch_t p;if(!up_drum_raw(r,&p))return 0;}
@@ -588,6 +620,53 @@ static void up_native_name(up_rec_t *r,const char *name)
     memset(r->packed+off,' ',len);
     for(uint32_t i=0;i<len && name && name[i];i++)r->packed[off+i]=(uint8_t)name[i];
 }
+/* (wave-engine M3) a module engine whose user presets keep its native block (mod_rec.h): one with a descriptor that has a native block, not the Prophet (its
+ * record version UP_VER_P5) */
+static const fw_pages_t *up_mod_pages(uint32_t e)
+{
+    const fw_pages_t *p = e < NENGINES && e != ENGI_PROPHET ? pages_of_engine(e) : 0;
+    return p && p->native ? p : 0;
+}
+/* track tr's block of engine e into body: its state's (from the UI: only one already held, engines.c fw_resource_get), else the stored copy; the bytes, 0 none */
+static uint32_t up_mod_body(uint32_t tr, uint32_t e, uint8_t *body)
+{
+    const fw_pages_t *p = up_mod_pages(e);
+    const mod_ext_t *x = &mod_ext[tr % NTRK];
+    uint32_t n = p ? (p->npanel < MXR_BODY_MAX ? p->npanel : MXR_BODY_MAX) : 0u;
+    uint8_t *b = n && trk[tr % NTRK].eng_req == e ? p->native(&trk[tr % NTRK]) : 0;
+    if (b) { memcpy(body, b, n); return n; }
+    if (n && x->on && x->eng == e) { memcpy(body, x->b, x->n); return x->n; }
+    return 0;
+}
+/* record r's block -> track tr's stored copy (none: off, the module's state then the factory preset t->preset, 0). With the audio IRQ off */
+static void up_mod_load(const up_rec_t *r, uint32_t tr)
+{
+    uint8_t b[MXR_ROOM];
+    const fw_pages_t *p = up_mod_pages(r->engine);
+    uint32_t n = p ? mxr_unpack(b, up_mxr_get(r, b), r->engine) : 0u;
+    if (p && p->loaded) p->loaded(&trk[tr % NTRK], 0);   /* (a state already there: the preset 0 patch first, as a new state takes; the copy goes over it) */
+    if (n) mod_ext_set(tr, r->engine, b + MXR_HEAD, n);
+    else { mod_ext_off(tr); mod_ext_pend |= (uint8_t)(1u << (tr % NTRK)); }
+}
+/* track k's module patch as its sound names it (a project's load, an undo, a sound pasted): the user preset's block, or the factory preset t->preset's. A sound
+ * edited and not saved is not kept by these (the owner's (a): the module's state holds it; a user preset keeps it). Takes the audio IRQ off itself */
+static void up_mod_reload(uint32_t k)
+{
+    track_t *t = &trk[k % NTRK];
+    const fw_pages_t *p = up_mod_pages(t->eng_req);
+    up_rec_t kr;
+    if (!p) { mod_ext_off(k); return; }
+    if (t->user && !t->user_native && up_used(t->user - 1u) && up_rec(t->user - 1u)->engine == t->eng_req) {
+        kr = *up_rec(t->user - 1u);                     /* (a copy, before the IRQ goes off: the bank may be read from flash) */
+        fm1_irq_off(); up_mod_load(&kr, k); fm1_irq_on();
+        return;
+    }
+    fm1_irq_off();
+    mod_ext_off(k);
+    if (p->loaded) p->loaded(t, t->preset);
+    mod_ext_pend |= (uint8_t)(1u << (k % NTRK));
+    fm1_irq_on();
+}
 static int up_store_to(uint32_t k,uint32_t tr,const char *name)
 {
     momentary_restore();
@@ -620,7 +699,14 @@ static int up_store_to(uint32_t k,uint32_t tr,const char *name)
         dxk_pack(&kit, b);
         (void)up_kit_put(&r, b);
     }
-    return up_put(k,&r);
+    {   /* (wave-engine M3) a module engine's native block (WAVE's patch): as it plays (its state, when WAVE plays on the track), else the track's stored copy */
+        uint8_t body[MXR_BODY_MAX], rec[MXR_ROOM];
+        uint32_t n = up_mod_body(tr, r.engine, body), m = n ? mxr_pack(rec, r.engine, body, n) : 0u, rc;
+        if (m && up_mxr_put(&r, rec, m)) n = 0;
+        rc = (uint32_t)up_put(k, &r);
+        if (!rc && n) { fm1_irq_off(); mod_ext_set(tr, r.engine, body, n); fm1_irq_on(); }   /* (what the track sounds like now: its copy for a new state) */
+        return (int)rc;
+    }
 }
 static int up_store(uint32_t k,const char *name){return up_store_to(k,song.sel,name);}
 
@@ -680,6 +766,7 @@ static int up_load_to(uint32_t k,uint32_t tr)
         if (up_native_cz(r))up_cz_raw(r,cz_patch[tr].raw);
         if((MELODEE_DRUM && r->engine == ENGI_DRUM)){memset(&drum_patch[tr],0,sizeof(drum_patch_t));if(r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID)up_drum_raw(r,&drum_patch[tr]);}
         if (MELODEE_DRUMX && r->engine == ENGI_DRUMX) up_kit_load(r, tr);   /* (0.14.2) its kit (one of before: factory kit 0) */
+        up_mod_load(r, tr);                             /* (wave-engine M3) a module engine's native block (WAVE's patch), or none */
         if((MELODEE_P5 && r->engine == ENGI_PROPHET) && r->ver==UP_VER_P5){memcpy(&p5_patch[tr],r->packed,sizeof(p5_patch_t));p5_ready[tr]=1;p5_track_accept(t);}
         if (MELODEE_CZ) cz_track_accept(t);   /* (Orange Cat: MELODEE_CZ) */
         fm1_irq_on();
