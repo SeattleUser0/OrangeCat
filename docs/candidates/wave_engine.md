@@ -107,3 +107,34 @@ the device's 1400ceef).
   never taking an arena state (fw_resource_get), and the up_valid fix (engines 21 and up storable: **the engines-b modules X0X303, SUPERSAW, BRASS, MIXTUR
   could not be saved as user presets before it**). On the unit: the pages on the screen, a save and load on flash, a release and its retake.
 - **Ready for Session A: yes** (review, unit timing, the stereo decision, M3's unit checks).
+
+## 5. The owner's picks of November 23, and round 3
+
+**The bank (36 presets, commit f320bae1):** the ten earlier presets first in each group, then the 22 keeps, the two user-table presets, and the four maybes.
+
+| Group | Presets (0 ..) |
+|---|---|
+| bass | WAVE BASS, SUB WOBBLE, PULSE BASS, GROWL BASS, SYNC BASS |
+| lead | WAVE LEAD, SYNC LEAD, TALK LEAD, SCREAM SYNC |
+| keys | WAVE KEYS, GLASS KEYS, WAVE TINE, VOWEL KEYS, CLAV WAVE |
+| pad | WAVE PAD, PWM STRINGS, MORPH PAD, CHOIR TABLE, GLASS PAD, PWM PAD, DARK DRONE |
+| pluck | WAVE PLUCK, PULSE PLUCK, WAVE MALLET, VOWEL PLUCK |
+| texture | VOX MORPH, S&H SWARM, WIND TABLE, METAL SCAN, FORMANT SWEEP |
+| user tables | USER TABLE A, USER TABLE B (30, 31) |
+| maybes (round 3) | ACID WAVE, MORPH LEAD, SQUARE LEAD, HARP TABLE (32..35) |
+
+Cut: MIRROR LEAD. **It fits:** the module is 28,620 B of its 7 sectors' 28,672 (52 B left; 26,756 B before). That leaves no room for one more preset (about 72
+B each). The reworked maybes replace rows of the same size.
+
+**What the presets hold:** the rows come from the audition's patches (`~/oc-tmp/aud/wave_design.json`, with the levels he heard). The audition set the track's
+ENV -> FILTER to 64, one past that control's range (-64..63), and a preset holds 63. With 63 every one is at the same level (within 0.1 dB) and brightness
+(within 1 %), not the same bytes. With 64 all 26 match the audition's files byte for byte, so the rows are right and only that one step differs. The ten
+earlier presets render as before (their golden lines kept; their indices moved). tests/wave_bank_render_test.c finds USER TABLE A and B by name;
+tests/wave_patch_test.c's preset indices follow the new order.
+
+**Round 3** (`~/oc-audition/round3-2026-11-23/`, stereo, a README), with FMBELL's FM LEAD and AETHER's two (engines_b.md 13):
+- ACID WAVE: its filter never moved (ENV -> FILTER and the sustain held the ladder open: a 5 dB sweep a note). Now half closed with ENV -> FILTER off, and
+  swept by ENV 2: 16 dB a note, as bright at its peak as X0X303's SQR ACID.
+- MORPH LEAD: the darkest lead and slow to speak. A BRIGHT oscillator beside it, a faster morph, ENV 2 on B's position: 723 Hz (from 561), speaks in 60 ms.
+- SQUARE LEAD: plain beside the others. Two detuned copies, a deeper and faster pulse-width movement, a little sub.
+- HARP TABLE: -20 dB at full level because it was gone in 85 ms. A longer ring and a slower filter: -16.6 dB, as bright.
