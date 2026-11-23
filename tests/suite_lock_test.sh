@@ -45,5 +45,12 @@ check "no record, 3h before 13:00: unknown warning" 'grep -q "no recorded run ti
 rm -f "$T/times.tsv"
 OC_SUITE_NOW=$(at 16:00) sh "$S" true 2>"$T/err"
 check "no record, 15h before 07:00: no warning" '! grep -q warning "$T/err"'
+rm -f "$T/times.tsv"
+OC_SUITE_NOW=$(at 20:00) sh "$S" true 2>"$T/err"
+check "no record, 1h before 21:00: unknown warning" 'grep -q "no recorded run time" "$T/err"'
+OC_SUITE_NOW=$(at 23:45) sh "$S" true 2>"$T/err"
+check "inside the 23:30-01:45 window warns" 'grep -q "starts inside the soak window 23:30-01:45" "$T/err"'
+OC_SUITE_NOW=$(( $(at 23:30) + 3600 )) sh "$S" true 2>"$T/err"
+check "after midnight, inside the 23:30-01:45 window warns" 'grep -q "starts inside the soak window 23:30-01:45" "$T/err"'
 check "run time recorded" 'grep -q "^$KEY	" "$T/times.tsv"'
 exit $fail

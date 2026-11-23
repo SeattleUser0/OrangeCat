@@ -12,7 +12,7 @@
 #     expected_end, pid, pid_start_ticks) refuses with 75; a stale one (pid dead or restarted, or expected_end more than
 #     30 minutes past) is reported and ignored, never removed.
 #   - suites only: the last run time of the same key (top dir + command, OC_SUITE_TIMES, default ~/.cache/oc-suite-times.tsv:
-#     key, start, end, seconds) estimates the end; crossing into a soak window (07:00-09:15, 13:00-15:15) or starting inside
+#     key, start, end, seconds) estimates the end; crossing into a soak window (07:00-09:15, 13:00-15:15, 21:00-23:15, 23:30-01:45 Pacific) or starting inside
 #     one warns (refuses with 75 under OC_SUITE_WINDOW_STRICT=1). No record: warns when a window starts within 4 hours.
 #     OC_SUITE_NOW (epoch seconds) overrides the clock, for tests.
 LOCK=${OC_SUITE_LOCK:-/tmp/oc-suite.lock}
@@ -52,8 +52,9 @@ hm() { date -d "@$1" '+%H:%M'; }
 window_check() {
     n=$(now); est=$(awk -F'\t' -v k="$KEY" '$1 == k { s = $4 } END { print s }' "$TIMES" 2>/dev/null)
     day=$(date -d "@$n" +%Y-%m-%d); msg=
-    for d in 0 1; do for w in "07:00 09:15" "13:00 15:15"; do
+    for d in -1 0 1; do for w in "07:00 09:15" "13:00 15:15" "21:00 23:15" "23:30 01:45"; do      # (Round 32, the owner: four soak windows a day, Pacific)
         ws=$(date -d "$day $(echo $w | cut -d' ' -f1) $d day" +%s); we=$(date -d "$day $(echo $w | cut -d' ' -f2) $d day" +%s)
+        [ "$we" -le "$ws" ] && we=$((we + 86400))                                                  # 23:30-01:45 ends the next day
         if [ "$n" -ge "$ws" ] && [ "$n" -lt "$we" ]; then msg="starts inside the soak window $(hm $ws)-$(hm $we)"
         elif [ -n "$est" ] && [ "$n" -lt "$ws" ] && [ $((n + est)) -gt "$ws" ]; then
             msg="the last run took ${est}s: expected end $(hm $((n + est))) crosses the soak window $(hm $ws)-$(hm $we)"

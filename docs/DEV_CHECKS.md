@@ -35,6 +35,8 @@ tools/suite_lock.sh --build <build or single test>
 
 ## Tests on the unit: unattended (the owner's rule, November 21, 2026; SPEC.md 13.1)
 
+**The soak windows (the owner, November 23, 2026; Pacific):** 07:00-09:15, 13:00-15:15, 21:00-23:15 and 23:30-01:45. No other suite, build, flash or browser on the NUC while a soak runs (the marker `/tmp/oc-soak-running` says when one does); a soak that sees outside load mid-run is INVALID and is redone in the next free window. Q1's design blocks by day: a replicate's four cells run in one day's four windows (the 23:30 window counts toward the day it starts).
+
 1. **Every test runs unattended, by the session that runs it.** No test, rehearsal or qualification step waits for the owner: no dialog, no prompt, no `input()`, no "press Enter when done". He is not at the bench at set times.
 2. **The test unit's data may be overwritten or wiped for a test** (projects, slots, user presets, settings): a full backup first, read back and verified; at the end the unit restored from it and verified again. The backups are kept until the round's report is written.
 3. **A step that needs a device action the PC cannot do yet** gets a remote command over USB first (the editor protocol, with host tests that fail without it), and then the test uses it. A panel action is never written into a test as a manual step.
