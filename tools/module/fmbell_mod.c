@@ -52,10 +52,19 @@ _Static_assert(sizeof(fm_voice_t) <= OP1_VOICE_SIZE, "fmbell's voice is op1r's 0
 OP1G_ENGINE_FUNCS(ENGINE_fmbell)
 
 static const preset_t FMBELL_PRESETS[] = {
-    {"FM BELL", {32, 62, 31, 0, 0, 0, 0, 64}, {0, 96, 0, 84}, 0, 0},       /* the plugin's defaults */
-    {"E PIANO", {12, 40, 60, 0, 0, 0, 0, 64}, {0, 84, 36, 52}, 0, 0},      /* ratio 1, a faster index decay */
-    {"GLASS", {60, 30, 20, 10, 0, 0, 0, 64}, {0, 108, 20, 92}, 0, 0},      /* ratio 4 */
-    {"FM BASS", {0, 90, 90, 40, 0, 0, 0, 64}, {0, 72, 64, 20}, 0, 1},      /* ratio 0.5, feedback, MONO */
+    /* bass */
+    {"FM BASS", {0, 90, 90, 40, 0, 0, 0, 105}, {0, 72, 64, 20}, 0, 1},   /* ratio 0.5, feedback, MONO */
+    /* keys */
+    {"E PIANO", {12, 40, 60, 0, 0, 0, 0, 83}, {0, 84, 36, 52}, 0, 0},   /* ratio 1, a faster index decay */
+    /* pad */
+    {"FM PAD", {24, 40, 10, 10, 0, 0, 0, 73}, {60, 90, 110, 90}, 0, 0},   /* (round 2, kept November 23) ratio 2, a slow index decay: a soft pad */
+    /* pluck */
+    {"FM BELL", {32, 62, 31, 0, 0, 0, 0, 84}, {0, 96, 0, 84}, 0, 0},   /* the plugin's defaults */
+    {"GLASS", {60, 30, 20, 10, 0, 0, 0, 78}, {0, 108, 20, 92}, 0, 0},   /* ratio 4 */
+    /* texture */
+    {"FM NOISE", {100, 127, 0, 127, 0, 0, 0, 67}, {20, 80, 100, 70}, 0, 0},   /* (round 2, kept November 23) ratio 6.5, full index and feedback: noise */
+    /* (November 23) the owner's maybes, after the rest */
+    {"FM LEAD", {12, 70, 0, 50, 0, 0, 0, 90}, {0, 70, 110, 30}, 0, 1},   /* (round 2) ratio 1, feedback, MONO (November 23: a maybe; its round 3 rework in docs/candidates/engines_b.md 13) */
 };
 static const engine_t ENG_FMBELL = {
     .name = "FMBELL", .page_title = {"FM", "OUT"},

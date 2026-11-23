@@ -54,16 +54,21 @@ _Static_assert(sizeof(ss_voice_t) <= OP1_VOICE_SIZE, "supersaw's voice is op1r's
 OP1G_ENGINE_FUNCS(ENGINE_supersaw)
 
 static const preset_t SUPERSAW_PRESETS[] = {
+    /* bass */
     {"DRIVE BAS", {10, 40, 110, 127, 0, 0, 0, 94}, {0, 70, 90, 24}, 0, 1},   /* the sub up, the drive full, MONO; (engines-b) LEVL 94 */
     {"SUB BASS", {0, 100, 127, 20, 0, 0, 0, 99}, {0, 60, 110, 20}, 0, 1},   /* (engines-b) the pulse and the sub, MONO */
+    /* lead */
     {"SQR LEAD", {20, 127, 60, 60, 0, 0, 0, 86}, {0, 60, 100, 30}, 0, 1},   /* the morph at pulse, MONO; (engines-b) LEVL 86 */
+    {"TRANCE LEAD", {95, 15, 0, 70, 0, 0, 0, 82}, {0, 70, 115, 40}, 0, 1},   /* (round 2 rework, kept November 23) wider detune, a little morph, driven, no sub; MONO */
+    /* keys */
+    {"SAW KEYS", {25, 45, 25, 45, 0, 0, 0, 100}, {0, 58, 30, 35}, 0, 0},   /* (round 2 rework, kept November 23) a short chord sound, brighter and driven */
+    /* pad */
     {"SUPERSAW", {31, 0, 47, 23, 0, 0, 0, 66}, {4, 60, 110, 50}, 0, 0},   /* the plugin's defaults; (engines-b) LEVL 66 */
+    {"SAW PAD", {127, 30, 0, 0, 0, 0, 0, 78}, {50, 90, 115, 100}, 0, 0},   /* (round 2 rework, kept November 23) full detune, some morph, no sub or drive, a slow swell */
+    /* pluck */
     {"SAW PLUCK", {30, 0, 20, 30, 0, 0, 0, 113}, {0, 60, 0, 40}, 0, 0},   /* (engines-b) plucked saws */
+    /* texture */
     {"HOOVER", {127, 60, 90, 80, 0, 0, 0, 75}, {10, 80, 120, 50}, 0, 1},   /* (engines-b) wide, morphed, driven: a texture, MONO */
-    /* (engines-b) the owner's maybes (November 21 audition): kept, after the keeps, for a second audition */
-    {"TRANCE LEAD", {60, 0, 20, 40, 0, 0, 0, 84}, {0, 70, 110, 34}, 0, 1},   /* (engines-b) a detuned mono lead */
-    {"SAW KEYS", {40, 10, 30, 15, 0, 0, 0, 87}, {0, 62, 40, 40}, 0, 0},   /* (engines-b) a short chord sound */
-    {"SAW PAD", {100, 0, 30, 10, 0, 0, 0, 70}, {70, 90, 112, 92}, 0, 0},   /* wide detune, a slow swell; (engines-b) LEVL 70 */
 };
 /* (engines-b) the page descriptor (fw_pages_t version 3): the rows, the pid table, HOME's four macro knobs (tools/module/cand_pages.h) */
 #include "cand_pages.h"

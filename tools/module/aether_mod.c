@@ -71,10 +71,13 @@ _Static_assert(sizeof(((aether_part_t *)0)->st) == OP1_VOICES * sizeof(ae_t), "t
 OP1G_ENGINE_FUNCS(ENGINE_aether)
 
 static const preset_t AETHER_PRESETS[] = {
-    {"AETHER", {61, 44, 64, 127, 0, 0, 0, 0}, {6, 80, 110, 50}, 0, 1},    /* the plugin's defaults; MONO */
+    /* lead */
     {"THEREMIN", {64, 40, 80, 0, 0, 0, 40, 0}, {10, 80, 120, 60}, 0, 1},   /* 12 semitones at full tilt, a little reed, shake vibrato */
-    {"REEDY", {32, 110, 40, 0, 20, 0, 0, 0}, {4, 70, 100, 40}, 0, 0},      /* the timbre up: even harmonics and drive */
-    {"SIREN", {127, 64, 0, 0, 0, 30, 0, 0}, {2, 80, 127, 30}, 0, 1},       /* 24 semitones at a 25 degree tilt: put an LFO on E8 (TILT) */
+    /* pad */
+    {"REEDY", {32, 110, 40, 0, 20, 0, 0, 0}, {4, 70, 100, 40}, 0, 0},   /* the timbre up: even harmonics and drive */
+    /* (November 23) the owner's maybes, after the rest */
+    {"AETHER", {61, 44, 64, 127, 0, 0, 0, 0}, {6, 80, 110, 50}, 0, 1},   /* the plugin's defaults; MONO (November 23: a maybe; its round 3 rework in docs/candidates/engines_b.md 13) */
+    {"SIREN", {127, 64, 0, 0, 0, 30, 0, 0}, {2, 80, 127, 30}, 0, 1},   /* 24 semitones at a 25 degree tilt: put an LFO on E8 (TILT) (November 23: a maybe; its round 3 rework in docs/candidates/engines_b.md 13) */
 };
 static const engine_t ENG_AETHER = {
     .name = "AETHER", .page_title = {"TILT", "HOME"},
