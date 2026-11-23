@@ -52,17 +52,50 @@ static inline int wave_stereo_fw(void)       /* the firmware takes the lane (8 o
 /* the presets (the eight values, voice.c's ADSR, mono) and, a row each in the same order, their patches. Tables: 0 BASIC, 1 PULSE, 2 VOWEL, 3 BRIGHT.
  * {POS A, POS B, WARP A, WARP B, CUT, RES, DTUN, SUB} */
 static const preset_t WAVE_PRESETS[] = {
+    /* bass */
     {"WAVE BASS", {60, 20, 0, 0, 62, 30, 0, 60}, {0, 64, 110, 20}, 0, 1},
+    {"SUB WOBBLE", {10, 0, 0, 0, 50, 60, 0, 90}, {0, 64, 110, 20}, 63, 1},
+    {"PULSE BASS", {40, 0, 0, 0, 60, 30, 0, 50}, {0, 64, 100, 20}, 63, 1},
+    {"GROWL BASS", {20, 60, 0, 0, 64, 52, 10, 40}, {0, 70, 100, 24}, 63, 1},
+    {"SYNC BASS", {70, 40, 20, 0, 70, 30, 0, 40}, {0, 60, 90, 20}, 63, 1},
+    /* lead */
     {"WAVE LEAD", {70, 50, 20, 0, 96, 30, 30, 0}, {0, 64, 120, 40}, 0, 1},
     {"SYNC LEAD", {60, 40, 30, 0, 90, 20, 0, 0}, {0, 64, 120, 35}, 0, 1},
+    {"TALK LEAD", {30, 0, 0, 0, 96, 30, 15, 0}, {0, 64, 120, 40}, 63, 1},
+    {"SCREAM SYNC", {80, 0, 40, 0, 88, 60, 0, 0}, {0, 64, 120, 40}, 63, 1},
+    /* keys */
     {"WAVE KEYS", {30, 40, 0, 0, 72, 20, 15, 20}, {0, 72, 50, 50}, 0, 0},
+    {"GLASS KEYS", {100, 20, 0, 0, 100, 10, 10, 0}, {0, 76, 30, 60}, 63, 0},
+    {"WAVE TINE", {0, 0, 0, 0, 96, 10, 0, 30}, {0, 80, 20, 64}, 63, 0},
+    {"VOWEL KEYS", {30, 0, 0, 0, 84, 20, 10, 0}, {0, 72, 50, 50}, 63, 0},
+    {"CLAV WAVE", {100, 0, 0, 0, 72, 50, 0, 0}, {0, 64, 20, 34}, 63, 0},
+    /* pad */
     {"WAVE PAD", {60, 30, 0, 0, 92, 20, 50, 0}, {70, 90, 115, 95}, 0, 0},
     {"PWM STRINGS", {30, 50, 0, 0, 90, 10, 40, 0}, {50, 80, 110, 80}, 0, 0},
+    {"MORPH PAD", {20, 60, 0, 0, 86, 20, 50, 0}, {80, 90, 115, 95}, 63, 0},
+    {"CHOIR TABLE", {10, 40, 0, 0, 88, 20, 40, 0}, {70, 90, 115, 95}, 63, 0},
+    {"GLASS PAD", {0, 30, 0, 0, 96, 10, 30, 0}, {60, 90, 115, 100}, 63, 0},
+    {"PWM PAD", {30, 50, 0, 0, 84, 20, 40, 0}, {70, 90, 115, 90}, 63, 0},
+    {"DARK DRONE", {10, 20, 0, 0, 60, 60, 30, 40}, {90, 90, 120, 100}, 63, 0},
+    /* pluck */
     {"WAVE PLUCK", {40, 30, 0, 0, 60, 45, 20, 0}, {0, 66, 0, 50}, 0, 0},
+    {"PULSE PLUCK", {10, 0, 0, 0, 78, 30, 15, 0}, {0, 70, 0, 48}, 63, 0},
+    {"WAVE MALLET", {0, 0, 0, 0, 100, 10, 0, 0}, {0, 70, 0, 56}, 63, 0},
+    {"VOWEL PLUCK", {20, 0, 0, 0, 66, 50, 10, 0}, {0, 70, 0, 48}, 63, 0},
+    /* texture */
     {"VOX MORPH", {64, 64, 30, 60, 70, 70, 40, 0}, {40, 90, 110, 90}, 0, 0},
+    {"S&H SWARM", {40, 40, 0, 0, 90, 30, 80, 0}, {20, 90, 110, 80}, 63, 0},
+    {"WIND TABLE", {0, 0, 0, 0, 80, 90, 0, 0}, {60, 90, 120, 90}, 63, 0},
+    {"METAL SCAN", {60, 50, 60, 30, 92, 30, 40, 0}, {10, 90, 110, 90}, 63, 0},
+    {"FORMANT SWEEP", {0, 60, 0, 0, 62, 30, 30, 0}, {40, 90, 115, 90}, 63, 0},
     /* (wave-bank) the user tables of the installer page (the sample slot's room): POS A and POS B sweep them; without a bank they play BASIC */
     {"USER TABLE A", {0, 0, 0, 0, 100, 10, 20, 0}, {0, 64, 110, 40}, 0, 0},
     {"USER TABLE B", {0, 64, 0, 0, 100, 10, 30, 0}, {10, 70, 110, 60}, 0, 0},
+    /* (November 23) the owner's maybes, after the rest: reworked for round 3 (docs/candidates/wave_engine.md 5) */
+    {"ACID WAVE", {100, 0, 0, 0, 44, 96, 0, 0}, {0, 64, 100, 20}, 63, 1},  /* maybe (round 3) */
+    {"MORPH LEAD", {40, 60, 0, 0, 92, 30, 25, 0}, {0, 64, 120, 40}, 63, 1},  /* maybe (round 3) */
+    {"SQUARE LEAD", {0, 20, 0, 0, 94, 20, 20, 0}, {0, 64, 120, 40}, 63, 1},  /* maybe (round 3) */
+    {"HARP TABLE", {80, 0, 0, 0, 80, 20, 10, 0}, {0, 74, 0, 58}, 63, 0},  /* maybe (round 3) */
 };
 #define S(src, dst, amt) {WS_##src, WD_##dst, (uint8_t)((amt) + (int)WV_AMT0), 0}
 #define S0 {0, 0, WV_AMT0, 0}
@@ -70,27 +103,86 @@ static const preset_t WAVE_PRESETS[] = {
 #define SE(x) (uint8_t)((x) + (int)WV_SEMI0)
 static const wv_patch_t WV_PATCH[] = {
     /* tab, warp, uni, oct, semi, lvl, noise, mode, kbd, ENV 2 {A D S R}, LFO rates, LFO shapes, the four slots, the stereo width, the level (the render analysis) */
+    /* bass */
     {{0, 1}, {WARP_BEND, WARP_BEND}, {1, 1}, {OC(0), OC(-1)}, {SE(0), SE(0)}, {127, 60}, 0, WF_LADDER, 64, {0, 70, 20, 40}, {60, 60}, {0, 0},
-     {S(ENV2, CUT, 50), S(VEL, CUT, 20), S0, S0}, 0, 87},
+     {S(ENV2, CUT, 50), S(VEL, CUT, 20), S0, S0}, 0, 87},   /* WAVE BASS */
+    {{0, 0}, {WARP_BEND, WARP_BEND}, {1, 1}, {OC(0), OC(0)}, {SE(0), SE(0)}, {120, 0}, 0, WF_LADDER, 64, {0, 70, 40, 40}, {62, 60}, {4, 0},
+     {S(LFO1, CUT, 55), S0, S0, S0}, 0, 100},   /* SUB WOBBLE */
+    {{1, 0}, {WARP_BEND, WARP_BEND}, {1, 1}, {OC(0), OC(0)}, {SE(0), SE(0)}, {120, 0}, 0, WF_LP, 64, {0, 62, 10, 30}, {60, 60}, {0, 0},
+     {S(ENV2, POSA, 70), S(ENV2, CUT, 40), S0, S0}, 0, 89},   /* PULSE BASS */
+    {{2, 0}, {WARP_BEND, WARP_BEND}, {1, 1}, {OC(0), OC(-1)}, {SE(0), SE(0)}, {120, 60}, 0, WF_LADDER, 64, {0, 70, 40, 40}, {50, 60}, {0, 0},
+     {S(LFO1, POSA, 60), S(ENV2, CUT, 40), S0, S0}, 0, 127},   /* GROWL BASS */
+    {{0, 3}, {WARP_SYNC, WARP_BEND}, {1, 1}, {OC(0), OC(0)}, {SE(0), SE(0)}, {120, 40}, 0, WF_LP, 64, {0, 60, 10, 30}, {60, 60}, {0, 0},
+     {S(ENV2, WARPA, 90), S(ENV2, CUT, 30), S0, S0}, 0, 75},   /* SYNC BASS */
+    /* lead */
     {{0, 3}, {WARP_BEND, WARP_BEND}, {4, 2}, {OC(0), OC(0)}, {SE(0), SE(0)}, {110, 70}, 0, WF_LP, 64, {0, 60, 80, 40}, {70, 50}, {0, 0},
-     {S(LFO1, POSA, 20), S(ENV2, CUT, 30), S0, S0}, 90, 65},
+     {S(LFO1, POSA, 20), S(ENV2, CUT, 30), S0, S0}, 90, 65},   /* WAVE LEAD */
     {{0, 0}, {WARP_SYNC, WARP_BEND}, {1, 1}, {OC(0), OC(1)}, {SE(0), SE(0)}, {120, 40}, 0, WF_LP, 64, {0, 70, 30, 40}, {60, 60}, {0, 0},
-     {S(ENV2, WARPA, 80), S(ENV2, CUT, 25), S0, S0}, 0, 67},
+     {S(ENV2, WARPA, 80), S(ENV2, CUT, 25), S0, S0}, 0, 67},   /* SYNC LEAD */
+    {{2, 0}, {WARP_BEND, WARP_BEND}, {2, 1}, {OC(0), OC(0)}, {SE(0), SE(0)}, {120, 0}, 0, WF_LP, 64, {0, 70, 40, 40}, {46, 66}, {4, 0},
+     {S(LFO1, POSA, 90), S(ENV2, CUT, 20), S0, S0}, 0, 91},   /* TALK LEAD */
+    {{0, 0}, {WARP_SYNC, WARP_BEND}, {1, 1}, {OC(0), OC(0)}, {SE(0), SE(0)}, {120, 0}, 0, WF_LADDER, 64, {0, 70, 40, 40}, {40, 60}, {0, 0},
+     {S(LFO1, WARPA, 50), S(ENV2, WARPA, 40), S0, S0}, 0, 96},   /* SCREAM SYNC */
+    /* keys */
     {{2, 0}, {WARP_BEND, WARP_BEND}, {1, 2}, {OC(0), OC(0)}, {SE(0), SE(0)}, {120, 50}, 0, WF_LP, 100, {0, 72, 40, 50}, {60, 60}, {0, 0},
-     {S(ENV2, CUT, 40), S(VEL, CUT, 20), S0, S0}, 40, 77},
+     {S(ENV2, CUT, 40), S(VEL, CUT, 20), S0, S0}, 40, 77},   /* WAVE KEYS */
+    {{3, 0}, {WARP_BEND, WARP_BEND}, {1, 1}, {OC(0), OC(1)}, {SE(0), SE(0)}, {120, 60}, 0, WF_LP, 90, {0, 74, 0, 60}, {60, 60}, {0, 0},
+     {S(ENV2, POSA, -80), S(VEL, POSA, 30), S0, S0}, 0, 87},   /* GLASS KEYS */
+    {{0, 3}, {WARP_BEND, WARP_BEND}, {1, 1}, {OC(0), OC(2)}, {SE(0), SE(0)}, {120, 30}, 0, WF_LP, 64, {0, 66, 0, 50}, {60, 60}, {0, 0},
+     {S(ENV2, WARPA, 70), S(ENV2, LVLB, 60), S(VEL, WARPA, 30), S0}, 0, 86},   /* WAVE TINE */
+    {{2, 0}, {WARP_BEND, WARP_BEND}, {2, 1}, {OC(0), OC(0)}, {SE(0), SE(0)}, {120, 0}, 0, WF_LP, 80, {0, 70, 40, 40}, {60, 60}, {0, 0},
+     {S(VEL, POSA, 60), S(ENV2, CUT, 30), S0, S0}, 0, 78},   /* VOWEL KEYS */
+    {{1, 0}, {WARP_BEND, WARP_BEND}, {1, 1}, {OC(0), OC(0)}, {SE(0), SE(0)}, {127, 0}, 0, WF_LP, 110, {0, 56, 0, 30}, {60, 60}, {0, 0},
+     {S(ENV2, CUT, 50), S(VEL, CUT, 20), S0, S0}, 0, 111},   /* CLAV WAVE */
+    /* pad */
     {{0, 2}, {WARP_BEND, WARP_BEND}, {4, 4}, {OC(0), OC(0)}, {SE(0), SE(0)}, {100, 80}, 0, WF_LP, 40, {80, 90, 100, 90}, {25, 18}, {0, 0},
-     {S(LFO1, POSB, 40), S(LFO2, POSA, 25), S0, S0}, 110, 63},
+     {S(LFO1, POSB, 40), S(LFO2, POSA, 25), S0, S0}, 110, 63},   /* WAVE PAD */
     {{1, 1}, {WARP_BEND, WARP_BEND}, {4, 4}, {OC(0), OC(0)}, {SE(0), SE(0)}, {110, 70}, 0, WF_LP, 40, {50, 80, 110, 80}, {28, 22}, {0, 0},
-     {S(LFO1, POSA, 50), S(LFO2, POSB, 50), S0, S0}, 110, 61},
+     {S(LFO1, POSA, 50), S(LFO2, POSB, 50), S0, S0}, 110, 61},   /* PWM STRINGS */
+    {{0, 0}, {WARP_BEND, WARP_BEND}, {4, 4}, {OC(0), OC(0)}, {SE(0), SE(0)}, {120, 90}, 0, WF_LP, 64, {0, 70, 40, 40}, {22, 16}, {0, 0},
+     {S(LFO1, POSA, 60), S(LFO2, POSB, 50), S0, S0}, 110, 56},   /* MORPH PAD */
+    {{2, 2}, {WARP_BEND, WARP_BEND}, {4, 3}, {OC(0), OC(0)}, {SE(0), SE(0)}, {120, 80}, 0, WF_LP, 64, {0, 70, 40, 40}, {18, 24}, {0, 0},
+     {S(LFO1, POSA, 70), S(LFO2, POSB, 60), S0, S0}, 100, 70},   /* CHOIR TABLE */
+    {{3, 0}, {WARP_BEND, WARP_BEND}, {3, 2}, {OC(0), OC(1)}, {SE(0), SE(0)}, {120, 70}, 0, WF_LP, 64, {100, 90, 127, 90}, {60, 60}, {0, 0},
+     {S(ENV2, POSA, 90), S(LFO1, POSB, 30), S0, S0}, 110, 64},   /* GLASS PAD */
+    {{1, 1}, {WARP_BEND, WARP_BEND}, {4, 4}, {OC(0), OC(0)}, {SE(0), SE(0)}, {120, 100}, 0, WF_LP, 64, {0, 70, 40, 40}, {28, 22}, {0, 0},
+     {S(LFO1, POSA, 60), S(LFO2, POSB, 60), S0, S0}, 110, 58},   /* PWM PAD */
+    {{0, 0}, {WARP_BEND, WARP_BEND}, {3, 1}, {OC(0), OC(-1)}, {SE(0), SE(0)}, {120, 70}, 0, WF_LADDER, 64, {0, 70, 40, 40}, {20, 30}, {3, 0},
+     {S(LFO1, CUT, 30), S(LFO2, POSA, 30), S0, S0}, 90, 73},   /* DARK DRONE */
+    /* pluck */
     {{3, 1}, {WARP_BEND, WARP_BEND}, {2, 1}, {OC(0), OC(0)}, {SE(0), SE(0)}, {120, 40}, 0, WF_LP, 80, {0, 62, 0, 45}, {60, 60}, {0, 0},
-     {S(ENV2, CUT, 60), S(ENV2, POSA, 40), S0, S0}, 60, 94},
+     {S(ENV2, CUT, 60), S(ENV2, POSA, 40), S0, S0}, 60, 94},   /* WAVE PLUCK */
+    {{1, 0}, {WARP_BEND, WARP_BEND}, {2, 1}, {OC(0), OC(0)}, {SE(0), SE(0)}, {120, 0}, 0, WF_LP, 80, {0, 56, 0, 40}, {60, 60}, {0, 0},
+     {S(ENV2, POSA, 90), S(ENV2, CUT, 50), S0, S0}, 0, 108},   /* PULSE PLUCK */
+    {{0, 3}, {WARP_BEND, WARP_BEND}, {1, 1}, {OC(0), OC(2)}, {SE(0), SE(7)}, {120, 50}, 0, WF_LP, 64, {0, 54, 0, 40}, {60, 60}, {0, 0},
+     {S(ENV2, WARPA, 60), S(ENV2, LVLB, 50), S0, S0}, 0, 92},   /* WAVE MALLET */
+    {{2, 0}, {WARP_BEND, WARP_BEND}, {1, 1}, {OC(0), OC(0)}, {SE(0), SE(0)}, {127, 0}, 0, WF_LP, 100, {0, 62, 0, 40}, {60, 60}, {0, 0},
+     {S(ENV2, POSA, 80), S(ENV2, CUT, 30), S0, S0}, 0, 127},   /* VOWEL PLUCK */
+    /* texture */
     {{2, 3}, {WARP_BEND, WARP_MIRROR}, {3, 1}, {OC(0), OC(0)}, {SE(0), SE(0)}, {110, 70}, 10, WF_BP, 40, {40, 90, 110, 90}, {40, 15}, {3, 0},
-     {S(LFO1, POSA, 60), S(LFO2, WARPB, 40), S0, S0}, 100, 70},
-    /* (wave-bank) USER TABLE A: bank table 0 on both oscillators (B an octave up, quieter); B: bank tables 0 and 1 */
+     {S(LFO1, POSA, 60), S(LFO2, WARPB, 40), S0, S0}, 100, 70},   /* VOX MORPH */
+    {{3, 2}, {WARP_BEND, WARP_BEND}, {6, 4}, {OC(0), OC(0)}, {SE(0), SE(0)}, {120, 80}, 10, WF_LP, 64, {0, 70, 40, 40}, {70, 40}, {3, 3},
+     {S(LFO1, POSA, 90), S(LFO2, POSB, 70), S0, S0}, 127, 59},   /* S&H SWARM */
+    {{0, 0}, {WARP_BEND, WARP_BEND}, {1, 1}, {OC(0), OC(0)}, {SE(0), SE(0)}, {30, 0}, 120, WF_BP, 64, {0, 70, 40, 40}, {20, 30}, {0, 0},
+     {S(LFO1, CUT, 50), S(LFO2, RES, 20), S0, S0}, 60, 97},   /* WIND TABLE */
+    {{3, 3}, {WARP_MIRROR, WARP_SYNC}, {3, 3}, {OC(0), OC(0)}, {SE(0), SE(7)}, {120, 80}, 0, WF_LP, 64, {0, 70, 40, 40}, {30, 20}, {0, 0},
+     {S(LFO1, WARPA, 60), S(LFO2, POSB, 60), S0, S0}, 110, 59},   /* METAL SCAN */
+    {{2, 2}, {WARP_BEND, WARP_BEND}, {3, 3}, {OC(0), OC(0)}, {SE(0), SE(0)}, {120, 70}, 0, WF_BP, 64, {0, 70, 40, 40}, {16, 26}, {1, 0},
+     {S(LFO1, POSA, 120), S(LFO2, POSB, -60), S0, S0}, 100, 127},   /* FORMANT SWEEP */
+    /* USER TABLE A: bank table 0 on both oscillators (B an octave up, quieter); B: bank tables 0 and 1 */
     {{WV_NTAB + 0, WV_NTAB + 0}, {WARP_BEND, WARP_BEND}, {2, 1}, {OC(0), OC(1)}, {SE(0), SE(0)}, {120, 40}, 0, WF_LP, 60, {0, 70, 100, 40}, {60, 60}, {0, 0},
-     {S(VEL, CUT, 20), S0, S0, S0}, 60, 64},
+     {S(VEL, CUT, 20), S0, S0, S0}, 60, 64},   /* USER TABLE A */
     {{WV_NTAB + 0, WV_NTAB + 1}, {WARP_BEND, WARP_BEND}, {2, 2}, {OC(0), OC(0)}, {SE(0), SE(0)}, {110, 90}, 0, WF_LP, 40, {0, 70, 100, 50}, {30, 20}, {0, 0},
-     {S(LFO1, POSA, 30), S(LFO2, POSB, 30), S0, S0}, 90, 64},
+     {S(LFO1, POSA, 30), S(LFO2, POSB, 30), S0, S0}, 90, 64},   /* USER TABLE B */
+    /* maybe */
+    {{0, 0}, {WARP_BEND, WARP_BEND}, {1, 1}, {OC(0), OC(0)}, {SE(0), SE(0)}, {120, 0}, 0, WF_LADDER, 40, {0, 58, 0, 30}, {60, 60}, {0, 0},
+     {S(ENV2, CUT, 70), S(VEL, CUT, 30), S0, S0}, 0, 127},   /* ACID WAVE */
+    {{0, 3}, {WARP_BEND, WARP_BEND}, {3, 1}, {OC(0), OC(0)}, {SE(0), SE(0)}, {120, 60}, 0, WF_LP, 64, {0, 70, 40, 40}, {30, 66}, {0, 0},
+     {S(LFO1, POSA, 60), S(LFO2, PITCH, 2), S0, S0}, 0, 68},   /* MORPH LEAD */
+    {{1, 1}, {WARP_BEND, WARP_BEND}, {1, 1}, {OC(0), OC(1)}, {SE(0), SE(0)}, {120, 80}, 0, WF_LP, 64, {0, 70, 40, 40}, {60, 66}, {0, 0},
+     {S(LFO1, POSA, 25), S(LFO2, PITCH, 2), S0, S0}, 0, 58},   /* SQUARE LEAD */
+    {{3, 0}, {WARP_BEND, WARP_BEND}, {1, 1}, {OC(0), OC(0)}, {SE(0), SE(0)}, {120, 0}, 0, WF_LP, 100, {0, 66, 0, 40}, {60, 60}, {0, 0},
+     {S(ENV2, CUT, 70), S(ENV2, POSA, 30), S0, S0}, 0, 127},   /* HARP TABLE */
 };
 #undef S
 #undef S0

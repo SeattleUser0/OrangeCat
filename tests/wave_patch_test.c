@@ -150,13 +150,13 @@ int main(void)
     /* the pages: after PAGES, SHAPES' and the Prophet's indices; on a WAVE track only */
     for (i = NPAGES + 2u * FW_PAGES_MAX; i < NPAGES + 3u * FW_PAGES_MAX; i++)
         if (modpage_engine(i, 0) == ENGI_WAVE) rows++;
-    host_preset(&trk[0], ENGI_WAVE, 1);
+    host_preset(&trk[0], ENGI_WAVE, 5);
     blocks(4);
     song.sel = 0;
     for (i = NPAGES + 2u * FW_PAGES_MAX; i < NPAGES + 2u * FW_PAGES_MAX + rows; i++) shown += page_visible(i);
     check("WAVE's eleven rows have indices of their own (MODPAGE_ENG: SHAPES, PROPHET, WAVE), page_n reaches them, all shown on a WAVE track",
           rows == 11u && page_n() == NPAGES + 2u * FW_PAGES_MAX + rows && shown == rows && !strcmp(page_at(NPAGES + 2u * FW_PAGES_MAX)->title, "WAVE OSC A"));
-    check("a factory preset (WAVE LEAD): the new state's patch is the preset's", block_is(wave_host_row(1)));
+    check("a factory preset (WAVE LEAD): the new state's patch is the preset's", block_is(wave_host_row(5)));
     {   /* a page's value is the byte; OCT shown from the middle (F_OFS) */
         int16_t *vp = 0;
         const page_t *tune = page_at(NPAGES + 2u * FW_PAGES_MAX + 2u);
@@ -179,8 +179,8 @@ int main(void)
     /* a user preset keeps it */
     check("saved as user preset 6: the record holds the extension, the block as it plays (49 bytes, mark M, version 1)",
           up_store_to(5, 0, "MY WAVE") == 0 && rec_body(5, saved) == WNB && !memcmp(saved, edited, WNB));
-    apply_preset_to(&trk[0], 3);
-    check("a factory preset (WAVE KEYS) loaded on the held state: its patch (the loaded hook)", block_is(wave_host_row(3)));
+    apply_preset_to(&trk[0], 9);
+    check("a factory preset (WAVE KEYS) loaded on the held state: its patch (the loaded hook)", block_is(wave_host_row(9)));
     up_load_to(5, 0);
     blocks(1);
     check("the user preset loaded again: its patch, byte for byte", block_is(edited + 8) && trk[0].user == 6u && trk[0].preset == 0u);
@@ -190,11 +190,11 @@ int main(void)
     check("released: no block (the state given back)", ui_block() == 0);
     blocks(1);
     check("taken again: the user preset's patch (the unsaved ENV 2 attack gone)", block_is(edited + 8));
-    apply_preset_to(&trk[0], 4);
+    apply_preset_to(&trk[0], 14);
     blocks(1);
     eng_state_clear(0);
     blocks(1);
-    check("a factory preset's track released and taken again: that preset's patch", block_is(wave_host_row(4)));
+    check("a factory preset's track released and taken again: that preset's patch", block_is(wave_host_row(14)));
     /* from another engine: the user preset after the engine change */
     host_preset(&trk[0], ENGI_CZ, 0);
     blocks(2);
@@ -223,7 +223,7 @@ int main(void)
     check("a byte out of its range (TAB A 200): clamped to the entry's (USER 16, 19)", (b = ui_block()) && b[8] == 19u && !memcmp(b + 9, edited + 9, WNB - 9u));
     /* a project: a track on the user preset, another on a factory preset */
     up_load_to(5, 0); blocks(1);
-    host_preset(&trk[2], ENGI_WAVE, 6);
+    host_preset(&trk[2], ENGI_WAVE, 21);
     blocks(2);
     check("project saved (track 1 on user preset 6, track 3 on WAVE PLUCK)", project_save(0) == 0);
     apply_preset_to(&trk[0], 2);
@@ -234,7 +234,7 @@ int main(void)
     for (k = 0; k < 8u; k++) blocks(1);
     fw_host_ui = 1;
     check("project loaded: track 1 plays the user preset's patch, track 3 WAVE PLUCK's", block_is(edited + 8) && trk[0].user == 6u &&
-          pg->native(&trk[2]) && !memcmp(pg->native(&trk[2]) + 8, wave_host_row(6), WNB - 8u));
+          pg->native(&trk[2]) && !memcmp(pg->native(&trk[2]) + 8, wave_host_row(21), WNB - 8u));
     printf(bad ? "wave patch: FAILED\n" : "wave patch: all passed\n");
     return bad != 0;
 }

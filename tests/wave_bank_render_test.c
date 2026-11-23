@@ -21,7 +21,7 @@ static void check(const char *what, int ok)
     printf("wave bank render: %-110s %s\n", what, ok ? "ok" : "FAIL");
     bad += !ok;
 }
-static uint64_t renders[3][16];
+static uint64_t renders[3][64];
 static void render_all(uint32_t set, uint32_t np, uint32_t *crashed)
 {
     nj = 0;
@@ -40,7 +40,7 @@ int main(int argc, char **argv)
     FILE *f;
     fw_mod_hdr_t h;
     const engine_t *em;
-    uint32_t np, crashed = 0, i, same = 1;
+    uint32_t np, crashed = 0, i, same = 1, ua = 0, ub = 0;
     snprintf(p, sizeof p, "%s/wave_bank.nor", dir);
     if (!(f = fopen(p, "rb")) || fread(nor, 1, sizeof nor, f) != sizeof nor) { printf("wave bank render: no %s (run tests/wave_bank_slot_test.c first)\n", p); return 1; }
     fclose(f);
@@ -49,7 +49,11 @@ int main(int argc, char **argv)
     h = OC_MODULE_HDR;
     check("WAVE registers", eng_register(&h, em) == EM_OK);
     np = em->npresets;
-    check("its presets include USER TABLE A and B (8, 9)", np >= 10u && !strcmp(eng_preset(em, 8)->name, "USER TABLE A") && !strcmp(eng_preset(em, 9)->name, "USER TABLE B"));
+    for (i = 0; i < np; i++) {                              /* (November 23) found by name: the bank's order is the owner's (bass .. texture, then these) */
+        if (!strcmp(eng_preset(em, i)->name, "USER TABLE A")) ua = i;
+        if (!strcmp(eng_preset(em, i)->name, "USER TABLE B")) ub = i;
+    }
+    check("its presets include USER TABLE A and B, and fit the test's table", np <= 64u && ua && ub);
     memset(wvb_host_flash, 0xFF, sizeof wvb_host_flash);     /* an erased slot: no bank */
     render_all(0, np, &crashed);
     memcpy(wvb_host_flash, nor, sizeof wvb_host_flash);       /* the bank */
@@ -57,10 +61,10 @@ int main(int argc, char **argv)
     wvb_host_flash[wvb_flash(WVB_HDR_OFF)] ^= 1u;             /* a broken magic */
     render_all(2, np, &crashed);
     check("every render healthy (sound, no sample past 16 bits)", crashed == 0);
-    check("with the bank, USER TABLE A and B play its tables: other sounds than without", renders[1][8] != renders[0][8] && renders[1][9] != renders[0][9]);
-    check("a broken bank plays the built-in table, as no bank does", renders[2][8] == renders[0][8] && renders[2][9] == renders[0][9]);
-    for (i = 0; i < 8u; i++) same &= renders[1][i] == renders[0][i];
-    check("the factory presets (0..7, built-in tables) are the same with a bank there", same);
+    check("with the bank, USER TABLE A and B play its tables: other sounds than without", renders[1][ua] != renders[0][ua] && renders[1][ub] != renders[0][ub]);
+    check("a broken bank plays the built-in table, as no bank does", renders[2][ua] == renders[0][ua] && renders[2][ub] == renders[0][ub]);
+    for (i = 0; i < np; i++) if (i != ua && i != ub) same &= renders[1][i] == renders[0][i];
+    check("the other factory presets (built-in tables) are the same with a bank there", same);
     printf(bad ? "wave bank render: FAILED\n" : "wave bank render: all passed\n");
     return bad != 0;
 }
