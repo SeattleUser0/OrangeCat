@@ -201,7 +201,7 @@ static inline __attribute__((always_inline)) void op1g_render(track_t *t, voice_
                                              * exact, so the renders at 64 are the plugin's own; +17.9 dB at 127, -18 dB at 32, 0 at 0); above unity the gained sample passes
                                              * dsp.c's soft knee at half scale, so a plugin's onset peak rounds off instead of leaving 16 bits. Read once a call (per 32
                                              * frames). b[k] x g stays under 2^31 (32767 x 32005) */
-    int32_t lv = clamp(t->p[P_E7], 0, 127), g = lv * lv * lv / 64;
+    int32_t lv = clamp(t->p[P_E0 + OP1G_LEVEL_SLOT], 0, 127), g = lv * lv * lv / 64;   /* (November 23) the slot the module names: 7, AETHER 3 */
 #endif
     while (i < n) {
         uint32_t left = P->left[vi], take;

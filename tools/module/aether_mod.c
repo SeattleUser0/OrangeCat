@@ -18,7 +18,7 @@
  *     forward. aether takes the angle at note-on as home, so TILT bends a note when it moves after the note started: by hand on EDIT 2, or by the
  *     modulation matrix (an LFO or the mod wheel on E8, once a block), and its speed is what aether's shake detector hears (the vibrato).
  * Otherwise through tools/module/op1r/op1_glue.h as the other op1r modules:
- *   - EDIT 1 (TILT: RNG TIMB VIB VOL) are op1r's four knobs (params[0..3], x 258): the pitch range at full tilt (1..24 semitones), the timbre, the
+ *   - EDIT 1 (TILT: RNG TIMB VIB LEVL; LEVL in place of op1r's VOL, November 23) are op1r's four knobs (params[0..3], x 258): the pitch range at full tilt (1..24 semitones), the timbre, the
  *     shake vibrato's depth, the volume tilt; EDIT 2 (HOME: DEAD FULL RATE TILT) its second page's words (params[5..7]: the dead zone around home,
  *     the tilt of the full range, the vibrato's rate; 0 = op1r's unset: 2.5 degrees, 30 degrees, 4.25 Hz) and the stand-in's TILT;
  *   - its per-voice state (op1r: a file-scope ae_t st[6], past the voice's 32 bytes) and the screen's last voice are the part's: aether_part_t;
@@ -60,6 +60,8 @@ typedef struct {
     uint32_t st[102];                      /* aether.c's ae_t st[OP1_VOICES] (op1r: file scope; its size checked below) */
 } aether_part_t;
 #define OP1G_PART_STATE aether_part_t
+#define OP1G_LEVEL_SLOT 3                  /* (November 23) P_E3 is its LEVL (op1_glue.h; 64 the plugin's own level): op1r's VOL, the volume tilt, does nothing
+                                           * here (the stand-in's X is 0: flat), so the slot is the level; the plugin still reads it as VOL, to no effect */
 #define OP1G_PARAMS_HOOK(P, t) ((P)->own.accel[0] = 0, (P)->own.accel[1] = (int16_t)(-clamp((t)->p[P_E7], -64, 63) * 256), (P)->own.accel[2] = 16384)
 #include "op1r/op1_glue.h"
 #define st ((ae_t *)OP1G_OWN(self)->st)
@@ -72,12 +74,12 @@ OP1G_ENGINE_FUNCS(ENGINE_aether)
 
 static const preset_t AETHER_PRESETS[] = {
     /* lead */
-    {"THEREMIN", {64, 40, 80, 0, 0, 0, 40, 0}, {10, 80, 120, 60}, 0, 1},   /* 12 semitones at full tilt, a little reed, shake vibrato */
+    {"THEREMIN", {64, 40, 80, 64, 0, 0, 40, 0}, {10, 80, 120, 60}, 0, 1},   /* 12 semitones at full tilt, a little reed, shake vibrato */
     /* pad */
-    {"REEDY", {32, 110, 40, 0, 20, 0, 0, 0}, {4, 70, 100, 40}, 0, 0},   /* the timbre up: even harmonics and drive */
+    {"REEDY", {32, 110, 40, 64, 20, 0, 0, 0}, {4, 70, 100, 40}, 0, 0},   /* the timbre up: even harmonics and drive */
     /* (November 23) the owner's maybes, after the rest */
-    {"AETHER", {61, 44, 64, 127, 0, 0, 0, 0}, {6, 80, 110, 50}, 0, 1},   /* the plugin's defaults; MONO (November 23: a maybe; its round 3 rework in docs/candidates/engines_b.md 13) */
-    {"SIREN", {127, 64, 0, 0, 0, 30, 0, 0}, {2, 80, 127, 30}, 0, 1},   /* 24 semitones at a 25 degree tilt: put an LFO on E8 (TILT) (November 23: a maybe; its round 3 rework in docs/candidates/engines_b.md 13) */
+    {"AETHER", {61, 44, 64, 64, 0, 0, 0, 0}, {6, 80, 110, 50}, 0, 1},   /* the plugin's defaults; MONO (November 23: a maybe; its round 3 rework in docs/candidates/engines_b.md 13) */
+    {"SIREN", {127, 64, 0, 64, 0, 30, 0, 0}, {2, 80, 127, 30}, 0, 1},   /* 24 semitones at a 25 degree tilt: put an LFO on E8 (TILT) (November 23: a maybe; its round 3 rework in docs/candidates/engines_b.md 13) */
 };
 static const engine_t ENG_AETHER = {
     .name = "AETHER", .page_title = {"TILT", "HOME"},
@@ -85,7 +87,7 @@ static const engine_t ENG_AETHER = {
         {"RNG", F_INT, 0, 127, 61, 0, 0},       /* op1r's knob 0: the pitch range at full tilt, 1 .. 24 semitones */
         {"TIMB", F_PCT, 0, 127, 44, 0, 0},
         {"VIB", F_PCT, 0, 127, 64, 0, 0},
-        {"VOL", F_PCT, 0, 127, 127, 0, 0},        /* the volume tilt: no X axis here (the stand-in lies flat) */
+        {"LEVL", F_INT, 0, 127, 64, 0, 0},     /* (November 23) the module's level, (v / 64)^3, 64 the plugin's own: op1r's VOL (the volume tilt) had no X axis here */
         {"DEAD", F_INT, 0, 127, 0, 0, 0},       /* op1r's page word 5: 0 unset (2.5 degrees) */
         {"FULL", F_INT, 0, 127, 0, 0, 0},
         {"RATE", F_INT, 0, 127, 0, 0, 0},
