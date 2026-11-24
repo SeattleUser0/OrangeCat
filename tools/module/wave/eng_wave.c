@@ -238,8 +238,8 @@ static inline __attribute__((always_inline)) void wave_body(const void *data, in
                 } else
                     s += wv_lerp(fr[idx], fr[(idx + 1u) & mask], f);
             }
-            acc += (s * og[o]) >> 15;
-            if (stereo) accr += (sr * og[o]) >> 15;
+            acc += (int32_t)(((int64_t)s * og[o]) >> 15);   /* 64 bit: eight coherent copies near full scale pass 2^31 (S&H SWARM did) */
+            if (stereo) accr += (int32_t)(((int64_t)sr * og[o]) >> 15);
         }
         {   /* the sub (a sine an octave under A's first copy: parabolic) and noise (the voice's own generator) */
             int32_t x = (int32_t)((V->ph[0][0] >> 1) >> 16) - 32768, sine = (x * (32767 - (x < 0 ? -x : x))) >> 13;
