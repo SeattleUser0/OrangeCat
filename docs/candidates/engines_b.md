@@ -313,3 +313,6 @@ engines are candidates (OC_CANDIDATES builds only), not in a shipping build. WAV
 category lists file every WAVE, X0X303, SUPERSAW, BRASS and MIXTUR factory preset under OTHER. The PRESETS knob walks each bank in the order above; LIST
 by category does not find them. A fix needs the module to give its categories (a descriptor field, so an interface change) or the firmware to guess
 them by name as it does for user presets (cat_guess); not done here.
+
+**Full SAN=1 suite through tools/suite_lock.sh, CI's test-step environment, at c0cd4775 (November 23): ALL HOST TESTS PASSED in 16,906 s** (296 jobs).
+wave-engine, which merges this branch, needed one WAVE fix first (an overflow on S&H SWARM; wave_engine.md 5) and passed at 328294e5.
