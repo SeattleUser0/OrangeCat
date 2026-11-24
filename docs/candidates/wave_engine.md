@@ -123,7 +123,7 @@ the device's 1400ceef).
 | user tables | USER TABLE A, USER TABLE B (30, 31) |
 | maybes (round 3) | ACID WAVE, MORPH LEAD, SQUARE LEAD, HARP TABLE (32..35) |
 
-Cut: MIRROR LEAD. **It fits:** the module is 28,620 B of its 7 sectors' 28,672 (52 B left; 26,756 B before). That leaves no room for one more preset (about 72
+Cut: MIRROR LEAD. **It fits:** the module is 28,620 B of its 7 sectors' 28,672 (52 B left; 26,756 B before), and 28,672 B (none left) after the overflow fix below. That leaves no room for one more preset (about 72
 B each). The reworked maybes replace rows of the same size.
 
 **What the presets hold:** the rows come from the audition's patches (`~/oc-tmp/aud/wave_design.json`, with the levels he heard). The audition set the track's
@@ -138,3 +138,11 @@ tests/wave_patch_test.c's preset indices follow the new order.
 - MORPH LEAD: the darkest lead and slow to speak. A BRIGHT oscillator beside it, a faster morph, ENV 2 on B's position: 723 Hz (from 561), speaks in 60 ms.
 - SQUARE LEAD: plain beside the others. Two detuned copies, a deeper and faster pulse-width movement, a little sub.
 - HARP TABLE: -20 dB at full level because it was gone in 85 ms. A longer ring and a slower filter: -16.6 dB, as bright.
+
+**Full SAN=1 suite (November 23, after the afternoon soak).** At a06ec306 it FAILED on three WAVE jobs (mono, stereo, the bank render), one cause:
+eng_wave.c's unison sum times the oscillator gain (`s * og[o]`) overflowed 32 bits for S&H SWARM (wide unison, copies near full scale), a wrap on the unit.
+Fixed at 328294e5: the product in 64 bits on both lanes (inline on pi32v2, no helper call). Every other render is unchanged; S&H SWARM's golden lines
+(tests/golden_modules.txt, tests/golden_wave_stereo.txt) moved, and its audition renders are bit for bit as before (the phrase never reached the
+overflow). WAVE is now 28,672 B of 28,672: a further code change needs room found first, or an eighth sector. **Full SAN=1 suite through
+tools/suite_lock.sh, CI's test-step environment, at 328294e5: ALL HOST TESTS PASSED in 12,008 s** (296 jobs). engines-b-presets at c0cd4775 passed
+in 16,906 s (engines_b.md 13).
